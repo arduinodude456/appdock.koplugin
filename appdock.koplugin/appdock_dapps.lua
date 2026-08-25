@@ -1317,10 +1317,10 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("About AppDock"),
-                subtitle = _("Version 2.3.0 and help"),
+                subtitle = _( "Version 2.5.0 and help"),
                 show_state = false,
                 callback = function()
-                    self:showSettingsNotice(_("AppDock 2.3.0\n\nStable release: AppDock rabbit start sequence, bilingual searchable offline Help, local notifications, launcher layout controls, optional app search, storage overview, custom themes and AppStore."))
+                    self:showSettingsNotice(_("AppDock 2.5.0\n\nStable release: AppDock rabbit start sequence, bilingual searchable offline Help, local notifications, app and widget ordering with E-Ink move controls, launcher layout controls, optional app search, storage overview, custom themes and AppStore."))
                 end,
             },
             {
