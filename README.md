@@ -1,6 +1,8 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **2.0.0** richtet sich gestalterisch an Android 16 und **Material 3 Expressive** aus: ein kohärentes, ruhiges Farbsystem, große gerundete Formen, betonte Informationshierarchie und schnell erfassbare Widgets. [1] [2]
+> **Sprache:** Deutsch · [English](README_EN.md)
+
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **2.0.1** richtet sich gestalterisch an Android 16 und **Material 3 Expressive** aus: ein kohärentes, ruhiges Farbsystem, große gerundete Formen, betonte Informationshierarchie und schnell erfassbare Widgets. [1] [2]
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst die Formensprache und Informationsstruktur, nicht die Android-Animationen, Unschärfen oder Transparenzeffekte. Damit bleiben Aktualisierungen sparsam und die Darstellung auf monochromen Readern kontrastreich.
 
