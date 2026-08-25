@@ -40,7 +40,8 @@ local DEFAULT_SETTINGS = {
     theme = { selected = "lavender", custom = {} },
     store = { installed = {} },
     layout = { app_spacing = 16, logo_shape = "rounded", search_enabled = false },
-    layout_version = 11,
+    launch_on_start = false,
+    layout_version = 12,
 }
 
 local function copyArray(source)
@@ -55,6 +56,9 @@ function AppDock:init()
     self:_loadSettings()
     self.ui.menu:registerToMainMenu(self)
     self:_scheduleScreenRefresh()
+    if self.settings.launch_on_start then
+        UIManager:nextTick(function() self:showHome() end)
+    end
 end
 
 function AppDock:_loadSettings()
@@ -71,10 +75,12 @@ function AppDock:_loadSettings()
         theme = stored.theme or { selected = "lavender", custom = {} },
         store = stored.store or { installed = {} },
         layout = stored.layout or {},
+        launch_on_start = stored.launch_on_start == true,
         layout_version = stored.layout_version or 1,
     }
 
     self.settings.layout = self.settings.layout or {}
+    if self.settings.launch_on_start == nil then self.settings.launch_on_start = false end
     self.settings.layout.app_spacing = tonumber(self.settings.layout.app_spacing) or DEFAULT_SETTINGS.layout.app_spacing
     self.settings.layout.app_spacing = math.max(8, math.min(34, self.settings.layout.app_spacing))
     self.settings.layout.logo_shape = self.settings.layout.logo_shape == "circle" and "circle" or "rounded"
@@ -112,6 +118,11 @@ end
 
 function AppDock:_saveSettings()
     G_reader_settings:saveSetting(self.settings_key, self.settings)
+end
+
+function AppDock:setLaunchOnStart(enabled)
+    self.settings.launch_on_start = not not enabled
+    self:_saveSettings()
 end
 
 function AppDock:setLauncherLayout(changes)
@@ -485,6 +496,10 @@ function AppDock:launchApp(app, home)
 
     if app.id == "system:library" then
         app.callback()
+        UIManager:nextTick(function()
+            UIManager:setDirty("all", "ui")
+            if UIManager.forceRePaint then UIManager:forceRePaint() end
+        end)
         return
     end
 

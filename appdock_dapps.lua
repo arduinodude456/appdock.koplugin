@@ -1038,6 +1038,25 @@ function DAppManager:showThemeEditor(instance, context)
     UIManager:show(dialog)
 end
 
+function DAppManager:showLanguageSelector(context)
+    local Language = require("ui/language")
+    local dialog
+    local current = G_reader_settings:readSetting("language") or "C"
+    local function choose(locale)
+        UIManager:close(dialog)
+        if current ~= locale then Language:changeLanguage(locale) end
+    end
+    dialog = ButtonDialog:new{
+        title = _("UI language"),
+        buttons = {
+            { { text = (current == "de" and "✓ " or "") .. _("German"), callback = function() choose("de") end },
+              { text = (current == "C" and "✓ " or "") .. _("English"), callback = function() choose("C") end } },
+            { { text = _("Cancel"), callback = function() UIManager:close(dialog) end } },
+        },
+    }
+    UIManager:show(dialog)
+end
+
 function DAppManager:showLauncherLayout(instance, context)
     local layout = self.appdock.settings.layout
     local dialog
@@ -1270,10 +1289,25 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("About AppDock"),
-                subtitle = _("Version 2.0.0-beta.1 and help"),
+                subtitle = _("Version 2.0.0-beta.2 and help"),
                 show_state = false,
                 callback = function()
-                    self:showSettingsNotice(_("AppDock 2.0.0-beta.1\n\nPre-release: launcher layout controls, optional app search, storage overview, custom themes and AppStore. Please test on real hardware before relying on it."))
+                    self:showSettingsNotice(_("AppDock 2.0.0-beta.2\n\nPre-release: launcher layout controls, optional app search, storage overview, custom themes and AppStore. Please test on real hardware before relying on it."))
+                end,
+            },
+            {
+                title = _("UI language"),
+                subtitle = (G_reader_settings:readSetting("language") == "de") and _("German · restart required") or _("English · restart required"),
+                show_state = false,
+                callback = function() self:showLanguageSelector(context) end,
+            },
+            {
+                title = _("Open AppDock on startup"),
+                subtitle = self.appdock.settings.launch_on_start and _("Enabled") or _("Disabled"),
+                enabled = self.appdock.settings.launch_on_start,
+                callback = function()
+                    self.appdock:setLaunchOnStart(not self.appdock.settings.launch_on_start)
+                    context.requestRebuild("ui")
                 end,
             },
             {
