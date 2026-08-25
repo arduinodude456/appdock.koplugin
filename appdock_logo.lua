@@ -75,6 +75,26 @@ function DAppLogo:_paintHelp(bb, x, y, size)
     bb:paintRect(cx - math.floor(stroke / 2), y + math.floor(size * 0.78), stroke, stroke, self.ink)
 end
 
+function DAppLogo:_paintAppDock(bb, x, y, size)
+    local stroke = math.max(1, math.floor(size * 0.075))
+    local function point(px, py) return x + math.floor(size * px), y + math.floor(size * py) end
+    local function segment(x0, y0, x1, y1)
+        local sx, sy = point(x0, y0)
+        local ex, ey = point(x1, y1)
+        line(bb, sx, sy, ex, ey, stroke, self.ink)
+    end
+    -- Friendly bunny mark derived from the user’s original ear, crown and sleepy-eye sketch.
+    segment(0.35, 0.34, 0.20, 0.26); segment(0.20, 0.26, 0.12, 0.11); segment(0.12, 0.11, 0.19, 0.04)
+    segment(0.19, 0.04, 0.31, 0.09); segment(0.31, 0.09, 0.43, 0.30); segment(0.43, 0.30, 0.35, 0.34)
+    segment(0.65, 0.34, 0.71, 0.15); segment(0.71, 0.15, 0.80, 0.03); segment(0.80, 0.03, 0.89, 0.12)
+    segment(0.89, 0.12, 0.84, 0.27); segment(0.84, 0.27, 0.65, 0.34)
+    segment(0.35, 0.34, 0.46, 0.29); segment(0.46, 0.29, 0.57, 0.29); segment(0.57, 0.29, 0.65, 0.34)
+    segment(0.35, 0.34, 0.28, 0.50); segment(0.28, 0.50, 0.28, 0.83)
+    segment(0.65, 0.34, 0.72, 0.50); segment(0.72, 0.50, 0.72, 0.83)
+    segment(0.39, 0.55, 0.43, 0.58); segment(0.43, 0.58, 0.47, 0.54)
+    segment(0.54, 0.54, 0.58, 0.58); segment(0.58, 0.58, 0.62, 0.55)
+end
+
 function DAppLogo:_paintBrowser(bb, x, y, size)
     local cx, cy = x + math.floor(size / 2), y + math.floor(size / 2)
     local radius = math.floor(size * 0.40)
@@ -157,7 +177,7 @@ local EXTENDED_KINDS = {
 
 function DAppLogo.availableKinds()
     local kinds = {
-        "analog_clock", "app_store", "display", "file_manager", "help", "network", "other",
+        "analog_clock", "app_store", "appdock", "display", "file_manager", "help", "network", "other",
         "settings", "web_browser",
     }
     for index, kind in ipairs(EXTENDED_KINDS) do kinds[#kinds + 1] = kind end
@@ -351,6 +371,8 @@ function DAppLogo:paintTo(bb, x, y)
         self:_paintBrowser(bb, x, y, self.size)
     elseif self.kind == "help" then
         self:_paintHelp(bb, x, y, self.size)
+    elseif self.kind == "appdock" then
+        self:_paintAppDock(bb, x, y, self.size)
     else
         for _, kind in ipairs(EXTENDED_KINDS) do
             if self.kind == kind then
