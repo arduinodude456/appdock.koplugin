@@ -358,6 +358,8 @@ function DAppManager:new(appdock)
         active_id = nil,
         active_host = nil,
         definitions = {},
+        widget_definitions = {},
+        widget_instances = {},
         browser = WebBrowser:new(),
         file_browser = FileBrowser:new(),
         app_store = AppStore:new(),
@@ -434,9 +436,25 @@ function DAppManager:_loadStoredDApps()
     local installed = self.appdock.settings.store and self.appdock.settings.store.installed or {}
     for id, item in pairs(installed) do
         if item and item.file then
-            self:loadStoreDApp(item.file, item.source_path, true, id)
+            if item.kind == "widget" then
+                self:loadStoreWidget(item.file, item.source_path, true, id)
+            else
+                self:loadStoreDApp(item.file, item.source_path, true, id)
+            end
         end
     end
+end
+
+function DAppManager:inspectStoreWidget(file, expected_id)
+    local ok, definition = pcall(dofile, file)
+    if not ok then return nil, definition end
+    if type(definition) ~= "table" or type(definition.id) ~= "string" or type(definition.title) ~= "string" or type(definition.buildWidget) ~= "function" then
+        return nil, _("A store widget must return id, title, and buildWidget.")
+    end
+    if definition.id:match("[^%w_%-]") or (expected_id and definition.id ~= expected_id) then
+        return nil, _("The widget id is invalid.")
+    end
+    return definition
 end
 
 function DAppManager:inspectStoreDApp(file, expected_id)
@@ -478,6 +496,7 @@ function DAppManager:loadStoreDApp(file, source_path, restoring, expected_id, al
         self.appdock.settings.store = self.appdock.settings.store or { installed = {} }
         self.appdock.settings.store.installed = self.appdock.settings.store.installed or {}
         self.appdock.settings.store.installed[definition.id] = {
+            kind = "dapp",
             file = stored_file or file,
             source_path = source_path,
             version = registered.version,
@@ -485,6 +504,86 @@ function DAppManager:loadStoreDApp(file, source_path, restoring, expected_id, al
         self.appdock:_saveSettings()
     end
     return true, definition.id
+end
+
+function DAppManager:loadStoreWidget(file, source_path, restoring, expected_id, allow_replace, stored_file)
+    local definition, inspect_err = self:inspectStoreWidget(file, expected_id)
+    if not definition then return false, inspect_err end
+    local installed = self.appdock.settings.store and self.appdock.settings.store.installed or {}
+    local existing_record = installed[definition.id]
+    if self.widget_definitions[definition.id] and not restoring and not (allow_replace and existing_record) then
+        return false, _("A store widget with this id already exists.")
+    end
+    if self.definitions[definition.id] then
+        return false, _("A DApp already uses this widget id.")
+    end
+    local registered = {
+        id = definition.id,
+        title = definition.title,
+        subtitle = definition.subtitle or _("Installed from AppStore"),
+        symbol = definition.symbol or "W",
+        logo = definition.logo or "app_store",
+        version = type(definition.version) == "string" and definition.version or nil,
+        buildWidget = definition.buildWidget,
+    }
+    self.widget_definitions[definition.id] = registered
+    self.widget_instances[definition.id] = self.widget_instances[definition.id] or { id = definition.id, definition = registered }
+    self.widget_instances[definition.id].definition = registered
+    if not restoring then
+        self.appdock.settings.store = self.appdock.settings.store or { installed = {} }
+        self.appdock.settings.store.installed = self.appdock.settings.store.installed or {}
+        self.appdock.settings.store.installed[definition.id] = {
+            kind = "widget",
+            file = stored_file or file,
+            source_path = source_path,
+            version = registered.version,
+        }
+        self.appdock:_saveSettings()
+    end
+    return true, definition.id
+end
+
+function DAppManager:getStoreWidgetBySource(source_path)
+    local installed = self.appdock.settings.store and self.appdock.settings.store.installed or {}
+    for id, record in pairs(installed) do
+        if record and record.kind == "widget" and record.source_path == source_path and self.widget_definitions[id] then
+            return self.widget_definitions[id], record
+        end
+    end
+    return nil, nil
+end
+
+function DAppManager:getStoreWidgets()
+    local widgets = {}
+    for id, definition in pairs(self.widget_definitions) do
+        table.insert(widgets, {
+            id = "widget:" .. id,
+            widget_id = id,
+            title = definition.title,
+            subtitle = definition.subtitle,
+            symbol = definition.symbol,
+            logo = definition.logo,
+            definition = definition,
+            instance = self.widget_instances[id],
+            kind = "widget",
+        })
+    end
+    table.sort(widgets, function(left, right) return left.title:lower() < right.title:lower() end)
+    return widgets
+end
+
+function DAppManager:uninstallStoreWidget(id)
+    local installed = self.appdock.settings.store and self.appdock.settings.store.installed or {}
+    local record = installed[id]
+    if not record or record.kind ~= "widget" or not record.file then return false, _("This store widget is not installed.") end
+    local removed, remove_err = os.remove(record.file)
+    if not removed and lfs.attributes(record.file) then return false, remove_err or _("The widget file could not be removed.") end
+    self.widget_definitions[id] = nil
+    self.widget_instances[id] = nil
+    installed[id] = nil
+    self.appdock.settings.widgets.store[id] = nil
+    self.appdock:_saveSettings()
+    return true
 end
 
 function DAppManager:getStoreDAppBySource(source_path)

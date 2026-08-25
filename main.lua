@@ -34,11 +34,12 @@ local DEFAULT_SETTINGS = {
         clock = true,
         status = true,
         reading_hint = true,
+        store = {},
     },
     did_seed = false,
     theme = { selected = "lavender", custom = {} },
     store = { installed = {} },
-    layout_version = 9,
+    layout_version = 10,
 }
 
 local function copyArray(source)
@@ -63,6 +64,7 @@ function AppDock:_loadSettings()
             clock = DEFAULT_SETTINGS.widgets.clock,
             status = DEFAULT_SETTINGS.widgets.status,
             reading_hint = DEFAULT_SETTINGS.widgets.reading_hint,
+            store = {},
         },
         did_seed = stored.did_seed or false,
         theme = stored.theme or { selected = "lavender", custom = {} },
@@ -91,6 +93,7 @@ function AppDock:_loadSettings()
         self.settings.widgets.reading_hint = self.settings.widgets.hint ~= false
     end
     self.settings.widgets.hint = nil
+    self.settings.widgets.store = self.settings.widgets.store or {}
     self.settings.theme = self.settings.theme or { selected = "lavender", custom = {} }
     self.settings.theme.selected = self.settings.theme.selected or "lavender"
     self.settings.theme.custom = self.settings.theme.custom or {}
@@ -372,6 +375,29 @@ function AppDock:toggleWidget(widget_id)
     self.settings.widgets[widget_id] = not self.settings.widgets[widget_id]
     self:_saveSettings()
     return self.settings.widgets[widget_id]
+end
+
+function AppDock:getStoreWidgets()
+    local manager = self:getDAppManager()
+    local widgets = {}
+    for _, widget in ipairs(manager:getStoreWidgets()) do
+        if self.settings.widgets.store[widget.widget_id] == nil then
+            self.settings.widgets.store[widget.widget_id] = true
+        end
+        table.insert(widgets, widget)
+    end
+    self:_saveSettings()
+    return widgets
+end
+
+function AppDock:isStoreWidgetEnabled(widget_id)
+    return self.settings.widgets.store[widget_id] ~= false
+end
+
+function AppDock:toggleStoreWidget(widget_id)
+    self.settings.widgets.store[widget_id] = not self:isStoreWidgetEnabled(widget_id)
+    self:_saveSettings()
+    return self.settings.widgets.store[widget_id]
 end
 
 function AppDock:seedDefaults()

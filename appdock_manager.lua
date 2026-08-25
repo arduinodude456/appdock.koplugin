@@ -55,6 +55,26 @@ function AppDockManager:showDialog()
 
     table.insert(buttons, {
         {
+            text = _("Store widgets"),
+            enabled = false,
+        },
+    })
+
+    local widgets = appdock:getStoreWidgets()
+    for _, widget in ipairs(widgets) do
+        table.insert(buttons, {
+            {
+                text = string.format("%s: %s", stateLabel(appdock:isStoreWidgetEnabled(widget.widget_id)), widget.title),
+                callback = function()
+                    appdock:toggleStoreWidget(widget.widget_id)
+                    refresh()
+                end,
+            },
+        })
+    end
+
+    table.insert(buttons, {
+        {
             text = _("Apps"),
             enabled = false,
         },

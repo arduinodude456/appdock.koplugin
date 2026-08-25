@@ -36,6 +36,7 @@ local REPOSITORY = "https://raw.githubusercontent.com/arduinodude456/DApps/main/
 local MANIFEST_URL = REPOSITORY .. "dapps.txt"
 local MAX_MANIFEST_BYTES = 128 * 1024
 local MAX_DAPP_BYTES = 512 * 1024
+local MAX_WIDGET_BYTES = 256 * 1024
 local KNOWN_LOGOS = {}
 for _, kind in ipairs(DAppLogo.availableKinds()) do KNOWN_LOGOS[kind] = true end
 
@@ -184,11 +185,12 @@ function AppStore.parseManifest(body)
         local path = parts[1] or value
         local version = normalizedVersion(parts[2]) and parts[2] or nil
         local logo = type(parts[3]) == "string" and KNOWN_LOGOS[parts[3]] and parts[3] or nil
+        local kind = parts[4] == "widget" and "widget" or "dapp"
         if path ~= "" and path:match("^[%w%._/%-]+%.lua$") and not path:find("..", 1, true) and not known[path] then
             known[path] = true
             local name = path:match("([^/]+)%.lua$") or path
             name = name:gsub("[_%-]+", " "):gsub("%f[%a].", string.upper)
-            table.insert(entries, { path = path, title = name, version = version, logo = logo })
+            table.insert(entries, { path = path, title = name, version = version, logo = logo, kind = kind })
         end
     end
     table.sort(entries, function(left, right) return left.title:lower() < right.title:lower() end)
@@ -224,7 +226,12 @@ function AppStore:_storeDirectory()
 end
 
 function AppStore:_entryState(context, entry)
-    local definition, record = context.manager:getStoreDAppBySource(entry.path)
+    local definition, record
+    if entry.kind == "widget" then
+        definition, record = context.manager:getStoreWidgetBySource(entry.path)
+    else
+        definition, record = context.manager:getStoreDAppBySource(entry.path)
+    end
     if not record then return "install", nil, nil end
     local installed_version = record.version or (definition and definition.version)
     if entry.version and (not installed_version or AppStore.compareVersions(entry.version, installed_version) == 1) then
@@ -240,10 +247,12 @@ function AppStore:confirmInstall(instance, context, entry)
         return
     end
     local is_update = state == "update"
+    local is_widget = entry.kind == "widget"
+    local item_name = is_widget and _("widget") or _("DApp")
     local action = is_update and _("Update") or _("Install")
-    local message = is_update and _("Update this installed DApp from your trusted AppDock GitHub repository?\n\n") or _("Install this DApp from your trusted AppDock GitHub repository?\n\n")
+    local message = is_update and (_("Update this installed ") .. item_name .. _(" from your trusted AppDock GitHub repository?\n\n")) or (_("Install this ") .. item_name .. _(" from your trusted AppDock GitHub repository?\n\n"))
     local dialog = ConfirmBox:new{
-        text = message .. entry.path .. (entry.version and ("\n\n" .. _("Repository version: ") .. entry.version) or "") .. _("\n\nThe file is downloaded only after you choose this action. It will run as a KOReader Lua DApp after installation."),
+        text = message .. entry.path .. (entry.version and ("\n\n" .. _("Repository version: ") .. entry.version) or "") .. _("\n\nThe file is downloaded only after you choose this action. It will be validated before being added to AppDock."),
         ok_text = action,
         ok_callback = function() self:install(instance, context, entry, is_update) end,
     }
@@ -251,9 +260,10 @@ function AppStore:confirmInstall(instance, context, entry)
 end
 
 function AppStore:install(instance, context, entry, is_update)
-    local source, err = fetchText(REPOSITORY .. entry.path, MAX_DAPP_BYTES)
+    local is_widget = entry.kind == "widget"
+    local source, err = fetchText(REPOSITORY .. entry.path, is_widget and MAX_WIDGET_BYTES or MAX_DAPP_BYTES)
     if not source then
-        UIManager:show(InfoMessage:new{ text = _("Could not download this DApp: ") .. (err or "") })
+        UIManager:show(InfoMessage:new{ text = (is_widget and _("Could not download this widget: ") or _("Could not download this DApp: ")) .. (err or "") })
         return
     end
     local chunk, syntax_err = loadstring(source, "@appstore/" .. entry.path)
@@ -277,26 +287,36 @@ function AppStore:install(instance, context, entry, is_update)
         UIManager:show(InfoMessage:new{ text = _("Could not save this DApp: ") .. tostring(close_err) })
         return
     end
-    local definition, inspect_err = context.manager:inspectStoreDApp(temporary)
+    local definition, inspect_err
+    if is_widget then
+        definition, inspect_err = context.manager:inspectStoreWidget(temporary)
+    else
+        definition, inspect_err = context.manager:inspectStoreDApp(temporary)
+    end
     if not definition then
         os.remove(temporary)
-        UIManager:show(InfoMessage:new{ text = _("This file is not a valid AppDock DApp.\n\n") .. tostring(inspect_err) })
+        UIManager:show(InfoMessage:new{ text = (is_widget and _("This file is not a valid AppDock widget.\n\n") or _("This file is not a valid AppDock DApp.\n\n")) .. tostring(inspect_err) })
         return
     end
     if entry.version and definition.version ~= entry.version then
         os.remove(temporary)
-        UIManager:show(InfoMessage:new{ text = _("The downloaded DApp version does not match the catalog entry.") })
+        UIManager:show(InfoMessage:new{ text = is_widget and _("The downloaded widget version does not match the catalog entry.") or _("The downloaded DApp version does not match the catalog entry.") })
         return
     end
-    local installed_definition, installed_record = context.manager:getStoreDAppBySource(entry.path)
+    local installed_definition, installed_record
+    if is_widget then
+        installed_definition, installed_record = context.manager:getStoreWidgetBySource(entry.path)
+    else
+        installed_definition, installed_record = context.manager:getStoreDAppBySource(entry.path)
+    end
     if installed_definition and installed_definition.id ~= definition.id then
         os.remove(temporary)
         UIManager:show(InfoMessage:new{ text = _("This update changes the DApp identity and was rejected.") })
         return
     end
-    if context.manager.definitions[definition.id] and not installed_record then
+    if ((is_widget and context.manager.definitions[definition.id]) or (not is_widget and context.manager.widget_definitions[definition.id])) and not installed_record then
         os.remove(temporary)
-        UIManager:show(InfoMessage:new{ text = _("A different installed DApp already uses this id.") })
+        UIManager:show(InfoMessage:new{ text = is_widget and _("A different installed DApp already uses this id.") or _("A different installed widget already uses this id.") })
         return
     end
     if is_update and not installed_record then
@@ -318,17 +338,41 @@ function AppStore:install(instance, context, entry, is_update)
         UIManager:show(InfoMessage:new{ text = _("The downloaded DApp could not replace the previous version.") })
         return
     end
-    local ok, result = context.manager:loadStoreDApp(target, entry.path, false, definition.id, installed_record ~= nil, target)
+    local ok, result
+    if is_widget then
+        ok, result = context.manager:loadStoreWidget(target, entry.path, false, definition.id, installed_record ~= nil, target)
+    else
+        ok, result = context.manager:loadStoreDApp(target, entry.path, false, definition.id, installed_record ~= nil, target)
+    end
     if not ok then
         os.remove(target)
         if had_target then os.rename(backup, target) end
-        UIManager:show(InfoMessage:new{ text = _("This file is not a valid AppDock DApp.\n\n") .. tostring(result) })
+        UIManager:show(InfoMessage:new{ text = (is_widget and _("This file is not a valid AppDock widget.\n\n") or _("This file is not a valid AppDock DApp.\n\n")) .. tostring(result) })
         return
     end
     os.remove(backup)
     local action = installed_record and _("Updated") or _("Installed")
-    UIManager:show(InfoMessage:new{ text = action .. " " .. entry.title .. _(". It is now available in AppDock apps.") })
+    UIManager:show(InfoMessage:new{ text = action .. " " .. entry.title .. (is_widget and _(". It is now available on the AppDock homescreen.") or _(". It is now available in AppDock apps.")) })
     context.requestRebuild("ui")
+end
+
+function AppStore:confirmUninstallWidget(instance, context, entry, definition)
+    local dialog
+    dialog = ConfirmBox:new{
+        text = _("Remove this Store widget from the AppDock homescreen?\n\n") .. entry.title,
+        ok_text = _("Uninstall"),
+        ok_callback = function()
+            local ok, err = context.manager:uninstallStoreWidget(definition.id)
+            UIManager:close(dialog)
+            if ok then
+                UIManager:show(InfoMessage:new{ text = _("Removed ") .. entry.title .. _(" from the AppDock homescreen.") })
+                context.requestRebuild("ui")
+            else
+                UIManager:show(InfoMessage:new{ text = _("Could not remove this widget: ") .. tostring(err) })
+            end
+        end,
+    }
+    UIManager:show(dialog)
 end
 
 function AppStore:confirmUninstall(instance, context, entry, definition)
@@ -375,7 +419,7 @@ function AppStore:buildPane(instance, context)
             overlap_offset = { margin, scale(12) },
         },
         TextWidget:new{
-            text = _("Trusted DApps from arduinodude456/DApps"),
+            text = _("Trusted DApps and widgets from arduinodude456/DApps"),
             face = Font:getFace("smallinfofont", scale(10)),
             fgcolor = palette.on_variant,
             max_width = width - 2 * margin,
@@ -384,7 +428,7 @@ function AppStore:buildPane(instance, context)
     }
     local refresh_width = math.floor((width - 2 * margin - gap) * 0.44)
     table.insert(content, StoreButton:new{
-        title = _("Refresh catalog"), subtitle = _("Read dapps.txt"),
+        title = _("Refresh catalog"), subtitle = _("Read DApps and widgets"),
         logo = "sync",
         width = refresh_width, height = scale(46),
         background = palette.primary, foreground = palette.on_primary,
@@ -422,7 +466,7 @@ function AppStore:buildPane(instance, context)
         })
     elseif not state.entries or #state.entries == 0 then
         table.insert(content, StoreButton:new{
-            title = _("No DApps listed"), subtitle = _("Add relative .lua paths and versions to dapps.txt."),
+            title = _("No store items listed"), subtitle = _("Add relative .lua paths and versions to dapps.txt."),
             logo = "app_store",
             width = width - 2 * margin, height = card_height,
             background = palette.surface, foreground = palette.on_surface,
@@ -461,7 +505,13 @@ function AppStore:buildPane(instance, context)
                     title = _("Uninstall"), subtitle = "",
                     width = action_width, height = card_height - action_height - gap,
                     background = palette.tertiary, foreground = palette.on_tertiary,
-                    callback = function() self:confirmUninstall(instance, context, entry, definition) end,
+                    callback = function()
+                        if entry.kind == "widget" then
+                            self:confirmUninstallWidget(instance, context, entry, definition)
+                        else
+                            self:confirmUninstall(instance, context, entry, definition)
+                        end
+                    end,
                     overlap_offset = { margin + primary_width + gap, list_y + (index - 1) * (card_height + gap) + action_height + gap },
                 })
             else

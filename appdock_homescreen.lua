@@ -52,6 +52,15 @@ local InfoCard = WidgetContainer:extend{
     foreground = nil,
 }
 
+local StoreWidgetCard = WidgetContainer:extend{
+    widget = nil,
+    appdock = nil,
+    width = nil,
+    height = nil,
+    background = nil,
+    foreground = nil,
+}
+
 local function scale(value)
     return Screen:scaleBySize(value)
 end
@@ -197,6 +206,37 @@ function InfoCard:init()
     }
 end
 
+function StoreWidgetCard:init()
+    self.dimen = Geom:new{ w = self.width, h = self.height }
+    local definition = self.widget.definition
+    local context = {
+        appdock = self.appdock,
+        manager = self.appdock:getDAppManager(),
+        dimen = self.dimen,
+    }
+    local ok, content = pcall(definition.buildWidget, self.widget.instance, context)
+    if not ok or not content then
+        content = TextWidget:new{
+            text = _("This widget could not be displayed."),
+            face = Font:getFace("smallinfofont", scale(12)),
+            fgcolor = self.foreground or PALETTE.on_surface,
+            max_width = self.width - scale(20),
+        }
+    end
+    self[1] = FrameContainer:new{
+        width = self.width,
+        height = self.height,
+        padding = 0,
+        bordersize = 0,
+        radius = math.floor(self.height * 0.28),
+        background = self.background or PALETTE.surface,
+        CenterContainer:new{
+            dimen = self.dimen,
+            content,
+        },
+    }
+end
+
 function AppTile:init()
     self.label_height = self.label_height or scale(28)
     self.dimen = Geom:new{
@@ -279,6 +319,22 @@ function AppDockHomeScreen:init()
         self.key_events.Close = { { Device.input.group.Back } }
     end
     self:build()
+    self:_scheduleStoreWidgetRefresh()
+end
+
+function AppDockHomeScreen:_scheduleStoreWidgetRefresh()
+    if self._widget_tick then UIManager:unschedule(self._widget_tick) end
+    local has_visible_widget = false
+    for _, widget in ipairs(self.appdock:getStoreWidgets()) do
+        if self.appdock:isStoreWidgetEnabled(widget.widget_id) then has_visible_widget = true; break end
+    end
+    if not has_visible_widget then return end
+    self._widget_tick = function()
+        self:build()
+        UIManager:setDirty(self, "ui")
+        UIManager:scheduleIn(180, self._widget_tick)
+    end
+    UIManager:scheduleIn(180, self._widget_tick)
 end
 
 function AppDockHomeScreen:_pageInfo(apps)
@@ -449,7 +505,25 @@ function AppDockHomeScreen:build()
     end
 
     local has_cards = self.appdock.settings.widgets.status or self.appdock.settings.widgets.reading_hint
-    local grid_y = card_y + (has_cards and scale(62) or 0) + scale(34)
+    local widget_y = card_y + (has_cards and scale(62) or 0) + (has_cards and scale(12) or 0)
+    local widget_height = scale(98)
+    local visible_widgets = {}
+    for _, widget in ipairs(self.appdock:getStoreWidgets()) do
+        if self.appdock:isStoreWidgetEnabled(widget.widget_id) then table.insert(visible_widgets, widget) end
+    end
+    for index, widget in ipairs(visible_widgets) do
+        table.insert(dashboard, StoreWidgetCard:new{
+            widget = widget,
+            appdock = self.appdock,
+            width = width - 2 * margin,
+            height = widget_height,
+            background = index % 2 == 0 and PALETTE.secondary_container or PALETTE.primary_container,
+            foreground = index % 2 == 0 and PALETTE.on_secondary_container or PALETTE.on_primary_container,
+            overlap_offset = { margin, widget_y + (index - 1) * (widget_height + scale(10)) },
+        })
+    end
+    local widget_space = #visible_widgets * widget_height + math.max(0, #visible_widgets - 1) * scale(10)
+    local grid_y = widget_y + widget_space + scale(34)
     local grid_width = tile_size * 3 + tile_gap * 2
     local grid_x = math.floor((width - grid_width) / 2)
     local row_gap = scale(18)
@@ -498,6 +572,7 @@ function AppDockHomeScreen:build()
 end
 
 function AppDockHomeScreen:onClose()
+    if self._widget_tick then UIManager:unschedule(self._widget_tick); self._widget_tick = nil end
     UIManager:close(self)
     return true
 end
