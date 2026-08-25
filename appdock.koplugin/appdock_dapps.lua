@@ -94,6 +94,12 @@ local StorageSummary = Widget:extend{
     segments = nil,
 }
 
+local StorageDApps = Widget:extend{
+    width = nil,
+    height = nil,
+    entries = nil,
+}
+
 local ClockFace = Widget:extend{
     dimen = nil,
 }
@@ -187,37 +193,62 @@ local function humanSize(bytes)
     return string.format("%d B", bytes)
 end
 
+local function safeAttributes(path, selector)
+    local ok, value = pcall(lfs.attributes, path, selector)
+    if not ok then return nil end
+    return value
+end
+
+local function safeDirectory(path)
+    local ok, iterator = pcall(lfs.dir, path)
+    if not ok then return nil end
+    return iterator
+end
+
 local function directorySize(path, depth, budget)
-    if depth > 4 or budget.count > 2500 then return 0 end
-    local mode = lfs.attributes(path, "mode")
+    if not path or depth > 5 or budget.count >= budget.limit then return 0 end
+    local mode = safeAttributes(path, "mode")
     if mode == "file" then
         budget.count = budget.count + 1
-        return tonumber(lfs.attributes(path, "size")) or 0
+        return tonumber(safeAttributes(path, "size")) or 0
     end
     if mode ~= "directory" then return 0 end
     local total = 0
-    local iterator = lfs.dir(path)
+    local iterator = safeDirectory(path)
     if not iterator then return 0 end
     for name in iterator do
-        if name ~= "." and name ~= ".." then
+        if name ~= "." and name ~= ".." and budget.count < budget.limit then
             total = total + directorySize(path .. "/" .. name, depth + 1, budget)
-            if budget.count > 2500 then break end
         end
     end
     return total
 end
 
-local function collectStorageSegments()
+local function collectDAppStorage(appdock, manager)
+    local entries, installed = {}, appdock and appdock.settings and appdock.settings.store and appdock.settings.store.installed or {}
+    for id, record in pairs(installed or {}) do
+        if record and record.file then
+            local budget = { count = 0, limit = 1200 }
+            local bytes = directorySize(record.file, 0, budget)
+            local definition = manager and manager.definitions and manager.definitions[id]
+            table.insert(entries, { id = id, title = definition and definition.title or id, bytes = bytes })
+        end
+    end
+    table.sort(entries, function(left, right)
+        if left.bytes == right.bytes then return left.title:lower() < right.title:lower() end
+        return left.bytes > right.bytes
+    end)
+    return entries
+end
+
+local function collectStorageSegments(appdock, manager)
     local data_dir = DataStorage:getDataDir()
-    local entries = {}
-    local total = 0
-    local budget = { count = 0 }
-    local iterator = lfs.dir(data_dir)
+    local entries, total, budget = {}, 0, { count = 0, limit = 3000 }
+    local iterator = safeDirectory(data_dir)
     if iterator then
         for name in iterator do
             if name ~= "." and name ~= ".." then
-                local path = data_dir .. "/" .. name
-                local bytes = directorySize(path, 0, budget)
+                local bytes = directorySize(data_dir .. "/" .. name, 0, budget)
                 if bytes > 0 then
                     table.insert(entries, { title = name, bytes = bytes })
                     total = total + bytes
@@ -226,14 +257,18 @@ local function collectStorageSegments()
         end
     end
     table.sort(entries, function(left, right) return left.bytes > right.bytes end)
-    local segments = {}
-    local top_count = math.min(4, #entries)
+    local segments, top_count = {}, math.min(4, #entries)
     for index = 1, top_count do table.insert(segments, entries[index]) end
     local remainder = 0
     for index = top_count + 1, #entries do remainder = remainder + entries[index].bytes end
     if remainder > 0 then table.insert(segments, { title = _("Other"), bytes = remainder }) end
-    if total == 0 then table.insert(segments, { title = _("AppDock data"), bytes = 0 }); total = 1 end
-    return segments, total, budget.count
+    if total == 0 then
+        local dapps = collectDAppStorage(appdock, manager)
+        for _, entry in ipairs(dapps) do total = total + entry.bytes end
+        if total > 0 then segments = { { title = _("Installed DApps"), bytes = total } } end
+    end
+    if total == 0 then table.insert(segments, { title = _("AppDock data scan pending"), bytes = 0 }) end
+    return segments, total, budget.count, collectDAppStorage(appdock, manager)
 end
 
 function StorageSummary:init()
@@ -263,6 +298,32 @@ function StorageSummary:paintTo(bb, x, y)
         local label = segment.title .. "  " .. humanSize(segment.bytes)
         local text = TextWidget:new{ text = label, face = Font:getFace("smallinfofont", scale(12)), fgcolor = PALETTE.on_surface, max_width = self.width - scale(18) }
         text:paintTo(bb, x + scale(18), row_y)
+    end
+end
+
+function StorageDApps:init()
+    self.dimen = Geom:new{ w = self.width, h = self.height }
+end
+
+function StorageDApps:getSize()
+    return self.dimen
+end
+
+function StorageDApps:paintTo(bb, x, y)
+    local entries = self.entries or {}
+    local title = TextWidget:new{ text = _("DApp storage usage"), face = Font:getFace("cfont", scale(15)), fgcolor = PALETTE.on_surface, bold = true, max_width = self.width }
+    title:paintTo(bb, x, y)
+    if #entries == 0 then
+        TextWidget:new{ text = _("No installed DApps found"), face = Font:getFace("smallinfofont", scale(11)), fgcolor = PALETTE.on_variant, max_width = self.width }:paintTo(bb, x, y + scale(25))
+        return
+    end
+    local max_bytes = math.max(1, entries[1].bytes)
+    for index, entry in ipairs(entries) do
+        if index > 6 then break end
+        local row_y = y + scale(25) + (index - 1) * scale(29)
+        local label = string.format("%s  ·  %s", entry.title, humanSize(entry.bytes))
+        TextWidget:new{ text = label, face = Font:getFace("smallinfofont", scale(11)), fgcolor = PALETTE.on_surface, max_width = self.width }:paintTo(bb, x, row_y)
+        bb:paintRect(x, row_y + scale(18), math.max(scale(3), math.floor((self.width - scale(8)) * entry.bytes / max_bytes)), scale(4), PALETTE.primary)
     end
 end
 
@@ -1289,10 +1350,10 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("About AppDock"),
-                subtitle = _("Version 2.0.0-beta.2 and help"),
+                subtitle = _("Version 2.0.1 and help"),
                 show_state = false,
                 callback = function()
-                    self:showSettingsNotice(_("AppDock 2.0.0-beta.2\n\nPre-release: launcher layout controls, optional app search, storage overview, custom themes and AppStore. Please test on real hardware before relying on it."))
+                    self:showSettingsNotice(_("AppDock 2.0.1\n\nStable release: launcher layout controls, optional app search, storage overview, custom themes and AppStore."))
                 end,
             },
             {
@@ -1323,12 +1384,12 @@ function DAppManager:_buildSettingsPane(instance, context)
         if category.id == selected_id then selected_category = category; break end
     end
     local rows = rows_by_category[selected_category.id]
-    local storage_segments, storage_total, storage_file_count
+    local storage_segments, storage_total, storage_file_count, storage_dapps
     if selected_category.id == "storage" then
         local storage_ok
-        storage_ok, storage_segments, storage_total, storage_file_count = pcall(collectStorageSegments)
+        storage_ok, storage_segments, storage_total, storage_file_count, storage_dapps = pcall(collectStorageSegments, self.appdock, self)
         if not storage_ok then
-            storage_segments, storage_total, storage_file_count = { { title = _("AppDock data"), bytes = 0 } }, 0, 0
+            storage_segments, storage_total, storage_file_count, storage_dapps = { { title = _("AppDock data scan unavailable"), bytes = 0 } }, 0, 0, {}
         end
         rows[1].subtitle = humanSize(storage_total) .. " · " .. tostring(storage_file_count) .. " files scanned"
     end
@@ -1387,6 +1448,12 @@ function DAppManager:_buildSettingsPane(instance, context)
             height = scale(180),
             segments = storage_segments,
             overlap_offset = { content_x, scale(128) },
+        })
+        table.insert(content, StorageDApps:new{
+            width = content_width,
+            height = scale(220),
+            entries = storage_dapps,
+            overlap_offset = { content_x, scale(320) },
         })
     end
     pane.settings_layout = {
