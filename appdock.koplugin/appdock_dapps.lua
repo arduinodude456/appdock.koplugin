@@ -19,6 +19,7 @@ local InputContainer = require("ui/widget/container/inputcontainer")
 local InputDialog = require("ui/widget/inputdialog")
 local DAppLogo = require("appdock_logo")
 local Theme = require("appdock_theme")
+local Help = require("appdock_help")
 local WebBrowser = require("appdock_browser")
 local FileBrowser = require("appdock_filemanager")
 local AppStore = require("appdock_appstore")
@@ -114,30 +115,6 @@ local function color(r, g, b, grayscale)
     end
     return grayscale
 end
-
-local HELP_HTML = [[
-<h1>AppDock Hilfe</h1>
-<p>AppDock ist dein anpassbarer KOReader-Homescreen. Alle Funktionen bleiben innerhalb von KOReader und sind für E-Ink optimiert.</p>
-<h2>Homescreen</h2>
-<p>Tippe eine Kachel an, um eine App zu starten. Halte eine Kachel gedrückt, um Apps und Widgets zu verwalten. Die Systemzeile öffnet über den Abwärtspfeil die Schnellzugriffe.</p>
-<h2>Schnellzugriff</h2>
-<p>Hier findest du Helligkeit, WLAN, Nachtmodus, manuelle Aktualisierung und den AppDock-Editor. Der Helligkeitsregler nutzt schnelle regionale E-Ink-Updates; zusätzlich aktualisiert AppDock den Bildschirm alle 60 Sekunden vollständig.</p>
-<h2>DApps und Open apps</h2>
-<p>DApps bleiben nach dem Verlassen logisch geöffnet. In Open apps kannst du sie wiederherstellen oder schließen. Analog Clock, Settings, File Manager, Web Browser und diese Hilfe-DApp gehören dazu.</p>
-<h2>Splitscreen</h2>
-<p>Öffne zwei DApps. Halte in Open apps eine App gedrückt, wähle Splitscreen und danach die zweite offene App. Beide laufen in getrennten Flächen mit gemeinsamer Systemleiste.</p>
-<h2>Web Browser</h2>
-<p>Der Browser zeigt serverseitig bereitgestellte Webseiten. Address öffnet HTTP- oder HTTPS-Adressen, Search nutzt DuckDuckGo HTML. JavaScript, Formulare, Downloads und eingebettete Medien bleiben bewusst deaktiviert.</p>
-<h2>Hinweis</h2>
-<p>Für die beste E-Ink-Darstellung verwende kurze Interaktionen und lasse die periodische Aktualisierung aktiv. Diese Hilfe ist offline verfügbar und funktioniert auch im Splitscreen.</p>
-]]
-
-local HELP_CSS = [[
-body { font-family: sans-serif; line-height: 1.38; color: #202020; background: #ffffff; }
-h1 { font-size: 1.5em; margin: 0.45em 0 0.45em; }
-h2 { font-size: 1.16em; margin: 0.9em 0 0.25em; }
-p { margin: 0.25em 0 0.5em; }
-]]
 
 local PALETTE = {
     background = color(250, 248, 255, Blitbuffer.COLOR_WHITE),
@@ -518,6 +495,14 @@ function DAppManager:new(appdock)
         browser = WebBrowser:new(),
         file_browser = FileBrowser:new(),
         app_store = AppStore:new(),
+        help = Help:new({
+            scale = scale, palette = PALETTE, Geom = Geom, Font = Font,
+            WidgetContainer = WidgetContainer, FrameContainer = FrameContainer,
+            OverlapGroup = OverlapGroup, TextWidget = TextWidget,
+            ScrollHtmlWidget = ScrollHtmlWidget, ActionChip = ActionChip,
+            InputDialog = InputDialog, UIManager = UIManager, _ = _,
+            emptySizedWidget = emptySizedWidget,
+        }),
     }, self)
     manager:_registerBuiltins()
     manager:_loadStoredDApps()
@@ -1255,30 +1240,7 @@ function DAppManager:_buildClockPane(instance, context)
 end
 
 function DAppManager:_buildHelpPane(instance, context)
-    local pane = WidgetContainer:new{
-        dimen = Geom:new{ w = context.dimen.w, h = context.dimen.h },
-    }
-    local margin = scale(14)
-    local scroll = ScrollHtmlWidget:new{
-        html_body = HELP_HTML,
-        css = HELP_CSS,
-        width = context.dimen.w - 2 * margin,
-        height = context.dimen.h - 2 * margin,
-        default_font_size = scale(16),
-        dialog = context.host,
-    }
-    scroll.overlap_offset = { margin, margin }
-    pane[1] = OverlapGroup:new{
-        dimen = pane.dimen,
-        allow_mirroring = false,
-        FrameContainer:new{
-            width = pane.dimen.w, height = pane.dimen.h, padding = 0, bordersize = 0,
-            background = PALETTE.background,
-            emptySizedWidget(pane.dimen.w, pane.dimen.h),
-        },
-        scroll,
-    }
-    return pane
+    return self.help:buildPane(instance, context)
 end
 
 function DAppManager:_buildSettingsPane(instance, context)
@@ -1355,10 +1317,10 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("About AppDock"),
-                subtitle = _("Version 2.1.0 and help"),
+                subtitle = _("Version 2.2.0 and help"),
                 show_state = false,
                 callback = function()
-                    self:showSettingsNotice(_("AppDock 2.1.0\n\nStable release: local notifications, launcher layout controls, optional app search, storage overview, custom themes and AppStore."))
+                    self:showSettingsNotice(_("AppDock 2.2.0\n\nStable release: bilingual searchable offline Help, local notifications, launcher layout controls, optional app search, storage overview, custom themes and AppStore."))
                 end,
             },
             {
