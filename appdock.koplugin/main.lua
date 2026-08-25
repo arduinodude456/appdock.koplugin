@@ -287,6 +287,14 @@ function AppDock:addToMainMenu(menu_items)
 end
 
 function AppDock:showHome()
+    if not self._boot_shown then
+        self._boot_shown = true
+        local ok, Boot = pcall(require, "appdock_boot")
+        if ok and Boot and Boot.show then
+            Boot.show(function() self:showHome() end)
+            return
+        end
+    end
     local HomeScreen = require("appdock_homescreen")
     UIManager:show(HomeScreen:new{ appdock = self })
 end
