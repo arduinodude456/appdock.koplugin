@@ -39,7 +39,8 @@ local DEFAULT_SETTINGS = {
     did_seed = false,
     theme = { selected = "lavender", custom = {} },
     store = { installed = {} },
-    layout_version = 10,
+    layout = { app_spacing = 16, logo_shape = "rounded", search_enabled = false },
+    layout_version = 11,
 }
 
 local function copyArray(source)
@@ -69,8 +70,15 @@ function AppDock:_loadSettings()
         did_seed = stored.did_seed or false,
         theme = stored.theme or { selected = "lavender", custom = {} },
         store = stored.store or { installed = {} },
+        layout = stored.layout or {},
         layout_version = stored.layout_version or 1,
     }
+
+    self.settings.layout = self.settings.layout or {}
+    self.settings.layout.app_spacing = tonumber(self.settings.layout.app_spacing) or DEFAULT_SETTINGS.layout.app_spacing
+    self.settings.layout.app_spacing = math.max(8, math.min(34, self.settings.layout.app_spacing))
+    self.settings.layout.logo_shape = self.settings.layout.logo_shape == "circle" and "circle" or "rounded"
+    self.settings.layout.search_enabled = self.settings.layout.search_enabled == true
 
     if self.settings.layout_version < DEFAULT_SETTINGS.layout_version then
         local migrated = copyArray(DEFAULT_SETTINGS.pinned_apps)
@@ -104,6 +112,20 @@ end
 
 function AppDock:_saveSettings()
     G_reader_settings:saveSetting(self.settings_key, self.settings)
+end
+
+function AppDock:setLauncherLayout(changes)
+    changes = changes or {}
+    if changes.app_spacing then
+        self.settings.layout.app_spacing = math.max(8, math.min(34, tonumber(changes.app_spacing) or 16))
+    end
+    if changes.logo_shape == "circle" or changes.logo_shape == "rounded" then
+        self.settings.layout.logo_shape = changes.logo_shape
+    end
+    if changes.search_enabled ~= nil then
+        self.settings.layout.search_enabled = not not changes.search_enabled
+    end
+    self:_saveSettings()
 end
 
 function AppDock:setTheme(theme_id)

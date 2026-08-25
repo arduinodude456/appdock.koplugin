@@ -6,6 +6,7 @@ usable in a later split-screen host without global-layout rewrites.
 
 local Blitbuffer = require("ffi/blitbuffer")
 local ButtonDialog = require("ui/widget/buttondialog")
+local DataStorage = require("datastorage")
 local CenterContainer = require("ui/widget/container/centercontainer")
 local Device = require("device")
 local Event = require("ui/event")
@@ -31,6 +32,8 @@ local VerticalSpan = require("ui/widget/verticalspan")
 local Widget = require("ui/widget/widget")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local _ = require("gettext")
+local ok_lfs, lfs = pcall(require, "libs/libkoreader-lfs")
+if not ok_lfs then lfs = require("lfs") end
 
 local Screen = Device.screen
 
@@ -83,6 +86,12 @@ local SettingsRow = InputContainer:extend{
     callback = nil,
     width = nil,
     height = nil,
+}
+
+local StorageSummary = Widget:extend{
+    width = nil,
+    height = nil,
+    segments = nil,
 }
 
 local ClockFace = Widget:extend{
@@ -169,6 +178,91 @@ local function paintLine(bb, x0, y0, x1, y1, thickness, ink)
         local x = math.floor(x0 + dx * step / steps - thickness / 2)
         local y = math.floor(y0 + dy * step / steps - thickness / 2)
         bb:paintRect(x, y, thickness, thickness, ink)
+    end
+end
+
+local function humanSize(bytes)
+    if bytes >= 1024 * 1024 then return string.format("%.1f MB", bytes / (1024 * 1024)) end
+    if bytes >= 1024 then return string.format("%.1f KB", bytes / 1024) end
+    return string.format("%d B", bytes)
+end
+
+local function directorySize(path, depth, budget)
+    if depth > 4 or budget.count > 2500 then return 0 end
+    local mode = lfs.attributes(path, "mode")
+    if mode == "file" then
+        budget.count = budget.count + 1
+        return tonumber(lfs.attributes(path, "size")) or 0
+    end
+    if mode ~= "directory" then return 0 end
+    local total = 0
+    local iterator = lfs.dir(path)
+    if not iterator then return 0 end
+    for name in iterator do
+        if name ~= "." and name ~= ".." then
+            total = total + directorySize(path .. "/" .. name, depth + 1, budget)
+            if budget.count > 2500 then break end
+        end
+    end
+    return total
+end
+
+local function collectStorageSegments()
+    local data_dir = DataStorage:getDataDir()
+    local entries = {}
+    local total = 0
+    local budget = { count = 0 }
+    local iterator = lfs.dir(data_dir)
+    if iterator then
+        for name in iterator do
+            if name ~= "." and name ~= ".." then
+                local path = data_dir .. "/" .. name
+                local bytes = directorySize(path, 0, budget)
+                if bytes > 0 then
+                    table.insert(entries, { title = name, bytes = bytes })
+                    total = total + bytes
+                end
+            end
+        end
+    end
+    table.sort(entries, function(left, right) return left.bytes > right.bytes end)
+    local segments = {}
+    local top_count = math.min(4, #entries)
+    for index = 1, top_count do table.insert(segments, entries[index]) end
+    local remainder = 0
+    for index = top_count + 1, #entries do remainder = remainder + entries[index].bytes end
+    if remainder > 0 then table.insert(segments, { title = _("Other"), bytes = remainder }) end
+    if total == 0 then table.insert(segments, { title = _("AppDock data"), bytes = 0 }); total = 1 end
+    return segments, total, budget.count
+end
+
+function StorageSummary:init()
+    self.dimen = Geom:new{ w = self.width, h = self.height }
+end
+
+function StorageSummary:getSize()
+    return self.dimen
+end
+
+function StorageSummary:paintTo(bb, x, y)
+    local palette = { PALETTE.primary, PALETTE.secondary, PALETTE.on_surface, PALETTE.outline, PALETTE.surface_variant }
+    local bar_y, bar_h = y + scale(10), scale(22)
+    local total = 0
+    for _, segment in ipairs(self.segments or {}) do total = total + segment.bytes end
+    total = math.max(1, total)
+    local cursor = x
+    for index, segment in ipairs(self.segments or {}) do
+        local width = index == #(self.segments or {}) and (x + self.width - cursor) or math.max(scale(2), math.floor(self.width * segment.bytes / total))
+        bb:paintRect(cursor, bar_y, width, bar_h, palette[(index - 1) % #palette + 1])
+        cursor = cursor + width
+    end
+    local legend_y = bar_y + bar_h + scale(16)
+    for index, segment in ipairs(self.segments or {}) do
+        local row_y = legend_y + (index - 1) * scale(24)
+        bb:paintRect(x, row_y + scale(3), scale(10), scale(10), palette[(index - 1) % #palette + 1])
+        local label = segment.title .. "  " .. humanSize(segment.bytes)
+        local text = TextWidget:new{ text = label, face = Font:getFace("smallinfofont", scale(12)), fgcolor = PALETTE.on_surface, max_width = self.width - scale(18) }
+        text:paintTo(bb, x + scale(18), row_y)
     end
 end
 
@@ -944,6 +1038,26 @@ function DAppManager:showThemeEditor(instance, context)
     UIManager:show(dialog)
 end
 
+function DAppManager:showLauncherLayout(instance, context)
+    local layout = self.appdock.settings.layout
+    local dialog
+    local function choose(changes)
+        self.appdock:setLauncherLayout(changes)
+        UIManager:close(dialog)
+        context.requestRebuild("ui")
+    end
+    dialog = ButtonDialog:new{
+        title = _("Launcher layout") .. "\n" .. string.format(_("Spacing: %d · Shape: %s · Search: %s"), layout.app_spacing, layout.logo_shape == "circle" and _("Circle") or _("Rounded Box"), layout.search_enabled and _("On") or _("Off")),
+        buttons = {
+            { { text = _("Compact spacing"), callback = function() choose({ app_spacing = 10 }) end }, { text = _("Comfortable spacing"), callback = function() choose({ app_spacing = 16 }) end } },
+            { { text = _("Wide spacing"), callback = function() choose({ app_spacing = 24 }) end }, { text = layout.logo_shape == "circle" and _("Use rounded boxes") or _("Use circles"), callback = function() choose({ logo_shape = layout.logo_shape == "circle" and "rounded" or "circle" }) end } },
+            { { text = layout.search_enabled and _("Disable app search") or _("Enable app search (Beta)"), callback = function() choose({ search_enabled = not layout.search_enabled }) end } },
+            { { text = _("Cancel"), callback = function() UIManager:close(dialog) end } },
+        },
+    }
+    UIManager:show(dialog)
+end
+
 function DAppManager:showCustomThemeNameDialog(instance, context)
     local dialog
     dialog = InputDialog:new{
@@ -1092,10 +1206,11 @@ function DAppManager:_buildSettingsPane(instance, context)
     local content_x = margin + sidebar_width + gap
     local content_width = width - content_x - margin
     local row_height = math.max(scale(52), math.min(scale(62), math.floor((height - scale(78) - gap * 2) / 3)))
-    local category_height = math.min(scale(70), math.floor((height - 2 * margin - 2 * gap) / 3))
+    local category_height = math.min(scale(70), math.floor((height - 2 * margin - 3 * gap) / 4))
     local categories = {
         { id = "network", title = _("Network"), subtitle = _("Connections"), logo = "network" },
         { id = "display", title = _("Display"), subtitle = _("Light and theme"), logo = "display" },
+        { id = "storage", title = _("Storage"), subtitle = _("Space usage"), logo = "archive" },
         { id = "other", title = _("Other"), subtitle = _("AppDock"), logo = "other" },
     }
     instance.settings_category = instance.settings_category or "network"
@@ -1132,6 +1247,19 @@ function DAppManager:_buildSettingsPane(instance, context)
                 show_state = false,
                 callback = function() self:showThemeEditor(instance, context) end,
             },
+            {
+                title = _("Launcher layout"),
+                subtitle = string.format(_("%d px spacing · %s · search %s"), self.appdock.settings.layout.app_spacing, self.appdock.settings.layout.logo_shape == "circle" and _("circle") or _("rounded"), self.appdock.settings.layout.search_enabled and _("on") or _("off")),
+                show_state = false,
+                callback = function() self:showLauncherLayout(instance, context) end,
+            },
+        },
+        storage = {
+            {
+                title = _("Storage usage"),
+                subtitle = _("Calculating local AppDock data"),
+                show_state = false,
+            },
         },
         other = {
             {
@@ -1142,10 +1270,10 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("About AppDock"),
-                subtitle = _("Version 1.3.0 and help"),
+                subtitle = _("Version 2.0.0-beta.1 and help"),
                 show_state = false,
                 callback = function()
-                    self:showSettingsNotice(_("AppDock 1.3.0\n\nAn E-Ink homescreen inside KOReader with plugin apps, DApps, custom themes and AppStore."))
+                    self:showSettingsNotice(_("AppDock 2.0.0-beta.1\n\nPre-release: launcher layout controls, optional app search, storage overview, custom themes and AppStore. Please test on real hardware before relying on it."))
                 end,
             },
             {
@@ -1161,6 +1289,11 @@ function DAppManager:_buildSettingsPane(instance, context)
         if category.id == selected_id then selected_category = category; break end
     end
     local rows = rows_by_category[selected_category.id]
+    local storage_segments, storage_total, storage_file_count
+    if selected_category.id == "storage" then
+        storage_segments, storage_total, storage_file_count = collectStorageSegments()
+        rows[1].subtitle = humanSize(storage_total) .. " · " .. tostring(storage_file_count) .. " files scanned"
+    end
     local content = OverlapGroup:new{
         dimen = pane.dimen,
         allow_mirroring = false,
@@ -1208,6 +1341,14 @@ function DAppManager:_buildSettingsPane(instance, context)
             height = row_height,
             callback = row.callback,
             overlap_offset = { content_x, scale(64) + (row_index - 1) * (row_height + gap) },
+        })
+    end
+    if selected_category.id == "storage" then
+        table.insert(content, StorageSummary:new{
+            width = content_width,
+            height = scale(180),
+            segments = storage_segments,
+            overlap_offset = { content_x, scale(128) },
         })
     end
     pane.settings_layout = {

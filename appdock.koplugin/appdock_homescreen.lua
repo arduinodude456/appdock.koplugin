@@ -13,6 +13,7 @@ local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
 local GestureRange = require("ui/gesturerange")
 local HorizontalSpan = require("ui/widget/horizontalspan")
+local InputDialog = require("ui/widget/inputdialog")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local DAppLogo = require("appdock_logo")
 local Theme = require("appdock_theme")
@@ -41,6 +42,7 @@ local AppTile = InputContainer:extend{
     background = nil,
     foreground = nil,
     symbol = nil,
+    shape = "rounded",
 }
 
 local InfoCard = WidgetContainer:extend{
@@ -59,6 +61,14 @@ local StoreWidgetCard = WidgetContainer:extend{
     height = nil,
     background = nil,
     foreground = nil,
+}
+
+local SearchBar = InputContainer:extend{
+    appdock = nil,
+    home = nil,
+    width = nil,
+    height = nil,
+    query = "",
 }
 
 local function scale(value)
@@ -237,6 +247,31 @@ function StoreWidgetCard:init()
     }
 end
 
+function SearchBar:init()
+    self.dimen = Geom:new{ w = self.width, h = self.height }
+    local query_text = self.query ~= "" and (_("Search: ") .. self.query) or _("Search apps")
+    self[1] = FrameContainer:new{
+        width = self.width, height = self.height, padding = 0, bordersize = 0,
+        radius = math.floor(self.height * 0.36), background = PALETTE.surface_variant,
+        CenterContainer:new{
+            dimen = self.dimen,
+            TextWidget:new{ text = "⌕  " .. query_text, face = Font:getFace("smallinfofont", scale(14)), fgcolor = PALETTE.on_surface_variant, max_width = self.width - scale(20) },
+        },
+    }
+    self.ges_events = { TapSearchApps = { GestureRange:new{ ges = "tap", range = self.dimen } } }
+end
+
+function SearchBar:paintTo(bb, x, y)
+    local range = self.ges_events.TapSearchApps[1].range
+    range.x, range.y, range.w, range.h = x, y, self.dimen.w, self.dimen.h
+    return InputContainer.paintTo(self, bb, x, y)
+end
+
+function SearchBar:onTapSearchApps()
+    self.home:showAppSearch()
+    return true
+end
+
 function AppTile:init()
     self.label_height = self.label_height or scale(28)
     self.dimen = Geom:new{
@@ -259,7 +294,7 @@ function AppTile:init()
         height = self.tile_size,
         padding = 0,
         bordersize = 0,
-        radius = math.floor(self.tile_size * 0.32),
+        radius = self.shape == "circle" and math.floor(self.tile_size / 2) or math.floor(self.tile_size * 0.32),
         background = self.background or PALETTE.primary_container,
         CenterContainer:new{
             dimen = Geom:new{ w = self.tile_size, h = self.tile_size },
@@ -335,6 +370,23 @@ function AppDockHomeScreen:_scheduleStoreWidgetRefresh()
         UIManager:scheduleIn(180, self._widget_tick)
     end
     UIManager:scheduleIn(180, self._widget_tick)
+end
+
+function AppDockHomeScreen:showAppSearch()
+    local dialog
+    dialog = InputDialog:new{
+        title = _("Search AppDock apps"),
+        input_hint = _("App name"),
+        input = self.search_query or "",
+        buttons = {
+            {
+                { text = _("Clear"), callback = function() self.search_query = ""; UIManager:close(dialog); self:build(); UIManager:setDirty(self, "ui") end },
+                { text = _("Search"), is_enter_default = true, callback = function() self.search_query = dialog:getInputText() or ""; UIManager:close(dialog); self:build(); UIManager:setDirty(self, "ui") end },
+            },
+        },
+    }
+    UIManager:show(dialog)
+    dialog:onShowKeyboard()
 end
 
 function AppDockHomeScreen:_pageInfo(apps)
@@ -436,11 +488,20 @@ function AppDockHomeScreen:build()
     local margin = scale(22)
     local top_line_height = scale(30)
     local header_y = top_line_height + scale(18)
+    local layout = self.appdock.settings.layout or {}
     local tile_size = math.floor(math.min(width * 0.20, height * 0.13))
     tile_size = math.max(scale(62), math.min(tile_size, scale(110)))
-    local tile_gap = math.max(scale(16), math.floor(tile_size * 0.24))
+    local tile_gap = scale(math.max(8, math.min(34, tonumber(layout.app_spacing) or 16)))
     local label_height = scale(28)
     local apps = self.appdock:getPinnedApps()
+    local search_query = (self.search_query or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
+    if layout.search_enabled and search_query ~= "" then
+        local filtered = {}
+        for _, app in ipairs(apps) do
+            if (app.title or ""):lower():find(search_query, 1, true) then table.insert(filtered, app) end
+        end
+        apps = filtered
+    end
     local visible_apps, page_count = self:_pageInfo(apps)
 
     local dashboard = OverlapGroup:new{
@@ -473,6 +534,13 @@ function AppDockHomeScreen:build()
     })
 
     local card_y = header_y + scale(66)
+    if layout.search_enabled then
+        table.insert(dashboard, SearchBar:new{
+            appdock = self.appdock, home = self, width = width - 2 * margin, height = scale(42),
+            query = self.search_query or "", overlap_offset = { margin, header_y + scale(70) },
+        })
+        card_y = header_y + scale(122)
+    end
     if self.appdock.settings.widgets.status then
         local status_body = safeBatteryText() or _("All systems ready")
         table.insert(dashboard, InfoCard:new{
@@ -537,6 +605,7 @@ function AppDockHomeScreen:build()
             app = app,
             tile_size = tile_size,
             label_height = label_height,
+            shape = layout.logo_shape,
             background = tone.background,
             foreground = tone.foreground,
             overlap_offset = {
