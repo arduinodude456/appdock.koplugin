@@ -527,8 +527,11 @@ function AppStore:buildPane(instance, context)
         end
         local list_height = math.max(scale(40), height - list_y - margin)
         local content_height = math.max(list_height, #state.entries * (card_height + gap) - gap)
-        local list_content = WidgetContainer:new{ dimen = Geom:new{ w = card_width, h = content_height } }
-        for card_index, card in ipairs(cards) do list_content[card_index] = card end
+        local list_content = OverlapGroup:new{
+            dimen = Geom:new{ w = card_width, h = content_height },
+            allow_mirroring = false,
+            unpack(cards),
+        }
         table.insert(content, ScrollableContainer:new{
             dimen = Geom:new{ w = card_width, h = list_height },
             list_content,
