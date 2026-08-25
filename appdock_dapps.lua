@@ -1056,6 +1056,57 @@ function DAppManager:showSettingsNotice(text)
     UIManager:show(InfoMessage:new{ text = text })
 end
 
+function DAppManager:showArrangementEditor(instance, context)
+    local dialog
+    local buttons = {
+        { { text = _("Apps"), enabled = false } },
+    }
+    local pinned = self.appdock:getPinnedApps()
+    local function addMoveRow(item, position, total, move)
+        table.insert(buttons, {
+            {
+                text = "↑",
+                enabled = position > 1,
+                callback = function()
+                    if position > 1 then
+                        move(-1)
+                        UIManager:close(dialog)
+                        UIManager:nextTick(function() self:showArrangementEditor(instance, context) end)
+                        context.requestRebuild("ui")
+                    end
+                end,
+            },
+            { text = string.format("%d/%d  %s", position, total, item.title), enabled = false },
+            {
+                text = "↓",
+                enabled = position < total,
+                callback = function()
+                    if position < total then
+                        move(1)
+                        UIManager:close(dialog)
+                        UIManager:nextTick(function() self:showArrangementEditor(instance, context) end)
+                        context.requestRebuild("ui")
+                    end
+                end,
+            },
+        })
+    end
+    for position, app in ipairs(pinned) do
+        addMoveRow(app, position, #pinned, function(delta) self.appdock:movePinned(app.id, delta) end)
+    end
+    table.insert(buttons, { { text = _("Store widgets"), enabled = false } })
+    local widgets = self.appdock:getStoreWidgets()
+    for position, widget in ipairs(widgets) do
+        addMoveRow(widget, position, #widgets, function(delta) self.appdock:moveStoreWidget(widget.widget_id, delta) end)
+    end
+    table.insert(buttons, { { text = _("Done"), callback = function() UIManager:close(dialog); context.requestRebuild("ui") end } })
+    dialog = ButtonDialog:new{
+        title = _("Arrange apps & widgets"),
+        buttons = buttons,
+    }
+    UIManager:show(dialog)
+end
+
 function DAppManager:showThemeEditor(instance, context)
     local dialog
     local buttons = {}
@@ -1310,17 +1361,17 @@ function DAppManager:_buildSettingsPane(instance, context)
         },
         other = {
             {
-                title = _("Layout"),
-                subtitle = _("Apps, widgets and home screen"),
+                title = _("Arrange apps & widgets"),
+                subtitle = _("Order shown on the homescreen"),
                 show_state = false,
-                callback = function() self:openManagerFromHost(context.host) end,
+                callback = function() self:showArrangementEditor(instance, context) end,
             },
             {
                 title = _("About AppDock"),
-                subtitle = _( "Version 2.5.0 and help"),
+                subtitle = _( "Version 2.6.0 and help"),
                 show_state = false,
                 callback = function()
-                    self:showSettingsNotice(_("AppDock 2.5.0\n\nStable release: AppDock rabbit start sequence, bilingual searchable offline Help, local notifications, app and widget ordering with E-Ink move controls, launcher layout controls, optional app search, storage overview, custom themes and AppStore."))
+                    self:showSettingsNotice(_("AppDock 2.6.0\n\nStable release: AppDock rabbit start sequence, bilingual searchable offline Help, local notifications, settings-based app and widget ordering with E-Ink move controls, launcher layout controls, optional app search, storage overview, custom themes and AppStore."))
                 end,
             },
             {
