@@ -439,34 +439,81 @@ function DAppManager:_loadStoredDApps()
     end
 end
 
-function DAppManager:loadStoreDApp(file, source_path, restoring, expected_id)
+function DAppManager:inspectStoreDApp(file, expected_id)
     local ok, definition = pcall(dofile, file)
-    if not ok then return false, definition end
+    if not ok then return nil, definition end
     if type(definition) ~= "table" or type(definition.id) ~= "string" or type(definition.title) ~= "string" or type(definition.buildPane) ~= "function" then
-        return false, _("A store DApp must return id, title, and buildPane.")
+        return nil, _("A store DApp must return id, title, and buildPane.")
     end
     if definition.id:match("[^%w_%-]") or (expected_id and definition.id ~= expected_id) then
-        return false, _("The DApp id is invalid.")
+        return nil, _("The DApp id is invalid.")
     end
-    if self.definitions[definition.id] and not restoring then
+    return definition
+end
+
+function DAppManager:loadStoreDApp(file, source_path, restoring, expected_id, allow_replace, stored_file)
+    local definition, inspect_err = self:inspectStoreDApp(file, expected_id)
+    if not definition then return false, inspect_err end
+    local installed = self.appdock.settings.store and self.appdock.settings.store.installed or {}
+    local existing_record = installed[definition.id]
+    if self.definitions[definition.id] and not restoring and not (allow_replace and existing_record) then
         return false, _("A DApp with this id already exists.")
     end
-    self.definitions[definition.id] = {
+    local registered = {
         id = definition.id,
         title = definition.title,
         subtitle = definition.subtitle or _("Installed from AppStore"),
         symbol = definition.symbol or "D",
         logo = definition.logo or "app_store",
+        version = type(definition.version) == "string" and definition.version or nil,
         buildPane = definition.buildPane,
         openFile = type(definition.openFile) == "function" and definition.openFile or nil,
     }
+    self.definitions[definition.id] = registered
+    if self.instances[definition.id] then
+        self.instances[definition.id].definition = registered
+        self.instances[definition.id].pane = nil
+    end
     if not restoring then
         self.appdock.settings.store = self.appdock.settings.store or { installed = {} }
         self.appdock.settings.store.installed = self.appdock.settings.store.installed or {}
-        self.appdock.settings.store.installed[definition.id] = { file = file, source_path = source_path }
+        self.appdock.settings.store.installed[definition.id] = {
+            file = stored_file or file,
+            source_path = source_path,
+            version = registered.version,
+        }
         self.appdock:_saveSettings()
     end
     return true, definition.id
+end
+
+function DAppManager:getStoreDAppBySource(source_path)
+    local installed = self.appdock.settings.store and self.appdock.settings.store.installed or {}
+    for id, record in pairs(installed) do
+        if record and record.source_path == source_path and self.definitions[id] then
+            return self.definitions[id], record
+        end
+    end
+    return nil, nil
+end
+
+function DAppManager:uninstallStoreDApp(id)
+    local installed = self.appdock.settings.store and self.appdock.settings.store.installed or {}
+    local record = installed[id]
+    if not record or not record.file then return false, _("This DApp is not installed from the AppStore.") end
+    local removed, remove_err = os.remove(record.file)
+    if not removed and lfs.attributes(record.file) then return false, remove_err or _("The DApp file could not be removed.") end
+    if self.active_host then
+        for _, active_id in ipairs(self.active_host.dapp_ids or {}) do
+            if active_id == id then UIManager:close(self.active_host); break end
+        end
+    end
+    self:closeDApp(id)
+    self.definitions[id] = nil
+    self.instances[id] = nil
+    installed[id] = nil
+    self.appdock:_saveSettings()
+    return true
 end
 
 function DAppManager:getCatalogApps()

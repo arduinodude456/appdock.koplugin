@@ -229,6 +229,7 @@ function FileBrowser:_readEntries(path)
                     size = attributes.size,
                     supported = attributes.mode == "file" and DocumentRegistry:hasProvider(fullpath),
                     is_lua = attributes.mode == "file" and fullpath:lower():match("%.lua$") ~= nil,
+                    is_dreader = attributes.mode == "file" and (fullpath:lower():match("%.epub$") ~= nil or fullpath:lower():match("%.html$") ~= nil or fullpath:lower():match("%.htm$") ~= nil or fullpath:lower():match("%.xhtml$") ~= nil),
                 })
             end
         end
@@ -260,6 +261,18 @@ function FileBrowser:openLuaFile(instance, context, path)
     local ok, err = manager:openDAppFile("night_lua", path)
     if not ok then
         UIManager:show(InfoMessage:new{ text = _("Install NightLua from AppStore first.\n\n") .. tostring(err or "") })
+    end
+end
+
+function FileBrowser:openDReaderFile(instance, context, path)
+    local manager = context.manager
+    if not manager or not manager.openDAppFile then
+        UIManager:show(InfoMessage:new{ text = _("DReader is not available in this AppDock session.") })
+        return
+    end
+    local ok, err = manager:openDAppFile("dreader", path)
+    if not ok then
+        UIManager:show(InfoMessage:new{ text = _("Install DReader from AppStore first.\n\n") .. tostring(err or "") })
     end
 end
 
@@ -313,6 +326,8 @@ function FileBrowser:buildPane(instance, context)
                 subtitle = entry.path
             elseif entry.is_lua then
                 subtitle = _("Open in NightLua") .. " · " .. humanSize(entry.size)
+            elseif entry.is_dreader then
+                subtitle = _("Open in DReader") .. " · " .. humanSize(entry.size)
             elseif entry.supported then
                 subtitle = _("Open document") .. " · " .. humanSize(entry.size)
             else
@@ -330,6 +345,8 @@ function FileBrowser:buildPane(instance, context)
                         self:enterDirectory(instance, context, entry.path)
                     elseif entry.is_lua then
                         self:openLuaFile(instance, context, entry.path)
+                    elseif entry.is_dreader then
+                        self:openDReaderFile(instance, context, entry.path)
                     else
                         self:openFile(instance, context, entry.path, entry.supported)
                     end
