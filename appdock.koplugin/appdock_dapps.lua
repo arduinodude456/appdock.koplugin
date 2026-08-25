@@ -851,6 +851,11 @@ function DAppManager:_newContext(host, instance, assigned_dimen)
                 if UIManager.forceRePaint then UIManager:forceRePaint() end
             end
         end,
+        notify = function(payload)
+            payload = type(payload) == "table" and payload or {}
+            payload.source = payload.source or instance.definition.title or instance.id
+            return self.appdock:notify(payload)
+        end,
     }
 end
 
@@ -1350,10 +1355,10 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("About AppDock"),
-                subtitle = _("Version 2.0.1 and help"),
+                subtitle = _("Version 2.1.0 and help"),
                 show_state = false,
                 callback = function()
-                    self:showSettingsNotice(_("AppDock 2.0.1\n\nStable release: launcher layout controls, optional app search, storage overview, custom themes and AppStore."))
+                    self:showSettingsNotice(_("AppDock 2.1.0\n\nStable release: local notifications, launcher layout controls, optional app search, storage overview, custom themes and AppStore."))
                 end,
             },
             {
