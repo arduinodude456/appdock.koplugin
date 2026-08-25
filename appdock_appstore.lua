@@ -11,6 +11,7 @@ local ConfirmBox = require("ui/widget/confirmbox")
 local DataStorage = require("datastorage")
 local Device = require("device")
 local DAppLogo = require("appdock_logo")
+local Theme = require("appdock_theme")
 local Font = require("ui/font")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
@@ -20,7 +21,7 @@ local InputContainer = require("ui/widget/container/inputcontainer")
 local InfoMessage = require("ui/widget/infomessage")
 local OverlapGroup = require("ui/widget/overlapgroup")
 local TextWidget = require("ui/widget/textwidget")
-local Theme = require("appdock_theme")
+local ScrollableContainer = require("ui/widget/container/scrollablecontainer")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local _ = require("gettext")
@@ -473,35 +474,35 @@ function AppStore:buildPane(instance, context)
             overlap_offset = { margin, list_y },
         })
     else
-        local max_cards = math.max(1, math.floor((height - list_y - margin) / (card_height + gap)))
         local card_width = width - 2 * margin
         local action_width = math.min(scale(82), math.max(scale(62), math.floor(card_width * 0.25)))
         local primary_width = card_width - action_width - gap
+        local cards = {}
         for index, entry in ipairs(state.entries) do
-            if index > max_cards then break end
+            local row_y = (index - 1) * (card_height + gap)
             local action_state, definition = self:_entryState(context, entry)
             local status = self:_showStatus(entry, action_state)
             local background = index % 2 == 0 and palette.secondary or palette.surface
             local foreground = index % 2 == 0 and palette.on_secondary or palette.on_surface
-            table.insert(content, StoreButton:new{
+            table.insert(cards, StoreButton:new{
                 title = entry.title,
                 subtitle = status,
                 logo = definition and definition.logo or entry.logo or "app_store",
                 width = primary_width, height = card_height,
                 background = background, foreground = foreground,
                 callback = function() self:confirmInstall(instance, context, entry) end,
-                overlap_offset = { margin, list_y + (index - 1) * (card_height + gap) },
+                overlap_offset = { 0, row_y },
             })
             if action_state == "installed" then
                 local action_height = math.floor((card_height - gap) / 2)
-                table.insert(content, StoreButton:new{
+                table.insert(cards, StoreButton:new{
                     title = _("Installed"), subtitle = "",
                     width = action_width, height = action_height,
                     background = palette.primary, foreground = palette.on_primary,
                     callback = function() self:confirmInstall(instance, context, entry) end,
-                    overlap_offset = { margin + primary_width + gap, list_y + (index - 1) * (card_height + gap) },
+                    overlap_offset = { primary_width + gap, row_y },
                 })
-                table.insert(content, StoreButton:new{
+                table.insert(cards, StoreButton:new{
                     title = _("Uninstall"), subtitle = "",
                     width = action_width, height = card_height - action_height - gap,
                     background = palette.tertiary, foreground = palette.on_tertiary,
@@ -512,18 +513,34 @@ function AppStore:buildPane(instance, context)
                             self:confirmUninstall(instance, context, entry, definition)
                         end
                     end,
-                    overlap_offset = { margin + primary_width + gap, list_y + (index - 1) * (card_height + gap) + action_height + gap },
+                    overlap_offset = { primary_width + gap, row_y + action_height + gap },
                 })
             else
-                table.insert(content, StoreButton:new{
+                table.insert(cards, StoreButton:new{
                     title = action_state == "update" and _("Update") or _("Install"), subtitle = "",
                     width = action_width, height = card_height,
                     background = palette.primary, foreground = palette.on_primary,
                     callback = function() self:confirmInstall(instance, context, entry) end,
-                    overlap_offset = { margin + primary_width + gap, list_y + (index - 1) * (card_height + gap) },
+                    overlap_offset = { primary_width + gap, row_y },
                 })
             end
         end
+        local list_height = math.max(scale(40), height - list_y - margin)
+        local content_height = math.max(list_height, #state.entries * (card_height + gap) - gap)
+        local list_content = OverlapGroup:new{
+            dimen = Geom:new{ w = card_width, h = content_height },
+            allow_mirroring = false,
+            unpack(cards),
+        }
+        table.insert(content, ScrollableContainer:new{
+            dimen = Geom:new{ w = card_width, h = list_height },
+            -- ScrollableContainer marks its show_parent dirty after every
+            -- offset change. Without this, the framebuffer changes but an
+            -- E-Ink device may not repaint the moved cards/scrollbar.
+            show_parent = context.host,
+            list_content,
+            overlap_offset = { margin, list_y },
+        })
     end
     return WidgetContainer:new{
         dimen = Geom:new{ w = width, h = height },
