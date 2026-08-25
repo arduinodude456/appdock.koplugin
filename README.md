@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **1.8.0** richtet sich gestalterisch an Android 16 und **Material 3 Expressive** aus: ein kohärentes, ruhiges Farbsystem, große gerundete Formen, betonte Informationshierarchie und schnell erfassbare Widgets. [1] [2]
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **1.8.1** richtet sich gestalterisch an Android 16 und **Material 3 Expressive** aus: ein kohärentes, ruhiges Farbsystem, große gerundete Formen, betonte Informationshierarchie und schnell erfassbare Widgets. [1] [2]
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst die Formensprache und Informationsstruktur, nicht die Android-Animationen, Unschärfen oder Transparenzeffekte. Damit bleiben Aktualisierungen sparsam und die Darstellung auf monochromen Readern kontrastreich.
 
@@ -70,7 +70,7 @@ DApps bauen ihren Inhalt ausschließlich innerhalb eines vom DApp-Host zugewiese
 
 ## Store-Widgets
 
-AppDock 1.8.0 unterstützt neben DApps einen getrennten Store-Widget-Vertrag. Ein Katalogeintrag mit dem vierten Feld `widget` wird nach ausdrücklicher Bestätigung als passive Homescreen-Karte installiert. Unter **Manage apps and widgets → Store widgets** kann jedes installierte Widget ein- oder ausgeblendet werden.
+AppDock 1.8.0 unterstützt neben DApps einen getrennten Store-Widget-Vertrag. Seit **1.8.1** liegt die vollständige Store-Kartenliste in einer echten scrollbaren KOReader-Region; Einträge werden nicht mehr nach der sichtbaren Pane-Höhe abgeschnitten. Dadurch bleiben auch Weather Widget und spätere Katalogeinträge per Touch-Swipe, Seitentasten oder Scroll-Geste erreichbar. Ein Katalogeintrag mit dem vierten Feld `widget` wird nach ausdrücklicher Bestätigung als passive Homescreen-Karte installiert. Unter **Manage apps and widgets → Store widgets** kann jedes installierte Widget ein- oder ausgeblendet werden.
 
 Ein Widget liefert über `buildWidget(instance, context)` ein KOReader-Widget und erhält ausschließlich seine lokale `context.dimen`-Geometrie. Sichtbare Widgets werden auf dem Homescreen in eigenen Karten angeordnet. AppDock prüft jede Minute, ob ein Drei-Minuten-Intervall abgelaufen ist, und baut den Homescreen anschließend regulär neu auf. Beim Verlassen des Homescreens wird dieser Timer abgemeldet. Widgets benötigen deshalb keine eigenen Hintergrundprozesse oder Android-Systemintegration.
 
