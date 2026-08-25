@@ -35,6 +35,7 @@ local DEFAULT_SETTINGS = {
         status = true,
         reading_hint = true,
         store = {},
+        store_order = {},
     },
     did_seed = false,
     theme = { selected = "lavender", custom = {} },
@@ -42,7 +43,7 @@ local DEFAULT_SETTINGS = {
     layout = { app_spacing = 16, logo_shape = "rounded", search_enabled = false },
     launch_on_start = false,
     notifications = { items = {}, next_id = 0 },
-    layout_version = 13,
+    layout_version = 14,
 }
 
 local function copyArray(source)
@@ -71,6 +72,7 @@ function AppDock:_loadSettings()
             status = DEFAULT_SETTINGS.widgets.status,
             reading_hint = DEFAULT_SETTINGS.widgets.reading_hint,
             store = {},
+            store_order = {},
         },
         did_seed = stored.did_seed or false,
         theme = stored.theme or { selected = "lavender", custom = {} },
@@ -110,6 +112,7 @@ function AppDock:_loadSettings()
     end
     self.settings.widgets.hint = nil
     self.settings.widgets.store = self.settings.widgets.store or {}
+    self.settings.widgets.store_order = self.settings.widgets.store_order or {}
     self.settings.theme = self.settings.theme or { selected = "lavender", custom = {} }
     self.settings.theme.selected = self.settings.theme.selected or "lavender"
     self.settings.theme.custom = self.settings.theme.custom or {}
@@ -482,6 +485,33 @@ function AppDock:isPinned(app_id)
     return false
 end
 
+local function moveValue(list, value, delta)
+    local index
+    for position, item in ipairs(list or {}) do
+        if item == value then index = position; break end
+    end
+    if not index then return false end
+    local target = index + delta
+    if target < 1 or target > #list then return false end
+    list[index], list[target] = list[target], list[index]
+    return true
+end
+
+function AppDock:getPinnedPosition(app_id)
+    for index, pinned_id in ipairs(self.settings.pinned_apps) do
+        if pinned_id == app_id then return index, #self.settings.pinned_apps end
+    end
+    return nil, #self.settings.pinned_apps
+end
+
+function AppDock:movePinned(app_id, delta)
+    if moveValue(self.settings.pinned_apps, app_id, delta) then
+        self:_saveSettings()
+        return true
+    end
+    return false
+end
+
 function AppDock:togglePinned(app_id)
     for index, pinned_id in ipairs(self.settings.pinned_apps) do
         if pinned_id == app_id then
@@ -503,19 +533,55 @@ end
 
 function AppDock:getStoreWidgets()
     local manager = self:getDAppManager()
-    local widgets = {}
+    local available, by_id = {}, {}
     for _, widget in ipairs(manager:getStoreWidgets()) do
         if self.settings.widgets.store[widget.widget_id] == nil then
             self.settings.widgets.store[widget.widget_id] = true
         end
-        table.insert(widgets, widget)
+        by_id[widget.widget_id] = widget
     end
+    local stored_order, order, seen = self.settings.widgets.store_order or {}, {}, {}
+    for _, widget_id in ipairs(stored_order) do
+        if by_id[widget_id] then available[#available + 1] = by_id[widget_id]; seen[widget_id] = true; order[#order + 1] = widget_id end
+    end
+    local remaining = {}
+    for widget_id, widget in pairs(by_id) do
+        if not seen[widget_id] then remaining[#remaining + 1] = widget end
+    end
+    table.sort(remaining, function(left, right) return left.title:lower() < right.title:lower() end)
+    for _, widget in ipairs(remaining) do
+        available[#available + 1] = widget
+        order[#order + 1] = widget.widget_id
+    end
+    self.settings.widgets.store_order = order
     self:_saveSettings()
-    return widgets
+    return available
 end
 
 function AppDock:isStoreWidgetEnabled(widget_id)
     return self.settings.widgets.store[widget_id] ~= false
+end
+
+function AppDock:getStoreWidgetPosition(widget_id)
+    local order = self.settings.widgets.store_order or {}
+    for index, value in ipairs(order) do
+        if value == widget_id then return index, #order end
+    end
+    return nil, #order
+end
+
+function AppDock:moveStoreWidget(widget_id, delta)
+    local order = self.settings.widgets.store_order or {}
+    local known = {}
+    local available = self:getStoreWidgets()
+    for _, widget in ipairs(available) do known[widget.widget_id] = true end
+    if not known[widget_id] then return false end
+    if moveValue(order, widget_id, delta) then
+        self.settings.widgets.store_order = order
+        self:_saveSettings()
+        return true
+    end
+    return false
 end
 
 function AppDock:toggleStoreWidget(widget_id)
