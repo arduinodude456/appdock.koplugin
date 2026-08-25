@@ -52,6 +52,13 @@ local BrightnessSlider = InputContainer:extend{
     brightness = nil,
 }
 
+local NotificationRow = InputContainer:extend{
+    notification = nil,
+    callback = nil,
+    width = nil,
+    height = nil,
+}
+
 local function scale(value)
     return Screen:scaleBySize(value)
 end
@@ -177,6 +184,37 @@ function QuickTile:paintTo(bb, x, y)
 end
 
 function QuickTile:onTapQuickTile()
+    if self.callback then self.callback() end
+    return true
+end
+
+function NotificationRow:init()
+    self.dimen = Geom:new{ w = self.width, h = self.height }
+    local notification = self.notification or {}
+    local background = notification.read and PALETTE.surface or PALETTE.primary
+    local foreground = notification.read and PALETTE.on_surface or PALETTE.on_primary
+    local message_color = notification.read and PALETTE.on_variant or PALETTE.on_primary
+    self[1] = FrameContainer:new{
+        width = self.width, height = self.height, padding = 0, bordersize = 0,
+        radius = scale(11), background = background,
+        OverlapGroup:new{
+            dimen = self.dimen,
+            allow_mirroring = false,
+            TextWidget:new{ text = notification.title or _("AppDock"), face = Font:getFace("smallinfofont", scale(11)), fgcolor = foreground, bold = true, max_width = self.width - scale(30), overlap_offset = { scale(12), scale(7) } },
+            TextWidget:new{ text = notification.message or "", face = Font:getFace("smallinfofont", scale(9)), fgcolor = message_color, max_width = self.width - scale(30), overlap_offset = { scale(12), scale(22) } },
+            TextWidget:new{ text = notification.read and "" or "•", face = Font:getFace("cfont", scale(18)), fgcolor = foreground, overlap_offset = { self.width - scale(18), scale(8) } },
+        },
+    }
+    self.ges_events = { TapNotification = { GestureRange:new{ ges = "tap", range = self.dimen } } }
+end
+
+function NotificationRow:paintTo(bb, x, y)
+    local range = self.ges_events.TapNotification[1].range
+    range.x, range.y, range.w, range.h = x, y, self.dimen.w, self.dimen.h
+    return InputContainer.paintTo(self, bb, x, y)
+end
+
+function NotificationRow:onTapNotification()
     if self.callback then self.callback() end
     return true
 end
@@ -361,6 +399,16 @@ function QuickSettings:fullRefresh()
     self:_refresh("full", nil, true)
 end
 
+function QuickSettings:markAllNotificationsRead()
+    self.appdock:markAllNotificationsRead()
+    self:rebuild(true)
+end
+
+function QuickSettings:clearNotifications()
+    self.appdock:clearNotifications()
+    self:rebuild(true)
+end
+
 function QuickSettings:rebuild(refresh)
     local width = self.dimen.w
     local margin = scale(22)
@@ -371,7 +419,14 @@ function QuickSettings:rebuild(refresh)
     local slider_spacing = scale(12)
     local sheet_bottom = scale(18)
     local maximum_sheet_height = math.floor(self.dimen.h * 0.82)
-    local natural_height = header_height + 2 * tile_height + gap + slider_spacing + slider_height + sheet_bottom
+    local notification_title_height = scale(24)
+    local notification_row_height = scale(42)
+    local notification_action_height = scale(34)
+    local notification_items = self.appdock:getNotifications(3)
+    local notification_count = #notification_items
+    local show_notifications = true
+    local notification_height = notification_title_height + notification_count * (notification_row_height + gap) + (notification_count > 0 and notification_action_height + gap or 0)
+    local natural_height = header_height + 2 * tile_height + gap + slider_spacing + slider_height + slider_spacing + notification_height + sheet_bottom
     local compact = natural_height > maximum_sheet_height
     if compact then
         margin = scale(16)
@@ -381,7 +436,18 @@ function QuickSettings:rebuild(refresh)
         slider_height = scale(48)
         slider_spacing = scale(8)
         sheet_bottom = scale(12)
-        natural_height = header_height + 2 * tile_height + gap + slider_spacing + slider_height + sheet_bottom
+        notification_title_height = scale(20)
+        notification_row_height = scale(36)
+        notification_action_height = scale(30)
+        notification_items = self.appdock:getNotifications(1)
+        notification_count = #notification_items
+        notification_height = notification_title_height + notification_count * (notification_row_height + gap) + (notification_count > 0 and notification_action_height + gap or 0)
+        natural_height = header_height + 2 * tile_height + gap + slider_spacing + slider_height + slider_spacing + notification_height + sheet_bottom
+        if self.dimen.h < scale(360) then
+            show_notifications = false
+            notification_items, notification_count, notification_height = {}, 0, 0
+            natural_height = header_height + 2 * tile_height + gap + slider_spacing + slider_height + sheet_bottom
+        end
     end
     local tile_width = math.floor((width - 2 * margin - gap) / 2)
     self.sheet_height = math.min(natural_height, self.dimen.h)
@@ -389,6 +455,7 @@ function QuickSettings:rebuild(refresh)
     local brightness = self:_brightnessState()
     local wifi_on, wifi_available = getWifiState()
     local is_night = G_reader_settings:isTrue("night_mode")
+    local unread_notifications = self.appdock:getUnreadNotificationCount()
 
     local content = OverlapGroup:new{
         dimen = Geom:new{ w = width, h = self.dimen.h },
@@ -474,6 +541,41 @@ function QuickSettings:rebuild(refresh)
         overlap_offset = { margin, tile_y + 2 * (tile_height + gap) + slider_spacing },
     }
     table.insert(content, self.slider)
+    local notifications_y = self.slider.overlap_offset[2] + slider_height + slider_spacing
+    if show_notifications then
+        table.insert(content, TextWidget:new{
+            text = unread_notifications > 0 and string.format(_("Notifications · %d unread"), unread_notifications) or _("Notifications · all caught up"),
+            face = Font:getFace("smallinfofont", compact and scale(12) or scale(14)), fgcolor = PALETTE.on_surface, bold = true,
+            overlap_offset = { margin, notifications_y },
+        })
+        if notification_count == 0 then
+            table.insert(content, TextWidget:new{
+                text = _("No notifications yet"), face = Font:getFace("smallinfofont", scale(10)), fgcolor = PALETTE.on_variant,
+                overlap_offset = { margin, notifications_y + notification_title_height },
+            })
+        else
+            for index, notification in ipairs(notification_items) do
+                table.insert(content, NotificationRow:new{
+                    notification = notification, width = width - 2 * margin, height = notification_row_height,
+                    callback = function()
+                        self.appdock:markNotificationRead(notification.id)
+                        self:rebuild(true)
+                    end,
+                    overlap_offset = { margin, notifications_y + notification_title_height + (index - 1) * (notification_row_height + gap) },
+                })
+            end
+            local action_y = notifications_y + notification_title_height + notification_count * (notification_row_height + gap)
+            local action_width = math.floor((width - 2 * margin - gap) / 2)
+            table.insert(content, QuickTile:new{
+                title = _("Read all"), symbol = "✓", subtitle = _("Inbox"), active = false, callback = function() self:markAllNotificationsRead() end,
+                width = action_width, height = notification_action_height, compact = true, overlap_offset = { margin, action_y },
+            })
+            table.insert(content, QuickTile:new{
+                title = _("Clear all"), symbol = "×", subtitle = _("Inbox"), active = false, callback = function() self:clearNotifications() end,
+                width = action_width, height = notification_action_height, compact = true, overlap_offset = { margin + action_width + gap, action_y },
+            })
+        end
+    end
     self.layout = {
         compact = compact,
         tile_y = tile_y,
@@ -481,7 +583,7 @@ function QuickSettings:rebuild(refresh)
         gap = gap,
         slider_y = self.slider.overlap_offset[2],
         slider_height = slider_height,
-        content_bottom = self.slider.overlap_offset[2] + slider_height,
+        content_bottom = show_notifications and (notifications_y + notification_height) or (self.slider.overlap_offset[2] + slider_height),
         sheet_height = self.sheet_height,
     }
 
