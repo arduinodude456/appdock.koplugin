@@ -1291,7 +1291,11 @@ function DAppManager:_buildSettingsPane(instance, context)
     local rows = rows_by_category[selected_category.id]
     local storage_segments, storage_total, storage_file_count
     if selected_category.id == "storage" then
-        storage_segments, storage_total, storage_file_count = collectStorageSegments()
+        local storage_ok
+        storage_ok, storage_segments, storage_total, storage_file_count = pcall(collectStorageSegments)
+        if not storage_ok then
+            storage_segments, storage_total, storage_file_count = { { title = _("AppDock data"), bytes = 0 } }, 0, 0
+        end
         rows[1].subtitle = humanSize(storage_total) .. " · " .. tostring(storage_file_count) .. " files scanned"
     end
     local content = OverlapGroup:new{
