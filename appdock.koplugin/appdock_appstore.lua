@@ -534,6 +534,10 @@ function AppStore:buildPane(instance, context)
         }
         table.insert(content, ScrollableContainer:new{
             dimen = Geom:new{ w = card_width, h = list_height },
+            -- ScrollableContainer marks its show_parent dirty after every
+            -- offset change. Without this, the framebuffer changes but an
+            -- E-Ink device may not repaint the moved cards/scrollbar.
+            show_parent = context.host,
             list_content,
             overlap_offset = { margin, list_y },
         })
