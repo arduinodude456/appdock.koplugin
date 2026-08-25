@@ -228,6 +228,7 @@ function FileBrowser:_readEntries(path)
                     is_dir = attributes.mode == "directory",
                     size = attributes.size,
                     supported = attributes.mode == "file" and DocumentRegistry:hasProvider(fullpath),
+                    is_lua = attributes.mode == "file" and fullpath:lower():match("%.lua$") ~= nil,
                 })
             end
         end
@@ -248,6 +249,18 @@ function FileBrowser:enterDirectory(instance, context, path)
     local state = self:_ensureState(instance)
     state.path = path
     self:refresh(instance, context)
+end
+
+function FileBrowser:openLuaFile(instance, context, path)
+    local manager = context.manager
+    if not manager or not manager.openDAppFile then
+        UIManager:show(InfoMessage:new{ text = _("NightLua is not available in this AppDock session.") })
+        return
+    end
+    local ok, err = manager:openDAppFile("night_lua", path)
+    if not ok then
+        UIManager:show(InfoMessage:new{ text = _("Install NightLua from AppStore first.\n\n") .. tostring(err or "") })
+    end
 end
 
 function FileBrowser:openFile(instance, context, path, supported)
@@ -298,6 +311,8 @@ function FileBrowser:buildPane(instance, context)
             local subtitle
             if entry.is_dir then
                 subtitle = entry.path
+            elseif entry.is_lua then
+                subtitle = _("Open in NightLua") .. " · " .. humanSize(entry.size)
             elseif entry.supported then
                 subtitle = _("Open document") .. " · " .. humanSize(entry.size)
             else
@@ -313,6 +328,8 @@ function FileBrowser:buildPane(instance, context)
                 callback = function()
                     if entry.is_dir then
                         self:enterDirectory(instance, context, entry.path)
+                    elseif entry.is_lua then
+                        self:openLuaFile(instance, context, entry.path)
                     else
                         self:openFile(instance, context, entry.path, entry.supported)
                     end

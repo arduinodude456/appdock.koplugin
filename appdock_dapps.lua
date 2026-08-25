@@ -458,6 +458,7 @@ function DAppManager:loadStoreDApp(file, source_path, restoring, expected_id)
         symbol = definition.symbol or "D",
         logo = definition.logo or "app_store",
         buildPane = definition.buildPane,
+        openFile = type(definition.openFile) == "function" and definition.openFile or nil,
     }
     if not restoring then
         self.appdock.settings.store = self.appdock.settings.store or { installed = {} }
@@ -565,6 +566,18 @@ function DAppManager:activate(id, home)
     local host = DAppHost:new{ manager = self, dapp_id = id, dapp_ids = { id }, split = false }
     self.active_host = host
     UIManager:show(host)
+end
+
+function DAppManager:openDAppFile(id, file)
+    local instance = self:_instanceFor(id)
+    if not instance then return false, _("This DApp is not installed.") end
+    local handler = instance.definition.openFile
+    if not handler then return false, _("This DApp cannot open files from AppDock Files.") end
+    local ok, accepted, reason = pcall(handler, instance, file)
+    if not ok then return false, accepted end
+    if not accepted then return false, reason or _("The DApp could not open this file.") end
+    self:activate(id)
+    return true
 end
 
 function DAppManager:showDAppActions(id, recents)
