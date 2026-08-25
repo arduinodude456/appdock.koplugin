@@ -41,7 +41,8 @@ local DEFAULT_SETTINGS = {
     store = { installed = {} },
     layout = { app_spacing = 16, logo_shape = "rounded", search_enabled = false },
     launch_on_start = false,
-    layout_version = 12,
+    notifications = { items = {}, next_id = 0 },
+    layout_version = 13,
 }
 
 local function copyArray(source)
@@ -76,6 +77,7 @@ function AppDock:_loadSettings()
         store = stored.store or { installed = {} },
         layout = stored.layout or {},
         launch_on_start = stored.launch_on_start == true,
+        notifications = stored.notifications or { items = {}, next_id = 0 },
         layout_version = stored.layout_version or 1,
     }
 
@@ -113,6 +115,25 @@ function AppDock:_loadSettings()
     self.settings.theme.custom = self.settings.theme.custom or {}
     self.settings.store = self.settings.store or { installed = {} }
     self.settings.store.installed = self.settings.store.installed or {}
+    self.settings.notifications = self.settings.notifications or { items = {}, next_id = 0 }
+    self.settings.notifications.items = self.settings.notifications.items or {}
+    self.settings.notifications.next_id = tonumber(self.settings.notifications.next_id) or 0
+    local normalized_notifications = {}
+    for _, item in ipairs(self.settings.notifications.items) do
+        if type(item) == "table" and type(item.title) == "string" and type(item.message) == "string" then
+            table.insert(normalized_notifications, {
+                id = tonumber(item.id) or 0,
+                title = item.title:sub(1, 72),
+                message = item.message:sub(1, 240),
+                source = type(item.source) == "string" and item.source:sub(1, 48) or "AppDock",
+                priority = item.priority == "high" and "high" or "normal",
+                created_at = tonumber(item.created_at) or os.time(),
+                read = item.read == true,
+            })
+        end
+    end
+    while #normalized_notifications > 50 do table.remove(normalized_notifications) end
+    self.settings.notifications.items = normalized_notifications
     self:_saveSettings()
 end
 
@@ -136,6 +157,68 @@ function AppDock:setLauncherLayout(changes)
     if changes.search_enabled ~= nil then
         self.settings.layout.search_enabled = not not changes.search_enabled
     end
+    self:_saveSettings()
+end
+
+function AppDock:getNotifications(limit)
+    local items, result = self.settings.notifications.items or {}, {}
+    local max_items = math.max(1, math.min(50, tonumber(limit) or #items))
+    for index, item in ipairs(items) do
+        if index > max_items then break end
+        table.insert(result, item)
+    end
+    return result
+end
+
+function AppDock:getUnreadNotificationCount()
+    local count = 0
+    for _, item in ipairs(self.settings.notifications.items or {}) do
+        if not item.read then count = count + 1 end
+    end
+    return count
+end
+
+function AppDock:notify(payload)
+    if type(payload) ~= "table" then return false, "Notification payload must be a table." end
+    local title, message = payload.title, payload.message
+    if type(title) ~= "string" or title:match("^%s*$") then return false, "Notification title is required." end
+    if type(message) ~= "string" or message:match("^%s*$") then return false, "Notification message is required." end
+    self.settings.notifications.next_id = self.settings.notifications.next_id + 1
+    local notification = {
+        id = self.settings.notifications.next_id,
+        title = title:sub(1, 72),
+        message = message:sub(1, 240),
+        source = type(payload.source) == "string" and payload.source:sub(1, 48) or "AppDock",
+        priority = payload.priority == "high" and "high" or "normal",
+        created_at = os.time(),
+        read = false,
+    }
+    table.insert(self.settings.notifications.items, 1, notification)
+    while #self.settings.notifications.items > 50 do table.remove(self.settings.notifications.items) end
+    self:_saveSettings()
+    local ok, Notifications = pcall(require, "appdock_notifications")
+    if ok and Notifications and Notifications.showToast then Notifications.showToast(notification) end
+    return true, notification
+end
+
+function AppDock:markNotificationRead(id)
+    for _, item in ipairs(self.settings.notifications.items or {}) do
+        if item.id == id then
+            item.read = true
+            self:_saveSettings()
+            return true
+        end
+    end
+    return false
+end
+
+function AppDock:markAllNotificationsRead()
+    for _, item in ipairs(self.settings.notifications.items or {}) do item.read = true end
+    self:_saveSettings()
+end
+
+function AppDock:clearNotifications()
+    self.settings.notifications.items = {}
     self:_saveSettings()
 end
 
