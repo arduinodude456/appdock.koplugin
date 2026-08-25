@@ -1,8 +1,57 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **1.8.3** richtet sich gestalterisch an Android 16 und **Material 3 Expressive** aus: ein kohärentes, ruhiges Farbsystem, große gerundete Formen, betonte Informationshierarchie und schnell erfassbare Widgets. [1] [2]
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **2.0.0** richtet sich gestalterisch an Android 16 und **Material 3 Expressive** aus: ein kohärentes, ruhiges Farbsystem, große gerundete Formen, betonte Informationshierarchie und schnell erfassbare Widgets. [1] [2]
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst die Formensprache und Informationsstruktur, nicht die Android-Animationen, Unschärfen oder Transparenzeffekte. Damit bleiben Aktualisierungen sparsam und die Darstellung auf monochromen Readern kontrastreich.
+
+## UI auf echter Hardware
+Die folgenden **unveränderten Originalfotos** zeigen AppDock während eines praktischen Tests auf einem Tolino. Sie wurden weder zugeschnitten noch aufgehellt, retuschiert, komprimiert oder anderweitig bearbeitet. Dadurch vermitteln sie bewusst einen ehrlichen Eindruck der aktuellen Darstellung auf echter E‑Ink-Hardware, einschließlich Umgebungslicht, Kameraperspektive und sichtbarer Layoutgrenzen.
+
+### Homescreen und Schnellzugriff
+
+![AppDock Homescreen mit Statuszeile, Quote-Widget und App-Raster](docs/ui-photos/IMG_20260825_172553291.jpg)
+
+*AppDock-Homescreen mit Begrüßung, Akkuanzeige, Quote-Widget und sechs angehefteten Apps.*
+
+![AppDock Quick Settings im dunklen Theme](docs/ui-photos/IMG_20260825_172614888.jpg)
+
+*Quick Settings im dunklen Theme mit WLAN, Nachtmodus, Refresh, App-Editor und Helligkeitsregler.*
+
+![AppDock Quick Settings im hellen Theme](docs/ui-photos/IMG_20260825_172606578.jpg)
+
+*Quick Settings im hellen Theme auf demselben Gerät.*
+
+### DApps und Multitasking
+
+![AppDock Analog Clock DApp](docs/ui-photos/IMG_20260825_172834808.jpg)
+
+*Analog Clock als eigenständige DApp im AppDock-Pane.*
+
+![AppDock Open Apps Übersicht](docs/ui-photos/IMG_20260825_172921162.jpg)
+
+*Open Apps-Ansicht mit geöffneten Calendar- und DReader-Panes.*
+
+![AppDock Split Screen mit DReader und Calendar](docs/ui-photos/IMG_20260825_172935675.jpg)
+
+*Split-Screen-Darstellung mit DReader oben und Calendar unten.*
+
+### AppStore, Settings und System-DApps
+
+![AppDock AppStore mit DApps und Widgets](docs/ui-photos/IMG_20260825_172656896.jpg)
+
+*AppStore-Katalog mit installierten und noch nicht installierten DApps.*
+
+![AppDock Settings mit Storage und Other](docs/ui-photos/IMG_20260825_172633707.jpg)
+
+*Settings-DApp mit den Kategorien Network, Display, Storage und Other.*
+
+![AppDock File Manager](docs/ui-photos/IMG_20260825_172823436.jpg)
+
+*Eigener AppDock File Manager mit Ordner- und Dateieinträgen.*
+
+![AppDock Web Browser](docs/ui-photos/IMG_20260825_172711843.jpg)
+
+*Web Browser DApp mit adressierter Suche und Schnellzugriffen.*
 
 ## Homescreen
 
