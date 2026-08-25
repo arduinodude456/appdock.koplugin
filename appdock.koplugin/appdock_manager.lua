@@ -29,14 +29,6 @@ function AppDockManager:showDialog()
         end)
     end
 
-    local function moveRow(label, position, total, move_up, move_down)
-        return {
-            { text = "↑", enabled = position > 1, callback = function() if position > 1 then move_up(); refresh() end end },
-            { text = string.format("%d/%d  %s", position, total, label), enabled = false },
-            { text = "↓", enabled = position < total, callback = function() if position < total then move_down(); refresh() end end },
-        }
-    end
-
     table.insert(buttons, {
         {
             text = _("Widgets"),
@@ -63,24 +55,12 @@ function AppDockManager:showDialog()
 
     table.insert(buttons, {
         {
-            text = _("Arrange store widgets"),
+            text = _("Store widgets"),
             enabled = false,
         },
     })
 
     local widgets = appdock:getStoreWidgets()
-    for position, widget in ipairs(widgets) do
-        table.insert(buttons, moveRow(widget.title, position, #widgets,
-            function() appdock:moveStoreWidget(widget.widget_id, -1) end,
-            function() appdock:moveStoreWidget(widget.widget_id, 1) end))
-    end
-
-    table.insert(buttons, {
-        {
-            text = _("Store widgets"),
-            enabled = false,
-        },
-    })
 
     for _, widget in ipairs(widgets) do
         table.insert(buttons, {
@@ -92,20 +72,6 @@ function AppDockManager:showDialog()
                 end,
             },
         })
-    end
-
-    table.insert(buttons, {
-        {
-            text = _("Arrange apps"),
-            enabled = false,
-        },
-    })
-
-    local pinned = appdock:getPinnedApps()
-    for position, app in ipairs(pinned) do
-        table.insert(buttons, moveRow(app.title, position, #pinned,
-            function() appdock:movePinned(app.id, -1) end,
-            function() appdock:movePinned(app.id, 1) end))
     end
 
     table.insert(buttons, {
