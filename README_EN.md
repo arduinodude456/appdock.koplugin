@@ -4,7 +4,7 @@
 
 # New releases regulary commited at 3:00 AM CET
 
-**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **4.0.1 “Bueno”** fixes the Plugin-in-DApp beta for real dynamic plugin menus such as Text editor and for AppStore-style launch actions. [1] [2]
+**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **4.0.2 “Bueno”** restores the expected direct start for a single real plugin main-menu action in the Plugin-in-DApp beta. [1] [2]
 
 > **E-Ink approach:** AppDock deliberately borrows the visual language and information structure, not Android's animations, blur, or transparency effects. This keeps updates economical and maintains contrast on monochrome readers.
 
@@ -13,6 +13,8 @@
 > **4.0.0 “Bueno”:** **Settings → Display → Beta features** can route enabled plugin tiles through an AppDock plugin host. Cooperating plugins can provide a local pane contract and use AppDock notifications; unadapted plugins receive a safe action-list fallback. Plugin hosts deliberately never support split screen, and AppDock does not globally intercept arbitrary plugin dialogs. See [`RELEASE_NOTES_4.0.0.md`](RELEASE_NOTES_4.0.0.md).
 
 > **4.0.1 “Bueno”:** The plugin host adds a local TouchMenu adapter for dynamic Text editor-style submenus and starts AppStore-style actions only after the host menu has closed in the next UI cycle. See [`RELEASE_NOTES_4.0.1.md`](RELEASE_NOTES_4.0.1.md).
+
+> **4.0.2 “Bueno”:** A plugin with exactly one published main-menu action now starts that action automatically after its AppDock session has opened. Text editor therefore opens its dynamic first submenu immediately, and AppStore starts its native browser immediately. See [`RELEASE_NOTES_4.0.2.md`](RELEASE_NOTES_4.0.2.md).
 
 ## UI on real hardware
 

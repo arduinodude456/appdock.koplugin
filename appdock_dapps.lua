@@ -1133,6 +1133,17 @@ function DAppManager:activatePlugin(plugin_app, home)
         buildPane = function(host_instance, host_context) return self:_buildPluginHostPane(host_instance, host_context) end,
     }
     self:activate(id, home)
+    if #plugin_app.actions == 1 then
+        local single_action = plugin_app.actions[1]
+        UIManager:nextTick(function()
+            local host = self.active_host
+            local instance = self.instances[id]
+            if host and instance and host.dapp_id == id and instance.visible then
+                local context = self:_newContext(host, instance)
+                self:_invokePluginHostItem(instance, context, single_action.item)
+            end
+        end)
+    end
     return true
 end
 
@@ -2059,10 +2070,10 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("About AppDock"),
-                subtitle = _( "Version 4.0.1 · Bueno"),
+                subtitle = _( "Version 4.0.2 · Bueno"),
                 show_state = false,
                 callback = function()
-                    self:showSettingsNotice(_("AppDock 4.0.1 · Bueno\n\nPlugin tiles can optionally open in AppDock plugin hosts (Beta). Text editor-style dynamic menus now receive a compatible local TouchMenu adapter, and AppStore-style starts run after the host menu is closed. A cooperating plugin may render a local pane and use AppDock notifications; other plugins receive a safe action-host fallback. Plugin hosts never support split screen, and AppDock does not globally capture arbitrary plugin dialogs."))
+                    self:showSettingsNotice(_("AppDock 4.0.2 · Bueno\n\nA plugin with one published main-menu action now starts that action automatically after its AppDock host opens. This restores the direct start expected by Text editor and AppStore. Text editor-style dynamic menus receive a compatible local TouchMenu adapter. Plugin hosts never support split screen, and AppDock does not globally capture arbitrary plugin dialogs."))
                 end,
             },
             {
