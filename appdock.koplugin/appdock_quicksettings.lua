@@ -141,6 +141,8 @@ function QuickTile:init()
     local text_width = math.max(scale(12), self.width - scale(14))
     local title = Theme.fitLabel(self.title or "", text_width, title_size, 0)
     local subtitle = Theme.fitLabel(self.subtitle or "", text_width, subtitle_size, 0)
+    local line_gap = math.max(0, math.floor(self.height * .01))
+    self.layout = { title = title, subtitle = subtitle, line_gap = line_gap }
     self[1] = FrameContainer:new{
         width = self.width,
         height = self.height,
@@ -157,7 +159,7 @@ function QuickTile:init()
                     fgcolor = foreground,
                     bold = true,
                 },
-                VerticalSpan:new{ width = scale(1) },
+                VerticalSpan:new{ width = line_gap },
                 TextWidget:new{
                     text = title,
                     face = Font:getFace("smallinfofont", title_size),
@@ -165,7 +167,7 @@ function QuickTile:init()
                     bold = true,
                     max_width = text_width,
                 },
-                VerticalSpan:new{ width = scale(1) },
+                VerticalSpan:new{ width = line_gap },
                 TextWidget:new{
                     text = subtitle,
                     face = Font:getFace("smallinfofont", subtitle_size),

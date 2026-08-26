@@ -377,6 +377,8 @@ end
 
 function SplitDivider:init()
     self.dimen = Geom:new{ w = self.width, h = self.height }
+    self.touch_padding = math.max(scale(12), math.floor(self.height * 2))
+    self._last_split_y = nil
     self[1] = FrameContainer:new{
         width = self.width, height = self.height, padding = 0, bordersize = 0,
         background = PALETTE.outline,
@@ -391,14 +393,20 @@ end
 function SplitDivider:paintTo(bb, x, y)
     for _, event_name in ipairs({ "PanSplitDivider", "PanReleaseSplitDivider" }) do
         local range = self.ges_events[event_name][1].range
-        range.x, range.y, range.w, range.h = x, y, self.dimen.w, self.dimen.h
+        range.x = x
+        range.y = math.max(0, y - self.touch_padding)
+        range.w = self.dimen.w
+        range.h = self.dimen.h + 2 * self.touch_padding
     end
     return InputContainer.paintTo(self, bb, x, y)
 end
 
 function SplitDivider:_moveFromGesture(arg, gesture_event, persist)
-    if self.host and gesture_event and gesture_event.pos and gesture_event.pos.y then
-        return self.host:setSplitFromGesture(gesture_event.pos.y, persist)
+    local position = gesture_event and gesture_event.pos
+    local y = position and position.y or self._last_split_y
+    if y then
+        self._last_split_y = y
+        if self.host then return self.host:setSplitFromGesture(y, persist) end
     end
     return true
 end
@@ -2313,10 +2321,10 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("About AppDock"),
-                subtitle = _( "Version 4.2.1 · Layout"),
+                subtitle = _( "Version 4.2.2 · Controls"),
                 show_state = false,
                 callback = function()
-                    self:showSettingsNotice(_("AppDock 4.2.1 · Layout\n\nAppDock now keeps system button labels, settings rows, Quick Settings, Home cards, File Manager rows, App Store cards and Browser controls within their own bounds. Long text is shortened to one readable line instead of wrapping below or outside its control. The layout also adapts safely to compact split-screen panes."))
+                    self:showSettingsNotice(_("AppDock 4.2.2 · Controls\n\nQuick Settings tiles now use tighter text spacing, keeping their labels inside the tiles. The split-screen divider also has a much larger touch zone and remembers the last drag position when the touch controller omits it on release, making resizing more reliable."))
                 end,
             },
             {
