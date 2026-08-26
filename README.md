@@ -1,10 +1,12 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **3.0.1 „Cappuccino“** richtet sich gestalterisch an Android 16 und **Material 3 Expressive** aus: ein kohärentes, ruhiges Farbsystem, große gerundete Formen, betonte Informationshierarchie und schnell erfassbare Widgets. [1] [2]
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **3.1.0** erweitert das Material-You-inspirierte, E-Ink-freundliche Design um deklarative No-Code-Widgets: ein kohärentes, ruhiges Farbsystem, große gerundete Formen, betonte Informationshierarchie und schnell erfassbare Widgets. [1] [2]
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst die Formensprache und Informationsstruktur, nicht die Android-Animationen, Unschärfen oder Transparenzeffekte. Damit bleiben Aktualisierungen sparsam und die Darstellung auf monochromen Readern kontrastreich.
 
 > **3.0.1-Fix:** Der DApp-Berechtigungsdialog überschattet die Übersetzungsfunktion nicht mehr. Ein aktivierter AppDock-only Lockscreen erscheint nach KOReaders Suspend-/Resume-Zyklus, aber nicht beim normalen Schließen einer DApp. Details stehen in [`RELEASE_NOTES_3.0.1.md`](RELEASE_NOTES_3.0.1.md).
+
+> **3.1.0:** Die Store-DApp **WidgetGenerator** erstellt ohne Lua-Programmierung lokale Homescreen-Widgets aus eigenem Text, Uhrzeit, Datum und verfügbarem Akkustand. Konfigurationen sind auf 20 begrenzt, enthalten nie ausführbaren Nutzer-Code und lassen sich in WidgetGenerator aktualisieren, ausblenden oder löschen. Details stehen in [`RELEASE_NOTES_3.1.0.md`](RELEASE_NOTES_3.1.0.md).
 
 ## Neu in 3.0.0 „Cappuccino“
 
@@ -89,7 +91,7 @@ AppDock 1.8.0 unterstützt neben DApps einen getrennten Store-Widget-Vertrag. Ve
 
 Ein Widget liefert über `buildWidget(instance, context)` ein KOReader-Widget und erhält ausschließlich seine lokale `context.dimen`-Geometrie. Sichtbare Widgets werden auf dem Homescreen in eigenen Karten angeordnet. AppDock prüft jede Minute, ob ein Drei-Minuten-Intervall abgelaufen ist, und baut den Homescreen anschließend regulär neu auf. Beim Verlassen des Homescreens wird dieser Timer abgemeldet. Widgets benötigen deshalb keine eigenen Hintergrundprozesse oder Android-Systemintegration.
 
-Das Beispiel **Quote Widget** aus dem öffentlichen DApps-Repository enthält drei lokale Zitate und wechselt alle drei Minuten zu einem anderen Eintrag. Es verwendet weder Netzwerk noch Dateispeicherung.
+Das Beispiel **Quote Widget** aus dem öffentlichen DApps-Repository enthält drei lokale Zitate und wechselt alle drei Minuten zu einem anderen Eintrag. Es verwendet weder Netzwerk noch Dateispeicherung. Die Store-DApp **WidgetGenerator** ergänzt hierzu eigene deklarative Widgets mit begrenztem Text, Uhrzeit, Datum und verfügbarem Akkustand. Sie schreibt und führt keinen Nutzer-Lua-Code aus, lädt keine Daten aus dem Netz und kann höchstens 20 lokale Widgetkonfigurationen verwalten.
 
 ## Themes und AppStore
 

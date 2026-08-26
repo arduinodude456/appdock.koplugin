@@ -48,8 +48,9 @@ local DEFAULT_SETTINGS = {
     beta = { black_borders = false, keep_wallpaper_original_in_night = false },
     quick_settings = { tiles = { "wifi", "night", "refresh", "edit", "sleep", "power_saving", "wallpaper" } },
     dapp_permissions = {},
+    widget_generator = { items = {}, next_id = 0 },
     power_saving = false,
-    layout_version = 15,
+    layout_version = 16,
 }
 
 local function copyArray(source)
@@ -110,6 +111,7 @@ function AppDock:_loadSettings()
         beta = stored.beta or { black_borders = false, keep_wallpaper_original_in_night = false },
         quick_settings = stored.quick_settings or { tiles = copyArray(DEFAULT_SETTINGS.quick_settings.tiles) },
         dapp_permissions = stored.dapp_permissions or {},
+        widget_generator = stored.widget_generator or { items = {}, next_id = 0 },
         power_saving = stored.power_saving == true,
         layout_version = stored.layout_version or 1,
     }
@@ -165,6 +167,28 @@ function AppDock:_loadSettings()
     self.settings.quick_settings = self.settings.quick_settings or {}
     self.settings.quick_settings.tiles = copyArray(self.settings.quick_settings.tiles or DEFAULT_SETTINGS.quick_settings.tiles)
     self.settings.dapp_permissions = self.settings.dapp_permissions or {}
+    self.settings.widget_generator = self.settings.widget_generator or { items = {}, next_id = 0 }
+    self.settings.widget_generator.items = type(self.settings.widget_generator.items) == "table" and self.settings.widget_generator.items or {}
+    self.settings.widget_generator.next_id = math.max(0, math.floor(tonumber(self.settings.widget_generator.next_id) or 0))
+    local normalized_generated = {}
+    local generated_count = 0
+    for id, item in pairs(self.settings.widget_generator.items) do
+        if generated_count >= 20 then break end
+        if type(id) == "string" and id:match("^generated_widget_%d+$") and type(item) == "table" then
+            local title = type(item.title) == "string" and item.title:sub(1, 36) or _("Custom widget")
+            title = title:match("^%s*(.-)%s*$") or ""
+            if title == "" then title = _("Custom widget") end
+            normalized_generated[id] = {
+                title = title,
+                text = type(item.text) == "string" and item.text:sub(1, 180) or "",
+                show_time = item.show_time == true,
+                show_date = item.show_date == true,
+                show_battery = item.show_battery == true,
+            }
+            generated_count = generated_count + 1
+        end
+    end
+    self.settings.widget_generator.items = normalized_generated
     local normalized_notifications = {}
     for _, item in ipairs(self.settings.notifications.items) do
         if type(item) == "table" and type(item.title) == "string" and type(item.message) == "string" then

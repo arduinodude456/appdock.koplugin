@@ -492,6 +492,7 @@ function DAppManager:new(appdock)
         definitions = {},
         widget_definitions = {},
         widget_instances = {},
+        generated_widget_instances = {},
         browser = WebBrowser:new(),
         file_browser = FileBrowser:new(),
         app_store = AppStore:new(),
@@ -710,8 +711,124 @@ function DAppManager:getStoreWidgets()
             kind = "widget",
         })
     end
+    local generated = self.appdock.settings.widget_generator and self.appdock.settings.widget_generator.items or {}
+    for id, item in pairs(generated) do
+        local definition = self:_generatedWidgetDefinition(id, item)
+        local instance = self.generated_widget_instances[id] or { id = id, definition = definition }
+        instance.definition = definition
+        self.generated_widget_instances[id] = instance
+        table.insert(widgets, {
+            id = "widget:" .. id,
+            widget_id = id,
+            title = definition.title,
+            subtitle = definition.subtitle,
+            symbol = definition.symbol,
+            logo = definition.logo,
+            definition = definition,
+            instance = instance,
+            kind = "generated_widget",
+        })
+    end
     table.sort(widgets, function(left, right) return left.title:lower() < right.title:lower() end)
     return widgets
+end
+
+function DAppManager:_generatedWidgetDefinition(id, item)
+    local manager = self
+    return {
+        id = id,
+        title = item.title,
+        subtitle = _("Created with WidgetGenerator"),
+        symbol = "W",
+        logo = "settings",
+        buildWidget = function(instance, context)
+            return manager:_buildGeneratedWidget(instance, context, item)
+        end,
+    }
+end
+
+function DAppManager:_buildGeneratedWidget(instance, context, item)
+    applyTheme(self.appdock)
+    local width, height = context.dimen.w, context.dimen.h
+    local margin = math.max(6, math.floor(math.min(width, height) * 0.07))
+    local lines = {}
+    if item.text and item.text ~= "" then lines[#lines + 1] = item.text end
+    if item.show_time then lines[#lines + 1] = os.date("%H:%M") end
+    if item.show_date then lines[#lines + 1] = os.date("%d.%m.%Y") end
+    if item.show_battery then
+        local ok, capacity = pcall(function()
+            local powerd = Device:getPowerDevice()
+            return powerd and powerd.getCapacity and powerd:getCapacity() or nil
+        end)
+        if ok and type(capacity) == "number" then lines[#lines + 1] = string.format(_("Battery %d%%"), math.floor(capacity + 0.5)) end
+    end
+    if #lines == 0 then lines[1] = _("Configure this widget in WidgetGenerator.") end
+    local content = {
+        FrameContainer:new{ width = width, height = height, padding = 0, bordersize = 0, radius = math.max(4, math.floor(height * 0.12)), background = PALETTE.surface_variant or PALETTE.surface, emptySizedWidget(width, height) },
+        TextWidget:new{ text = item.title, face = Font:getFace("smallinfofont", math.max(10, scale(12))), bold = true, fgcolor = PALETTE.on_surface, max_width = width - 2 * margin, overlap_offset = { margin, margin } },
+    }
+    local y = margin + math.max(16, scale(18))
+    for line_index, line in ipairs(lines) do
+        content[#content + 1] = TextWidget:new{ text = line, face = Font:getFace("smallinfofont", math.max(9, scale(10))), fgcolor = PALETTE.on_variant, max_width = width - 2 * margin, overlap_offset = { margin, y } }
+        y = y + math.max(13, scale(15))
+    end
+    return OverlapGroup:new{ dimen = Geom:new{ w = width, h = height }, allow_mirroring = false, unpack(content) }
+end
+
+function DAppManager:getGeneratedWidgets()
+    local items, results = self.appdock.settings.widget_generator.items, {}
+    for id, item in pairs(items) do
+        results[#results + 1] = { id = id, title = item.title, text = item.text, show_time = item.show_time, show_date = item.show_date, show_battery = item.show_battery }
+    end
+    table.sort(results, function(left, right) return left.title:lower() < right.title:lower() end)
+    return results
+end
+
+function DAppManager:_normalizedGeneratedWidget(spec)
+    spec = type(spec) == "table" and spec or {}
+    local title = type(spec.title) == "string" and spec.title:sub(1, 36):match("^%s*(.-)%s*$") or ""
+    if title == "" then title = _("Custom widget") end
+    return {
+        title = title,
+        text = type(spec.text) == "string" and spec.text:sub(1, 180) or "",
+        show_time = spec.show_time == true,
+        show_date = spec.show_date == true,
+        show_battery = spec.show_battery == true,
+    }
+end
+
+function DAppManager:createGeneratedWidget(spec)
+    local config = self.appdock.settings.widget_generator
+    local count = 0
+    for _id in pairs(config.items) do count = count + 1 end
+    if count >= 20 then return nil, _("You can create up to 20 custom widgets.") end
+    config.next_id = (tonumber(config.next_id) or 0) + 1
+    local id = "generated_widget_" .. config.next_id
+    config.items[id] = self:_normalizedGeneratedWidget(spec)
+    self.appdock.settings.widgets.store[id] = true
+    self.appdock:_saveSettings()
+    return id, config.items[id]
+end
+
+function DAppManager:updateGeneratedWidget(id, spec)
+    local items = self.appdock.settings.widget_generator.items
+    if not items[id] then return false, _("This custom widget no longer exists.") end
+    items[id] = self:_normalizedGeneratedWidget(spec)
+    self.generated_widget_instances[id] = nil
+    self.appdock:_saveSettings()
+    return true, items[id]
+end
+
+function DAppManager:removeGeneratedWidget(id)
+    local items = self.appdock.settings.widget_generator.items
+    if not items[id] then return false, _("This custom widget no longer exists.") end
+    items[id] = nil
+    self.generated_widget_instances[id] = nil
+    self.appdock.settings.widgets.store[id] = nil
+    local order = self.appdock.settings.widgets.store_order or {}
+    for index = #order, 1, -1 do if order[index] == id then table.remove(order, index) end end
+    self.appdock:_saveSettings()
+    return true
 end
 
 function DAppManager:uninstallStoreWidget(id)
@@ -825,6 +942,7 @@ function DAppManager:_newContext(host, instance, assigned_dimen)
     local ui_scale = math.max(0.45, math.min(1.40, math.min(assigned_dimen.w / baseline_width, assigned_dimen.h / baseline_height)))
     return {
         manager = self,
+        appdock = self.appdock,
         instance = instance,
         host = host,
         -- Single and split hosts both hand out an explicit local pane rectangle.
