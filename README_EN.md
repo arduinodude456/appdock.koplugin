@@ -4,13 +4,15 @@
 
 # New releases regulary commited at 3:00 AM CET
 
-**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **4.0.0 “Bueno”** adds an opt-in Plugin-in-DApp beta host for enabled KOReader plugins while retaining a local, E-Ink-friendly interaction model and explicit safety boundaries. [1] [2]
+**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **4.0.1 “Bueno”** fixes the Plugin-in-DApp beta for real dynamic plugin menus such as Text editor and for AppStore-style launch actions. [1] [2]
 
 > **E-Ink approach:** AppDock deliberately borrows the visual language and information structure, not Android's animations, blur, or transparency effects. This keeps updates economical and maintains contrast on monochrome readers.
 
 > **3.2.0:** Settings → Storage now retains the complete LuaFileSystem iterator contract and reports readable local files again. The AppDock-only lockscreen can show an optional local name and profile image; neither is device encryption or a device-level lock. Bluetooth is visible only on Kobo Libra Colour and opens the menu of an already installed compatible Bluetooth plugin. See [`RELEASE_NOTES_3.2.0.md`](RELEASE_NOTES_3.2.0.md).
 
 > **4.0.0 “Bueno”:** **Settings → Display → Beta features** can route enabled plugin tiles through an AppDock plugin host. Cooperating plugins can provide a local pane contract and use AppDock notifications; unadapted plugins receive a safe action-list fallback. Plugin hosts deliberately never support split screen, and AppDock does not globally intercept arbitrary plugin dialogs. See [`RELEASE_NOTES_4.0.0.md`](RELEASE_NOTES_4.0.0.md).
+
+> **4.0.1 “Bueno”:** The plugin host adds a local TouchMenu adapter for dynamic Text editor-style submenus and starts AppStore-style actions only after the host menu has closed in the next UI cycle. See [`RELEASE_NOTES_4.0.1.md`](RELEASE_NOTES_4.0.1.md).
 
 ## UI on real hardware
 

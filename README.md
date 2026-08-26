@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **4.0.0 „Bueno“** ergänzt als opt-in Beta einen Plugin-in-DApp-Host für aktivierte KOReader-Plugins, ohne die E-Ink-freundliche lokale Bedienung oder die bestehende DApp-Sicherheitsgrenze aufzugeben. [1] [2]
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **4.0.1 „Bueno“** korrigiert die Plugin-in-DApp-Beta für reale dynamische Pluginmenüs wie Text editor und für AppStore-ähnliche Startaktionen. [1] [2]
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst die Formensprache und Informationsstruktur, nicht die Android-Animationen, Unschärfen oder Transparenzeffekte. Damit bleiben Aktualisierungen sparsam und die Darstellung auf monochromen Readern kontrastreich.
 
@@ -11,6 +11,8 @@
 > **3.2.0:** Die Speicheransicht verwendet die vollständige LuaFileSystem-Iterator-Schnittstelle und zeigt lesbare lokale Dateien wieder mit Größe an. Der AppDock-only Lockscreen kann einen optionalen lokalen Namen und ein lokales Profilbild anzeigen; beides ist keine Gerätesperre oder Verschlüsselung. Bluetooth erscheint ausschließlich auf **Kobo Libra Colour** und öffnet nur das Menü einer bereits installierten kompatiblen Bluetooth-Erweiterung. Details stehen in [`RELEASE_NOTES_3.2.0.md`](RELEASE_NOTES_3.2.0.md).
 
 > **4.0.0 „Bueno“:** Unter **Settings → Display → Beta features** können bereits aktivierte Plugin-Kacheln in einem AppDock-Plugin-Host geöffnet werden. Kooperierende Plugins können einen lokalen Panevertrag und AppDock-Benachrichtigungen nutzen; nicht angepasste Plugins erhalten eine sichere Aktionsliste. Plugin-Hosts sind bewusst **nicht** splittbar, und fremde Plugin-Dialoge werden nicht global abgefangen. Details stehen in [`RELEASE_NOTES_4.0.0.md`](RELEASE_NOTES_4.0.0.md).
+
+> **4.0.1 „Bueno“:** Der Plugin-Host ergänzt einen lokalen TouchMenu-Adapter für dynamische Texteditor-Untermenüs und startet AppStore-ähnliche Aktionen erst nach dem Schließen des Hostmenüs im nächsten UI-Zyklus. Details stehen in [`RELEASE_NOTES_4.0.1.md`](RELEASE_NOTES_4.0.1.md).
 
 ## Neu in 3.0.0 „Cappuccino“
 

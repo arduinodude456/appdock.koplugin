@@ -952,7 +952,21 @@ function DAppManager:_pluginHostContext(instance, context)
     }
 end
 
-function DAppManager:_invokePluginHostItem(instance, context, item)
+function DAppManager:_newPluginMenuAdapter(instance, context, title, items, dialog)
+    local manager = self
+    local adapter = {
+        item_table = items or {},
+        page = 1,
+        _dialog = dialog,
+    }
+    function adapter:updateItems()
+        if self._dialog then UIManager:close(self._dialog) end
+        manager:_showPluginHostMenu(instance, context, self.item_table, title)
+    end
+    return adapter
+end
+
+function DAppManager:_invokePluginHostItem(instance, context, item, menu_adapter)
     if type(item) ~= "table" then return false end
     local enabled = item.enabled ~= false
     if enabled and type(item.enabled_func) == "function" then
@@ -969,7 +983,8 @@ function DAppManager:_invokePluginHostItem(instance, context, item)
         return false
     end
     if type(item.callback) == "function" then
-        local ok, accepted, reason = pcall(item.callback)
+        local adapter = menu_adapter or self:_newPluginMenuAdapter(instance, context, instance.definition.title, {}, nil)
+        local ok, accepted, reason = pcall(item.callback, adapter)
         if not ok or accepted == false then
             local detail = type(reason) == "string" and reason or (ok and _("The plugin action was not accepted.") or tostring(accepted))
             self.appdock:notify({
@@ -1013,8 +1028,15 @@ function DAppManager:_showPluginHostMenu(instance, context, items, title)
             if type(label) == "string" and label ~= "" then
                 local selected_item = item
                 buttons[#buttons + 1] = { { text = label, callback = function()
-                    UIManager:close(dialog)
-                    self:_invokePluginHostItem(instance, context, selected_item)
+                    local adapter = self:_newPluginMenuAdapter(instance, context, title, items, dialog)
+                    if selected_item.keep_menu_open then
+                        self:_invokePluginHostItem(instance, context, selected_item, adapter)
+                    else
+                        UIManager:close(dialog)
+                        UIManager:nextTick(function()
+                            self:_invokePluginHostItem(instance, context, selected_item, adapter)
+                        end)
+                    end
                 end } }
             end
         end
@@ -2037,10 +2059,10 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("About AppDock"),
-                subtitle = _( "Version 4.0.0 · Bueno"),
+                subtitle = _( "Version 4.0.1 · Bueno"),
                 show_state = false,
                 callback = function()
-                    self:showSettingsNotice(_("AppDock 4.0.0 · Bueno\n\nPlugin tiles can optionally open in AppDock plugin hosts (Beta). A cooperating plugin may render a local pane and use AppDock notifications; other plugins receive a safe action-host fallback. Plugin hosts never support split screen, and AppDock does not globally capture arbitrary plugin dialogs. Local wallpaper, AppDock-only access control, no-code widgets, DApp permissions and scalable DApp split panes remain available."))
+                    self:showSettingsNotice(_("AppDock 4.0.1 · Bueno\n\nPlugin tiles can optionally open in AppDock plugin hosts (Beta). Text editor-style dynamic menus now receive a compatible local TouchMenu adapter, and AppStore-style starts run after the host menu is closed. A cooperating plugin may render a local pane and use AppDock notifications; other plugins receive a safe action-host fallback. Plugin hosts never support split screen, and AppDock does not globally capture arbitrary plugin dialogs."))
                 end,
             },
             {
