@@ -2321,10 +2321,10 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("About AppDock"),
-                subtitle = _( "Version 4.2.2 · Controls"),
+                subtitle = _( "Version 4.2.3 · Split"),
                 show_state = false,
                 callback = function()
-                    self:showSettingsNotice(_("AppDock 4.2.2 · Controls\n\nQuick Settings tiles now use tighter text spacing, keeping their labels inside the tiles. The split-screen divider also has a much larger touch zone and remembers the last drag position when the touch controller omits it on release, making resizing more reliable."))
+                    self:showSettingsNotice(_("AppDock 4.2.3 · Split\n\nThe split-screen divider now remains bound to the same touch gesture while you drag. You can move it down and back up before releasing. AppDock applies the final pane size only on release, then saves the resulting split."))
                 end,
             },
             {
@@ -2477,9 +2477,11 @@ function DAppHost:setSplitFromGesture(position_y, persist)
             if appdock._saveSettings then appdock:_saveSettings() end
         end
     end
-    if changed or persist then
+    if persist then
         self:rebuild(true)
         UIManager:setDirty(self, "ui")
+    elseif changed then
+        UIManager:setDirty(self, "fast")
     end
     return true
 end

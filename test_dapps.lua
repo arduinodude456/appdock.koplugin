@@ -340,13 +340,16 @@ for _, child in ipairs(split_host[1]) do
 end
 assert(split_divider and split_divider.ges_events.PanReleaseSplitDivider and split_divider.touch_padding >= 12, "Split screen must expose a draggable divider with a forgiving touch zone")
 local first_height_before_drag = clock_instance.pane.dimen.h
+local chrome_before_drag = split_host[1]
 assert(split_divider:onPanSplitDivider(nil, { pos = { y = 560 } }), "Dragging the split divider must be handled")
-assert(clock_instance.pane.dimen.h > first_height_before_drag and settings_instance.pane.dimen.h < first_height_before_drag, "Dragging the divider downward must enlarge the upper pane and shrink the lower pane")
 assert(split_divider._last_split_y == 560, "Dragging the divider must retain the latest touch position for the release fallback")
+assert(split_host[1] == chrome_before_drag and split_host.split_ratio > .5, "A downward pan must retain the same divider gesture surface until release")
+assert(split_divider:onPanSplitDivider(nil, { pos = { y = 360 } }), "Dragging the same divider back upward must be handled")
+assert(split_divider._last_split_y == 360 and split_host[1] == chrome_before_drag and split_host.split_ratio < .5, "An upward pan after a downward pan must remain bound to the same divider gesture surface")
 assert(clock_instance.visible and settings_instance.visible and clock_instance.in_split and settings_instance.in_split and #split_host.active_panes == 2, "Resizing split panes must keep both DApps active without leaving split screen")
 local saves_before_split_release = log.store_saved or 0
 assert(split_divider:onPanReleaseSplitDivider(nil, {}), "Releasing the split divider without a final position must use the previous pan position")
-assert(appdock.settings.layout.split_ratio > .5 and (log.store_saved or 0) == saves_before_split_release + 1, "Releasing the divider must persist the bounded split ratio")
+assert(clock_instance.pane.dimen.h < first_height_before_drag and appdock.settings.layout.split_ratio < .5 and (log.store_saved or 0) == saves_before_split_release + 1, "Releasing the divider must rebuild and persist the final upward split position")
 local split_context = manager:_newContext(manager.active_host, clock_instance, clock_instance.pane.dimen)
 assert(split_context.scale == split_context.ui_scale and split_context.scale < 1 and split_context.scale >= 0.45, "Split DApps must receive a bounded relative UI scale")
 assert(split_context.px(40) < 40 and split_context.px(40) >= 1, "Relative DApp pixels must shrink safely in split screen")
