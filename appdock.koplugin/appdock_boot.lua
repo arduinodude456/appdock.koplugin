@@ -34,7 +34,7 @@ function BootScreen:rebuild()
         children[#children + 1] = VerticalSpan:new{ width = scale(15) }
         children[#children + 1] = TextWidget:new{ text = "AppDock", face = Font:getFace("cfont", scale(27)), fgcolor = Blitbuffer.COLOR_BLACK, bold = true }
         children[#children + 1] = VerticalSpan:new{ width = scale(5) }
-        children[#children + 1] = TextWidget:new{ text = _("Your calm KOReader homescreen"), face = Font:getFace("smallinfofont", scale(12)), fgcolor = Blitbuffer.COLOR_DARK_GRAY }
+        children[#children + 1] = TextWidget:new{ text = _("by @arduinodude456"), face = Font:getFace("smallinfofont", scale(12)), fgcolor = Blitbuffer.COLOR_DARK_GRAY }
     end
     self:clear()
     self[1] = FrameContainer:new{
@@ -52,7 +52,7 @@ function BootScreen:init()
         self.stage = 2
         self:rebuild()
         UIManager:setDirty(self, "ui")
-        UIManager:scheduleIn(0.55, self._finish)
+        UIManager:scheduleIn(1.0, self._finish)
     end
     self._finish = function()
         if self.completed then return end
@@ -66,7 +66,7 @@ end
 
 function BootScreen:onShow()
     UIManager:setDirty(self, "ui")
-    UIManager:scheduleIn(0.45, self._advance)
+    UIManager:scheduleIn(0.95, self._advance)
     return true
 end
 
