@@ -20,6 +20,7 @@ local ScrollHtmlWidget = require("ui/widget/scrollhtmlwidget")
 local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
+local Theme = require("appdock_theme")
 local util = require("util")
 local _ = require("gettext")
 

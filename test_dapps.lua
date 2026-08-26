@@ -336,19 +336,19 @@ assert(clock_instance.pane.dimen.h < 400 and settings_instance.pane.dimen.h < 40
 local split_host = manager.active_host
 local split_divider
 for _, child in ipairs(split_host[1]) do
-    if child.host == split_host and child.ges_events and child.ges_events.PanSplitDivider then split_divider = child; break end
+    if child.width == 600 and child.height == 8 then split_divider = child; break end
 end
-assert(split_divider and split_divider.ges_events.PanReleaseSplitDivider and split_divider.touch_padding >= 12, "Split screen must expose a draggable divider with a forgiving touch zone")
+assert(split_divider and split_host.ges_events.PanSplitHost and split_host.ges_events.PanReleaseSplitHost and split_host._split_touch_range and split_host._split_touch_range.h > 8, "Split screen must expose a broad absolute host touch zone instead of a divider-owned gesture")
 local first_height_before_drag = clock_instance.pane.dimen.h
 local chrome_before_drag = split_host[1]
-assert(split_divider:onPanSplitDivider(nil, { pos = { y = 560 } }), "Dragging the split divider must be handled")
-assert(split_divider._last_split_y == 560, "Dragging the divider must retain the latest touch position for the release fallback")
+assert(split_host:onPanSplitHost(nil, { pos = { y = 560 } }), "Dragging the split divider downward through the host must be handled")
+assert(split_host._split_last_y == 560, "Host split dragging must retain the latest touch position for the release fallback")
 assert(split_host[1] == chrome_before_drag and split_host.split_ratio > .5, "A downward pan must retain the same divider gesture surface until release")
-assert(split_divider:onPanSplitDivider(nil, { pos = { y = 360 } }), "Dragging the same divider back upward must be handled")
-assert(split_divider._last_split_y == 360 and split_host[1] == chrome_before_drag and split_host.split_ratio < .5, "An upward pan after a downward pan must remain bound to the same divider gesture surface")
+assert(split_host:onPanSplitHost(nil, { pos = { y = 360 } }), "Dragging the same divider back upward through the host must be handled")
+assert(split_host._split_last_y == 360 and split_host[1] == chrome_before_drag and split_host.split_ratio < .5, "An upward pan after a downward pan must remain bound to the same absolute host gesture surface")
 assert(clock_instance.visible and settings_instance.visible and clock_instance.in_split and settings_instance.in_split and #split_host.active_panes == 2, "Resizing split panes must keep both DApps active without leaving split screen")
 local saves_before_split_release = log.store_saved or 0
-assert(split_divider:onPanReleaseSplitDivider(nil, {}), "Releasing the split divider without a final position must use the previous pan position")
+assert(split_host:onPanReleaseSplitHost(nil, {}), "Releasing the split divider without a final position must use the previous host pan position")
 assert(clock_instance.pane.dimen.h < first_height_before_drag and appdock.settings.layout.split_ratio < .5 and (log.store_saved or 0) == saves_before_split_release + 1, "Releasing the divider must rebuild and persist the final upward split position")
 local split_context = manager:_newContext(manager.active_host, clock_instance, clock_instance.pane.dimen)
 assert(split_context.scale == split_context.ui_scale and split_context.scale < 1 and split_context.scale >= 0.45, "Split DApps must receive a bounded relative UI scale")

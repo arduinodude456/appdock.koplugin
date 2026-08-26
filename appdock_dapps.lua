@@ -51,6 +51,8 @@ local DAppHost = InputContainer:extend{
     split_ratio = nil,
     _split_content_top = nil,
     _split_available = nil,
+    _split_touch_range = nil,
+    _split_last_y = nil,
     dimen = nil,
     covers_fullscreen = true,
 }
@@ -377,46 +379,15 @@ end
 
 function SplitDivider:init()
     self.dimen = Geom:new{ w = self.width, h = self.height }
-    self.touch_padding = math.max(scale(12), math.floor(self.height * 2))
-    self._last_split_y = nil
     self[1] = FrameContainer:new{
         width = self.width, height = self.height, padding = 0, bordersize = 0,
         background = PALETTE.outline,
         emptySizedWidget(self.width, self.height),
     }
-    self.ges_events = {
-        PanSplitDivider = { GestureRange:new{ ges = "pan", range = self.dimen } },
-        PanReleaseSplitDivider = { GestureRange:new{ ges = "pan_release", range = self.dimen } },
-    }
 end
 
 function SplitDivider:paintTo(bb, x, y)
-    for _, event_name in ipairs({ "PanSplitDivider", "PanReleaseSplitDivider" }) do
-        local range = self.ges_events[event_name][1].range
-        range.x = x
-        range.y = math.max(0, y - self.touch_padding)
-        range.w = self.dimen.w
-        range.h = self.dimen.h + 2 * self.touch_padding
-    end
     return InputContainer.paintTo(self, bb, x, y)
-end
-
-function SplitDivider:_moveFromGesture(arg, gesture_event, persist)
-    local position = gesture_event and gesture_event.pos
-    local y = position and position.y or self._last_split_y
-    if y then
-        self._last_split_y = y
-        if self.host then return self.host:setSplitFromGesture(y, persist) end
-    end
-    return true
-end
-
-function SplitDivider:onPanSplitDivider(arg, gesture_event)
-    return self:_moveFromGesture(arg, gesture_event, false)
-end
-
-function SplitDivider:onPanReleaseSplitDivider(arg, gesture_event)
-    return self:_moveFromGesture(arg, gesture_event, true)
 end
 
 function SettingsCategory:init()
@@ -2321,10 +2292,10 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("About AppDock"),
-                subtitle = _( "Version 4.2.3 · Split"),
+                subtitle = _( "Version 4.2.4 · Stability"),
                 show_state = false,
                 callback = function()
-                    self:showSettingsNotice(_("AppDock 4.2.3 · Split\n\nThe split-screen divider now remains bound to the same touch gesture while you drag. You can move it down and back up before releasing. AppDock applies the final pane size only on release, then saves the resulting split."))
+                    self:showSettingsNotice(_("AppDock 4.2.4 · Stability\n\nSplit screen now receives drag gestures directly at the permanent AppDock host through an absolute touch zone around the divider. This makes resizing independent of the previous drag direction. The Web Browser also initializes its Theme helper explicitly, preventing the browser-start crash."))
                 end,
             },
             {
@@ -2452,6 +2423,10 @@ end
 function DAppHost:init()
     self.dimen = Screen:getSize()
     self.split_ratio = self:_initialSplitRatio()
+    self.ges_events = {
+        PanSplitHost = { GestureRange:new{ ges = "pan", range = function() return self._split_touch_range end } },
+        PanReleaseSplitHost = { GestureRange:new{ ges = "pan_release", range = function() return self._split_touch_range end } },
+    }
     if Device:hasKeys() then self.key_events.Close = { { Device.input.group.Back } } end
     self:rebuild()
 end
@@ -2484,6 +2459,22 @@ function DAppHost:setSplitFromGesture(position_y, persist)
         UIManager:setDirty(self, "fast")
     end
     return true
+end
+
+function DAppHost:_moveSplitFromGesture(arg, gesture_event, persist)
+    local position = gesture_event and gesture_event.pos
+    local y = position and position.y or self._split_last_y
+    if not y then return false end
+    self._split_last_y = y
+    return self:setSplitFromGesture(y, persist)
+end
+
+function DAppHost:onPanSplitHost(arg, gesture_event)
+    return self:_moveSplitFromGesture(arg, gesture_event, false)
+end
+
+function DAppHost:onPanReleaseSplitHost(arg, gesture_event)
+    return self:_moveSplitFromGesture(arg, gesture_event, true)
 end
 
 function DAppHost:rebuild(preserve_active)
@@ -2564,10 +2555,17 @@ function DAppHost:rebuild(preserve_active)
     end
     self.active_pane = self.active_panes[1]
 
+    self._split_touch_range = nil
     if self.split then
+        local divider_y = pane_regions[2].y - scale(3)
+        local touch_padding = math.max(scale(18), scale(8))
+        self._split_touch_range = Geom:new{
+            x = 0, y = math.max(0, divider_y - touch_padding),
+            w = width, h = scale(8) + 2 * touch_padding,
+        }
         table.insert(chrome, SplitDivider:new{
-            host = self, width = width, height = scale(8),
-            overlap_offset = { 0, pane_regions[2].y - scale(3) },
+            width = width, height = scale(8),
+            overlap_offset = { 0, divider_y },
         })
     end
 
