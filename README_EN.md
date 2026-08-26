@@ -4,11 +4,13 @@
 
 # New releases regulary commited at 3:00 AM CET
 
-**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **3.2.0** takes visual inspiration from Android 16 and **Material 3 Expressive** while adding a corrected local storage breakdown, an optional local lockscreen profile, and narrowly scoped Bluetooth settings for Kobo Libra Colour. [1] [2]
+**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **4.0.0 “Bueno”** adds an opt-in Plugin-in-DApp beta host for enabled KOReader plugins while retaining a local, E-Ink-friendly interaction model and explicit safety boundaries. [1] [2]
 
 > **E-Ink approach:** AppDock deliberately borrows the visual language and information structure, not Android's animations, blur, or transparency effects. This keeps updates economical and maintains contrast on monochrome readers.
 
 > **3.2.0:** Settings → Storage now retains the complete LuaFileSystem iterator contract and reports readable local files again. The AppDock-only lockscreen can show an optional local name and profile image; neither is device encryption or a device-level lock. Bluetooth is visible only on Kobo Libra Colour and opens the menu of an already installed compatible Bluetooth plugin. See [`RELEASE_NOTES_3.2.0.md`](RELEASE_NOTES_3.2.0.md).
+
+> **4.0.0 “Bueno”:** **Settings → Display → Beta features** can route enabled plugin tiles through an AppDock plugin host. Cooperating plugins can provide a local pane contract and use AppDock notifications; unadapted plugins receive a safe action-list fallback. Plugin hosts deliberately never support split screen, and AppDock does not globally intercept arbitrary plugin dialogs. See [`RELEASE_NOTES_4.0.0.md`](RELEASE_NOTES_4.0.0.md).
 
 ## UI on real hardware
 
@@ -123,6 +125,18 @@ Restart KOReader completely. Enable **AppDock Homescreen** under **More tools �
 The logo library provides **38** drawn symbols for productivity, media, communication, data, and navigation. The full selection and the `logo` field are documented in [`DAPP_LOGOS.md`](DAPP_LOGOS.md).
 
 DApps render only inside a pane rectangle assigned by the DApp host. A shared host can display two open DApps vertically in Split Screen without requiring those DApps to rewrite their layouts. Technical details are available in `DAPP_ARCHITECTURE.md` and `SPLITSCREEN_DESIGN.md`. [7] [8]
+
+## Plugin-in-DApp Beta
+
+**Settings → Display → Beta features → Run plugin tiles in AppDock hosts** is off by default. When enabled, a tile for an already enabled plugin opens an AppDock session with its own header and an **Open apps** entry. The established direct plugin launch path remains unchanged while the beta is disabled.
+
+| Plugin contract | AppDock behavior |
+|---|---|
+| Plugin implements `buildAppDockPane(context)` | AppDock renders the plugin’s local pane. The context provides local geometry, restrained refresh helpers, and `context.notify(...)` for AppDock notifications. |
+| Plugin only exposes `addToMainMenu(menu_items)` | AppDock presents a local, large action list from the published menu entries and calls existing callbacks without new arguments. |
+| Plugin opens its own KOReader screen or dialog | That UI remains under the plugin’s control. AppDock does not globally intercept it or claim to virtualize arbitrary foreign interfaces. |
+
+Plugin host sessions are labelled **Plugin host · Beta** in Open Apps and can never enter Split Screen. The ban is enforced in the long-press dialog, app picker, and underlying split-start path. Launch failures, unavailable actions, and blocked split attempts enter the local AppDock notification path. The complete contract is in [`APPDOCK_4_PLUGIN_HOST_BETA_DESIGN.md`](APPDOCK_4_PLUGIN_HOST_BETA_DESIGN.md).
 
 ## Storage and launcher layout
 

@@ -490,6 +490,7 @@ function DAppManager:new(appdock)
         active_id = nil,
         active_host = nil,
         definitions = {},
+        plugin_definitions = {},
         widget_definitions = {},
         widget_instances = {},
         generated_widget_instances = {},
@@ -894,7 +895,7 @@ end
 function DAppManager:_instanceFor(id)
     local instance = self.instances[id]
     if instance then return instance end
-    local definition = self.definitions[id]
+    local definition = self.definitions[id] or self.plugin_definitions[id]
     if not definition then return nil end
     instance = {
         id = id,
@@ -919,17 +920,198 @@ function DAppManager:getOpenApps()
     for index, id in ipairs(self.open_order) do
         local instance = self.instances[id]
         if instance then
+            local is_plugin_host = instance.definition.host_kind == "plugin"
             table.insert(apps, {
                 id = id,
                 title = instance.definition.title,
-                subtitle = instance.in_split and _("In split screen") or (instance.visible and _("Active") or _("Open")),
+                subtitle = is_plugin_host and _("Plugin host · Beta") or (instance.in_split and _("In split screen") or (instance.visible and _("Active") or _("Open"))),
                 symbol = instance.definition.symbol,
                 logo = instance.definition.logo,
                 last_active = instance.last_active,
+                can_split = instance.definition.can_split ~= false,
+                is_plugin_host = is_plugin_host,
             })
         end
     end
     return apps
+end
+
+function DAppManager:_pluginHostContext(instance, context)
+    return {
+        appdock = self.appdock,
+        manager = self,
+        instance = instance,
+        plugin = instance.definition.plugin_app,
+        notify = function(payload)
+            payload = type(payload) == "table" and payload or {}
+            payload.source = payload.source or instance.definition.title
+            return self.appdock:notify(payload)
+        end,
+        requestRefresh = context.requestRefresh,
+        requestRebuild = context.requestRebuild,
+    }
+end
+
+function DAppManager:_invokePluginHostItem(instance, context, item)
+    if type(item) ~= "table" then return false end
+    local enabled = item.enabled ~= false
+    if enabled and type(item.enabled_func) == "function" then
+        local enabled_ok, enabled_result = pcall(item.enabled_func)
+        enabled = enabled_ok and enabled_result == true
+    end
+    if not enabled then
+        self.appdock:notify({
+            title = _("Plugin action unavailable"),
+            message = _("This plugin action is currently unavailable."),
+            source = instance.definition.title,
+            priority = "high",
+        })
+        return false
+    end
+    if type(item.callback) == "function" then
+        local ok, accepted, reason = pcall(item.callback)
+        if not ok or accepted == false then
+            local detail = type(reason) == "string" and reason or (ok and _("The plugin action was not accepted.") or tostring(accepted))
+            self.appdock:notify({
+                title = _("Plugin action could not start"),
+                message = detail:sub(1, 240),
+                source = instance.definition.title,
+                priority = "high",
+            })
+            return false
+        end
+        return true
+    end
+    local children = item.sub_item_table
+    if type(children) ~= "table" and type(item.sub_item_table_func) == "function" then
+        local generated_ok, generated = pcall(item.sub_item_table_func)
+        children = generated_ok and generated or nil
+    end
+    if type(children) == "table" then
+        self:_showPluginHostMenu(instance, context, children, item.text or instance.definition.title)
+        return true
+    end
+    self.appdock:notify({
+        title = _("Plugin menu entry unavailable"),
+        message = _("This plugin menu entry is not launchable in the AppDock beta host."),
+        source = instance.definition.title,
+        priority = "high",
+    })
+    return false
+end
+
+function DAppManager:_showPluginHostMenu(instance, context, items, title)
+    local dialog
+    local buttons = {}
+    for item_index, item in ipairs(items or {}) do
+        if type(item) == "table" then
+            local label = item.text
+            if type(item.text_func) == "function" then
+                local text_ok, generated = pcall(item.text_func)
+                label = text_ok and generated or label
+            end
+            if type(label) == "string" and label ~= "" then
+                local selected_item = item
+                buttons[#buttons + 1] = { { text = label, callback = function()
+                    UIManager:close(dialog)
+                    self:_invokePluginHostItem(instance, context, selected_item)
+                end } }
+            end
+        end
+    end
+    if #buttons == 0 then
+        self.appdock:notify({
+            title = _("Plugin menu unavailable"),
+            message = _("This plugin menu has no launchable entries."),
+            source = instance.definition.title,
+            priority = "high",
+        })
+        return
+    end
+    buttons[#buttons + 1] = { { text = _("Back"), callback = function() UIManager:close(dialog) end } }
+    dialog = ButtonDialog:new{ title = title, buttons = buttons, rows_per_page = { 5, 6, 7 } }
+    UIManager:show(dialog)
+end
+
+function DAppManager:_buildPluginHostPane(instance, context)
+    local width, height = context.dimen.w, context.dimen.h
+    local plugin_app = instance.definition.plugin_app or {}
+    local actions = plugin_app.actions or {}
+    if type(plugin_app.buildAppDockPane) == "function" then
+        local plugin_context = self:_pluginHostContext(instance, context)
+        plugin_context.dimen = context.dimen
+        plugin_context.ui_scale = context.ui_scale
+        plugin_context.scale = context.scale
+        plugin_context.px = context.px
+        if not instance.plugin_host_opened and type(plugin_app.instance) == "table" and type(plugin_app.instance.onAppDockHostOpened) == "function" then
+            instance.plugin_host_opened = true
+            pcall(plugin_app.instance.onAppDockHostOpened, plugin_app.instance, plugin_context)
+        end
+        local built_ok, plugin_pane = pcall(plugin_app.buildAppDockPane, plugin_app.instance, plugin_context)
+        if built_ok and type(plugin_pane) == "table" then
+            plugin_pane.plugin_host_layout = { is_plugin_host = true, action_count = #actions, can_split = false, using_plugin_pane = true }
+            return plugin_pane
+        end
+    end
+    local pane = FrameContainer:new{
+        width = width, height = height, padding = 0, bordersize = 0,
+        background = PALETTE.background,
+        emptySizedWidget(width, height),
+    }
+    local content = OverlapGroup:new{
+        dimen = context.dimen,
+        allow_mirroring = false,
+        TextWidget:new{ text = plugin_app.title or instance.definition.title, face = Font:getFace("cfont", scale(21)), fgcolor = PALETTE.on_surface, bold = true, max_width = width - scale(36), overlap_offset = { scale(18), scale(18) } },
+        TextWidget:new{ text = _("Plugin host · Beta · Split screen unavailable"), face = Font:getFace("smallinfofont", scale(11)), fgcolor = PALETTE.on_variant, max_width = width - scale(36), overlap_offset = { scale(18), scale(48) } },
+        TextWidget:new{ text = _("Choose a plugin action. Compatible plugins may send local AppDock notifications through the host context."), face = Font:getFace("smallinfofont", scale(11)), fgcolor = PALETTE.on_variant, max_width = width - scale(36), overlap_offset = { scale(18), scale(68) } },
+    }
+    local shown_count = math.min(#actions, 5)
+    local has_more = #actions > shown_count
+    local row_count = shown_count + (has_more and 1 or 0)
+    if row_count == 0 then
+        content[#content + 1] = TextWidget:new{ text = _("This plugin currently exposes no launchable AppDock action."), face = Font:getFace("smallinfofont", scale(13)), fgcolor = PALETTE.on_surface, max_width = width - scale(36), overlap_offset = { scale(18), scale(116) } }
+    else
+        local top, gap = scale(104), scale(8)
+        local row_height = math.max(scale(42), math.min(scale(58), math.floor((height - top - scale(18) - gap * (row_count - 1)) / row_count)))
+        for action_index = 1, shown_count do
+            local selected_action = actions[action_index]
+            content[#content + 1] = SettingsRow:new{
+                title = selected_action.title or _("Plugin action"),
+                subtitle = _("Run through the AppDock beta host"), show_state = false,
+                width = width - scale(36), height = row_height,
+                callback = function() self:_invokePluginHostItem(instance, context, selected_action.item) end,
+                overlap_offset = { scale(18), top + (action_index - 1) * (row_height + gap) },
+            }
+        end
+        if has_more then
+            content[#content + 1] = SettingsRow:new{
+                title = _("More plugin actions"), subtitle = _("Open the remaining published menu entries"), show_state = false,
+                width = width - scale(36), height = row_height,
+                callback = function() self:_showPluginHostMenu(instance, context, actions, plugin_app.title or instance.definition.title) end,
+                overlap_offset = { scale(18), top + shown_count * (row_height + gap) },
+            }
+        end
+    end
+    pane[1] = content
+    pane.plugin_host_layout = { is_plugin_host = true, action_count = #actions, can_split = false }
+    return pane
+end
+
+function DAppManager:activatePlugin(plugin_app, home)
+    if type(plugin_app) ~= "table" or type(plugin_app.plugin_name) ~= "string" or type(plugin_app.actions) ~= "table" then return false end
+    local id = "plugin_host:" .. plugin_app.plugin_name
+    self.plugin_definitions[id] = {
+        id = id,
+        title = plugin_app.title or plugin_app.plugin_name,
+        subtitle = _("Plugin host · Beta"),
+        symbol = (plugin_app.title or plugin_app.plugin_name):sub(1, 1):upper(),
+        host_kind = "plugin",
+        can_split = false,
+        plugin_app = plugin_app,
+        buildPane = function(host_instance, host_context) return self:_buildPluginHostPane(host_instance, host_context) end,
+    }
+    self:activate(id, home)
+    return true
 end
 
 function DAppManager:_newContext(host, instance, assigned_dimen)
@@ -1045,6 +1227,22 @@ end
 function DAppManager:showDAppActions(id, recents)
     local instance = self.instances[id]
     if not instance then return end
+    if instance.definition.can_split == false then
+        local dialog
+        dialog = ButtonDialog:new{
+            title = instance.definition.title,
+            buttons = {
+                { { text = _("Plugin host beta · Split screen unavailable"), enabled = false } },
+                { { text = _("Close app"), callback = function()
+                    UIManager:close(dialog)
+                    self:closeDApp(id)
+                    if recents then recents:build(); UIManager:setDirty(recents, "ui") end
+                end } },
+            },
+        }
+        UIManager:show(dialog)
+        return
+    end
     local dialog
     dialog = ButtonDialog:new{
         title = instance.definition.title,
@@ -1078,9 +1276,14 @@ function DAppManager:showDAppActions(id, recents)
 end
 
 function DAppManager:beginSplitSelection(first_id, recents)
+    local first_instance = self.instances[first_id]
+    if not first_instance or first_instance.definition.can_split == false then
+        self.appdock:notify({ title = _("Plugin host beta"), message = _("Plugin host beta sessions cannot use split screen."), source = first_instance and first_instance.definition.title or "AppDock", priority = "high" })
+        return
+    end
     local candidates = {}
     for _, app in ipairs(self:getOpenApps()) do
-        if app.id ~= first_id then table.insert(candidates, app) end
+        if app.id ~= first_id and app.can_split ~= false then table.insert(candidates, app) end
     end
     if #candidates == 0 then
         UIManager:show(InfoMessage:new{
@@ -1116,6 +1319,11 @@ function DAppManager:startSplit(first_id, second_id)
     local first = self.instances[first_id]
     local second = self.instances[second_id]
     if not first or not second then return end
+    if first.definition.can_split == false or second.definition.can_split == false then
+        local blocked = first.definition.can_split == false and first or second
+        self.appdock:notify({ title = _("Plugin host beta"), message = _("Plugin host beta sessions cannot use split screen."), source = blocked.definition.title, priority = "high" })
+        return
+    end
     if self.active_host then UIManager:close(self.active_host) end
 
     local now = os.time()
@@ -1161,6 +1369,7 @@ function DAppManager:closeDApp(id)
     for index, open_id in ipairs(self.open_order) do
         if open_id == id then table.remove(self.open_order, index); break end
     end
+    if instance.definition.host_kind == "plugin" then self.plugin_definitions[id] = nil end
     self.instances[id] = nil
     if self.active_id == id then self.active_id = nil end
 end
@@ -1537,6 +1746,7 @@ function DAppManager:showBetaFeatures(instance, context)
         buttons = {
             { { text = (beta.black_borders and "✓ " or "") .. _("Black borders around AppDock controls"), callback = function() toggle("black_borders") end } },
             { { text = (beta.keep_wallpaper_original_in_night and "✓ " or "") .. _("Do not invert background image in night mode"), callback = function() toggle("keep_wallpaper_original_in_night") end } },
+            { { text = (beta.plugin_dapp_host and "✓ " or "") .. _("Run plugin tiles in AppDock hosts (Beta · no split screen)"), callback = function() toggle("plugin_dapp_host") end } },
             { { text = _("Cancel"), callback = function() UIManager:close(dialog) end } },
         },
     }
@@ -1827,10 +2037,10 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("About AppDock"),
-                subtitle = _( "Version 3.2.0"),
+                subtitle = _( "Version 4.0.0 · Bueno"),
                 show_state = false,
                 callback = function()
-                    self:showSettingsNotice(_("AppDock 3.2.0\n\nLocal wallpaper, AppDock-only swipe/PIN/pattern access control with an optional local name and profile image, configurable Control Center tiles, AppStore search, no-code local widgets, DApp permission controls and scalable split panes. Bluetooth is exposed only on Kobo Libra Colour and delegates to a separately installed plugin; AppDock never controls Bluetooth drivers. Background DApps run only with permission while KOReader is active; DockUpdate never installs automatically."))
+                    self:showSettingsNotice(_("AppDock 4.0.0 · Bueno\n\nPlugin tiles can optionally open in AppDock plugin hosts (Beta). A cooperating plugin may render a local pane and use AppDock notifications; other plugins receive a safe action-host fallback. Plugin hosts never support split screen, and AppDock does not globally capture arbitrary plugin dialogs. Local wallpaper, AppDock-only access control, no-code widgets, DApp permissions and scalable DApp split panes remain available."))
                 end,
             },
             {

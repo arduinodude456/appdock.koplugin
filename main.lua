@@ -45,12 +45,12 @@ local DEFAULT_SETTINGS = {
     notifications = { items = {}, next_id = 0 },
     wallpaper = { enabled = false, path = "" },
     lockscreen = { enabled = false, method = "swipe", secret_hash = nil, profile_name = "", profile_image_path = "" },
-    beta = { black_borders = false, keep_wallpaper_original_in_night = false },
+    beta = { black_borders = false, keep_wallpaper_original_in_night = false, plugin_dapp_host = false },
     quick_settings = { tiles = { "wifi", "night", "refresh", "edit", "sleep", "power_saving", "wallpaper" } },
     dapp_permissions = {},
     widget_generator = { items = {}, next_id = 0 },
     power_saving = false,
-    layout_version = 17,
+    layout_version = 18,
 }
 
 local function copyArray(source)
@@ -108,7 +108,7 @@ function AppDock:_loadSettings()
         notifications = stored.notifications or { items = {}, next_id = 0 },
         wallpaper = stored.wallpaper or { enabled = false, path = "" },
         lockscreen = stored.lockscreen or { enabled = false, method = "swipe", secret_hash = nil, profile_name = "", profile_image_path = "" },
-        beta = stored.beta or { black_borders = false, keep_wallpaper_original_in_night = false },
+        beta = stored.beta or { black_borders = false, keep_wallpaper_original_in_night = false, plugin_dapp_host = false },
         quick_settings = stored.quick_settings or { tiles = copyArray(DEFAULT_SETTINGS.quick_settings.tiles) },
         dapp_permissions = stored.dapp_permissions or {},
         widget_generator = stored.widget_generator or { items = {}, next_id = 0 },
@@ -174,6 +174,7 @@ function AppDock:_loadSettings()
     self.settings.beta = self.settings.beta or {}
     self.settings.beta.black_borders = self.settings.beta.black_borders == true
     self.settings.beta.keep_wallpaper_original_in_night = self.settings.beta.keep_wallpaper_original_in_night == true
+    self.settings.beta.plugin_dapp_host = self.settings.beta.plugin_dapp_host == true
     self.settings.quick_settings = self.settings.quick_settings or {}
     self.settings.quick_settings.tiles = copyArray(self.settings.quick_settings.tiles or DEFAULT_SETTINGS.quick_settings.tiles)
     self.settings.dapp_permissions = self.settings.dapp_permissions or {}
@@ -250,7 +251,7 @@ function AppDock:setWallpaper(path, enabled)
 end
 
 function AppDock:setBetaOption(key, enabled)
-    if key ~= "black_borders" and key ~= "keep_wallpaper_original_in_night" then return false end
+    if key ~= "black_borders" and key ~= "keep_wallpaper_original_in_night" and key ~= "plugin_dapp_host" then return false end
     self.settings.beta[key] = enabled == true
     self:_saveSettings()
     return true
@@ -598,7 +599,7 @@ function AppDock:_makePluginApp(plugin_module)
 
     local actions = {}
     for key, item in pairs(menu_items) do
-        if type(item) == "table" and (type(item.callback) == "function" or type(item.sub_item_table) == "table") then
+        if type(item) == "table" and (type(item.callback) == "function" or type(item.sub_item_table) == "table" or type(item.sub_item_table_func) == "function") then
             local action_title = item.text
             if type(item.text_func) == "function" then
                 local text_ok, generated_title = pcall(item.text_func)
@@ -625,6 +626,8 @@ function AppDock:_makePluginApp(plugin_module)
         title = plugin_module.fullname or plugin_module.name,
         subtitle = plugin_module.description or plugin_module.name,
         actions = actions,
+        instance = instance,
+        buildAppDockPane = type(instance.buildAppDockPane) == "function" and instance.buildAppDockPane or nil,
     }
 end
 
@@ -841,6 +844,11 @@ end
 function AppDock:launchApp(app, home)
     if app.kind == "dapp" then
         self:getDAppManager():activate(app.dapp_id, home)
+        return
+    end
+
+    if app.plugin_name and app.actions and self.settings.beta and self.settings.beta.plugin_dapp_host then
+        self:getDAppManager():activatePlugin(app, home)
         return
     end
 

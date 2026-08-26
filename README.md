@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **3.2.0** erweitert das Material-You-inspirierte, E-Ink-freundliche Design um korrigierte lokale Speicherübersichten, ein optionales lokales Lockscreen-Profil und eine bewusst eng begrenzte Bluetooth-Einstellung für Kobo Libra Colour. [1] [2]
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **4.0.0 „Bueno“** ergänzt als opt-in Beta einen Plugin-in-DApp-Host für aktivierte KOReader-Plugins, ohne die E-Ink-freundliche lokale Bedienung oder die bestehende DApp-Sicherheitsgrenze aufzugeben. [1] [2]
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst die Formensprache und Informationsstruktur, nicht die Android-Animationen, Unschärfen oder Transparenzeffekte. Damit bleiben Aktualisierungen sparsam und die Darstellung auf monochromen Readern kontrastreich.
 
@@ -9,6 +9,8 @@
 > **3.1.0:** Die Store-DApp **WidgetGenerator** erstellt ohne Lua-Programmierung lokale Homescreen-Widgets aus eigenem Text, Uhrzeit, Datum und verfügbarem Akkustand. Konfigurationen sind auf 20 begrenzt, enthalten nie ausführbaren Nutzer-Code und lassen sich in WidgetGenerator aktualisieren, ausblenden oder löschen. Details stehen in [`RELEASE_NOTES_3.1.0.md`](RELEASE_NOTES_3.1.0.md).
 
 > **3.2.0:** Die Speicheransicht verwendet die vollständige LuaFileSystem-Iterator-Schnittstelle und zeigt lesbare lokale Dateien wieder mit Größe an. Der AppDock-only Lockscreen kann einen optionalen lokalen Namen und ein lokales Profilbild anzeigen; beides ist keine Gerätesperre oder Verschlüsselung. Bluetooth erscheint ausschließlich auf **Kobo Libra Colour** und öffnet nur das Menü einer bereits installierten kompatiblen Bluetooth-Erweiterung. Details stehen in [`RELEASE_NOTES_3.2.0.md`](RELEASE_NOTES_3.2.0.md).
+
+> **4.0.0 „Bueno“:** Unter **Settings → Display → Beta features** können bereits aktivierte Plugin-Kacheln in einem AppDock-Plugin-Host geöffnet werden. Kooperierende Plugins können einen lokalen Panevertrag und AppDock-Benachrichtigungen nutzen; nicht angepasste Plugins erhalten eine sichere Aktionsliste. Plugin-Hosts sind bewusst **nicht** splittbar, und fremde Plugin-Dialoge werden nicht global abgefangen. Details stehen in [`RELEASE_NOTES_4.0.0.md`](RELEASE_NOTES_4.0.0.md).
 
 ## Neu in 3.0.0 „Cappuccino“
 
@@ -87,6 +89,18 @@ Starte KOReader danach vollständig neu. Unter **More tools → Plugin managemen
 Die Logo-Bibliothek umfasst jetzt **38** gezeichnete Symbole für Produktivität, Medien, Kommunikation, Daten und Navigation. Die vollständige Auswahl und die Einbindung über das Feld `logo` stehen in [`DAPP_LOGOS.md`](DAPP_LOGOS.md).
 
 DApps bauen ihren Inhalt ausschließlich innerhalb eines vom DApp-Host zugewiesenen Pane-Rechtecks. Der Pane-Vertrag ist in einem echten Splitscreen umgesetzt: Ein gemeinsamer Host kann zwei geöffnete DApps untereinander mit klarer Trennlinie darstellen, ohne die DApps selbst umzuschreiben. Der **File Manager** behält dabei seinen aktuellen Ordner als DApp-Zustand und bleibt deshalb ebenfalls in Open apps sichtbar und splittbar. Seine Auflistung verwendet KOReaders LuaFileSystem-Schnittstelle; reguläre Dateien und Ordner werden angezeigt, nicht unterstützte Dateien ausdrücklich markiert und nicht geöffnet. Die detaillierte technische Beschreibung steht in `DAPP_ARCHITECTURE.md` und `SPLITSCREEN_DESIGN.md`. [7] [8]
+
+## Plugin-in-DApp-Beta
+
+**Settings → Display → Beta features → Run plugin tiles in AppDock hosts** ist standardmäßig ausgeschaltet. Ist die Beta aktiv, öffnet eine Kachel eines bereits aktivierten Plugins eine AppDock-Sitzung mit eigener Kopfzeile und einem Eintrag in **Open apps**. Die bisherige direkte Plugin-Ausführung bleibt bei ausgeschalteter Beta unverändert.
+
+| Pluginvertrag | Verhalten |
+|---|---|
+| Plugin bietet `buildAppDockPane(context)` | AppDock zeichnet den vom Plugin erzeugten lokalen Pane. Der Kontext enthält lokale Geometrie, sparsame Refresh-Hilfen und `context.notify(...)` für AppDock-Benachrichtigungen. |
+| Plugin bietet nur `addToMainMenu(menu_items)` | AppDock stellt eine lokale, große Aktionsliste aus den veröffentlichten Menüeinträgen bereit und ruft vorhandene Callbacks ohne neue Argumente auf. |
+| Plugin zeigt eine eigene KOReader-Ansicht oder einen Dialog | Diese UI bleibt unter Kontrolle des Plugins. AppDock fängt sie nicht global ab und behauptet nicht, beliebige Fremdoberflächen zu virtualisieren. |
+
+Plugin-Host-Sitzungen heißen in Open apps **Plugin host · Beta** und können niemals in den Splitscreen gelangen. Die Sperre gilt im Long-Press-Dialog, in der App-Auswahl und im zugrunde liegenden Split-Startpfad. Fehler beim Start, nicht verfügbare Einträge und blockierte Splitversuche werden als lokale AppDock-Benachrichtigung abgelegt. Der vollständige Vertrag steht in [`APPDOCK_4_PLUGIN_HOST_BETA_DESIGN.md`](APPDOCK_4_PLUGIN_HOST_BETA_DESIGN.md).
 
 ## Store-Widgets
 
