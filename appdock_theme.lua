@@ -104,7 +104,7 @@ end
 
 function Theme.getPalette(appdock)
     local settings = appdock and appdock.settings or nil
-    local _, definition = Theme.resolveDefinition(settings)
+    local resolved_theme_id, definition = Theme.resolveDefinition(settings)
     local primary = Theme.normalizeHex(definition.primary) or BUILTIN.lavender.primary
     local secondary = mix(primary, "#E7E1F2", 0.30)
     local tertiary = mix(primary, "#F0D8F4", 0.20)

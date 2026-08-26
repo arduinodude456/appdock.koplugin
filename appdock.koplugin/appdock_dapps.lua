@@ -1055,7 +1055,7 @@ end
 
 function DAppManager:showHomeFromHost(host)
     UIManager:close(host)
-    UIManager:nextTick(function() self.appdock:showHome() end)
+    UIManager:nextTick(function() self.appdock:showHome(true) end)
 end
 
 function DAppManager:showRecentsFromHost(host)
@@ -1269,7 +1269,7 @@ function DAppManager:showLockscreenSecretDialog(instance, context, method)
                 if method == "pattern" then
                     local unique = {}
                     for digit in secret:gmatch(".") do unique[digit] = (unique[digit] or 0) + 1 end
-                    for _, count in pairs(unique) do if count > 1 then UIManager:close(dialog); self:showSettingsNotice(_("A pattern cannot repeat a point.")); return end end
+                    for point, count in pairs(unique) do if count > 1 then UIManager:close(dialog); self:showSettingsNotice(_("A pattern cannot repeat a point.")); return end end
                     if secret:match("[^1-9]") then UIManager:close(dialog); self:showSettingsNotice(_("Patterns use only points 1–9.")); return end
                 end
                 local ok = self.appdock:setLockscreen(method, secret)
@@ -1376,7 +1376,7 @@ function DAppManager:showDAppPermissions(instance, context)
         UIManager:show(editor)
     end
     local buttons = {}
-    for _, entry in ipairs(eligible) do
+    for entry_index, entry in ipairs(eligible) do
         local permissions = self.appdock:getDAppPermissions(entry.id)
         local status = (permissions.background and _("background") or _("no background")) .. " · " .. (permissions.autostart and _("autostart") or _("manual"))
         buttons[#buttons + 1] = { { text = entry.definition.title .. " — " .. status, callback = function() UIManager:close(dialog); showEditor(entry) end } }
@@ -1824,7 +1824,7 @@ function DAppHost:rebuild()
                 self.manager:showRecentsFromHost(self)
             else
                 self.manager:closeDApp(ids[1])
-                UIManager:nextTick(function() self.manager.appdock:showHome() end)
+                UIManager:nextTick(function() self.manager.appdock:showHome(true) end)
             end
         end,
         overlap_offset = { width - scale(18) - chip_size, scale(9) },
@@ -1919,7 +1919,7 @@ function DAppRecents:build()
         background = PALETTE.primary, foreground = PALETTE.on_primary,
         callback = function()
             UIManager:close(self)
-            UIManager:nextTick(function() self.manager.appdock:showHome() end)
+            UIManager:nextTick(function() self.manager.appdock:showHome(true) end)
         end,
         overlap_offset = { margin, height - scale(60) },
     })
@@ -1929,7 +1929,7 @@ end
 
 function DAppRecents:onClose()
     UIManager:close(self)
-    UIManager:nextTick(function() self.manager.appdock:showHome() end)
+    UIManager:nextTick(function() self.manager.appdock:showHome(true) end)
     return true
 end
 

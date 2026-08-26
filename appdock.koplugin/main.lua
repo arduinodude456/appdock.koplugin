@@ -74,6 +74,20 @@ function AppDock:init()
     end
 end
 
+function AppDock:onSuspend()
+    -- Lock only after an actual device suspend/resume cycle. Normal DApp
+    -- navigation must not be mistaken for a fresh AppDock entry.
+    self._lock_after_resume = self.settings
+        and self.settings.lockscreen
+        and self.settings.lockscreen.enabled == true
+end
+
+function AppDock:onResume()
+    if not self._lock_after_resume then return end
+    self._lock_after_resume = false
+    UIManager:nextTick(function() self:showHome() end)
+end
+
 function AppDock:_loadSettings()
     local stored = G_reader_settings:readSetting(self.settings_key, {})
     self.settings = {

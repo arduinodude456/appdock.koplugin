@@ -3,6 +3,6 @@ local _ = require("gettext")
 return {
     fullname = _("AppDock Homescreen"),
     description = _("An E-Ink homescreen with local wallpaper, AppDock-only lockscreen, configurable Control Center, AppStore search, DApp permissions and scalable split screen."),
-    version = "3.0.0",
+    version = "3.0.1",
     author = "Manus AI",
 }
