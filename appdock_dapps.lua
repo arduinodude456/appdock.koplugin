@@ -177,9 +177,9 @@ local function safeAttributes(path, selector)
 end
 
 local function safeDirectory(path)
-    local ok, iterator = pcall(lfs.dir, path)
-    if not ok then return nil end
-    return iterator
+    local ok, iterator, state = pcall(lfs.dir, path)
+    if not ok or type(iterator) ~= "function" then return nil, nil end
+    return iterator, state
 end
 
 local function directorySize(path, depth, budget)
@@ -191,9 +191,9 @@ local function directorySize(path, depth, budget)
     end
     if mode ~= "directory" then return 0 end
     local total = 0
-    local iterator = safeDirectory(path)
+    local iterator, state = safeDirectory(path)
     if not iterator then return 0 end
-    for name in iterator do
+    for name in iterator, state do
         if name ~= "." and name ~= ".." and budget.count < budget.limit then
             total = total + directorySize(path .. "/" .. name, depth + 1, budget)
         end
@@ -221,9 +221,9 @@ end
 local function collectStorageSegments(appdock, manager)
     local data_dir = DataStorage:getDataDir()
     local entries, total, budget = {}, 0, { count = 0, limit = 3000 }
-    local iterator = safeDirectory(data_dir)
+    local iterator, state = safeDirectory(data_dir)
     if iterator then
-        for name in iterator do
+        for name in iterator, state do
             if name ~= "." and name ~= ".." then
                 local bytes = directorySize(data_dir .. "/" .. name, 0, budget)
                 if bytes > 0 then
@@ -1214,6 +1214,64 @@ function DAppManager:toggleWifiFromSettings(context)
     end
 end
 
+function DAppManager:isKoboLibraColour()
+    local is_kobo = type(Device.isKobo) == "function" and Device:isKobo()
+    return is_kobo and Device.model == "Kobo_monza"
+end
+
+function DAppManager:_bluetoothPlugin()
+    local ui = self.appdock and self.appdock.ui or {}
+    local plugin = ui.Bluetooth or ui.bluetooth
+    return plugin and type(plugin.addToMainMenu) == "function" and plugin or nil
+end
+
+function DAppManager:showBluetoothSettings()
+    if not self:isKoboLibraColour() then
+        self:showSettingsNotice(_("Bluetooth controls are shown only on Kobo Libra Colour."))
+        return
+    end
+    local plugin = self:_bluetoothPlugin()
+    if not plugin then
+        self:showSettingsNotice(_("Bluetooth support requires a separately installed KOReader Bluetooth plugin. AppDock does not control Bluetooth drivers itself. Third-party MTK Bluetooth support can be experimental; returning to Nickel may require a reboot."))
+        return
+    end
+    local menu_items = {}
+    local ok = pcall(plugin.addToMainMenu, plugin, menu_items)
+    local entry = ok and menu_items.bluetooth or nil
+    if type(entry) ~= "table" or type(entry.sub_item_table) ~= "table" then
+        self:showSettingsNotice(_("The installed Bluetooth plugin does not provide a compatible settings menu."))
+        return
+    end
+    local function show_items(items, title)
+        local dialog
+        local buttons = {}
+        for item_index, item in ipairs(items) do
+            if type(item) == "table" then
+                local label = item.text
+                if type(item.text_func) == "function" then
+                    local text_ok, generated = pcall(item.text_func)
+                    label = text_ok and generated or label
+                end
+                if type(label) == "string" then
+                    buttons[#buttons + 1] = { { text = label, callback = function()
+                        UIManager:close(dialog)
+                        if type(item.callback) == "function" then item.callback()
+                        elseif type(item.sub_item_table) == "table" then show_items(item.sub_item_table, label)
+                        elseif type(item.sub_item_table_func) == "function" then
+                            local sub_ok, sub_items = pcall(item.sub_item_table_func)
+                            if sub_ok and type(sub_items) == "table" then show_items(sub_items, label) else self:showSettingsNotice(_("Bluetooth plugin menu is unavailable.")) end
+                        end
+                    end } }
+                end
+            end
+        end
+        buttons[#buttons + 1] = { { text = _("Back"), callback = function() UIManager:close(dialog) end } }
+        dialog = ButtonDialog:new{ title = title, buttons = buttons }
+        UIManager:show(dialog)
+    end
+    show_items(entry.sub_item_table, _("Bluetooth · Kobo Libra Colour") .. "\n" .. _("External plugin only. Third-party MTK Bluetooth may be experimental; returning to Nickel can require a reboot."))
+end
+
 function DAppManager:showFrontlightSettings()
     UIManager:broadcastEvent(Event:new("ShowFlDialog"))
 end
@@ -1401,6 +1459,53 @@ function DAppManager:showLockscreenSecretDialog(instance, context, method)
     dialog:onShowKeyboard()
 end
 
+function DAppManager:showLockscreenNameDialog(instance, context)
+    local lockscreen = self.appdock.settings.lockscreen
+    local dialog
+    dialog = InputDialog:new{
+        title = _("Lockscreen name"),
+        description = _("Optional local display name. It is shown only on the AppDock lockscreen."),
+        input_hint = _("Name (optional)"),
+        input = lockscreen.profile_name or "",
+        buttons = { {
+            { text = _("Cancel"), callback = function() UIManager:close(dialog) end },
+            { text = _("Save"), is_enter_default = true, callback = function()
+                self.appdock:setLockscreenProfile(dialog:getInputText() or "", lockscreen.profile_image_path)
+                UIManager:close(dialog)
+                context.requestRebuild("ui")
+            end },
+        } },
+    }
+    UIManager:show(dialog)
+    dialog:onShowKeyboard()
+end
+
+function DAppManager:showLockscreenProfileImageDialog(instance, context)
+    local lockscreen = self.appdock.settings.lockscreen
+    local dialog
+    dialog = InputDialog:new{
+        title = _("Lockscreen profile image"),
+        description = _("Optional local PNG, JPG, GIF, WEBP or SVG path. The image stays on this device and is not used as device security."),
+        input_hint = _("Full local image path"),
+        input = lockscreen.profile_image_path or "",
+        buttons = { {
+            { text = _("Clear image"), callback = function()
+                self.appdock:setLockscreenProfile(lockscreen.profile_name, "")
+                UIManager:close(dialog)
+                context.requestRebuild("ui")
+            end },
+            { text = _("Use image"), is_enter_default = true, callback = function()
+                local saved = self.appdock:setLockscreenProfile(lockscreen.profile_name, dialog:getInputText() or "")
+                UIManager:close(dialog)
+                if not saved then self:showSettingsNotice(_("Choose an existing local PNG, JPG, GIF, WEBP or SVG file.")) end
+                context.requestRebuild("ui")
+            end },
+        } },
+    }
+    UIManager:show(dialog)
+    dialog:onShowKeyboard()
+end
+
 function DAppManager:showLockscreenEditor(instance, context)
     local lockscreen = self.appdock.settings.lockscreen
     local dialog
@@ -1410,6 +1515,8 @@ function DAppManager:showLockscreenEditor(instance, context)
             { { text = (lockscreen.enabled and lockscreen.method == "swipe" and "✓ " or "") .. _("Swipe to unlock"), callback = function() self.appdock:setLockscreen("swipe"); UIManager:close(dialog); context.requestRebuild("ui") end } },
             { { text = (lockscreen.enabled and lockscreen.method == "pin" and "✓ " or "") .. _("PIN"), callback = function() UIManager:close(dialog); self:showLockscreenSecretDialog(instance, context, "pin") end } },
             { { text = (lockscreen.enabled and lockscreen.method == "pattern" and "✓ " or "") .. _("Pattern"), callback = function() UIManager:close(dialog); self:showLockscreenSecretDialog(instance, context, "pattern") end } },
+            { { text = _("Name") .. ": " .. ((lockscreen.profile_name and lockscreen.profile_name ~= "") and lockscreen.profile_name or _("Not set")), callback = function() UIManager:close(dialog); self:showLockscreenNameDialog(instance, context) end } },
+            { { text = lockscreen.profile_image_path and lockscreen.profile_image_path ~= "" and _("Change profile image") or _("Add profile image"), callback = function() UIManager:close(dialog); self:showLockscreenProfileImageDialog(instance, context) end } },
             { { text = _("Disable lockscreen"), callback = function() self.appdock:disableLockscreen(); UIManager:close(dialog); context.requestRebuild("ui") end } },
             { { text = _("Cancel"), callback = function() UIManager:close(dialog) end } },
         },
@@ -1653,12 +1760,6 @@ function DAppManager:_buildSettingsPane(instance, context)
                 enabled = wifi_on,
                 callback = function() self:toggleWifiFromSettings(context) end,
             },
-            {
-                title = _("Bluetooth"),
-                subtitle = _("Not available in KOReader"),
-                show_state = false,
-                callback = function() self:showSettingsNotice(_("Bluetooth settings are not available in KOReader yet.")) end,
-            },
         },
         display = {
             {
@@ -1726,10 +1827,10 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("About AppDock"),
-                subtitle = _( "Version 3.0.0 · Cappuccino"),
+                subtitle = _( "Version 3.2.0"),
                 show_state = false,
                 callback = function()
-                    self:showSettingsNotice(_("AppDock 3.0.0 · Cappuccino\n\nLocal wallpaper, AppDock-only swipe/PIN/pattern access control, configurable Control Center tiles, AppStore search, DApp permission controls, scalable split panes and Markdown DReader handover. Background DApps run only with permission while KOReader is active; DockUpdate never installs automatically."))
+                    self:showSettingsNotice(_("AppDock 3.2.0\n\nLocal wallpaper, AppDock-only swipe/PIN/pattern access control with an optional local name and profile image, configurable Control Center tiles, AppStore search, no-code local widgets, DApp permission controls and scalable split panes. Bluetooth is exposed only on Kobo Libra Colour and delegates to a separately installed plugin; AppDock never controls Bluetooth drivers. Background DApps run only with permission while KOReader is active; DockUpdate never installs automatically."))
                 end,
             },
             {
@@ -1755,6 +1856,14 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
         },
     }
+    if self:isKoboLibraColour() then
+        table.insert(rows_by_category.network, {
+            title = _("Bluetooth"),
+            subtitle = self:_bluetoothPlugin() and _("Open installed Bluetooth plugin") or _("Install a compatible Bluetooth plugin"),
+            show_state = false,
+            callback = function() self:showBluetoothSettings() end,
+        })
+    end
     local selected_category = categories[1]
     for category_index, category in ipairs(categories) do
         if category.id == selected_id then selected_category = category; break end
@@ -1924,16 +2033,16 @@ function DAppHost:rebuild()
         })
     end
 
-    local chip_size = scale(34)
+    local chip_size, chip_y = scale(34), scale(13)
     table.insert(chrome, ActionChip:new{
         title = "", symbol = "⌂", width = chip_size, height = chip_size,
         callback = function() self.manager:showHomeFromHost(self) end,
-        overlap_offset = { width - scale(18) - chip_size * 3 - scale(12), scale(9) },
+        overlap_offset = { width - scale(18) - chip_size * 3 - scale(12), chip_y },
     })
     table.insert(chrome, ActionChip:new{
         title = "", symbol = "□", width = chip_size, height = chip_size,
         callback = function() self.manager:showRecentsFromHost(self) end,
-        overlap_offset = { width - scale(18) - chip_size * 2 - scale(6), scale(9) },
+        overlap_offset = { width - scale(18) - chip_size * 2 - scale(6), chip_y },
     })
     table.insert(chrome, ActionChip:new{
         title = "", symbol = "×", width = chip_size, height = chip_size,
@@ -1945,7 +2054,7 @@ function DAppHost:rebuild()
                 UIManager:nextTick(function() self.manager.appdock:showHome(true) end)
             end
         end,
-        overlap_offset = { width - scale(18) - chip_size, scale(9) },
+        overlap_offset = { width - scale(18) - chip_size, chip_y },
     })
     self:clear()
     self[1] = chrome

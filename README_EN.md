@@ -4,9 +4,11 @@
 
 # New releases regulary commited at 3:00 AM CET
 
-**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **2.1.0** takes visual inspiration from Android 16 and **Material 3 Expressive**: a calm, cohesive color system, large rounded surfaces, clear information hierarchy, and quickly readable widgets. [1] [2]
+**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **3.2.0** takes visual inspiration from Android 16 and **Material 3 Expressive** while adding a corrected local storage breakdown, an optional local lockscreen profile, and narrowly scoped Bluetooth settings for Kobo Libra Colour. [1] [2]
 
 > **E-Ink approach:** AppDock deliberately borrows the visual language and information structure, not Android's animations, blur, or transparency effects. This keeps updates economical and maintains contrast on monochrome readers.
+
+> **3.2.0:** Settings → Storage now retains the complete LuaFileSystem iterator contract and reports readable local files again. The AppDock-only lockscreen can show an optional local name and profile image; neither is device encryption or a device-level lock. Bluetooth is visible only on Kobo Libra Colour and opens the menu of an already installed compatible Bluetooth plugin. See [`RELEASE_NOTES_3.2.0.md`](RELEASE_NOTES_3.2.0.md).
 
 ## UI on real hardware
 
@@ -124,11 +126,17 @@ DApps render only inside a pane rectangle assigned by the DApp host. A shared ho
 
 ## Storage and launcher layout
 
-In **Settings → Storage**, AppDock scans the accessible local KOReader data directory whenever the Settings pane is rebuilt. It displays the largest storage areas as a proportional E-Ink-friendly bar and a legend. Missing or unreadable directories are handled safely instead of producing an error.
+In **Settings → Storage**, AppDock scans the accessible local KOReader data directory whenever the Settings pane is rebuilt. It preserves the directory iterator state required by LuaFileSystem, so readable local files are included in the largest-area breakdown again. Missing or unreadable directories are handled safely instead of producing an error.
 
 Installed Store DApps are measured from their recorded installation files and displayed in descending order of their actual file size. This view measures the installed DApp files themselves; personal documents a DApp creates outside that installation path are intentionally not attributed to the DApp.
 
 In **Settings → Display → Launcher layout**, you can choose compact, comfortable, or wide app spacing; switch logo surfaces between rounded boxes and circles; and enable the optional app search bar. The search bar filters pinned apps by title on the homescreen.
+
+## AppDock-only lockscreen profile and Bluetooth
+
+In **Settings → Other → AppDock lockscreen**, you can set an optional display name and an optional local PNG, JPG, JPEG, GIF, WEBP, or SVG profile image. AppDock accepts only a readable local file with an allowed suffix. The profile is displayed only on the AppDock lockscreen; it does not protect device storage, KOReader, Nickel, or other files.
+
+Bluetooth is deliberately shown only when KOReader identifies the hardware as **Kobo Libra Colour** (`Kobo_monza`). AppDock does not include Bluetooth drivers and never sends shell or D-Bus commands. If a compatible Bluetooth plugin is already loaded, AppDock delegates to that plugin's own menu; otherwise it displays an installation notice. Third-party MTK Bluetooth implementations can be experimental, and returning to Nickel can require a reboot.
 
 ## Store Widgets, themes, and AppStore
 
@@ -179,6 +187,7 @@ The first six pinned apps occupy the current 3×2 page. Further apps appear on a
 | Plugin with one action | Starts that action directly. |
 | Plugin with multiple actions | Opens an action dialog first. |
 | Android system app | Deliberately not launched; AppDock operates only inside KOReader. |
+| Bluetooth | Shown only on Kobo Libra Colour; delegated only to an already installed compatible plugin, never to AppDock-owned driver commands. |
 | Hardware variation | Physical testing on more than one E-Ink reader is ongoing; Lua tests and hardware photos are provided as transparent evidence, not a compatibility guarantee. |
 
 ## Quality assurance

@@ -15,6 +15,7 @@ local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
 local Device = require("device")
 local sha2 = require("ffi/sha2")
+local Wallpaper = require("appdock_wallpaper")
 local _ = require("gettext")
 
 local Screen = Device.screen
@@ -40,6 +41,7 @@ function LockScreen:build()
     local method = self.appdock.settings.lockscreen.method or "swipe"
     local title = method == "pin" and _("Enter AppDock PIN") or method == "pattern" and _("Draw your pattern") or _("Swipe to unlock")
     local detail = method == "swipe" and _("Swipe in any direction") or method == "pattern" and _("Connect the numbered points") or _("Use the PIN chosen in AppDock settings")
+    local profile = self.appdock.settings.lockscreen or {}
     local layers = {
         FrameContainer:new{ width = width, height = height, padding = 0, bordersize = 0, background = Blitbuffer.COLOR_BLACK,
             CenterContainer:new{ dimen = self.dimen, TextWidget:new{ text = "", face = Font:getFace("cfont", scale(1)) } } },
@@ -47,6 +49,15 @@ function LockScreen:build()
         TextWidget:new{ text = title, face = Font:getFace("smallinfofont", scale(17)), fgcolor = Blitbuffer.COLOR_WHITE, bold = true, overlap_offset = { math.floor((width - scale(190)) / 2), math.floor(height * 0.35) } },
         TextWidget:new{ text = self.status or detail, face = Font:getFace("smallinfofont", scale(12)), fgcolor = Blitbuffer.COLOR_LIGHT_GRAY, max_width = width - scale(48), overlap_offset = { scale(24), math.floor(height * 0.42) } },
     }
+    if type(profile.profile_name) == "string" and profile.profile_name ~= "" then
+        layers[#layers + 1] = TextWidget:new{ text = profile.profile_name, face = Font:getFace("smallinfofont", scale(15)), fgcolor = Blitbuffer.COLOR_WHITE, bold = true, max_width = width - scale(64), overlap_offset = { scale(32), math.floor(height * 0.29) } }
+    end
+    local avatar_size = scale(52)
+    local avatar = Wallpaper.buildPath(profile.profile_image_path, avatar_size, avatar_size, true)
+    if avatar then
+        avatar.overlap_offset = { math.floor((width - avatar_size) / 2), math.floor(height * 0.47) }
+        layers[#layers + 1] = avatar
+    end
     if method == "pattern" then
         local cell = scale(46)
         local gap = scale(14)

@@ -44,13 +44,13 @@ local DEFAULT_SETTINGS = {
     launch_on_start = false,
     notifications = { items = {}, next_id = 0 },
     wallpaper = { enabled = false, path = "" },
-    lockscreen = { enabled = false, method = "swipe", secret_hash = nil },
+    lockscreen = { enabled = false, method = "swipe", secret_hash = nil, profile_name = "", profile_image_path = "" },
     beta = { black_borders = false, keep_wallpaper_original_in_night = false },
     quick_settings = { tiles = { "wifi", "night", "refresh", "edit", "sleep", "power_saving", "wallpaper" } },
     dapp_permissions = {},
     widget_generator = { items = {}, next_id = 0 },
     power_saving = false,
-    layout_version = 16,
+    layout_version = 17,
 }
 
 local function copyArray(source)
@@ -107,7 +107,7 @@ function AppDock:_loadSettings()
         launch_on_start = stored.launch_on_start == true,
         notifications = stored.notifications or { items = {}, next_id = 0 },
         wallpaper = stored.wallpaper or { enabled = false, path = "" },
-        lockscreen = stored.lockscreen or { enabled = false, method = "swipe", secret_hash = nil },
+        lockscreen = stored.lockscreen or { enabled = false, method = "swipe", secret_hash = nil, profile_name = "", profile_image_path = "" },
         beta = stored.beta or { black_borders = false, keep_wallpaper_original_in_night = false },
         quick_settings = stored.quick_settings or { tiles = copyArray(DEFAULT_SETTINGS.quick_settings.tiles) },
         dapp_permissions = stored.dapp_permissions or {},
@@ -157,10 +157,20 @@ function AppDock:_loadSettings()
     self.settings.wallpaper = self.settings.wallpaper or { enabled = false, path = "" }
     self.settings.wallpaper.enabled = self.settings.wallpaper.enabled == true
     self.settings.wallpaper.path = type(self.settings.wallpaper.path) == "string" and self.settings.wallpaper.path:sub(1, 360) or ""
-    self.settings.lockscreen = self.settings.lockscreen or { enabled = false, method = "swipe", secret_hash = nil }
+    self.settings.lockscreen = self.settings.lockscreen or { enabled = false, method = "swipe", secret_hash = nil, profile_name = "", profile_image_path = "" }
     self.settings.lockscreen.enabled = self.settings.lockscreen.enabled == true
     if self.settings.lockscreen.method ~= "pin" and self.settings.lockscreen.method ~= "pattern" then self.settings.lockscreen.method = "swipe" end
     self.settings.lockscreen.secret_hash = type(self.settings.lockscreen.secret_hash) == "string" and self.settings.lockscreen.secret_hash or nil
+    self.settings.lockscreen.profile_name = type(self.settings.lockscreen.profile_name) == "string" and (self.settings.lockscreen.profile_name:sub(1, 36):match("^%s*(.-)%s*$") or "") or ""
+    local Wallpaper = require("appdock_wallpaper")
+    local profile_path = type(self.settings.lockscreen.profile_image_path) == "string" and self.settings.lockscreen.profile_image_path:sub(1, 360) or ""
+    if profile_path ~= "" and Wallpaper.isValidPath(profile_path) then
+        local profile_file = io.open(profile_path, "rb")
+        if profile_file then profile_file:close() else profile_path = "" end
+    else
+        profile_path = ""
+    end
+    self.settings.lockscreen.profile_image_path = profile_path
     self.settings.beta = self.settings.beta or {}
     self.settings.beta.black_borders = self.settings.beta.black_borders == true
     self.settings.beta.keep_wallpaper_original_in_night = self.settings.beta.keep_wallpaper_original_in_night == true
@@ -261,6 +271,29 @@ function AppDock:disableLockscreen()
     self.settings.lockscreen.enabled = false
     self.settings.lockscreen.secret_hash = nil
     self:_saveSettings()
+end
+
+function AppDock:setLockscreenProfile(name, image_path)
+    local lockscreen = self.settings.lockscreen
+    local profile_name = type(name) == "string" and (name:sub(1, 36):match("^%s*(.-)%s*$") or "") or ""
+    local profile_image_path = lockscreen.profile_image_path or ""
+    if image_path == nil or image_path == "" then
+        profile_image_path = ""
+    elseif type(image_path) == "string" then
+        local Wallpaper = require("appdock_wallpaper")
+        local candidate = image_path:sub(1, 360)
+        if not Wallpaper.isValidPath(candidate) then return false end
+        local file = io.open(candidate, "rb")
+        if not file then return false end
+        file:close()
+        profile_image_path = candidate
+    else
+        return false
+    end
+    lockscreen.profile_name = profile_name
+    lockscreen.profile_image_path = profile_image_path
+    self:_saveSettings()
+    return true
 end
 
 function AppDock:setPowerSaving(enabled)

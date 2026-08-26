@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **3.1.0** erweitert das Material-You-inspirierte, E-Ink-freundliche Design um deklarative No-Code-Widgets: ein kohärentes, ruhiges Farbsystem, große gerundete Formen, betonte Informationshierarchie und schnell erfassbare Widgets. [1] [2]
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **3.2.0** erweitert das Material-You-inspirierte, E-Ink-freundliche Design um korrigierte lokale Speicherübersichten, ein optionales lokales Lockscreen-Profil und eine bewusst eng begrenzte Bluetooth-Einstellung für Kobo Libra Colour. [1] [2]
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst die Formensprache und Informationsstruktur, nicht die Android-Animationen, Unschärfen oder Transparenzeffekte. Damit bleiben Aktualisierungen sparsam und die Darstellung auf monochromen Readern kontrastreich.
 
@@ -8,12 +8,15 @@
 
 > **3.1.0:** Die Store-DApp **WidgetGenerator** erstellt ohne Lua-Programmierung lokale Homescreen-Widgets aus eigenem Text, Uhrzeit, Datum und verfügbarem Akkustand. Konfigurationen sind auf 20 begrenzt, enthalten nie ausführbaren Nutzer-Code und lassen sich in WidgetGenerator aktualisieren, ausblenden oder löschen. Details stehen in [`RELEASE_NOTES_3.1.0.md`](RELEASE_NOTES_3.1.0.md).
 
+> **3.2.0:** Die Speicheransicht verwendet die vollständige LuaFileSystem-Iterator-Schnittstelle und zeigt lesbare lokale Dateien wieder mit Größe an. Der AppDock-only Lockscreen kann einen optionalen lokalen Namen und ein lokales Profilbild anzeigen; beides ist keine Gerätesperre oder Verschlüsselung. Bluetooth erscheint ausschließlich auf **Kobo Libra Colour** und öffnet nur das Menü einer bereits installierten kompatiblen Bluetooth-Erweiterung. Details stehen in [`RELEASE_NOTES_3.2.0.md`](RELEASE_NOTES_3.2.0.md).
+
 ## Neu in 3.0.0 „Cappuccino“
 
 | Bereich | Umsetzung und Grenze |
 |---|---|
 | Hintergrundbild | Ein lokales PNG, JPG, JPEG, GIF, WEBP oder SVG kann über **Settings → Display** hinter dem Homescreen angezeigt werden. Das Bild wird niemals über das Netzwerk abgerufen. Die Betaoption kann dessen Originaldarstellung im Nachtmodus an KOReader weiterreichen. |
 | Lockscreen | AppDock bietet Wischen, PIN oder ein Vier-Punkte-Muster vor seinem Homescreen. Dies ist **nur ein lokaler AppDock-Zugriffsschutz**, keine Gerätesperre, Verschlüsselung oder Sicherung anderer KOReader-Bereiche. |
+| Lockscreen-Profil | Unter **Settings → Other → AppDock lockscreen** lassen sich ein optionaler Anzeigename und ein lokaler PNG-, JPG-, JPEG-, GIF-, WEBP- oder SVG-Bildpfad setzen. AppDock akzeptiert nur eine lesbare lokale Datei mit erlaubter Endung; das Profil wird ausschließlich auf dem AppDock-Lockscreen gezeigt. |
 | Display-Beta | Schwarze Rahmen können auf Homescreen-Kacheln und -Karten eingeschaltet werden. Die Nachtmodusoption betrifft ausschließlich das ausgewählte Hintergrundbild. |
 | Kontrollzentrum | Die Kacheln sind unter **Settings → Other → Control center** auswählbar. Neu sind Schlafmodus, Energiesparen und Hintergrundbild. Energiesparen versucht verfügbare WLAN-/Frontlight-Steuerung auszuschalten und setzt den periodischen Vollrefresh auf drei Minuten. |
 | AppStore und DReader | Der bereits geladene Katalog ist lokal durchsuchbar. DReader 2.1.0 übernimmt zusätzlich `.md` und `.markdown` aus Files; Markdown wird als lokaler Text gelesen und lädt weder Links noch Bilder nach. |
@@ -162,6 +165,7 @@ Die ersten sechs angehefteten Apps belegen die aktuelle 3×2-Seite. Weitere Apps
 | Plugin mit tieferen Spezialmenüs | Stellt die erste Ebene als Dialog bereit. |
 | Android-System-App | Wird bewusst nicht gestartet, weil AppDock ausschließlich KOReader-intern arbeitet. |
 | Test auf dem konkreten Gerät | Steht noch aus; lokale Smoke-Tests und Syntaxprüfungen sind bestanden. |
+| Bluetooth | Die Einstellung wird nur erkannt, wenn KOReader das Gerät als **Kobo Libra Colour** (`Kobo_monza`) meldet. AppDock benötigt außerdem eine separat installierte kompatible Bluetooth-Erweiterung und delegiert nur an deren Menü. Es sendet keine Treiber-, Shell- oder D-Bus-Befehle. Externe MTK-Bluetooth-Lösungen können experimentell sein; nach der Rückkehr zu Nickel kann ein Neustart erforderlich sein. |
 
 ## Qualitätssicherung
 

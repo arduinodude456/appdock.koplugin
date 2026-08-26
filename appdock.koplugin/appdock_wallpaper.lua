@@ -15,21 +15,26 @@ function Wallpaper.isValidPath(path)
     return suffix and ALLOWED_SUFFIXES[suffix:lower()] == true or false
 end
 
-function Wallpaper.build(appdock, width, height)
-    local settings = appdock.settings.wallpaper or {}
-    if settings.enabled ~= true or not Wallpaper.isValidPath(settings.path) then return nil end
-    local file = io.open(settings.path, "rb")
+function Wallpaper.buildPath(path, width, height, keep_original)
+    if not Wallpaper.isValidPath(path) then return nil end
+    local file = io.open(path, "rb")
     if not file then return nil end
     file:close()
-    local keep_original = appdock.settings.beta and appdock.settings.beta.keep_wallpaper_original_in_night == true
     local ok, image = pcall(ImageWidget.new, ImageWidget, {
-        file = settings.path,
+        file = path,
         width = width,
         height = height,
         scale_factor = 0,
-        original_in_nightmode = keep_original,
+        original_in_nightmode = keep_original == true,
     })
     return ok and image or nil
+end
+
+function Wallpaper.build(appdock, width, height)
+    local settings = appdock.settings.wallpaper or {}
+    if settings.enabled ~= true then return nil end
+    local keep_original = appdock.settings.beta and appdock.settings.beta.keep_wallpaper_original_in_night == true
+    return Wallpaper.buildPath(settings.path, width, height, keep_original)
 end
 
 return Wallpaper
