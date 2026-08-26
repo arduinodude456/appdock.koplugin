@@ -952,7 +952,206 @@ function DAppManager:_pluginHostContext(instance, context)
         end,
         requestRefresh = context.requestRefresh,
         requestRebuild = context.requestRebuild,
+        ui = {
+            showMessage = function(title, message)
+                instance.plugin_overlay = { kind = "message", title = title, message = message }
+                context.requestRebuild("ui")
+            end,
+        },
     }
+end
+
+local function pluginDialogActions(widget)
+    local actions = {}
+    for _, row in ipairs(type(widget) == "table" and widget.buttons or {}) do
+        for _, button in ipairs(type(row) == "table" and row or {}) do
+            if type(button) == "table" then
+                local label = button.text
+                if type(button.text_func) == "function" then
+                    local text_ok, generated = pcall(button.text_func)
+                    label = text_ok and generated or label
+                end
+                if type(label) == "string" and label ~= "" then
+                    actions[#actions + 1] = {
+                        text = label,
+                        callback = type(button.callback) == "function" and button.callback or nil,
+                        enabled = button.enabled ~= false,
+                        primary = button.is_enter_default == true,
+                    }
+                end
+            end
+        end
+    end
+    return actions
+end
+
+function DAppManager:_setPluginOverlay(instance, context, overlay)
+    instance.plugin_overlay = overlay
+    context.requestRebuild("ui")
+end
+
+function DAppManager:_dismissPluginOverlay(instance, context, widget)
+    if widget and instance.plugin_captured_widgets then instance.plugin_captured_widgets[widget] = nil end
+    instance.plugin_overlay = nil
+    context.requestRebuild("ui")
+end
+
+function DAppManager:_capturePluginWidget(instance, context, widget)
+    if type(widget) ~= "table" then return false end
+    local title = type(widget.title) == "string" and widget.title or instance.definition.title
+    local actions = pluginDialogActions(widget)
+    local kind
+    if type(widget.getInputText) == "function" or (type(widget.input) == "string" and #actions > 0) then
+        kind = "input"
+    elseif #actions > 0 then
+        kind = "actions"
+    elseif type(widget.text) == "string" then
+        kind = "message"
+    else
+        return false
+    end
+    instance.plugin_captured_widgets = instance.plugin_captured_widgets or {}
+    instance.plugin_captured_widgets[widget] = true
+    if kind == "input" and type(widget.onShowKeyboard) == "function" then
+        widget.appdock_bridge_original_on_show_keyboard = widget.onShowKeyboard
+        widget.onShowKeyboard = function() return true end
+    end
+    instance.plugin_overlay = {
+        kind = kind,
+        title = title,
+        message = type(widget.text) == "string" and widget.text or (type(widget.description) == "string" and widget.description or ""),
+        input_hint = type(widget.input_hint) == "string" and widget.input_hint or "",
+        widget = widget,
+        actions = actions,
+        page = 1,
+    }
+    return true
+end
+
+function DAppManager:_runPluginWidgetBridge(instance, context, callback, ...)
+    local original_show, original_close = UIManager.show, UIManager.close
+    local captured = false
+    UIManager.show = function(ui_manager, widget)
+        if self:_capturePluginWidget(instance, context, widget) then
+            captured = true
+            return true
+        end
+        return original_show(ui_manager, widget)
+    end
+    UIManager.close = function(ui_manager, widget)
+        if instance.plugin_captured_widgets and instance.plugin_captured_widgets[widget] then
+            instance.plugin_captured_widgets[widget] = nil
+            if instance.plugin_overlay and instance.plugin_overlay.widget == widget then instance.plugin_overlay = nil end
+            captured = true
+            return true
+        end
+        return original_close(ui_manager, widget)
+    end
+    local ok, accepted, reason = pcall(callback, ...)
+    UIManager.show, UIManager.close = original_show, original_close
+    if captured then context.requestRebuild("ui") end
+    return ok, accepted, reason
+end
+
+function DAppManager:_showPluginInputEditor(instance, context, overlay)
+    local widget = overlay and overlay.widget
+    if not widget then return end
+    local input = type(widget.getInputText) == "function" and widget:getInputText() or widget.input or ""
+    local dialog
+    dialog = InputDialog:new{
+        title = _("AppDock input") .. " · " .. (overlay.title or instance.definition.title),
+        input = type(input) == "string" and input or "",
+        input_hint = overlay.input_hint or "",
+        buttons = {
+            {
+                { text = _("Cancel"), callback = function() UIManager:close(dialog) end },
+                { text = _("Save"), is_enter_default = true, callback = function()
+                    local value = dialog:getInputText()
+                    if type(widget.setInputText) == "function" then
+                        pcall(widget.setInputText, widget, value)
+                    else
+                        widget.input = value
+                    end
+                    UIManager:close(dialog)
+                    context.requestRebuild("ui")
+                end },
+            },
+        },
+    }
+    UIManager:show(dialog)
+    if dialog.onShowKeyboard then dialog:onShowKeyboard() end
+end
+
+function DAppManager:_invokePluginOverlayAction(instance, context, action)
+    local overlay = instance.plugin_overlay
+    if not overlay or type(action) ~= "table" or action.enabled == false then return false end
+    if action.kind == "edit" then
+        self:_showPluginInputEditor(instance, context, overlay)
+        return true
+    end
+    local widget = overlay.widget
+    instance.plugin_overlay = nil
+    if type(action.callback) ~= "function" then
+        self:_dismissPluginOverlay(instance, context, widget)
+        return true
+    end
+    local ok, accepted, reason = self:_runPluginWidgetBridge(instance, context, action.callback)
+    if not ok or accepted == false then
+        local detail = type(reason) == "string" and reason or (ok and _("The plugin dialog action was not accepted.") or tostring(accepted))
+        self.appdock:notify({ title = _("Plugin dialog action failed"), message = detail:sub(1, 240), source = instance.definition.title, priority = "high" })
+        return false
+    end
+    if not instance.plugin_overlay then context.requestRebuild("ui") end
+    return true
+end
+
+function DAppManager:_buildPluginHostOverlay(instance, context)
+    local overlay = instance.plugin_overlay
+    if type(overlay) ~= "table" then return nil end
+    local width, height = context.dimen.w, context.dimen.h
+    local margin, gap = scale(14), scale(8)
+    local card_width = width - 2 * margin
+    local title = overlay.title or instance.definition.title
+    local actions = overlay.actions or {}
+    local elements = {
+        FrameContainer:new{ width = width, height = height, padding = 0, bordersize = 0, background = PALETTE.surface, emptySizedWidget(width, height) },
+        TextWidget:new{ text = title, face = Font:getFace("cfont", scale(19)), fgcolor = PALETTE.on_surface, bold = true, max_width = card_width, overlap_offset = { margin, margin } },
+    }
+    local y = margin + scale(31)
+    if overlay.kind == "input" then
+        local value = type(overlay.widget) == "table" and (type(overlay.widget.getInputText) == "function" and overlay.widget:getInputText() or overlay.widget.input) or ""
+        elements[#elements + 1] = TextWidget:new{ text = type(value) == "string" and value ~= "" and value or (overlay.input_hint ~= "" and overlay.input_hint or _("No text entered")), face = Font:getFace("smallinfofont", scale(12)), fgcolor = PALETTE.on_variant, max_width = card_width, overlap_offset = { margin, y } }
+        y = y + scale(30)
+        elements[#elements + 1] = SettingsRow:new{ title = _("Edit text"), subtitle = _("Open AppDock text input"), enabled = true, show_state = false, width = card_width, height = scale(48), callback = function() self:_invokePluginOverlayAction(instance, context, { kind = "edit", enabled = true }) end, overlap_offset = { margin, y } }
+        y = y + scale(56)
+    elseif type(overlay.message) == "string" and overlay.message ~= "" then
+        elements[#elements + 1] = TextWidget:new{ text = overlay.message, face = Font:getFace("smallinfofont", scale(12)), fgcolor = PALETTE.on_variant, max_width = card_width, overlap_offset = { margin, y } }
+        y = y + scale(46)
+    end
+    if #actions == 0 then
+        actions = { { text = _("Close"), enabled = true } }
+    end
+    local per_page = 4
+    local total_pages = math.max(1, math.ceil(#actions / per_page))
+    overlay.page = math.max(1, math.min(overlay.page or 1, total_pages))
+    local first = (overlay.page - 1) * per_page + 1
+    for action_index = first, math.min(#actions, first + per_page - 1) do
+        local action = actions[action_index]
+        elements[#elements + 1] = SettingsRow:new{
+            title = action.text or _("Plugin action"), subtitle = action.enabled == false and _("Unavailable") or _("Plugin action in AppDock"), enabled = action.primary == true, show_state = false,
+            width = card_width, height = scale(48), callback = function() self:_invokePluginOverlayAction(instance, context, action) end,
+            overlap_offset = { margin, y },
+        }
+        y = y + scale(56)
+    end
+    if total_pages > 1 then
+        local half = math.floor((card_width - gap) / 2)
+        elements[#elements + 1] = ActionChip:new{ title = _("‹ Previous"), width = half, height = scale(38), callback = function() overlay.page = math.max(1, overlay.page - 1); context.requestRebuild("ui") end, overlap_offset = { margin, height - margin - scale(38) } }
+        elements[#elements + 1] = ActionChip:new{ title = _("Next ›"), width = half, height = scale(38), callback = function() overlay.page = math.min(total_pages, overlay.page + 1); context.requestRebuild("ui") end, overlap_offset = { margin + half + gap, height - margin - scale(38) } }
+    elseif overlay.kind ~= "input" then
+        elements[#elements + 1] = ActionChip:new{ title = _("Dismiss"), width = card_width, height = scale(38), callback = function() self:_dismissPluginOverlay(instance, context, overlay.widget) end, overlap_offset = { margin, height - margin - scale(38) } }
+    end
+    return OverlapGroup:new{ dimen = context.dimen, allow_mirroring = false, unpack(elements) }
 end
 
 function DAppManager:_newPluginMenuAdapter(instance, context, title, items, dialog)
@@ -987,7 +1186,7 @@ function DAppManager:_invokePluginHostItem(instance, context, item, menu_adapter
     end
     if type(item.callback) == "function" then
         local adapter = menu_adapter or self:_newPluginMenuAdapter(instance, context, instance.definition.title, {}, nil)
-        local ok, accepted, reason = pcall(item.callback, adapter)
+        local ok, accepted, reason = self:_runPluginWidgetBridge(instance, context, item.callback, adapter)
         if not ok or accepted == false then
             local detail = type(reason) == "string" and reason or (ok and _("The plugin action was not accepted.") or tostring(accepted))
             self.appdock:notify({
@@ -1019,8 +1218,7 @@ function DAppManager:_invokePluginHostItem(instance, context, item, menu_adapter
 end
 
 function DAppManager:_showPluginHostMenu(instance, context, items, title)
-    local dialog
-    local buttons = {}
+    local actions = {}
     for item_index, item in ipairs(items or {}) do
         if type(item) == "table" then
             local label = item.text
@@ -1030,21 +1228,18 @@ function DAppManager:_showPluginHostMenu(instance, context, items, title)
             end
             if type(label) == "string" and label ~= "" then
                 local selected_item = item
-                buttons[#buttons + 1] = { { text = label, callback = function()
-                    local adapter = self:_newPluginMenuAdapter(instance, context, title, items, dialog)
-                    if selected_item.keep_menu_open then
-                        self:_invokePluginHostItem(instance, context, selected_item, adapter)
-                    else
-                        UIManager:close(dialog)
-                        UIManager:nextTick(function()
-                            self:_invokePluginHostItem(instance, context, selected_item, adapter)
-                        end)
-                    end
-                end } }
+                actions[#actions + 1] = {
+                    text = label,
+                    enabled = item.enabled ~= false,
+                    callback = function()
+                        local adapter = self:_newPluginMenuAdapter(instance, context, title, items, nil)
+                        return self:_invokePluginHostItem(instance, context, selected_item, adapter)
+                    end,
+                }
             end
         end
     end
-    if #buttons == 0 then
+    if #actions == 0 then
         self.appdock:notify({
             title = _("Plugin menu unavailable"),
             message = _("This plugin menu has no launchable entries."),
@@ -1053,9 +1248,7 @@ function DAppManager:_showPluginHostMenu(instance, context, items, title)
         })
         return
     end
-    buttons[#buttons + 1] = { { text = _("Back"), callback = function() UIManager:close(dialog) end } }
-    dialog = ButtonDialog:new{ title = title, buttons = buttons, rows_per_page = { 5, 6, 7 } }
-    UIManager:show(dialog)
+    self:_setPluginOverlay(instance, context, { kind = "actions", title = title, actions = actions, page = 1 })
 end
 
 function DAppManager:_buildPluginHostPane(instance, context)
@@ -1072,7 +1265,7 @@ function DAppManager:_buildPluginHostPane(instance, context)
             instance.plugin_host_opened = true
             pcall(plugin_app.instance.onAppDockHostOpened, plugin_app.instance, plugin_context)
         end
-        local built_ok, plugin_pane = pcall(plugin_app.buildAppDockPane, plugin_app.instance, plugin_context)
+        local built_ok, plugin_pane = self:_runPluginWidgetBridge(instance, plugin_context, plugin_app.buildAppDockPane, plugin_app.instance, plugin_context)
         if built_ok and type(plugin_pane) == "table" then
             plugin_pane.plugin_host_layout = { is_plugin_host = true, action_count = #actions, can_split = false, using_plugin_pane = true }
             return plugin_pane
@@ -2074,10 +2267,10 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("About AppDock"),
-                subtitle = _( "Version 4.1.0 · Bueno"),
+                subtitle = _( "Version 4.1.1 · Bueno"),
                 show_state = false,
                 callback = function()
-                    self:showSettingsNotice(_("AppDock 4.1.0 · Bueno\n\nWeb Browser now displays supported static web images through a bounded local cache. Relative and HTTPS image URLs are resolved safely; unavailable, oversized or unsupported images show alt text instead. JavaScript, embedded media and arbitrary local paths remain unavailable. Plugin hosts never support split screen, and AppDock does not globally capture arbitrary plugin dialogs."))
+                    self:showSettingsNotice(_("AppDock 4.1.1 · Bueno\n\nPlugin hosts now present standard plugin action dialogs, confirmations, information messages and text-entry handoffs through AppDock overlays when they are opened from a hosted action. Complex standalone plugin windows remain outside this compatibility bridge. Plugin hosts never support split screen. Web Browser still displays supported static web images through a bounded local cache; JavaScript, embedded media and arbitrary local paths remain unavailable."))
                 end,
             },
             {
@@ -2268,6 +2461,13 @@ function DAppHost:rebuild()
         pane.overlap_offset = { region.x, region.y }
         table.insert(self.active_panes, pane)
         table.insert(chrome, pane)
+        if instance.definition.host_kind == "plugin" then
+            local overlay = self.manager:_buildPluginHostOverlay(instance, context)
+            if overlay then
+                overlay.overlap_offset = { region.x, region.y }
+                table.insert(chrome, overlay)
+            end
+        end
     end
     self.active_pane = self.active_panes[1]
 
