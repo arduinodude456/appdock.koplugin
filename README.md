@@ -1,61 +1,19 @@
 # AppDock Homescreen für KOReader
 
-> **Sprache:** Deutsch · [English](README_EN.md)
-
-# Neue Releases immer ab 3 Uhr MEZ online
-
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **2.1.0** richtet sich gestalterisch an Android 16 und **Material 3 Expressive** aus: ein kohärentes, ruhiges Farbsystem, große gerundete Formen, betonte Informationshierarchie und schnell erfassbare Widgets. [1] [2]
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **3.0.0 „Cappuccino“** richtet sich gestalterisch an Android 16 und **Material 3 Expressive** aus: ein kohärentes, ruhiges Farbsystem, große gerundete Formen, betonte Informationshierarchie und schnell erfassbare Widgets. [1] [2]
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst die Formensprache und Informationsstruktur, nicht die Android-Animationen, Unschärfen oder Transparenzeffekte. Damit bleiben Aktualisierungen sparsam und die Darstellung auf monochromen Readern kontrastreich.
 
-## UI auf echter Hardware
-Die folgenden **unveränderten Originalfotos** zeigen AppDock während eines praktischen Tests auf einem Tolino. Sie wurden weder zugeschnitten noch aufgehellt, retuschiert, komprimiert oder anderweitig bearbeitet. Dadurch vermitteln sie bewusst einen ehrlichen Eindruck der aktuellen Darstellung auf echter E‑Ink-Hardware, einschließlich Umgebungslicht, Kameraperspektive und sichtbarer Layoutgrenzen.
+## Neu in 3.0.0 „Cappuccino“
 
-### Homescreen und Schnellzugriff
-
-![AppDock Homescreen mit Statuszeile, Quote-Widget und App-Raster](docs/ui-photos/IMG_20260825_172553291.jpg)
-
-*AppDock-Homescreen mit Begrüßung, Akkuanzeige, Quote-Widget und sechs angehefteten Apps.*
-
-![AppDock Quick Settings im dunklen Theme](docs/ui-photos/IMG_20260825_172614888.jpg)
-
-*Quick Settings im dunklen Theme mit WLAN, Nachtmodus, Refresh, App-Editor und Helligkeitsregler.*
-
-![AppDock Quick Settings im hellen Theme](docs/ui-photos/IMG_20260825_172606578.jpg)
-
-*Quick Settings im hellen Theme auf demselben Gerät.*
-
-### DApps und Multitasking
-
-![AppDock Analog Clock DApp](docs/ui-photos/IMG_20260825_172834808.jpg)
-
-*Analog Clock als eigenständige DApp im AppDock-Pane.*
-
-![AppDock Open Apps Übersicht](docs/ui-photos/IMG_20260825_172921162.jpg)
-
-*Open Apps-Ansicht mit geöffneten Calendar- und DReader-Panes.*
-
-![AppDock Split Screen mit DReader und Calendar](docs/ui-photos/IMG_20260825_172935675.jpg)
-
-*Split-Screen-Darstellung mit DReader oben und Calendar unten.*
-
-### AppStore, Settings und System-DApps
-
-![AppDock AppStore mit DApps und Widgets](docs/ui-photos/IMG_20260825_172656896.jpg)
-
-*AppStore-Katalog mit installierten und noch nicht installierten DApps.*
-
-![AppDock Settings mit Storage und Other](docs/ui-photos/IMG_20260825_172633707.jpg)
-
-*Settings-DApp mit den Kategorien Network, Display, Storage und Other.*
-
-![AppDock File Manager](docs/ui-photos/IMG_20260825_172823436.jpg)
-
-*Eigener AppDock File Manager mit Ordner- und Dateieinträgen.*
-
-![AppDock Web Browser](docs/ui-photos/IMG_20260825_172711843.jpg)
-
-*Web Browser DApp mit adressierter Suche und Schnellzugriffen.*
+| Bereich | Umsetzung und Grenze |
+|---|---|
+| Hintergrundbild | Ein lokales PNG, JPG, JPEG, GIF, WEBP oder SVG kann über **Settings → Display** hinter dem Homescreen angezeigt werden. Das Bild wird niemals über das Netzwerk abgerufen. Die Betaoption kann dessen Originaldarstellung im Nachtmodus an KOReader weiterreichen. |
+| Lockscreen | AppDock bietet Wischen, PIN oder ein Vier-Punkte-Muster vor seinem Homescreen. Dies ist **nur ein lokaler AppDock-Zugriffsschutz**, keine Gerätesperre, Verschlüsselung oder Sicherung anderer KOReader-Bereiche. |
+| Display-Beta | Schwarze Rahmen können auf Homescreen-Kacheln und -Karten eingeschaltet werden. Die Nachtmodusoption betrifft ausschließlich das ausgewählte Hintergrundbild. |
+| Kontrollzentrum | Die Kacheln sind unter **Settings → Other → Control center** auswählbar. Neu sind Schlafmodus, Energiesparen und Hintergrundbild. Energiesparen versucht verfügbare WLAN-/Frontlight-Steuerung auszuschalten und setzt den periodischen Vollrefresh auf drei Minuten. |
+| AppStore und DReader | Der bereits geladene Katalog ist lokal durchsuchbar. DReader 2.1.0 übernimmt zusätzlich `.md` und `.markdown` aus Files; Markdown wird als lokaler Text gelesen und lädt weder Links noch Bilder nach. |
+| DApp-Ausführung | Store-DApps mit deklarierter Hintergrund- oder Autostartfunktion laufen nur nach expliziter Berechtigung. DockUpdate prüft bei erlaubtem Hintergrundlauf alle zwei Minuten **nur** die stabile GitHub-Release-Metadaten innerhalb einer aktiven KOReader-/AppDock-Sitzung, benachrichtigt höchstens einmal je Release und installiert nie automatisch. |
 
 ## Homescreen
 
@@ -85,6 +43,8 @@ Entpacke das Installationsarchiv und kopiere den vollständigen Ordner `appdock.
     ├── appdock_homescreen.lua
     ├── appdock_manager.lua
     ├── appdock_quicksettings.lua
+    ├── appdock_wallpaper.lua
+    ├── appdock_lockscreen.lua
     ├── appdock_dapps.lua
     ├── appdock_filemanager.lua
     ├── appdock_appstore.lua
@@ -100,7 +60,7 @@ Starte KOReader danach vollständig neu. Unter **More tools → Plugin managemen
 | Prüfschritt | Erwartetes Ergebnis |
 |---|---|
 | Ordnername | Endet exakt auf `.koplugin`. |
-| Plugininhalt | Enthält `_meta.lua`, `main.lua`, `appdock_homescreen.lua`, `appdock_manager.lua`, `appdock_quicksettings.lua`, `appdock_dapps.lua`, `appdock_filemanager.lua`, `appdock_appstore.lua`, `appdock_theme.lua`, `appdock_logo.lua` und `appdock_browser.lua` direkt im Ordner. |
+| Plugininhalt | Enthält `_meta.lua`, `main.lua`, `appdock_homescreen.lua`, `appdock_manager.lua`, `appdock_quicksettings.lua`, `appdock_wallpaper.lua`, `appdock_lockscreen.lua`, `appdock_dapps.lua`, `appdock_filemanager.lua`, `appdock_appstore.lua`, `appdock_theme.lua`, `appdock_logo.lua` und `appdock_browser.lua` direkt im Ordner. |
 | Startansicht | Begrüßung, Datum, Widgetkarten und ein 3-Spalten-App-Raster werden angezeigt. |
 | Langdruck auf Kachel | Öffnet **Manage AppDock**. |
 
@@ -112,8 +72,8 @@ Starte KOReader danach vollständig neu. Unter **More tools → Plugin managemen
 |---|---|---|
 | **Analog Clock** | Zeigt ein gezeichnetes Ziffernblatt, Stunden-/Minutenzeiger, Digitalzeit und Datum. | Aktualisiert zum nächsten Minutenwechsel mit einem begrenzten schnellen Refresh. |
 | **Settings** | Android-inspirierte Kategorienansicht für Netzwerk, Display und weitere AppDock-Funktionen. | Mini-Logos in einer Seitenleiste; WLAN, native Helligkeit/Wärme, Farbthemen, Layout, Über AppDock sowie klar markierte noch nicht implementierte Aktualisierung. |
-| **Files** | Zeigt die Bibliothek in einem eigenen, scrollbaren AppDock-Dateibrowser. | Große Ordner- und Dateikarten, Ordner zuerst, **Up**, **Home** und **Refresh**; `.lua`-Dateien gehen direkt an NightLua. Nach DReader-Installation gehen `.epub`, `.html`, `.htm` und `.xhtml` direkt an DReader. Andere unterstützte Dokumente öffnen weiterhin über KOReaders sicheren ReaderUI-Pfad. |
-| **AppStore** | Lädt den Katalog aus [`arduinodude456/DApps`](https://github.com/arduinodude456/DApps). | Liest nur `dapps.txt` über HTTPS; zeigt DApp- und Widget-Logos, erkennt neuere Repository-Versionen als **Update** und verlangt vor Installation, Update oder Deinstallation eine ausdrückliche Bestätigung. |
+| **Files** | Zeigt die Bibliothek in einem eigenen, scrollbaren AppDock-Dateibrowser. | Große Ordner- und Dateikarten, Ordner zuerst, **Up**, **Home** und **Refresh**; `.lua`-Dateien gehen direkt an NightLua. Nach DReader-Installation gehen `.epub`, `.html`, `.htm`, `.xhtml`, `.md` und `.markdown` direkt an DReader. Andere unterstützte Dokumente öffnen weiterhin über KOReaders sicheren ReaderUI-Pfad. |
+| **AppStore** | Lädt den Katalog aus [`arduinodude456/DApps`](https://github.com/arduinodude456/DApps). | Liest nur `dapps.txt` über HTTPS, lässt den bereits geladenen Katalog lokal durchsuchen, erkennt neuere Repository-Versionen als **Update** und verlangt vor Installation, Update oder Deinstallation eine ausdrückliche Bestätigung. |
 | **Web Browser** | Öffnet serverseitig bereitgestellte Webinhalte und sucht über DuckDuckGo HTML. | Startseite, Direktziele, Reload, lokale Historie und klarer Lesemodus; aktive Webinhalte bleiben deaktiviert. |
 | **Help** | Offline verfügbare Bedienhilfe für AppDock. | Erläutert Homescreen, Schnellzugriff, DApps, Splitscreen, Browser und E-Ink-Refresh; auch im Splitscreen lesbar. |
 

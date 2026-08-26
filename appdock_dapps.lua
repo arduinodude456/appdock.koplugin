@@ -626,6 +626,8 @@ function DAppManager:loadStoreDApp(file, source_path, restoring, expected_id, al
         version = type(definition.version) == "string" and definition.version or nil,
         buildPane = definition.buildPane,
         openFile = type(definition.openFile) == "function" and definition.openFile or nil,
+        backgroundTick = type(definition.backgroundTick) == "function" and definition.backgroundTick or nil,
+        onAutostart = type(definition.onAutostart) == "function" and definition.onAutostart or nil,
     }
     self.definitions[definition.id] = registered
     if self.instances[definition.id] then
@@ -817,12 +819,28 @@ function DAppManager:_newContext(host, instance, assigned_dimen)
     local width, height = host.dimen.w, host.dimen.h
     local appbar_height = scale(52)
     assigned_dimen = assigned_dimen or Geom:new{ x = 0, y = appbar_height, w = width, h = height - appbar_height }
+    -- New DApps should scale type and spacing from the actual pane they receive.
+    -- Existing DApps may keep using Screen:scaleBySize() and context.dimen.
+    local baseline_width, baseline_height = 600, 748
+    local ui_scale = math.max(0.45, math.min(1.40, math.min(assigned_dimen.w / baseline_width, assigned_dimen.h / baseline_height)))
     return {
         manager = self,
         instance = instance,
         host = host,
         -- Single and split hosts both hand out an explicit local pane rectangle.
         dimen = assigned_dimen,
+        -- `scale` / `ui_scale` are relative to a 600 × 748 content pane.
+        -- `px(value)` keeps an E-Ink-safe minimum of one device pixel.
+        scale = ui_scale,
+        ui_scale = ui_scale,
+        base_dimen = { w = baseline_width, h = baseline_height },
+        px = function(value) return math.max(1, math.floor((tonumber(value) or 0) * ui_scale + 0.5)) end,
+        relative = function(width_ratio, height_ratio)
+            return Geom:new{
+                w = math.max(1, math.floor(assigned_dimen.w * math.max(0, tonumber(width_ratio) or 0) + 0.5)),
+                h = math.max(1, math.floor(assigned_dimen.h * math.max(0, tonumber(height_ratio) or 0) + 0.5)),
+            }
+        end,
         requestRefresh = function(refreshtype, region)
             if self.active_host == host then
                 UIManager:setDirty(host, refreshtype or "ui", region)
@@ -842,6 +860,41 @@ function DAppManager:_newContext(host, instance, assigned_dimen)
             return self.appdock:notify(payload)
         end,
     }
+end
+
+function DAppManager:_backgroundContext(instance)
+    return {
+        manager = self,
+        appdock = self.appdock,
+        instance = instance,
+        background = true,
+        now = os.time(),
+        notify = function(payload)
+            payload = type(payload) == "table" and payload or {}
+            payload.source = payload.source or instance.definition.title or instance.id
+            return self.appdock:notify(payload)
+        end,
+    }
+end
+
+function DAppManager:runPermittedAutostarts()
+    for id, definition in pairs(self.definitions) do
+        local permissions = self.appdock:getDAppPermissions(id)
+        if permissions.autostart and definition.onAutostart then
+            local instance = self:_instanceFor(id)
+            pcall(definition.onAutostart, instance, self:_backgroundContext(instance))
+        end
+    end
+end
+
+function DAppManager:runPermittedBackgroundTasks()
+    for id, definition in pairs(self.definitions) do
+        local permissions = self.appdock:getDAppPermissions(id)
+        if permissions.background and definition.backgroundTick then
+            local instance = self:_instanceFor(id)
+            pcall(definition.backgroundTick, instance, self:_backgroundContext(instance))
+        end
+    end
 end
 
 function DAppManager:activate(id, home)
@@ -1179,6 +1232,160 @@ function DAppManager:showLauncherLayout(instance, context)
     UIManager:show(dialog)
 end
 
+function DAppManager:showWallpaperEditor(instance, context)
+    local dialog
+    local wallpaper = self.appdock.settings.wallpaper
+    dialog = InputDialog:new{
+        title = _("Homescreen background image"),
+        description = _("Local PNG, JPG, GIF, WEBP or SVG path. The image stays on this device."),
+        input_hint = _("Full image path"),
+        input = wallpaper.path or "",
+        buttons = { {
+            { text = _("Disable"), callback = function() self.appdock:setWallpaper(nil, false); UIManager:close(dialog); context.requestRebuild("ui") end },
+            { text = _("Use image"), is_enter_default = true, callback = function()
+                local enabled = self.appdock:setWallpaper(dialog:getInputText() or "", true)
+                UIManager:close(dialog)
+                if not enabled then self:showSettingsNotice(_("Choose an existing PNG, JPG, GIF, WEBP or SVG file.")) end
+                context.requestRebuild("ui")
+            end },
+        } },
+    }
+    UIManager:show(dialog)
+    dialog:onShowKeyboard()
+end
+
+function DAppManager:showLockscreenSecretDialog(instance, context, method)
+    local dialog
+    dialog = InputDialog:new{
+        title = method == "pattern" and _("Set AppDock pattern") or _("Set AppDock PIN"),
+        description = method == "pattern" and _("Use 4–9 different digits from 1 to 9. Tap these points on the lockscreen in the same order.") or _("Choose a 4–32 digit AppDock PIN."),
+        input_hint = method == "pattern" and _("Example: 1258") or _("PIN"),
+        input = "",
+        input_type = "number",
+        buttons = { {
+            { text = _("Cancel"), callback = function() UIManager:close(dialog) end },
+            { text = _("Save"), is_enter_default = true, callback = function()
+                local secret = dialog:getInputText() or ""
+                if method == "pattern" then
+                    local unique = {}
+                    for digit in secret:gmatch(".") do unique[digit] = (unique[digit] or 0) + 1 end
+                    for _, count in pairs(unique) do if count > 1 then UIManager:close(dialog); self:showSettingsNotice(_("A pattern cannot repeat a point.")); return end end
+                    if secret:match("[^1-9]") then UIManager:close(dialog); self:showSettingsNotice(_("Patterns use only points 1–9.")); return end
+                end
+                local ok = self.appdock:setLockscreen(method, secret)
+                UIManager:close(dialog)
+                if not ok then self:showSettingsNotice(_("Use between 4 and 32 characters.")) end
+                context.requestRebuild("ui")
+            end },
+        } },
+    }
+    UIManager:show(dialog)
+    dialog:onShowKeyboard()
+end
+
+function DAppManager:showLockscreenEditor(instance, context)
+    local lockscreen = self.appdock.settings.lockscreen
+    local dialog
+    dialog = ButtonDialog:new{
+        title = _("AppDock lockscreen") .. "\n" .. _("This protects AppDock only, not device storage."),
+        buttons = {
+            { { text = (lockscreen.enabled and lockscreen.method == "swipe" and "✓ " or "") .. _("Swipe to unlock"), callback = function() self.appdock:setLockscreen("swipe"); UIManager:close(dialog); context.requestRebuild("ui") end } },
+            { { text = (lockscreen.enabled and lockscreen.method == "pin" and "✓ " or "") .. _("PIN"), callback = function() UIManager:close(dialog); self:showLockscreenSecretDialog(instance, context, "pin") end } },
+            { { text = (lockscreen.enabled and lockscreen.method == "pattern" and "✓ " or "") .. _("Pattern"), callback = function() UIManager:close(dialog); self:showLockscreenSecretDialog(instance, context, "pattern") end } },
+            { { text = _("Disable lockscreen"), callback = function() self.appdock:disableLockscreen(); UIManager:close(dialog); context.requestRebuild("ui") end } },
+            { { text = _("Cancel"), callback = function() UIManager:close(dialog) end } },
+        },
+    }
+    UIManager:show(dialog)
+end
+
+function DAppManager:showBetaFeatures(instance, context)
+    local beta = self.appdock.settings.beta
+    local dialog
+    local function toggle(key)
+        self.appdock:setBetaOption(key, not beta[key])
+        UIManager:close(dialog)
+        context.requestRebuild("ui")
+    end
+    dialog = ButtonDialog:new{
+        title = _("Beta features"),
+        buttons = {
+            { { text = (beta.black_borders and "✓ " or "") .. _("Black borders around AppDock controls"), callback = function() toggle("black_borders") end } },
+            { { text = (beta.keep_wallpaper_original_in_night and "✓ " or "") .. _("Do not invert background image in night mode"), callback = function() toggle("keep_wallpaper_original_in_night") end } },
+            { { text = _("Cancel"), callback = function() UIManager:close(dialog) end } },
+        },
+    }
+    UIManager:show(dialog)
+end
+
+function DAppManager:showControlCenterEditor(instance, context)
+    local labels = {
+        wifi = _("Wi-Fi"), night = _("Night mode"), refresh = _("Refresh"), edit = _("Edit apps"),
+        sleep = _("Sleep"), power_saving = _("Save power"), wallpaper = _("Background image"),
+    }
+    local dialog
+    local function show()
+        local current = {}
+        for _, tile_id in ipairs(self.appdock:getQuickSettingsTiles()) do current[tile_id] = true end
+        local buttons = {}
+        for _, tile_id in ipairs({ "wifi", "night", "refresh", "edit", "sleep", "power_saving", "wallpaper" }) do
+            buttons[#buttons + 1] = { { text = (current[tile_id] and "✓ " or "") .. labels[tile_id], callback = function()
+                self.appdock:setQuickTileEnabled(tile_id, not current[tile_id])
+                UIManager:close(dialog)
+                UIManager:nextTick(function() show() end)
+                context.requestRebuild("ui")
+            end } }
+        end
+        buttons[#buttons + 1] = { { text = _("Done"), callback = function() UIManager:close(dialog); context.requestRebuild("ui") end } }
+        dialog = ButtonDialog:new{ title = _("Control center tiles"), buttons = buttons, rows_per_page = { 4, 5, 6 } }
+        UIManager:show(dialog)
+    end
+    show()
+end
+
+function DAppManager:showDAppPermissions(instance, context)
+    local eligible = {}
+    for id, definition in pairs(self.definitions) do
+        if definition.backgroundTick or definition.onAutostart then
+            eligible[#eligible + 1] = { id = id, definition = definition }
+        end
+    end
+    table.sort(eligible, function(left, right) return left.definition.title:lower() < right.definition.title:lower() end)
+    if #eligible == 0 then
+        self:showSettingsNotice(_("No installed DApp currently declares a background or autostart capability."))
+        return
+    end
+    local dialog
+    local function showEditor(entry)
+        local permissions = self.appdock:getDAppPermissions(entry.id)
+        local editor
+        editor = ButtonDialog:new{
+            title = entry.definition.title .. "\n" .. _("Permissions apply only while KOReader is running."),
+            buttons = {
+                { { text = (permissions.background and "✓ " or "") .. _("Run in background for notifications"), enabled = entry.definition.backgroundTick ~= nil, callback = function()
+                    self.appdock:setDAppPermission(entry.id, "background", not permissions.background)
+                    UIManager:close(editor); UIManager:nextTick(function() showEditor(entry) end); context.requestRebuild("ui")
+                end } },
+                { { text = (permissions.autostart and "✓ " or "") .. _("Start automatically"), enabled = entry.definition.onAutostart ~= nil, callback = function()
+                    self.appdock:setDAppPermission(entry.id, "autostart", not permissions.autostart)
+                    UIManager:close(editor); UIManager:nextTick(function() showEditor(entry) end); context.requestRebuild("ui")
+                end } },
+                { { text = _("Done"), callback = function() UIManager:close(editor) end } },
+            },
+        }
+        UIManager:show(editor)
+    end
+    local buttons = {}
+    for _, entry in ipairs(eligible) do
+        local permissions = self.appdock:getDAppPermissions(entry.id)
+        local status = (permissions.background and _("background") or _("no background")) .. " · " .. (permissions.autostart and _("autostart") or _("manual"))
+        buttons[#buttons + 1] = { { text = entry.definition.title .. " — " .. status, callback = function() UIManager:close(dialog); showEditor(entry) end } }
+    end
+    buttons[#buttons + 1] = { { text = _("Done"), callback = function() UIManager:close(dialog) end } }
+    dialog = ButtonDialog:new{ title = _("DApp permissions"), buttons = buttons }
+    UIManager:show(dialog)
+end
+
 function DAppManager:showCustomThemeNameDialog(instance, context)
     local dialog
     dialog = InputDialog:new{
@@ -1317,6 +1524,9 @@ function DAppManager:_buildSettingsPane(instance, context)
     local selected_theme_id, selected_theme = Theme.resolveDefinition(self.appdock.settings)
     local selected_theme_title = selected_theme.title or selected_theme_id
     local night_mode = G_reader_settings:isTrue("night_mode")
+    local wallpaper_settings = self.appdock.settings.wallpaper or { enabled = false, path = "" }
+    local beta_settings = self.appdock.settings.beta or { black_borders = false, keep_wallpaper_original_in_night = false }
+    local lockscreen_settings = self.appdock.settings.lockscreen or { enabled = false, method = "swipe" }
     local rows_by_category = {
         network = {
             {
@@ -1351,6 +1561,18 @@ function DAppManager:_buildSettingsPane(instance, context)
                 show_state = false,
                 callback = function() self:showLauncherLayout(instance, context) end,
             },
+            {
+                title = _("Background image"),
+                subtitle = wallpaper_settings.enabled and _("Enabled · local file") or _("Disabled"),
+                show_state = false,
+                callback = function() self:showWallpaperEditor(instance, context) end,
+            },
+            {
+                title = _("Beta features"),
+                subtitle = (beta_settings.black_borders and _("Borders") or _("No borders")) .. " · " .. (beta_settings.keep_wallpaper_original_in_night and _("night image kept") or _("standard night image")),
+                show_state = false,
+                callback = function() self:showBetaFeatures(instance, context) end,
+            },
         },
         storage = {
             {
@@ -1361,6 +1583,24 @@ function DAppManager:_buildSettingsPane(instance, context)
         },
         other = {
             {
+                title = _("Lockscreen"),
+                subtitle = lockscreen_settings.enabled and (lockscreen_settings.method == "pin" and _("PIN") or lockscreen_settings.method == "pattern" and _("Pattern") or _("Swipe")) or _("Disabled"),
+                show_state = false,
+                callback = function() self:showLockscreenEditor(instance, context) end,
+            },
+            {
+                title = _("Control center"),
+                subtitle = _("Choose quick setting tiles"),
+                show_state = false,
+                callback = function() self:showControlCenterEditor(instance, context) end,
+            },
+            {
+                title = _("DApp permissions"),
+                subtitle = _("Background and automatic start"),
+                show_state = false,
+                callback = function() self:showDAppPermissions(instance, context) end,
+            },
+            {
                 title = _("Arrange apps & widgets"),
                 subtitle = _("Order shown on the homescreen"),
                 show_state = false,
@@ -1368,10 +1608,10 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("About AppDock"),
-                subtitle = _( "Version 2.6.0 and help"),
+                subtitle = _( "Version 3.0.0 · Cappuccino"),
                 show_state = false,
                 callback = function()
-                    self:showSettingsNotice(_("AppDock 2.6.0\n\nStable release: AppDock rabbit start sequence, bilingual searchable offline Help, local notifications, settings-based app and widget ordering with E-Ink move controls, launcher layout controls, optional app search, storage overview, custom themes and AppStore."))
+                    self:showSettingsNotice(_("AppDock 3.0.0 · Cappuccino\n\nLocal wallpaper, AppDock-only swipe/PIN/pattern access control, configurable Control Center tiles, AppStore search, DApp permission controls, scalable split panes and Markdown DReader handover. Background DApps run only with permission while KOReader is active; DockUpdate never installs automatically."))
                 end,
             },
             {
@@ -1402,6 +1642,7 @@ function DAppManager:_buildSettingsPane(instance, context)
         if category.id == selected_id then selected_category = category; break end
     end
     local rows = rows_by_category[selected_category.id]
+    row_height = math.max(scale(38), math.min(scale(62), math.floor((height - scale(78) - gap * math.max(0, #rows - 1)) / #rows)))
     local storage_segments, storage_total, storage_file_count, storage_dapps
     if selected_category.id == "storage" then
         local storage_ok

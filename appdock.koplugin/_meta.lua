@@ -2,7 +2,7 @@ local _ = require("gettext")
 
 return {
     fullname = _("AppDock Homescreen"),
-    description = _("A polished E-Ink homescreen with custom themes, versioned AppStore DApps and widgets, launcher layout controls, optional app search, storage overview, graphical Files with NightLua and DReader handover, browser, help, refresh control and split screen."),
-    version = "2.6.0",
+    description = _("An E-Ink homescreen with local wallpaper, AppDock-only lockscreen, configurable Control Center, AppStore search, DApp permissions and scalable split screen."),
+    version = "3.0.0",
     author = "Manus AI",
 }

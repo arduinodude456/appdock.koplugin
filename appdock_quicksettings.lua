@@ -399,6 +399,42 @@ function QuickSettings:fullRefresh()
     self:_refresh("full", nil, true)
 end
 
+function QuickSettings:enterSleep()
+    if type(Device.canSuspend) == "function" and Device:canSuspend() then
+        UIManager:broadcastEvent(Event:new("RequestSuspend"))
+    else
+        UIManager:show(InfoMessage:new{ text = _("Sleep mode is unavailable on this device.") })
+    end
+end
+
+function QuickSettings:togglePowerSaving()
+    local enable = not self.appdock.settings.power_saving
+    if enable then
+        local wifi_on, wifi_available = getWifiState()
+        if wifi_available and wifi_on then
+            local ok, NetworkMgr = pcall(require, "ui/network/manager")
+            if ok and NetworkMgr then NetworkMgr:toggleWifiOff(function() end, true) end
+        end
+        local brightness = self:_brightnessState()
+        if brightness and brightness.current > brightness.min then pcall(brightness.powerd.toggleFrontlight, brightness.powerd) end
+    end
+    self.appdock:setPowerSaving(enable)
+    self:rebuild(true)
+end
+
+function QuickSettings:toggleWallpaper()
+    local wallpaper = self.appdock.settings.wallpaper or {}
+    if not wallpaper.path or wallpaper.path == "" then
+        UIManager:show(InfoMessage:new{ text = _("Choose a local background image in Settings → Display first.") })
+        return
+    end
+    local enabled = self.appdock:setWallpaper(nil, not wallpaper.enabled)
+    if not enabled and not wallpaper.enabled then
+        UIManager:show(InfoMessage:new{ text = _("The saved background image is unavailable or unsupported.") })
+    end
+    self:rebuild(true)
+end
+
 function QuickSettings:markAllNotificationsRead()
     self.appdock:markAllNotificationsRead()
     self:rebuild(true)
@@ -422,11 +458,16 @@ function QuickSettings:rebuild(refresh)
     local notification_title_height = scale(24)
     local notification_row_height = scale(42)
     local notification_action_height = scale(34)
+    local selected_tile_ids = type(self.appdock.getQuickSettingsTiles) == "function"
+        and self.appdock:getQuickSettingsTiles()
+        or { "wifi", "night", "refresh", "edit" }
+    local tile_rows = math.ceil(#selected_tile_ids / 2)
+    local tile_area_height = tile_rows * tile_height + math.max(0, tile_rows - 1) * gap
     local notification_items = self.appdock:getNotifications(3)
     local notification_count = #notification_items
     local show_notifications = true
     local notification_height = notification_title_height + notification_count * (notification_row_height + gap) + (notification_count > 0 and notification_action_height + gap or 0)
-    local natural_height = header_height + 2 * tile_height + gap + slider_spacing + slider_height + slider_spacing + notification_height + sheet_bottom
+    local natural_height = header_height + tile_area_height + slider_spacing + slider_height + slider_spacing + notification_height + sheet_bottom
     local compact = natural_height > maximum_sheet_height
     if compact then
         margin = scale(16)
@@ -442,11 +483,15 @@ function QuickSettings:rebuild(refresh)
         notification_items = self.appdock:getNotifications(1)
         notification_count = #notification_items
         notification_height = notification_title_height + notification_count * (notification_row_height + gap) + (notification_count > 0 and notification_action_height + gap or 0)
-        natural_height = header_height + 2 * tile_height + gap + slider_spacing + slider_height + slider_spacing + notification_height + sheet_bottom
+        tile_area_height = tile_rows * tile_height + math.max(0, tile_rows - 1) * gap
+        natural_height = header_height + tile_area_height + slider_spacing + slider_height + slider_spacing + notification_height + sheet_bottom
         if self.dimen.h < scale(360) then
             show_notifications = false
             notification_items, notification_count, notification_height = {}, 0, 0
-            natural_height = header_height + 2 * tile_height + gap + slider_spacing + slider_height + sheet_bottom
+            local available_tile_height = self.dimen.h - header_height - slider_spacing - slider_height - sheet_bottom - math.max(0, tile_rows - 1) * gap
+            tile_height = math.max(scale(28), math.floor(available_tile_height / math.max(1, tile_rows)))
+            tile_area_height = tile_rows * tile_height + math.max(0, tile_rows - 1) * gap
+            natural_height = header_height + tile_area_height + slider_spacing + slider_height + sheet_bottom
         end
     end
     local tile_width = math.floor((width - 2 * margin - gap) / 2)
@@ -456,6 +501,8 @@ function QuickSettings:rebuild(refresh)
     local wifi_on, wifi_available = getWifiState()
     local is_night = G_reader_settings:isTrue("night_mode")
     local unread_notifications = self.appdock:getUnreadNotificationCount()
+    local app_settings = self.appdock.settings or {}
+    local wallpaper_settings = app_settings.wallpaper or {}
 
     local content = OverlapGroup:new{
         dimen = Geom:new{ w = width, h = self.dimen.h },
@@ -488,32 +535,53 @@ function QuickSettings:rebuild(refresh)
     table.insert(content, close)
 
     local tile_y = header_height
-    local tiles = {
-        {
+    local tile_definitions = {
+        wifi = {
             title = _("Wi-Fi"), symbol = "W",
             subtitle = wifi_available and (wifi_on and _("On") or _("Off")) or _("Unavailable"),
             active = wifi_on,
             callback = function() self:toggleWifi() end,
         },
-        {
+        night = {
             title = _("Night"), symbol = "N",
             subtitle = is_night and _("On") or _("Off"),
             active = is_night,
             callback = function() self:toggleNightMode() end,
         },
-        {
+        refresh = {
             title = _("Refresh"), symbol = "R",
             subtitle = _("Redraw"),
             active = false,
             callback = function() self:fullRefresh() end,
         },
-        {
+        edit = {
             title = _("Edit"), symbol = "E",
             subtitle = _("Apps"),
             active = false,
             callback = function() self:openManager() end,
         },
+        sleep = {
+            title = _("Sleep"), symbol = "Z",
+            subtitle = _("Screen off"), active = false,
+            callback = function() self:enterSleep() end,
+        },
+        power_saving = {
+            title = _("Save power"), symbol = "P",
+            subtitle = app_settings.power_saving and _("On") or _("Off"),
+            active = app_settings.power_saving == true,
+            callback = function() self:togglePowerSaving() end,
+        },
+        wallpaper = {
+            title = _("Background"), symbol = "B",
+            subtitle = wallpaper_settings.enabled and _("On") or _("Off"),
+            active = wallpaper_settings.enabled == true,
+            callback = function() self:toggleWallpaper() end,
+        },
     }
+    local tiles = {}
+    for _, tile_id in ipairs(selected_tile_ids) do
+        if tile_definitions[tile_id] then tiles[#tiles + 1] = tile_definitions[tile_id] end
+    end
     for index, tile in ipairs(tiles) do
         local col = (index - 1) % 2
         local row = math.floor((index - 1) / 2)
@@ -538,7 +606,7 @@ function QuickSettings:rebuild(refresh)
         width = width - 2 * margin,
         height = slider_height,
         brightness = brightness,
-        overlap_offset = { margin, tile_y + 2 * (tile_height + gap) + slider_spacing },
+        overlap_offset = { margin, tile_y + tile_area_height + slider_spacing },
     }
     table.insert(content, self.slider)
     local notifications_y = self.slider.overlap_offset[2] + slider_height + slider_spacing

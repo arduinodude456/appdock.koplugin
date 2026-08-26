@@ -18,6 +18,7 @@ local Geom = require("ui/geometry")
 local GestureRange = require("ui/gesturerange")
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local InputContainer = require("ui/widget/container/inputcontainer")
+local InputDialog = require("ui/widget/inputdialog")
 local InfoMessage = require("ui/widget/infomessage")
 local OverlapGroup = require("ui/widget/overlapgroup")
 local TextWidget = require("ui/widget/textwidget")
@@ -43,6 +44,10 @@ for _, kind in ipairs(DAppLogo.availableKinds()) do KNOWN_LOGOS[kind] = true end
 
 local function scale(value)
     return Screen:scaleBySize(value)
+end
+
+local function trim(value)
+    return type(value) == "string" and value:gsub("^%s+", ""):gsub("%s+$", "") or ""
 end
 
 local function emptySizedWidget(width, height)
@@ -198,6 +203,17 @@ function AppStore.parseManifest(body)
     return entries
 end
 
+function AppStore.filterEntries(entries, query)
+    local needle = trim(query or ""):lower()
+    if needle == "" then return entries or {} end
+    local result = {}
+    for _, entry in ipairs(entries or {}) do
+        local haystack = table.concat({ entry.title or "", entry.path or "", entry.kind or "" }, " "):lower()
+        if haystack:find(needle, 1, true) then table.insert(result, entry) end
+    end
+    return result
+end
+
 function AppStore:new()
     return setmetatable({}, self)
 end
@@ -207,8 +223,29 @@ function AppStore:_ensureState(instance)
         entries = nil,
         error = nil,
         refreshed = false,
+        query = "",
     }
+    instance.app_store.query = type(instance.app_store.query) == "string" and instance.app_store.query or ""
     return instance.app_store
+end
+
+function AppStore:promptSearch(instance, context)
+    local state = self:_ensureState(instance)
+    local dialog
+    dialog = InputDialog:new{
+        title = _("Search AppStore"),
+        input = state.query or "",
+        input_hint = _("Name, file path, DApp, or widget"),
+        buttons = {
+            {
+                { text = _("Clear"), callback = function() state.query = ""; UIManager:close(dialog); context.requestRebuild("ui") end },
+                { text = _("Cancel"), callback = function() UIManager:close(dialog) end },
+                { text = _("Search"), is_enter_default = true, callback = function() state.query = trim(dialog:getInputText()); UIManager:close(dialog); context.requestRebuild("ui") end },
+            },
+        },
+    }
+    UIManager:show(dialog)
+    dialog:onShowKeyboard()
 end
 
 function AppStore:refresh(instance, context)
@@ -446,8 +483,18 @@ function AppStore:buildPane(instance, context)
         end,
         overlap_offset = { margin + refresh_width + gap, scale(58) },
     })
+    local query = trim(state.query or "")
+    table.insert(content, StoreButton:new{
+        title = query == "" and _("Search catalog") or (_("Search: ") .. query),
+        subtitle = query == "" and _("Filter loaded DApps and widgets") or _("Tap to change or clear this local filter"),
+        logo = "app_store",
+        width = width - 2 * margin, height = scale(42),
+        background = palette.surface_variant or palette.surface, foreground = palette.on_surface_variant or palette.on_surface,
+        callback = function() self:promptSearch(instance, context) end,
+        overlap_offset = { margin, scale(110) },
+    })
 
-    local list_y, card_height = scale(114), scale(68)
+    local list_y, card_height = scale(160), scale(68)
     if not state.refreshed then
         table.insert(content, StoreButton:new{
             title = _("Catalog ready"),
@@ -474,11 +521,22 @@ function AppStore:buildPane(instance, context)
             overlap_offset = { margin, list_y },
         })
     else
+        local visible_entries = AppStore.filterEntries(state.entries, query)
+        if #visible_entries == 0 then
+            table.insert(content, StoreButton:new{
+                title = _("No matching store items"), subtitle = _("Change or clear the local search filter."),
+                logo = "app_store",
+                width = width - 2 * margin, height = card_height,
+                background = palette.surface, foreground = palette.on_surface,
+                overlap_offset = { margin, list_y },
+            })
+            return WidgetContainer:new{ dimen = Geom:new{ w = width, h = height }, content }
+        end
         local card_width = width - 2 * margin
         local action_width = math.min(scale(82), math.max(scale(62), math.floor(card_width * 0.25)))
         local primary_width = card_width - action_width - gap
         local cards = {}
-        for index, entry in ipairs(state.entries) do
+        for index, entry in ipairs(visible_entries) do
             local row_y = (index - 1) * (card_height + gap)
             local action_state, definition = self:_entryState(context, entry)
             local status = self:_showStatus(entry, action_state)
@@ -526,7 +584,7 @@ function AppStore:buildPane(instance, context)
             end
         end
         local list_height = math.max(scale(40), height - list_y - margin)
-        local content_height = math.max(list_height, #state.entries * (card_height + gap) - gap)
+        local content_height = math.max(list_height, #visible_entries * (card_height + gap) - gap)
         local list_content = OverlapGroup:new{
             dimen = Geom:new{ w = card_width, h = content_height },
             allow_mirroring = false,

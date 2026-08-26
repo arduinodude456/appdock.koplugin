@@ -43,7 +43,13 @@ local DEFAULT_SETTINGS = {
     layout = { app_spacing = 16, logo_shape = "rounded", search_enabled = false },
     launch_on_start = false,
     notifications = { items = {}, next_id = 0 },
-    layout_version = 14,
+    wallpaper = { enabled = false, path = "" },
+    lockscreen = { enabled = false, method = "swipe", secret_hash = nil },
+    beta = { black_borders = false, keep_wallpaper_original_in_night = false },
+    quick_settings = { tiles = { "wifi", "night", "refresh", "edit", "sleep", "power_saving", "wallpaper" } },
+    dapp_permissions = {},
+    power_saving = false,
+    layout_version = 15,
 }
 
 local function copyArray(source)
@@ -58,6 +64,11 @@ function AppDock:init()
     self:_loadSettings()
     self.ui.menu:registerToMainMenu(self)
     self:_scheduleScreenRefresh()
+    self:_scheduleDAppTasks()
+    UIManager:nextTick(function()
+        local manager = self:getDAppManager()
+        if manager and manager.runPermittedAutostarts then manager:runPermittedAutostarts() end
+    end)
     if self.settings.launch_on_start then
         UIManager:nextTick(function() self:showHome() end)
     end
@@ -80,6 +91,12 @@ function AppDock:_loadSettings()
         layout = stored.layout or {},
         launch_on_start = stored.launch_on_start == true,
         notifications = stored.notifications or { items = {}, next_id = 0 },
+        wallpaper = stored.wallpaper or { enabled = false, path = "" },
+        lockscreen = stored.lockscreen or { enabled = false, method = "swipe", secret_hash = nil },
+        beta = stored.beta or { black_borders = false, keep_wallpaper_original_in_night = false },
+        quick_settings = stored.quick_settings or { tiles = copyArray(DEFAULT_SETTINGS.quick_settings.tiles) },
+        dapp_permissions = stored.dapp_permissions or {},
+        power_saving = stored.power_saving == true,
         layout_version = stored.layout_version or 1,
     }
 
@@ -121,6 +138,19 @@ function AppDock:_loadSettings()
     self.settings.notifications = self.settings.notifications or { items = {}, next_id = 0 }
     self.settings.notifications.items = self.settings.notifications.items or {}
     self.settings.notifications.next_id = tonumber(self.settings.notifications.next_id) or 0
+    self.settings.wallpaper = self.settings.wallpaper or { enabled = false, path = "" }
+    self.settings.wallpaper.enabled = self.settings.wallpaper.enabled == true
+    self.settings.wallpaper.path = type(self.settings.wallpaper.path) == "string" and self.settings.wallpaper.path:sub(1, 360) or ""
+    self.settings.lockscreen = self.settings.lockscreen or { enabled = false, method = "swipe", secret_hash = nil }
+    self.settings.lockscreen.enabled = self.settings.lockscreen.enabled == true
+    if self.settings.lockscreen.method ~= "pin" and self.settings.lockscreen.method ~= "pattern" then self.settings.lockscreen.method = "swipe" end
+    self.settings.lockscreen.secret_hash = type(self.settings.lockscreen.secret_hash) == "string" and self.settings.lockscreen.secret_hash or nil
+    self.settings.beta = self.settings.beta or {}
+    self.settings.beta.black_borders = self.settings.beta.black_borders == true
+    self.settings.beta.keep_wallpaper_original_in_night = self.settings.beta.keep_wallpaper_original_in_night == true
+    self.settings.quick_settings = self.settings.quick_settings or {}
+    self.settings.quick_settings.tiles = copyArray(self.settings.quick_settings.tiles or DEFAULT_SETTINGS.quick_settings.tiles)
+    self.settings.dapp_permissions = self.settings.dapp_permissions or {}
     local normalized_notifications = {}
     for _, item in ipairs(self.settings.notifications.items) do
         if type(item) == "table" and type(item.title) == "string" and type(item.message) == "string" then
@@ -161,6 +191,87 @@ function AppDock:setLauncherLayout(changes)
         self.settings.layout.search_enabled = not not changes.search_enabled
     end
     self:_saveSettings()
+end
+
+function AppDock:setWallpaper(path, enabled)
+    local Wallpaper = require("appdock_wallpaper")
+    if type(path) == "string" then self.settings.wallpaper.path = path:sub(1, 360) end
+    if enabled ~= nil then self.settings.wallpaper.enabled = enabled == true and Wallpaper.isValidPath(self.settings.wallpaper.path) end
+    self:_saveSettings()
+    return self.settings.wallpaper.enabled
+end
+
+function AppDock:setBetaOption(key, enabled)
+    if key ~= "black_borders" and key ~= "keep_wallpaper_original_in_night" then return false end
+    self.settings.beta[key] = enabled == true
+    self:_saveSettings()
+    return true
+end
+
+function AppDock:setLockscreen(method, secret)
+    local LockScreen = require("appdock_lockscreen")
+    if method ~= "swipe" and method ~= "pin" and method ~= "pattern" then return false end
+    if method ~= "swipe" and (type(secret) ~= "string" or #secret < 4 or #secret > 32) then return false end
+    self.settings.lockscreen.method = method
+    self.settings.lockscreen.enabled = true
+    self.settings.lockscreen.secret_hash = method == "swipe" and nil or LockScreen.hash(secret)
+    self:_saveSettings()
+    return true
+end
+
+function AppDock:disableLockscreen()
+    self.settings.lockscreen.enabled = false
+    self.settings.lockscreen.secret_hash = nil
+    self:_saveSettings()
+end
+
+function AppDock:setPowerSaving(enabled)
+    self.settings.power_saving = enabled == true
+    self:_saveSettings()
+    self:_scheduleScreenRefresh()
+end
+
+local QUICK_TILE_IDS = { wifi = true, night = true, refresh = true, edit = true, sleep = true, power_saving = true, wallpaper = true }
+
+function AppDock:getQuickSettingsTiles()
+    local tiles, seen = {}, {}
+    for _, tile_id in ipairs(self.settings.quick_settings.tiles or {}) do
+        if QUICK_TILE_IDS[tile_id] and not seen[tile_id] then
+            tiles[#tiles + 1] = tile_id
+            seen[tile_id] = true
+        end
+    end
+    self.settings.quick_settings.tiles = tiles
+    return tiles
+end
+
+function AppDock:setQuickTileEnabled(tile_id, enabled)
+    if not QUICK_TILE_IDS[tile_id] then return false end
+    local tiles = self:getQuickSettingsTiles()
+    local position
+    for index, value in ipairs(tiles) do if value == tile_id then position = index; break end end
+    if enabled and not position then tiles[#tiles + 1] = tile_id end
+    if not enabled and position then table.remove(tiles, position) end
+    self.settings.quick_settings.tiles = tiles
+    self:_saveSettings()
+    return true
+end
+
+function AppDock:getDAppPermissions(id)
+    local stored = self.settings.dapp_permissions[id] or {}
+    return { background = stored.background == true, autostart = stored.autostart == true }
+end
+
+function AppDock:setDAppPermission(id, key, enabled)
+    if type(id) ~= "string" or (key ~= "background" and key ~= "autostart") then return false end
+    self.settings.dapp_permissions[id] = self.settings.dapp_permissions[id] or {}
+    self.settings.dapp_permissions[id][key] = enabled == true
+    self:_saveSettings()
+    if key == "autostart" and enabled then
+        local manager = self:getDAppManager()
+        if manager and manager.runPermittedAutostarts then manager:runPermittedAutostarts() end
+    end
+    return true
 end
 
 function AppDock:getNotifications(limit)
@@ -254,15 +365,28 @@ function AppDock:_scheduleScreenRefresh()
         -- own regional fast refreshes instead.
         UIManager:setDirty("all", "full")
         if UIManager.forceRePaint then UIManager:forceRePaint() end
-        UIManager:scheduleIn(60, self._screen_refresh_tick)
+        UIManager:scheduleIn(self.settings.power_saving and 180 or 60, self._screen_refresh_tick)
     end
-    UIManager:scheduleIn(60, self._screen_refresh_tick)
+    UIManager:scheduleIn(self.settings.power_saving and 180 or 60, self._screen_refresh_tick)
+end
+
+function AppDock:_scheduleDAppTasks()
+    if self._dapp_task_tick then UIManager:unschedule(self._dapp_task_tick) end
+    self._dapp_task_tick = function()
+        if not self.settings.power_saving then
+            local manager = self:getDAppManager()
+            if manager and manager.runPermittedBackgroundTasks then manager:runPermittedBackgroundTasks() end
+        end
+        UIManager:scheduleIn(120, self._dapp_task_tick)
+    end
+    UIManager:scheduleIn(120, self._dapp_task_tick)
 end
 
 function AppDock:onCloseWidget()
     if self._screen_refresh_tick then
         UIManager:unschedule(self._screen_refresh_tick)
     end
+    if self._dapp_task_tick then UIManager:unschedule(self._dapp_task_tick) end
 end
 
 function AppDock:addToMainMenu(menu_items)
@@ -289,12 +413,19 @@ function AppDock:addToMainMenu(menu_items)
     }
 end
 
-function AppDock:showHome()
+function AppDock:showHome(skip_lock)
+    if self.settings.lockscreen.enabled and not skip_lock then
+        local ok, LockScreen = pcall(require, "appdock_lockscreen")
+        if ok and LockScreen and LockScreen.show then
+            LockScreen.show(self, function() self:showHome(true) end)
+            return
+        end
+    end
     if not self._boot_shown then
         self._boot_shown = true
         local ok, Boot = pcall(require, "appdock_boot")
         if ok and Boot and Boot.show then
-            Boot.show(function() self:showHome() end)
+            Boot.show(function() self:showHome(true) end)
             return
         end
     end

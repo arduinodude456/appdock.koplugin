@@ -17,6 +17,7 @@ local InputDialog = require("ui/widget/inputdialog")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local DAppLogo = require("appdock_logo")
 local Theme = require("appdock_theme")
+local Wallpaper = require("appdock_wallpaper")
 local OverlapGroup = require("ui/widget/overlapgroup")
 local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
@@ -206,7 +207,8 @@ function InfoCard:init()
         width = self.width,
         height = self.height,
         padding = 0,
-        bordersize = 0,
+        bordersize = self.appdock and self.appdock.settings.beta and self.appdock.settings.beta.black_borders and scale(1) or 0,
+        color = Blitbuffer.COLOR_BLACK,
         radius = math.floor(self.height * 0.30),
         background = self.background or PALETTE.surface,
         CenterContainer:new{
@@ -237,7 +239,8 @@ function StoreWidgetCard:init()
         width = self.width,
         height = self.height,
         padding = 0,
-        bordersize = 0,
+        bordersize = self.appdock and self.appdock.settings.beta and self.appdock.settings.beta.black_borders and scale(1) or 0,
+        color = Blitbuffer.COLOR_BLACK,
         radius = math.floor(self.height * 0.28),
         background = self.background or PALETTE.surface,
         CenterContainer:new{
@@ -293,7 +296,8 @@ function AppTile:init()
         width = self.tile_size,
         height = self.tile_size,
         padding = 0,
-        bordersize = 0,
+        bordersize = self.appdock.settings.beta and self.appdock.settings.beta.black_borders and scale(1) or 0,
+        color = Blitbuffer.COLOR_BLACK,
         radius = self.shape == "circle" and math.floor(self.tile_size / 2) or math.floor(self.tile_size * 0.32),
         background = self.background or PALETTE.primary_container,
         CenterContainer:new{
@@ -517,6 +521,12 @@ function AppDockHomeScreen:build()
         },
     }
 
+    local wallpaper = Wallpaper.build(self.appdock, width, height)
+    if wallpaper then
+        wallpaper.overlap_offset = { 0, 0 }
+        table.insert(dashboard, wallpaper)
+    end
+
     self:_addTopSystemLine(dashboard, width, margin)
 
     table.insert(dashboard, TextWidget:new{
@@ -544,6 +554,7 @@ function AppDockHomeScreen:build()
     if self.appdock.settings.widgets.status then
         local status_body = safeBatteryText() or _("All systems ready")
         table.insert(dashboard, InfoCard:new{
+            appdock = self.appdock,
             width = math.floor((width - 2 * margin - scale(10)) * 0.42),
             height = scale(62),
             title = _("Device"),
@@ -562,6 +573,7 @@ function AppDockHomeScreen:build()
             and width - margin - reading_x
             or width - 2 * margin
         table.insert(dashboard, InfoCard:new{
+            appdock = self.appdock,
             width = reading_width,
             height = scale(62),
             title = _("Continue reading"),

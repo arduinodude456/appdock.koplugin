@@ -229,7 +229,7 @@ function FileBrowser:_readEntries(path)
                     size = attributes.size,
                     supported = attributes.mode == "file" and DocumentRegistry:hasProvider(fullpath),
                     is_lua = attributes.mode == "file" and fullpath:lower():match("%.lua$") ~= nil,
-                    is_dreader = attributes.mode == "file" and (fullpath:lower():match("%.epub$") ~= nil or fullpath:lower():match("%.html$") ~= nil or fullpath:lower():match("%.htm$") ~= nil or fullpath:lower():match("%.xhtml$") ~= nil),
+                    is_dreader = attributes.mode == "file" and (fullpath:lower():match("%.epub$") ~= nil or fullpath:lower():match("%.html$") ~= nil or fullpath:lower():match("%.htm$") ~= nil or fullpath:lower():match("%.xhtml$") ~= nil or fullpath:lower():match("%.md$") ~= nil or fullpath:lower():match("%.markdown$") ~= nil),
                 })
             end
         end
