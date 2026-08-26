@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **4.0.2 „Bueno“** stellt für die Plugin-in-DApp-Beta den erwarteten direkten Start eines einzelnen echten Plugin-Hauptmenüeintrags wieder her. [1] [2]
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **4.1.0 „Bueno“** erweitert den JavaScript-freien Webbrowser um sichere statische Bilddarstellung aus servergerenderten HTML-Seiten. [1] [2]
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst die Formensprache und Informationsstruktur, nicht die Android-Animationen, Unschärfen oder Transparenzeffekte. Damit bleiben Aktualisierungen sparsam und die Darstellung auf monochromen Readern kontrastreich.
 
@@ -15,6 +15,8 @@
 > **4.0.1 „Bueno“:** Der Plugin-Host ergänzt einen lokalen TouchMenu-Adapter für dynamische Texteditor-Untermenüs und startet AppStore-ähnliche Aktionen erst nach dem Schließen des Hostmenüs im nächsten UI-Zyklus. Details stehen in [`RELEASE_NOTES_4.0.1.md`](RELEASE_NOTES_4.0.1.md).
 
 > **4.0.2 „Bueno“:** Ein Plugin mit genau einer veröffentlichten Hauptmenüaktion startet diese nach dem Aufbau seiner AppDock-Sitzung automatisch. Text editor öffnet damit sofort sein dynamisches Untermenü, und AppStore startet sofort seinen nativen Browser. Details stehen in [`RELEASE_NOTES_4.0.2.md`](RELEASE_NOTES_4.0.2.md).
+
+> **4.1.0 „Bueno“:** Web Browser zeigt unterstützte statische Webbilder über einen begrenzten lokalen Ressourcen-Cache an. Relative und HTTPS-Bildquellen werden sicher aufgelöst; nicht verfügbare, zu große oder nicht unterstützte Quellen fallen auf Alt-Text zurück. Details stehen in [`RELEASE_NOTES_4.1.0.md`](RELEASE_NOTES_4.1.0.md).
 
 ## Neu in 3.0.0 „Cappuccino“
 

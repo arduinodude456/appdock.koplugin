@@ -4,7 +4,7 @@
 
 # New releases regulary commited at 3:00 AM CET
 
-**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **4.0.2 “Bueno”** restores the expected direct start for a single real plugin main-menu action in the Plugin-in-DApp beta. [1] [2]
+**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **4.1.0 “Bueno”** extends the JavaScript-free Web Browser with safe static image rendering from server-rendered HTML pages. [1] [2]
 
 > **E-Ink approach:** AppDock deliberately borrows the visual language and information structure, not Android's animations, blur, or transparency effects. This keeps updates economical and maintains contrast on monochrome readers.
 
@@ -15,6 +15,8 @@
 > **4.0.1 “Bueno”:** The plugin host adds a local TouchMenu adapter for dynamic Text editor-style submenus and starts AppStore-style actions only after the host menu has closed in the next UI cycle. See [`RELEASE_NOTES_4.0.1.md`](RELEASE_NOTES_4.0.1.md).
 
 > **4.0.2 “Bueno”:** A plugin with exactly one published main-menu action now starts that action automatically after its AppDock session has opened. Text editor therefore opens its dynamic first submenu immediately, and AppStore starts its native browser immediately. See [`RELEASE_NOTES_4.0.2.md`](RELEASE_NOTES_4.0.2.md).
+
+> **4.1.0 “Bueno”:** Web Browser renders supported static web images through a bounded local resource cache. Relative and HTTPS image sources are resolved safely; unavailable, oversized, or unsupported sources fall back to alt text. See [`RELEASE_NOTES_4.1.0.md`](RELEASE_NOTES_4.1.0.md).
 
 ## UI on real hardware
 

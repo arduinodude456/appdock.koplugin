@@ -541,6 +541,9 @@ function DAppManager:_registerBuiltins()
         buildPane = function(instance, context)
             return self.browser:buildPane(instance, context)
         end,
+        onClose = function(instance)
+            if self.browser.cleanup then self.browser:cleanup(instance) end
+        end,
     }
     self.definitions.app_store = {
         id = "app_store",
@@ -1402,6 +1405,7 @@ function DAppManager:closeDApp(id)
     for index, open_id in ipairs(self.open_order) do
         if open_id == id then table.remove(self.open_order, index); break end
     end
+    if type(instance.definition.onClose) == "function" then pcall(instance.definition.onClose, instance) end
     if instance.definition.host_kind == "plugin" then self.plugin_definitions[id] = nil end
     self.instances[id] = nil
     if self.active_id == id then self.active_id = nil end
@@ -2070,10 +2074,10 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("About AppDock"),
-                subtitle = _( "Version 4.0.2 · Bueno"),
+                subtitle = _( "Version 4.1.0 · Bueno"),
                 show_state = false,
                 callback = function()
-                    self:showSettingsNotice(_("AppDock 4.0.2 · Bueno\n\nA plugin with one published main-menu action now starts that action automatically after its AppDock host opens. This restores the direct start expected by Text editor and AppStore. Text editor-style dynamic menus receive a compatible local TouchMenu adapter. Plugin hosts never support split screen, and AppDock does not globally capture arbitrary plugin dialogs."))
+                    self:showSettingsNotice(_("AppDock 4.1.0 · Bueno\n\nWeb Browser now displays supported static web images through a bounded local cache. Relative and HTTPS image URLs are resolved safely; unavailable, oversized or unsupported images show alt text instead. JavaScript, embedded media and arbitrary local paths remain unavailable. Plugin hosts never support split screen, and AppDock does not globally capture arbitrary plugin dialogs."))
                 end,
             },
             {

@@ -6,6 +6,7 @@ KOReader's MuPDF-backed ScrollHtmlWidget.
 
 local Blitbuffer = require("ffi/blitbuffer")
 local CenterContainer = require("ui/widget/container/centercontainer")
+local DataStorage = require("datastorage")
 local Device = require("device")
 local Font = require("ui/font")
 local FrameContainer = require("ui/widget/container/framecontainer")
@@ -19,6 +20,7 @@ local ScrollHtmlWidget = require("ui/widget/scrollhtmlwidget")
 local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
+local util = require("util")
 local _ = require("gettext")
 
 local Screen = Device.screen
@@ -26,6 +28,9 @@ local Browser = {}
 Browser.__index = Browser
 
 local MAX_BODY_BYTES = 2 * 1024 * 1024
+local MAX_IMAGE_BYTES = 1536 * 1024
+local MAX_IMAGE_TOTAL_BYTES = 5 * 1024 * 1024
+local MAX_IMAGES_PER_PAGE = 8
 local REQUEST_TIMEOUT = 12
 local REQUEST_MAX_TIME = 30
 local DUCKDUCKGO_HTML = "https://html.duckduckgo.com/html/?q="
@@ -69,7 +74,9 @@ local BROWSER_CSS = [[
   p, li { margin: 0.32em 0; }
   a { color: #173b6f; text-decoration: underline; }
   pre, code { white-space: pre-wrap; }
-  img, video, audio, canvas, svg, iframe, form, button, input, select, textarea { display: none; }
+  img { display: block; max-width: 100%; height: auto; margin: 0.7em auto; }
+  .appdock-image-fallback { color: #555555; font-style: italic; }
+  video, audio, canvas, svg, iframe, form, button, input, select, textarea { display: none; }
 ]]
 
 local function emptySizedWidget(width, height)
@@ -161,6 +168,127 @@ local function sanitizeHtml(html)
     return html
 end
 
+local function escapeHtml(value)
+    return tostring(value or ""):gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;"):gsub('"', "&quot;")
+end
+
+local function getHtmlAttribute(tag, name)
+    local prefix = "[" .. name:sub(1, 1):lower() .. name:sub(1, 1):upper() .. "]"
+    for index = 2, #name do
+        prefix = prefix .. "[" .. name:sub(index, index):lower() .. name:sub(index, index):upper() .. "]"
+    end
+    local double = tag:match(prefix .. "%s*=%s*\"([^\"]*)\"")
+    if double then return double end
+    local single = tag:match(prefix .. "%s*=%s*'([^']*)'")
+    if single then return single end
+    return tag:match(prefix .. "%s*=%s*([^%s>]+)")
+end
+
+local function imageExtension(content_type, url)
+    local content = (content_type or ""):lower()
+    if content:find("png", 1, true) then return "png" end
+    if content:find("jpeg", 1, true) or content:find("jpg", 1, true) then return "jpg" end
+    if content:find("gif", 1, true) then return "gif" end
+    if content:find("webp", 1, true) then return "webp" end
+    local clean_url = tostring(url or ""):gsub("[?#].*$", "")
+    local suffix = clean_url:match("%.([%a%d]+)$")
+    if suffix and ({ png = true, jpg = true, jpeg = true, gif = true, webp = true })[suffix:lower()] then
+        return suffix:lower() == "jpeg" and "jpg" or suffix:lower()
+    end
+    return nil
+end
+
+local function fetchImage(url, redirects)
+    redirects = redirects or 0
+    if redirects > 5 then return nil, nil, "too many redirects" end
+    local socket_url = require("socket.url")
+    local socket = require("socket")
+    local socketutil = require("socketutil")
+    local parsed = socket_url.parse(url)
+    if not parsed or (parsed.scheme ~= "http" and parsed.scheme ~= "https") then return nil, nil, "unsupported image address" end
+    local http = parsed.scheme == "https" and require("ssl.https") or require("socket.http")
+    local chunks, received = {}, 0
+    local started_at = os.time()
+    local function sink(chunk)
+        if os.time() - started_at > REQUEST_MAX_TIME then return nil, "response timed out" end
+        if chunk then
+            received = received + #chunk
+            if received > MAX_IMAGE_BYTES then return nil, "image too large" end
+            table.insert(chunks, chunk)
+        end
+        return 1
+    end
+    socketutil:set_timeout(REQUEST_TIMEOUT, REQUEST_MAX_TIME)
+    local ok, code, headers, status = pcall(function()
+        return socket.skip(1, http.request{
+            url = url,
+            method = "GET",
+            sink = sink,
+            headers = { ["user-agent"] = socketutil.USER_AGENT, ["accept"] = "image/png,image/jpeg,image/gif,image/webp;q=0.9,*/*;q=0.1" },
+        })
+    end)
+    socketutil:reset_timeout()
+    if not ok or not headers then return nil, nil, status or "image request failed" end
+    if code and code >= 300 and code < 400 and headers.location then
+        return fetchImage(socket_url.absolute(url, headers.location), redirects + 1)
+    end
+    if not code or code < 200 or code > 299 then return nil, nil, status or "image request failed" end
+    local content_type = (headers["content-type"] or ""):lower()
+    if not content_type:find("image/", 1, true) then return nil, nil, "unsupported image type" end
+    return table.concat(chunks), content_type
+end
+
+local function clearImages(state)
+    for _, path in ipairs(state.image_paths or {}) do pcall(os.remove, path) end
+    state.image_paths = {}
+    state.image_resource_directory = nil
+end
+
+local function prepareImages(html, page_url, state)
+    clearImages(state)
+    local socket_url = require("socket.url")
+    local cache_dir = DataStorage:getDataDir() .. "/cache/appdock-browser-images"
+    if not util.makePath or not util.makePath(cache_dir) then return html end
+    local image_count, total_bytes = 0, 0
+    local resolved = {}
+    local function fallback(tag)
+        local alt = getHtmlAttribute(tag, "alt") or _("Image unavailable")
+        return "<p class=\"appdock-image-fallback\">[" .. escapeHtml(alt) .. "]</p>"
+    end
+    local function rewrite(tag)
+        if not tag:match("^<[iI][mM][gG][%s/>]") then return tag end
+        local source = getHtmlAttribute(tag, "src")
+        if not source or source == "" then return fallback(tag) end
+        local source_scheme = source:match("^[%a][%w+.-]*:")
+        if source_scheme and not isHttpUrl(source) then return fallback(tag) end
+        if source:match("^//") then
+            local page = socket_url.parse(page_url)
+            source = (page and page.scheme or "https") .. ":" .. source
+        end
+        local image_url = socket_url.absolute(page_url, source)
+        if not isHttpUrl(image_url) then return fallback(tag) end
+        local cached = resolved[image_url]
+        if cached then return "<img src=\"" .. cached .. "\" alt=\"" .. escapeHtml(getHtmlAttribute(tag, "alt") or "") .. "\" />" end
+        if image_count >= MAX_IMAGES_PER_PAGE or total_bytes >= MAX_IMAGE_TOTAL_BYTES then return fallback(tag) end
+        local bytes, content_type = fetchImage(image_url)
+        local extension = bytes and imageExtension(content_type, image_url)
+        if not bytes or not extension or total_bytes + #bytes > MAX_IMAGE_TOTAL_BYTES then return fallback(tag) end
+        image_count = image_count + 1
+        total_bytes = total_bytes + #bytes
+        local filename = string.format("page-%d-%d.%s", os.time(), image_count, extension)
+        local path = cache_dir .. "/" .. filename
+        local file = io.open(path, "wb")
+        if not file then return fallback(tag) end
+        file:write(bytes)
+        file:close()
+        resolved[image_url] = filename
+        table.insert(state.image_paths, path)
+        state.image_resource_directory = cache_dir
+        return "<img src=\"" .. filename .. "\" alt=\"" .. escapeHtml(getHtmlAttribute(tag, "alt") or "") .. "\" />"
+    end
+    return html:gsub("(<[^>]+>)", rewrite)
+end
+
 local function fetchUrl(url, redirects)
     redirects = redirects or 0
     if redirects > 5 then return nil, _("Too many redirects.") end
@@ -226,6 +354,8 @@ function Browser:_ensureState(instance)
         title = _("Web Browser"),
         error = nil,
         is_home = true,
+        image_paths = {},
+        image_resource_directory = nil,
     }
     return instance.browser
 end
@@ -280,10 +410,15 @@ function Browser:goHome(instance, context)
     local state = self:_ensureState(instance)
     state.url = nil
     state.html = nil
+    clearImages(state)
     state.error = nil
     state.title = _("Web Browser")
     state.is_home = true
     context.requestRebuild("ui")
+end
+
+function Browser:cleanup(instance)
+    if instance and instance.browser then clearImages(instance.browser) end
 end
 
 function Browser:navigate(instance, context, target, add_history)
@@ -318,7 +453,7 @@ function Browser:navigate(instance, context, target, add_history)
         if #state.history > 20 then table.remove(state.history, 1) end
     end
     state.url = url
-    state.html = sanitizeHtml(html)
+    state.html = prepareImages(sanitizeHtml(html), url, state)
     state.error = nil
     state.is_home = false
     state.title = url:match("^https?://([^/%?#]+)") or _("Web Browser")
@@ -392,6 +527,7 @@ function Browser:buildPane(instance, context)
         local scroll = ScrollHtmlWidget:new{
             html_body = state.html,
             css = BROWSER_CSS,
+            html_resource_directory = state.image_resource_directory,
             width = width - margin * 2,
             height = height - toolbar_height - margin,
             default_font_size = scale(16),
