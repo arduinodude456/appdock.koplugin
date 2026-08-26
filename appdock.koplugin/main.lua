@@ -40,7 +40,7 @@ local DEFAULT_SETTINGS = {
     did_seed = false,
     theme = { selected = "lavender", custom = {} },
     store = { installed = {} },
-    layout = { app_spacing = 16, logo_shape = "rounded", search_enabled = false },
+    layout = { app_spacing = 16, logo_shape = "rounded", search_enabled = false, split_ratio = .5 },
     launch_on_start = false,
     notifications = { items = {}, next_id = 0 },
     wallpaper = { enabled = false, path = "" },
@@ -122,6 +122,8 @@ function AppDock:_loadSettings()
     self.settings.layout.app_spacing = math.max(8, math.min(34, self.settings.layout.app_spacing))
     self.settings.layout.logo_shape = self.settings.layout.logo_shape == "circle" and "circle" or "rounded"
     self.settings.layout.search_enabled = self.settings.layout.search_enabled == true
+    self.settings.layout.split_ratio = tonumber(self.settings.layout.split_ratio) or DEFAULT_SETTINGS.layout.split_ratio
+    self.settings.layout.split_ratio = math.max(.20, math.min(.80, self.settings.layout.split_ratio))
 
     if self.settings.layout_version < DEFAULT_SETTINGS.layout_version then
         local migrated = copyArray(DEFAULT_SETTINGS.pinned_apps)

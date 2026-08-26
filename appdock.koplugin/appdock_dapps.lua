@@ -48,6 +48,9 @@ local DAppHost = InputContainer:extend{
     split = false,
     active_pane = nil,
     active_panes = nil,
+    split_ratio = nil,
+    _split_content_top = nil,
+    _split_available = nil,
     dimen = nil,
     covers_fullscreen = true,
 }
@@ -68,6 +71,13 @@ local ActionChip = InputContainer:extend{
     height = nil,
     background = nil,
     foreground = nil,
+}
+
+local SplitDivider = InputContainer:extend{
+    host = nil,
+    width = nil,
+    height = nil,
+    dimen = nil,
 }
 
 local SettingsCategory = InputContainer:extend{
@@ -359,6 +369,42 @@ end
 function ActionChip:onHoldDAppAction()
     if self.hold_callback then self.hold_callback() end
     return true
+end
+
+function SplitDivider:init()
+    self.dimen = Geom:new{ w = self.width, h = self.height }
+    self[1] = FrameContainer:new{
+        width = self.width, height = self.height, padding = 0, bordersize = 0,
+        background = PALETTE.outline,
+        emptySizedWidget(self.width, self.height),
+    }
+    self.ges_events = {
+        PanSplitDivider = { GestureRange:new{ ges = "pan", range = self.dimen } },
+        PanReleaseSplitDivider = { GestureRange:new{ ges = "pan_release", range = self.dimen } },
+    }
+end
+
+function SplitDivider:paintTo(bb, x, y)
+    for _, event_name in ipairs({ "PanSplitDivider", "PanReleaseSplitDivider" }) do
+        local range = self.ges_events[event_name][1].range
+        range.x, range.y, range.w, range.h = x, y, self.dimen.w, self.dimen.h
+    end
+    return InputContainer.paintTo(self, bb, x, y)
+end
+
+function SplitDivider:_moveFromGesture(arg, gesture_event, persist)
+    if self.host and gesture_event and gesture_event.pos and gesture_event.pos.y then
+        return self.host:setSplitFromGesture(gesture_event.pos.y, persist)
+    end
+    return true
+end
+
+function SplitDivider:onPanSplitDivider(arg, gesture_event)
+    return self:_moveFromGesture(arg, gesture_event, false)
+end
+
+function SplitDivider:onPanReleaseSplitDivider(arg, gesture_event)
+    return self:_moveFromGesture(arg, gesture_event, true)
 end
 
 function SettingsCategory:init()
@@ -2267,10 +2313,10 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("About AppDock"),
-                subtitle = _( "Version 4.1.1 · Bueno"),
+                subtitle = _( "Version 4.2.0 · Navigation"),
                 show_state = false,
                 callback = function()
-                    self:showSettingsNotice(_("AppDock 4.1.1 · Bueno\n\nPlugin hosts now present standard plugin action dialogs, confirmations, information messages and text-entry handoffs through AppDock overlays when they are opened from a hosted action. Complex standalone plugin windows remain outside this compatibility bridge. Plugin hosts never support split screen. Web Browser still displays supported static web images through a bounded local cache; JavaScript, embedded media and arbitrary local paths remain unavailable."))
+                    self:showSettingsNotice(_("AppDock 4.2.0 · Navigation\n\nSplit screen now has a visible draggable divider. Drag it to resize the upper and lower panes; the last valid split is remembered. Home, Open Apps and Close now live together in a centered navigation bar at the bottom, leaving the app title area clear. Plugin hosts remain excluded from split screen."))
                 end,
             },
             {
@@ -2397,34 +2443,71 @@ end
 
 function DAppHost:init()
     self.dimen = Screen:getSize()
+    self.split_ratio = self:_initialSplitRatio()
     if Device:hasKeys() then self.key_events.Close = { { Device.input.group.Back } } end
     self:rebuild()
 end
 
-function DAppHost:rebuild()
+function DAppHost:_initialSplitRatio()
+    local settings = self.manager and self.manager.appdock and self.manager.appdock.settings or {}
+    local layout = settings.layout or {}
+    local ratio = tonumber(layout.split_ratio) or .5
+    return math.max(.20, math.min(.80, ratio))
+end
+
+function DAppHost:setSplitFromGesture(position_y, persist)
+    if not self.split or not self._split_content_top or not self._split_available or self._split_available <= 0 then return false end
+    local ratio = (tonumber(position_y) - self._split_content_top) / self._split_available
+    ratio = math.max(.20, math.min(.80, ratio))
+    local changed = math.abs((self.split_ratio or .5) - ratio) >= .003
+    self.split_ratio = ratio
+    if persist then
+        local appdock = self.manager and self.manager.appdock
+        if appdock and appdock.settings then
+            appdock.settings.layout = appdock.settings.layout or {}
+            appdock.settings.layout.split_ratio = ratio
+            if appdock._saveSettings then appdock:_saveSettings() end
+        end
+    end
+    if changed or persist then
+        self:rebuild(true)
+        UIManager:setDirty(self, "ui")
+    end
+    return true
+end
+
+function DAppHost:rebuild(preserve_active)
     applyTheme(self.manager.appdock)
     local width, height = self.dimen.w, self.dimen.h
     local appbar_height = scale(52)
+    local navigation_height = scale(50)
+    local content_top, content_bottom = appbar_height, height - navigation_height
     local ids = self.dapp_ids or { self.dapp_id }
     self.dapp_ids = ids
-
-    for _, pane in ipairs(self.active_panes or {}) do
-        if pane.onDeactivate then pane:onDeactivate() end
+    if not preserve_active then
+        for _, pane in ipairs(self.active_panes or {}) do
+            if pane.onDeactivate then pane:onDeactivate() end
+        end
     end
     self.active_panes = {}
-
     local pane_regions
     if self.split and #ids == 2 then
-        local divider = scale(3)
-        local available = height - appbar_height - divider
-        local first_height = math.floor(available / 2)
+        local divider = scale(8)
+        local available = math.max(1, content_bottom - content_top - divider)
+        local minimum_height = math.min(math.max(scale(84), math.floor(available * .20)), math.floor(available / 2))
+        local ratio = math.max(.20, math.min(.80, self.split_ratio or self:_initialSplitRatio()))
+        local first_height = math.floor(available * ratio + .5)
+        first_height = math.max(minimum_height, math.min(available - minimum_height, first_height))
+        self.split_ratio = first_height / available
+        self._split_content_top, self._split_available = content_top, available
         pane_regions = {
-            Geom:new{ x = 0, y = appbar_height, w = width, h = first_height },
-            Geom:new{ x = 0, y = appbar_height + first_height + divider, w = width, h = available - first_height },
+            Geom:new{ x = 0, y = content_top, w = width, h = first_height },
+            Geom:new{ x = 0, y = content_top + first_height + divider, w = width, h = available - first_height },
         }
     else
         self.split = false
-        pane_regions = { Geom:new{ x = 0, y = appbar_height, w = width, h = height - appbar_height } }
+        self._split_content_top, self._split_available = nil, nil
+        pane_regions = { Geom:new{ x = 0, y = content_top, w = width, h = math.max(1, content_bottom - content_top) } }
     end
 
     local title = self.split and _("Split screen") or self.manager.instances[ids[1]].definition.title
@@ -2472,24 +2555,33 @@ function DAppHost:rebuild()
     self.active_pane = self.active_panes[1]
 
     if self.split then
-        table.insert(chrome, FrameContainer:new{
-            width = width, height = scale(3), padding = 0, bordersize = 0,
-            background = PALETTE.outline,
-            emptySizedWidget(width, scale(3)),
+        table.insert(chrome, SplitDivider:new{
+            host = self, width = width, height = scale(8),
             overlap_offset = { 0, pane_regions[2].y - scale(3) },
         })
     end
 
-    local chip_size, chip_y = scale(34), scale(13)
+    local chip_size, chip_gap = scale(34), scale(11)
+    local navigation_height = scale(50)
+    local navigation_y = height - navigation_height
+    local navigation_width = chip_size * 3 + chip_gap * 2
+    local navigation_x = math.floor((width - navigation_width) / 2)
+    local chip_y = navigation_y + math.floor((navigation_height - chip_size) / 2)
+    table.insert(chrome, FrameContainer:new{
+        width = width, height = navigation_height, padding = 0, bordersize = 0,
+        background = PALETTE.surface,
+        emptySizedWidget(width, navigation_height),
+        overlap_offset = { 0, navigation_y },
+    })
     table.insert(chrome, ActionChip:new{
         title = "", symbol = "⌂", width = chip_size, height = chip_size,
         callback = function() self.manager:showHomeFromHost(self) end,
-        overlap_offset = { width - scale(18) - chip_size * 3 - scale(12), chip_y },
+        overlap_offset = { navigation_x, chip_y },
     })
     table.insert(chrome, ActionChip:new{
         title = "", symbol = "□", width = chip_size, height = chip_size,
         callback = function() self.manager:showRecentsFromHost(self) end,
-        overlap_offset = { width - scale(18) - chip_size * 2 - scale(6), chip_y },
+        overlap_offset = { navigation_x + chip_size + chip_gap, chip_y },
     })
     table.insert(chrome, ActionChip:new{
         title = "", symbol = "×", width = chip_size, height = chip_size,
@@ -2501,7 +2593,7 @@ function DAppHost:rebuild()
                 UIManager:nextTick(function() self.manager.appdock:showHome(true) end)
             end
         end,
-        overlap_offset = { width - scale(18) - chip_size, chip_y },
+        overlap_offset = { navigation_x + 2 * (chip_size + chip_gap), chip_y },
     })
     self:clear()
     self[1] = chrome

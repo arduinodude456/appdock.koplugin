@@ -1,4 +1,4 @@
-local plugin_dir = "/home/ubuntu/koreader-homescreen/appdock.koplugin/"
+local plugin_dir = os.getenv("APPDOCK_PLUGIN_DIR") or "/home/ubuntu/koreader-homescreen/appdock.koplugin/"
 
 local function baseClass(prototype)
     prototype = prototype or {}
@@ -246,9 +246,10 @@ manager:closeDApp("bwr_video")
 manager:activate("analog_clock", "home")
 assert(manager.active_id == "analog_clock" and #manager:getOpenApps() == 1, "Activating a DApp must retain it in the open-app list")
 local host_chrome = manager.active_host[1]
-local home_chip, recents_chip, close_chip = host_chrome[#host_chrome - 2], host_chrome[#host_chrome - 1], host_chrome[#host_chrome]
-assert(home_chip.overlap_offset[2] == 13 and recents_chip.overlap_offset[2] == 13 and close_chip.overlap_offset[2] == 13, "Home, open-apps and close chips must share the lowered header offset")
-assert(close_chip.overlap_offset[2] + close_chip.height <= 52, "Lowered header chips must stay inside the DApp appbar")
+local navigation_bar, home_chip, recents_chip, close_chip = host_chrome[#host_chrome - 3], host_chrome[#host_chrome - 2], host_chrome[#host_chrome - 1], host_chrome[#host_chrome]
+assert(navigation_bar.overlap_offset[2] == 750 and navigation_bar.height == 50, "DApp hosts must reserve a separate lower system-navigation bar")
+assert(home_chip.overlap_offset[2] >= 750 and recents_chip.overlap_offset[2] == home_chip.overlap_offset[2] and close_chip.overlap_offset[2] == home_chip.overlap_offset[2], "Home, open-apps and close chips must share the lower navigation row")
+assert(home_chip.overlap_offset[1] < recents_chip.overlap_offset[1] and recents_chip.overlap_offset[1] < close_chip.overlap_offset[1] and math.abs((recents_chip.overlap_offset[1] + math.floor(recents_chip.width / 2)) - 300) <= 1, "System actions must be centered and ordered Home, Open Apps, Close")
 local home_closed = false
 for _, closed_widget in ipairs(log.closed) do if closed_widget == "home" then home_closed = true; break end end
 assert(home_closed, "DApp activation must close the homescreen host")
@@ -328,6 +329,19 @@ assert(manager.active_host and manager.active_host.split, "Selecting two open DA
 assert(#manager.active_host.active_panes == 2, "Split screen must build two active DApp panes")
 assert(clock_instance.in_split and settings_instance.in_split, "Both DApps must be marked as running in split screen")
 assert(clock_instance.pane.dimen.h < 400 and settings_instance.pane.dimen.h < 400, "Each split DApp must receive a reduced pane height")
+local split_host = manager.active_host
+local split_divider
+for _, child in ipairs(split_host[1]) do
+    if child.host == split_host and child.ges_events and child.ges_events.PanSplitDivider then split_divider = child; break end
+end
+assert(split_divider and split_divider.ges_events.PanReleaseSplitDivider, "Split screen must expose a draggable divider with pan and release gestures")
+local first_height_before_drag = clock_instance.pane.dimen.h
+assert(split_divider:onPanSplitDivider(nil, { pos = { y = 560 } }), "Dragging the split divider must be handled")
+assert(clock_instance.pane.dimen.h > first_height_before_drag and settings_instance.pane.dimen.h < first_height_before_drag, "Dragging the divider downward must enlarge the upper pane and shrink the lower pane")
+assert(clock_instance.visible and settings_instance.visible and clock_instance.in_split and settings_instance.in_split and #split_host.active_panes == 2, "Resizing split panes must keep both DApps active without leaving split screen")
+local saves_before_split_release = log.store_saved or 0
+assert(split_divider:onPanReleaseSplitDivider(nil, { pos = { y = 560 } }), "Releasing the split divider must be handled")
+assert(appdock.settings.layout.split_ratio > .5 and (log.store_saved or 0) == saves_before_split_release + 1, "Releasing the divider must persist the bounded split ratio")
 local split_context = manager:_newContext(manager.active_host, clock_instance, clock_instance.pane.dimen)
 assert(split_context.scale == split_context.ui_scale and split_context.scale < 1 and split_context.scale >= 0.45, "Split DApps must receive a bounded relative UI scale")
 assert(split_context.px(40) < 40 and split_context.px(40) >= 1, "Relative DApp pixels must shrink safely in split screen")
