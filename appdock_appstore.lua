@@ -75,14 +75,22 @@ function StoreButton:init()
     local icon_size = self.logo and math.min(scale(30), math.max(scale(16), self.height - 2 * inset)) or 0
     local text_x = inset + (self.logo and icon_size + scale(8) or 0)
     local text_width = math.max(scale(18), self.width - text_x - inset)
+    local title_size = math.max(scale(9), math.min(scale(13), math.floor(self.height * .28)))
+    local subtitle_size = math.max(scale(7), math.min(scale(9), math.floor(self.height * .20)))
+    local has_subtitle = self.subtitle and self.subtitle ~= ""
+    local title = Theme.fitLabel(self.title or "", text_width, title_size, 0)
+    local subtitle = Theme.fitLabel(self.subtitle or "", text_width, subtitle_size, 0)
+    local title_y = has_subtitle and math.max(scale(4), math.floor((self.height - title_size - subtitle_size - scale(3)) / 2)) or math.floor((self.height - title_size) / 2)
+    local subtitle_y = math.min(self.height - subtitle_size - scale(3), title_y + title_size + scale(3))
+    self.layout = { title = title, subtitle = subtitle, title_y = title_y, subtitle_y = subtitle_y }
     local layers = {
         TextWidget:new{
-            text = self.title or "",
-            face = Font:getFace("smallinfofont", scale(13)),
+            text = title,
+            face = Font:getFace("smallinfofont", title_size),
             fgcolor = self.foreground,
             bold = true,
             max_width = text_width,
-            overlap_offset = { text_x, math.max(scale(5), math.floor(self.height * 0.20)) },
+            overlap_offset = { text_x, title_y },
         },
     }
     if self.logo then
@@ -93,13 +101,13 @@ function StoreButton:init()
             overlap_offset = { inset, math.max(0, math.floor((self.height - icon_size) / 2)) },
         })
     end
-    if self.subtitle and self.subtitle ~= "" then
+    if has_subtitle then
         table.insert(layers, TextWidget:new{
-            text = self.subtitle,
-            face = Font:getFace("smallinfofont", scale(9)),
+            text = subtitle,
+            face = Font:getFace("smallinfofont", subtitle_size),
             fgcolor = self.foreground,
             max_width = text_width,
-            overlap_offset = { text_x, math.max(scale(21), math.floor(self.height * 0.56)) },
+            overlap_offset = { text_x, subtitle_y },
         })
     end
     self[1] = FrameContainer:new{

@@ -282,7 +282,7 @@ function StorageSummary:paintTo(bb, x, y)
     for index, segment in ipairs(self.segments or {}) do
         local row_y = legend_y + (index - 1) * scale(24)
         bb:paintRect(x, row_y + scale(3), scale(10), scale(10), palette[(index - 1) % #palette + 1])
-        local label = segment.title .. "  " .. humanSize(segment.bytes)
+        local label = Theme.fitLabel(segment.title .. "  " .. humanSize(segment.bytes), self.width - scale(18), scale(12), 0)
         local text = TextWidget:new{ text = label, face = Font:getFace("smallinfofont", scale(12)), fgcolor = PALETTE.on_surface, max_width = self.width - scale(18) }
         text:paintTo(bb, x + scale(18), row_y)
     end
@@ -298,17 +298,17 @@ end
 
 function StorageDApps:paintTo(bb, x, y)
     local entries = self.entries or {}
-    local title = TextWidget:new{ text = _("DApp storage usage"), face = Font:getFace("cfont", scale(15)), fgcolor = PALETTE.on_surface, bold = true, max_width = self.width }
+    local title = TextWidget:new{ text = Theme.fitLabel(_("DApp storage usage"), self.width, scale(15), 0), face = Font:getFace("cfont", scale(15)), fgcolor = PALETTE.on_surface, bold = true, max_width = self.width }
     title:paintTo(bb, x, y)
     if #entries == 0 then
-        TextWidget:new{ text = _("No installed DApps found"), face = Font:getFace("smallinfofont", scale(11)), fgcolor = PALETTE.on_variant, max_width = self.width }:paintTo(bb, x, y + scale(25))
+        TextWidget:new{ text = Theme.fitLabel(_("No installed DApps found"), self.width, scale(11), 0), face = Font:getFace("smallinfofont", scale(11)), fgcolor = PALETTE.on_variant, max_width = self.width }:paintTo(bb, x, y + scale(25))
         return
     end
     local max_bytes = math.max(1, entries[1].bytes)
     for index, entry in ipairs(entries) do
         if index > 6 then break end
         local row_y = y + scale(25) + (index - 1) * scale(29)
-        local label = string.format("%s  ·  %s", entry.title, humanSize(entry.bytes))
+        local label = Theme.fitLabel(string.format("%s  ·  %s", entry.title, humanSize(entry.bytes)), self.width, scale(11), 0)
         TextWidget:new{ text = label, face = Font:getFace("smallinfofont", scale(11)), fgcolor = PALETTE.on_surface, max_width = self.width }:paintTo(bb, x, row_y)
         bb:paintRect(x, row_y + scale(18), math.max(scale(3), math.floor((self.width - scale(8)) * entry.bytes / max_bytes)), scale(4), PALETTE.primary)
     end
@@ -316,16 +316,32 @@ end
 
 function ActionChip:init()
     self.dimen = Geom:new{ w = self.width, h = self.height }
-    local icon = self.logo and DAppLogo:new{
-        kind = self.logo,
-        size = scale(24),
-        ink = self.foreground or PALETTE.on_surface,
-    } or TextWidget:new{
-        text = self.symbol or "",
-        face = Font:getFace("cfont", scale(20)),
-        fgcolor = self.foreground or PALETTE.on_surface,
-        bold = true,
-    }
+    local foreground = self.foreground or PALETTE.on_surface
+    local title_size = math.max(scale(8), math.min(scale(12), math.floor(self.height * .30)))
+    local title = Theme.fitLabel(self.title or "", self.width, title_size, scale(12))
+    local has_icon = self.logo or (self.symbol and self.symbol ~= "")
+    local icon_size = math.max(scale(14), math.min(scale(24), math.floor(self.height * .52)))
+    local layers = {}
+    local title_y = math.floor((self.height - title_size) / 2)
+    if has_icon then
+        local icon = self.logo and DAppLogo:new{
+            kind = self.logo, size = icon_size, ink = foreground,
+        } or TextWidget:new{
+            text = self.symbol, face = Font:getFace("cfont", icon_size), fgcolor = foreground, bold = true,
+        }
+        local icon_y = title ~= "" and math.max(scale(2), math.floor(self.height * .08)) or math.floor((self.height - icon_size) / 2)
+        icon.overlap_offset = { math.floor((self.width - icon_size) / 2), icon_y }
+        table.insert(layers, icon)
+        if title ~= "" then title_y = math.max(icon_y + icon_size, self.height - title_size - scale(3)) end
+    end
+    if title ~= "" then
+        table.insert(layers, TextWidget:new{
+            text = title, face = Font:getFace("smallinfofont", title_size), fgcolor = foreground,
+            bold = true, max_width = math.max(scale(8), self.width - scale(12)),
+            overlap_offset = { scale(6), title_y },
+        })
+    end
+    self.layout = { title = title, title_y = title_y, has_icon = has_icon }
     self[1] = FrameContainer:new{
         width = self.width,
         height = self.height,
@@ -333,19 +349,7 @@ function ActionChip:init()
         bordersize = 0,
         radius = math.floor(self.height * 0.36),
         background = self.background or PALETTE.surface_variant,
-        CenterContainer:new{
-            dimen = Geom:new{ w = self.width, h = self.height },
-            VerticalGroup:new{
-                icon,
-                VerticalSpan:new{ width = scale(2) },
-                TextWidget:new{
-                    text = self.title or "",
-                    face = Font:getFace("smallinfofont", scale(12)),
-                    fgcolor = self.foreground or PALETTE.on_surface,
-                    max_width = self.width - scale(12),
-                },
-            },
-        },
+        OverlapGroup:new{ dimen = self.dimen, allow_mirroring = false, unpack(layers) },
     }
     self.ges_events = {
         TapDAppAction = { GestureRange:new{ ges = "tap", range = self.dimen } },
@@ -411,6 +415,8 @@ function SettingsCategory:init()
     self.dimen = Geom:new{ w = self.width, h = self.height }
     local background = self.selected and PALETTE.primary or PALETTE.surface
     local foreground = self.selected and PALETTE.on_primary or PALETTE.on_surface
+    local title_size = math.max(scale(7), math.min(scale(9), math.floor(self.height * .18)))
+    local title = Theme.fitLabel(self.title or "", self.width, title_size, scale(8))
     self[1] = FrameContainer:new{
         width = self.width,
         height = self.height,
@@ -424,8 +430,8 @@ function SettingsCategory:init()
                 DAppLogo:new{ kind = self.logo, size = scale(20), ink = foreground },
                 VerticalSpan:new{ width = scale(2) },
                 TextWidget:new{
-                    text = self.title or "",
-                    face = Font:getFace("smallinfofont", scale(9)),
+                    text = title,
+                    face = Font:getFace("smallinfofont", title_size),
                     fgcolor = foreground,
                     bold = true,
                     max_width = self.width - scale(8),
@@ -454,6 +460,14 @@ function SettingsRow:init()
     local state = self.show_state and (self.enabled and _("On") or _("Off")) or ""
     local detail = self.subtitle or ""
     if state ~= "" then detail = detail .. " · " .. state end
+    local title_size = math.max(scale(10), math.min(scale(15), math.floor(self.height * .34)))
+    local detail_size = math.max(scale(8), math.min(scale(12), math.floor(self.height * .26)))
+    local text_width = math.max(scale(14), self.width - scale(26))
+    local title = Theme.fitLabel(self.title or "", text_width, title_size, 0)
+    detail = Theme.fitLabel(detail, text_width, detail_size, 0)
+    local title_y = math.max(scale(4), math.floor((self.height - title_size - detail_size - scale(3)) / 2))
+    local detail_y = math.min(self.height - detail_size - scale(3), title_y + title_size + scale(3))
+    self.layout = { title = title, detail = detail, title_y = title_y, detail_y = detail_y }
     self[1] = FrameContainer:new{
         width = self.width,
         height = self.height,
@@ -461,24 +475,10 @@ function SettingsRow:init()
         bordersize = 0,
         radius = math.floor(self.height * 0.28),
         background = self.enabled and PALETTE.primary or PALETTE.surface,
-        CenterContainer:new{
-            dimen = Geom:new{ w = self.width, h = self.height },
-            VerticalGroup:new{
-                TextWidget:new{
-                    text = self.title,
-                    face = Font:getFace("smallinfofont", scale(15)),
-                    fgcolor = self.enabled and PALETTE.on_primary or PALETTE.on_surface,
-                    bold = true,
-                    max_width = self.width - scale(26),
-                },
-                VerticalSpan:new{ width = scale(3) },
-                TextWidget:new{
-                    text = detail,
-                    face = Font:getFace("smallinfofont", scale(12)),
-                    fgcolor = self.enabled and PALETTE.on_primary or PALETTE.on_variant,
-                    max_width = self.width - scale(26),
-                },
-            },
+        OverlapGroup:new{
+            dimen = self.dimen, allow_mirroring = false,
+            TextWidget:new{ text = title, face = Font:getFace("smallinfofont", title_size), fgcolor = self.enabled and PALETTE.on_primary or PALETTE.on_surface, bold = true, max_width = text_width, overlap_offset = { scale(13), title_y } },
+            TextWidget:new{ text = detail, face = Font:getFace("smallinfofont", detail_size), fgcolor = self.enabled and PALETTE.on_primary or PALETTE.on_variant, max_width = text_width, overlap_offset = { scale(13), detail_y } },
         },
     }
     self.ges_events = {
@@ -2313,10 +2313,10 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("About AppDock"),
-                subtitle = _( "Version 4.2.0 · Navigation"),
+                subtitle = _( "Version 4.2.1 · Layout"),
                 show_state = false,
                 callback = function()
-                    self:showSettingsNotice(_("AppDock 4.2.0 · Navigation\n\nSplit screen now has a visible draggable divider. Drag it to resize the upper and lower panes; the last valid split is remembered. Home, Open Apps and Close now live together in a centered navigation bar at the bottom, leaving the app title area clear. Plugin hosts remain excluded from split screen."))
+                    self:showSettingsNotice(_("AppDock 4.2.1 · Layout\n\nAppDock now keeps system button labels, settings rows, Quick Settings, Home cards, File Manager rows, App Store cards and Browser controls within their own bounds. Long text is shortened to one readable line instead of wrapping below or outside its control. The layout also adapts safely to compact split-screen panes."))
                 end,
             },
             {

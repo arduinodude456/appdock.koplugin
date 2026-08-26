@@ -137,7 +137,11 @@ end
 
 local DAppManager = dofile(plugin_dir .. "appdock_dapps.lua")
 local Device = require("device")
+local Theme = require("appdock_theme")
 local UIManager = require("ui/uimanager")
+assert(Theme.ellipsize("ABCDE", 4) == "ABC…", "Text overflow must use a bounded one-line ellipsis")
+assert(Theme.ellipsize("Äpfel", 4) == "Äpf…", "Text overflow must preserve complete UTF-8 characters")
+assert(Theme.fitLabel("A long compact button label", 30, 10, 0):find("…", 1, true), "Narrow controls must shorten labels instead of allowing wrapped text")
 local appdock = {
     settings = { widgets = { clock = true, status = true, reading_hint = true, store = {}, store_order = {} }, theme = { selected = "lavender", custom = {} }, layout = { app_spacing = 12, logo_shape = "rounded", search_enabled = false }, store = { installed = {} }, dapp_permissions = {}, widget_generator = { items = {}, next_id = 0 }, beta = { plugin_dapp_host = false } },
     toggleWidget = function(self, id) self.settings.widgets[id] = not self.settings.widgets[id] end,

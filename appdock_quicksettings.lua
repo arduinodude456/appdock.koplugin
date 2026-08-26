@@ -135,9 +135,12 @@ function QuickTile:init()
     self.dimen = Geom:new{ w = self.width, h = self.height }
     local background = self.active and PALETTE.primary or PALETTE.surface_variant
     local foreground = self.active and PALETTE.on_primary or PALETTE.on_surface
-    local symbol_size = self.compact and scale(17) or scale(20)
-    local title_size = self.compact and scale(11) or scale(12)
-    local subtitle_size = self.compact and scale(9) or scale(10)
+    local symbol_size = math.max(scale(12), math.min(self.compact and scale(17) or scale(20), math.floor(self.height * .34)))
+    local title_size = math.max(scale(8), math.min(self.compact and scale(11) or scale(12), math.floor(self.height * .20)))
+    local subtitle_size = math.max(scale(7), math.min(self.compact and scale(9) or scale(10), math.floor(self.height * .16)))
+    local text_width = math.max(scale(12), self.width - scale(14))
+    local title = Theme.fitLabel(self.title or "", text_width, title_size, 0)
+    local subtitle = Theme.fitLabel(self.subtitle or "", text_width, subtitle_size, 0)
     self[1] = FrameContainer:new{
         width = self.width,
         height = self.height,
@@ -156,18 +159,18 @@ function QuickTile:init()
                 },
                 VerticalSpan:new{ width = scale(1) },
                 TextWidget:new{
-                    text = self.title,
+                    text = title,
                     face = Font:getFace("smallinfofont", title_size),
                     fgcolor = foreground,
                     bold = true,
-                    max_width = self.width - scale(14),
+                    max_width = text_width,
                 },
                 VerticalSpan:new{ width = scale(1) },
                 TextWidget:new{
-                    text = self.subtitle or "",
+                    text = subtitle,
                     face = Font:getFace("smallinfofont", subtitle_size),
                     fgcolor = self.active and PALETTE.on_primary or PALETTE.on_variant,
-                    max_width = self.width - scale(14),
+                    max_width = text_width,
                 },
             },
         },
@@ -194,14 +197,21 @@ function NotificationRow:init()
     local background = notification.read and PALETTE.surface or PALETTE.primary
     local foreground = notification.read and PALETTE.on_surface or PALETTE.on_primary
     local message_color = notification.read and PALETTE.on_variant or PALETTE.on_primary
+    local title_size = math.max(scale(8), math.min(scale(11), math.floor(self.height * .28)))
+    local message_size = math.max(scale(7), math.min(scale(9), math.floor(self.height * .20)))
+    local text_width = math.max(scale(12), self.width - scale(30))
+    local title = Theme.fitLabel(notification.title or _("AppDock"), text_width, title_size, 0)
+    local message = Theme.fitLabel(notification.message or "", text_width, message_size, 0)
+    local title_y = math.max(scale(3), math.floor((self.height - title_size - message_size - scale(3)) / 2))
+    local message_y = math.min(self.height - message_size - scale(3), title_y + title_size + scale(3))
     self[1] = FrameContainer:new{
         width = self.width, height = self.height, padding = 0, bordersize = 0,
         radius = scale(11), background = background,
         OverlapGroup:new{
             dimen = self.dimen,
             allow_mirroring = false,
-            TextWidget:new{ text = notification.title or _("AppDock"), face = Font:getFace("smallinfofont", scale(11)), fgcolor = foreground, bold = true, max_width = self.width - scale(30), overlap_offset = { scale(12), scale(7) } },
-            TextWidget:new{ text = notification.message or "", face = Font:getFace("smallinfofont", scale(9)), fgcolor = message_color, max_width = self.width - scale(30), overlap_offset = { scale(12), scale(22) } },
+            TextWidget:new{ text = title, face = Font:getFace("smallinfofont", title_size), fgcolor = foreground, bold = true, max_width = text_width, overlap_offset = { scale(12), title_y } },
+            TextWidget:new{ text = message, face = Font:getFace("smallinfofont", message_size), fgcolor = message_color, max_width = text_width, overlap_offset = { scale(12), message_y } },
             TextWidget:new{ text = notification.read and "" or "•", face = Font:getFace("cfont", scale(18)), fgcolor = foreground, overlap_offset = { self.width - scale(18), scale(8) } },
         },
     }

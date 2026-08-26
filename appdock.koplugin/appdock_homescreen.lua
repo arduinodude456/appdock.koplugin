@@ -187,20 +187,25 @@ end
 
 function InfoCard:init()
     self.dimen = Geom:new{ w = self.width, h = self.height }
+    local title_size = math.max(scale(8), math.min(scale(13), math.floor(self.height * .25)))
+    local body_size = math.max(scale(9), math.min(scale(16), math.floor(self.height * .30)))
+    local text_width = math.max(scale(12), self.width - 2 * scale(18))
+    local title = Theme.fitLabel(self.title or "", text_width, title_size, 0)
+    local body = Theme.fitLabel(self.body or "", text_width, body_size, 0)
     local content = VerticalGroup:new{
         TextWidget:new{
-            text = self.title or "",
-            face = Font:getFace("smallinfofont", scale(13)),
+            text = title,
+            face = Font:getFace("smallinfofont", title_size),
             fgcolor = self.foreground or PALETTE.on_surface_variant,
             bold = true,
-            max_width = self.width - 2 * scale(18),
+            max_width = text_width,
         },
         VerticalSpan:new{ width = scale(4) },
         TextWidget:new{
-            text = self.body or "",
-            face = Font:getFace("smallinfofont", scale(16)),
+            text = body,
+            face = Font:getFace("smallinfofont", body_size),
             fgcolor = self.foreground or PALETTE.on_surface,
-            max_width = self.width - 2 * scale(18),
+            max_width = text_width,
         },
     }
     self[1] = FrameContainer:new{
@@ -253,12 +258,14 @@ end
 function SearchBar:init()
     self.dimen = Geom:new{ w = self.width, h = self.height }
     local query_text = self.query ~= "" and (_("Search: ") .. self.query) or _("Search apps")
+    local label_size = math.max(scale(9), math.min(scale(14), math.floor(self.height * .42)))
+    local label = Theme.fitLabel("⌕  " .. query_text, self.width, label_size, scale(20))
     self[1] = FrameContainer:new{
         width = self.width, height = self.height, padding = 0, bordersize = 0,
         radius = math.floor(self.height * 0.36), background = PALETTE.surface_variant,
         CenterContainer:new{
             dimen = self.dimen,
-            TextWidget:new{ text = "⌕  " .. query_text, face = Font:getFace("smallinfofont", scale(14)), fgcolor = PALETTE.on_surface_variant, max_width = self.width - scale(20) },
+            TextWidget:new{ text = label, face = Font:getFace("smallinfofont", label_size), fgcolor = PALETTE.on_surface_variant, max_width = self.width - scale(20) },
         },
     }
     self.ges_events = { TapSearchApps = { GestureRange:new{ ges = "tap", range = self.dimen } } }
@@ -305,9 +312,12 @@ function AppTile:init()
             icon,
         },
     }
+    local label_size = math.max(scale(8), math.min(scale(13), self.label_height - scale(6)))
+    local label_text = Theme.fitLabel(self.app.title or "", self.tile_size, label_size, 0)
+    self.layout = { label = label_text, label_size = label_size }
     local label = TextWidget:new{
-        text = self.app.title,
-        face = Font:getFace("smallinfofont", scale(13)),
+        text = label_text,
+        face = Font:getFace("smallinfofont", label_size),
         fgcolor = PALETTE.on_surface,
         max_width = self.tile_size,
     }

@@ -68,6 +68,36 @@ function Theme.normalizeHex(value)
     return hex:upper()
 end
 
+function Theme.ellipsize(value, maximum_characters)
+    local text = type(value) == "string" and value or tostring(value or "")
+    text = text:gsub("[\r\n]+", " ")
+    local maximum = math.max(1, math.floor(tonumber(maximum_characters) or 1))
+    local position, characters = 1, 0
+    while position <= #text do
+        local byte = text:byte(position) or 0
+        local width = byte >= 240 and 4 or (byte >= 224 and 3 or (byte >= 192 and 2 or 1))
+        if characters >= maximum then
+            local visible = math.max(1, maximum - 1)
+            local end_position, visible_characters = 1, 0
+            while end_position <= #text and visible_characters < visible do
+                local visible_byte = text:byte(end_position) or 0
+                end_position = end_position + (visible_byte >= 240 and 4 or (visible_byte >= 224 and 3 or (visible_byte >= 192 and 2 or 1)))
+                visible_characters = visible_characters + 1
+            end
+            return text:sub(1, end_position - 1) .. "…"
+        end
+        position = position + width
+        characters = characters + 1
+    end
+    return text
+end
+
+function Theme.fitLabel(value, width, font_size, padding)
+    local available = math.max(1, math.floor((tonumber(width) or 0) - (tonumber(padding) or 0)))
+    local average_character_width = math.max(4, math.floor((tonumber(font_size) or 10) * .56))
+    return Theme.ellipsize(value, math.max(1, math.floor(available / average_character_width)))
+end
+
 function Theme.getBuiltinThemes()
     local themes = {}
     for id, definition in pairs(BUILTIN) do

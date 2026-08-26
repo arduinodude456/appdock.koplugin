@@ -94,6 +94,8 @@ local FileRow = InputContainer:extend{
 
 function ToolbarButton:init()
     self.dimen = Geom:new{ w = self.width, h = self.height }
+    local label_size = math.max(scale(8), math.min(scale(11), math.floor(self.height * .42)))
+    local label = Theme.fitLabel(self.title or "", self.width, label_size, scale(10))
     self[1] = FrameContainer:new{
         width = self.width,
         height = self.height,
@@ -104,8 +106,8 @@ function ToolbarButton:init()
         CenterContainer:new{
             dimen = Geom:new{ w = self.width, h = self.height },
             TextWidget:new{
-                text = self.title or "",
-                face = Font:getFace("smallinfofont", scale(11)),
+                text = label,
+                face = Font:getFace("smallinfofont", label_size),
                 fgcolor = self.foreground or PALETTE.on_surface,
                 bold = true,
                 max_width = self.width - scale(10),
@@ -130,19 +132,14 @@ end
 
 function FileRow:init()
     self.dimen = Geom:new{ w = self.width, h = self.height }
-    local title = TextWidget:new{
-        text = self.title or "",
-        face = Font:getFace("smallinfofont", scale(13)),
-        fgcolor = self.foreground or PALETTE.on_surface,
-        bold = true,
-        max_width = self.width - scale(26),
-    }
-    local subtitle = TextWidget:new{
-        text = self.subtitle or "",
-        face = Font:getFace("smallinfofont", scale(10)),
-        fgcolor = PALETTE.on_variant,
-        max_width = self.width - scale(26),
-    }
+    local title_size = math.max(scale(9), math.min(scale(13), math.floor(self.height * .30)))
+    local subtitle_size = math.max(scale(7), math.min(scale(10), math.floor(self.height * .22)))
+    local text_width = math.max(scale(14), self.width - scale(26))
+    local title = Theme.fitLabel(self.title or "", text_width, title_size, 0)
+    local subtitle = Theme.fitLabel(self.subtitle or "", text_width, subtitle_size, 0)
+    local title_y = math.max(scale(3), math.floor((self.height - title_size - subtitle_size - scale(2)) / 2))
+    local subtitle_y = math.min(self.height - subtitle_size - scale(3), title_y + title_size + scale(2))
+    self.layout = { title = title, subtitle = subtitle, title_y = title_y, subtitle_y = subtitle_y }
     self[1] = FrameContainer:new{
         width = self.width,
         height = self.height,
@@ -150,13 +147,10 @@ function FileRow:init()
         bordersize = 0,
         radius = scale(12),
         background = self.background or PALETTE.surface,
-        CenterContainer:new{
-            dimen = Geom:new{ w = self.width, h = self.height },
-            VerticalGroup:new{
-                title,
-                VerticalSpan:new{ width = scale(2) },
-                subtitle,
-            },
+        OverlapGroup:new{
+            dimen = self.dimen, allow_mirroring = false,
+            TextWidget:new{ text = title, face = Font:getFace("smallinfofont", title_size), fgcolor = self.foreground or PALETTE.on_surface, bold = true, max_width = text_width, overlap_offset = { scale(13), title_y } },
+            TextWidget:new{ text = subtitle, face = Font:getFace("smallinfofont", subtitle_size), fgcolor = PALETTE.on_variant, max_width = text_width, overlap_offset = { scale(13), subtitle_y } },
         },
     }
     self.ges_events = {

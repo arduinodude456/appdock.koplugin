@@ -88,6 +88,8 @@ end
 
 function BrowserButton:init()
     self.dimen = Geom:new{ w = self.width, h = self.height }
+    local label_size = math.max(scale(8), math.min(scale(12), math.floor(self.height * .42)))
+    local label = Theme.fitLabel(self.title or "", self.width, label_size, scale(12))
     self[1] = FrameContainer:new{
         width = self.width,
         height = self.height,
@@ -98,8 +100,8 @@ function BrowserButton:init()
         CenterContainer:new{
             dimen = Geom:new{ w = self.width, h = self.height },
             TextWidget:new{
-                text = self.title or "",
-                face = Font:getFace("smallinfofont", scale(12)),
+                text = label,
+                face = Font:getFace("smallinfofont", label_size),
                 fgcolor = self.foreground or PALETTE.on_surface,
                 bold = true,
                 max_width = self.width - scale(12),
