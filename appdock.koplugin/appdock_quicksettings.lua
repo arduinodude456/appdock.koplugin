@@ -470,14 +470,15 @@ function QuickSettings:rebuild(refresh)
     local notification_title_height = scale(24)
     local notification_row_height = scale(42)
     local notification_action_height = scale(34)
+    local simple_mode = type(self.appdock.isSimpleModeEnabled) == "function" and self.appdock:isSimpleModeEnabled("quick_settings")
     local selected_tile_ids = type(self.appdock.getQuickSettingsTiles) == "function"
         and self.appdock:getQuickSettingsTiles()
         or { "wifi", "night", "refresh", "edit" }
     local tile_rows = math.ceil(#selected_tile_ids / 2)
     local tile_area_height = tile_rows * tile_height + math.max(0, tile_rows - 1) * gap
-    local notification_items = self.appdock:getNotifications(3)
+    local notification_items = simple_mode and {} or self.appdock:getNotifications(3)
     local notification_count = #notification_items
-    local show_notifications = true
+    local show_notifications = not simple_mode
     local notification_height = notification_title_height + notification_count * (notification_row_height + gap) + (notification_count > 0 and notification_action_height + gap or 0)
     local natural_height = header_height + tile_area_height + slider_spacing + slider_height + slider_spacing + notification_height + sheet_bottom
     local compact = natural_height > maximum_sheet_height
@@ -492,7 +493,7 @@ function QuickSettings:rebuild(refresh)
         notification_title_height = scale(20)
         notification_row_height = scale(36)
         notification_action_height = scale(30)
-        notification_items = self.appdock:getNotifications(1)
+        notification_items = simple_mode and {} or self.appdock:getNotifications(1)
         notification_count = #notification_items
         notification_height = notification_title_height + notification_count * (notification_row_height + gap) + (notification_count > 0 and notification_action_height + gap or 0)
         tile_area_height = tile_rows * tile_height + math.max(0, tile_rows - 1) * gap
@@ -657,6 +658,9 @@ function QuickSettings:rebuild(refresh)
         end
     end
     self.layout = {
+        simple_mode = simple_mode,
+        tile_count = #tiles,
+        show_notifications = show_notifications,
         compact = compact,
         tile_y = tile_y,
         tile_height = tile_height,

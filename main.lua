@@ -47,6 +47,7 @@ local DEFAULT_SETTINGS = {
     lockscreen = { enabled = false, method = "swipe", secret_hash = nil, profile_name = "", profile_image_path = "" },
     beta = { black_borders = false, keep_wallpaper_original_in_night = false, plugin_dapp_host = false },
     quick_settings = { tiles = { "wifi", "night", "refresh", "edit", "sleep", "power_saving", "wallpaper" } },
+    simple_mode = { homescreen = false, quick_settings = false, focus_apps = false },
     dapp_permissions = {},
     widget_generator = { items = {}, next_id = 0 },
     power_saving = false,
@@ -110,6 +111,7 @@ function AppDock:_loadSettings()
         lockscreen = stored.lockscreen or { enabled = false, method = "swipe", secret_hash = nil, profile_name = "", profile_image_path = "" },
         beta = stored.beta or { black_borders = false, keep_wallpaper_original_in_night = false, plugin_dapp_host = false },
         quick_settings = stored.quick_settings or { tiles = copyArray(DEFAULT_SETTINGS.quick_settings.tiles) },
+        simple_mode = stored.simple_mode or { homescreen = false, quick_settings = false, focus_apps = false },
         dapp_permissions = stored.dapp_permissions or {},
         widget_generator = stored.widget_generator or { items = {}, next_id = 0 },
         power_saving = stored.power_saving == true,
@@ -179,6 +181,10 @@ function AppDock:_loadSettings()
     self.settings.beta.plugin_dapp_host = self.settings.beta.plugin_dapp_host == true
     self.settings.quick_settings = self.settings.quick_settings or {}
     self.settings.quick_settings.tiles = copyArray(self.settings.quick_settings.tiles or DEFAULT_SETTINGS.quick_settings.tiles)
+    self.settings.simple_mode = self.settings.simple_mode or {}
+    self.settings.simple_mode.homescreen = self.settings.simple_mode.homescreen == true
+    self.settings.simple_mode.quick_settings = self.settings.simple_mode.quick_settings == true
+    self.settings.simple_mode.focus_apps = self.settings.simple_mode.focus_apps == true
     self.settings.dapp_permissions = self.settings.dapp_permissions or {}
     self.settings.widget_generator = self.settings.widget_generator or { items = {}, next_id = 0 }
     self.settings.widget_generator.items = type(self.settings.widget_generator.items) == "table" and self.settings.widget_generator.items or {}
@@ -308,6 +314,9 @@ end
 local QUICK_TILE_IDS = { wifi = true, night = true, refresh = true, edit = true, sleep = true, power_saving = true, wallpaper = true }
 
 function AppDock:getQuickSettingsTiles()
+    if self:isSimpleModeEnabled("quick_settings") then
+        return { "wifi", "night", "power_saving" }
+    end
     local tiles, seen = {}, {}
     for _, tile_id in ipairs(self.settings.quick_settings.tiles or {}) do
         if QUICK_TILE_IDS[tile_id] and not seen[tile_id] then
@@ -329,6 +338,54 @@ function AppDock:setQuickTileEnabled(tile_id, enabled)
     self.settings.quick_settings.tiles = tiles
     self:_saveSettings()
     return true
+end
+
+local SIMPLE_MODE_APP_IDS = {
+    ["system:library"] = true,
+    ["dapp:settings"] = true,
+    ["dapp:file_manager"] = true,
+    ["dapp:dreader"] = true,
+    ["dapp:book_translator"] = true,
+    ["dapp:web_browser"] = true,
+}
+
+local SIMPLE_MODE_APP_TITLES = {
+    ["settings"] = true,
+    ["file browser"] = true,
+    ["file manager"] = true,
+    ["dreader"] = true,
+    ["library"] = true,
+    ["booktranslator"] = true,
+    ["book translator"] = true,
+    ["internet browser"] = true,
+    ["web browser"] = true,
+}
+
+function AppDock:isSimpleModeEnabled(option)
+    return self.settings.simple_mode and self.settings.simple_mode[option] == true
+end
+
+function AppDock:setSimpleModeOption(option, enabled)
+    if option ~= "homescreen" and option ~= "quick_settings" and option ~= "focus_apps" then return false end
+    self.settings.simple_mode = self.settings.simple_mode or {}
+    self.settings.simple_mode[option] = enabled == true
+    if option == "focus_apps" and enabled and self.dapp_manager then
+        for _, open_app in ipairs(self.dapp_manager:getOpenApps()) do
+            local definition = self.dapp_manager.definitions[open_app.id] or self.dapp_manager.plugin_definitions[open_app.id]
+            local app = { id = "dapp:" .. open_app.id, title = definition and definition.title or open_app.title or open_app.id }
+            if not self:isSimpleModeAppAllowed(app) then self.dapp_manager:closeDApp(open_app.id) end
+        end
+    end
+    self:_saveSettings()
+    return true
+end
+
+function AppDock:isSimpleModeAppAllowed(app)
+    if not self:isSimpleModeEnabled("focus_apps") then return true end
+    if type(app) ~= "table" then return false end
+    if SIMPLE_MODE_APP_IDS[app.id] then return true end
+    local title = type(app.title) == "string" and app.title:lower():match("^%s*(.-)%s*$") or ""
+    return SIMPLE_MODE_APP_TITLES[title] == true
 end
 
 function AppDock:getDAppPermissions(id)
@@ -665,13 +722,21 @@ function AppDock:getAppCatalog()
     return catalog
 end
 
+function AppDock:getVisibleAppCatalog()
+    local catalog, visible = self:getAppCatalog(), {}
+    for id, app in pairs(catalog) do
+        if self:isSimpleModeAppAllowed(app) then visible[id] = app end
+    end
+    return visible
+end
+
 function AppDock:getPinnedApps()
     local catalog = self:getAppCatalog()
     local apps, cleaned = {}, {}
     for _, app_id in ipairs(self.settings.pinned_apps) do
         local app = catalog[app_id]
         if app then
-            table.insert(apps, app)
+            if self:isSimpleModeAppAllowed(app) then table.insert(apps, app) end
             table.insert(cleaned, app_id)
         end
     end
@@ -844,6 +909,10 @@ function AppDock:_launchPluginAction(app, action)
 end
 
 function AppDock:launchApp(app, home)
+    if not self:isSimpleModeAppAllowed(app) then
+        UIManager:show(InfoMessage:new{ text = _("This app is hidden by Simple Mode. Disable Quick find in Settings to use it again.") })
+        return false
+    end
     if app.kind == "dapp" then
         self:getDAppManager():activate(app.dapp_id, home)
         return

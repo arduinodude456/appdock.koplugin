@@ -81,7 +81,7 @@ function AppDockManager:showDialog()
         },
     })
 
-    local catalog = appdock:getAppCatalog()
+    local catalog = type(appdock.getVisibleAppCatalog) == "function" and appdock:getVisibleAppCatalog() or appdock:getAppCatalog()
     local apps = {}
     for _, app in pairs(catalog) do
         table.insert(apps, app)

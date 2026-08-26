@@ -105,6 +105,7 @@ package.preload["ui/widget/inputdialog"] = function() return WidgetContainer end
 package.preload["ui/widget/buttondialog"] = function() return WidgetContainer end
 package.preload["ui/widget/infomessage"] = function() return WidgetContainer end
 package.preload["ui/widget/widget"] = function() return Widget end
+package.preload["ui/widget/imagewidget"] = function() return Widget end
 package.preload["ui/widget/container/widgetcontainer"] = function() return WidgetContainer end
 package.preload["ui/widget/container/inputcontainer"] = function() return InputContainer end
 package.preload["ui/widget/container/centercontainer"] = function() return CenterContainer end
@@ -131,6 +132,7 @@ package.preload["ui/uimanager"] = function()
         unschedule = function() end,
         setDirty = function(_, widget, kind, region) table.insert(log.dirties, { widget = widget, kind = kind, region = region }) end,
         forceRePaint = function() end,
+        yieldToEPDC = function() log.epdc_yields = (log.epdc_yields or 0) + 1 end,
         broadcastEvent = function(_, event) table.insert(log.events, event.name) end,
     }
 end
@@ -143,7 +145,7 @@ assert(Theme.ellipsize("ABCDE", 4) == "ABC…", "Text overflow must use a bounde
 assert(Theme.ellipsize("Äpfel", 4) == "Äpf…", "Text overflow must preserve complete UTF-8 characters")
 assert(Theme.fitLabel("A long compact button label", 30, 10, 0):find("…", 1, true), "Narrow controls must shorten labels instead of allowing wrapped text")
 local appdock = {
-    settings = { widgets = { clock = true, status = true, reading_hint = true, store = {}, store_order = {} }, theme = { selected = "lavender", custom = {} }, layout = { app_spacing = 12, logo_shape = "rounded", search_enabled = false }, store = { installed = {} }, dapp_permissions = {}, widget_generator = { items = {}, next_id = 0 }, beta = { plugin_dapp_host = false } },
+    settings = { widgets = { clock = true, status = true, reading_hint = true, store = {}, store_order = {} }, theme = { selected = "lavender", custom = {} }, layout = { app_spacing = 12, logo_shape = "rounded", search_enabled = false }, store = { installed = {} }, dapp_permissions = {}, widget_generator = { items = {}, next_id = 0 }, beta = { plugin_dapp_host = false }, simple_mode = { homescreen = false, quick_settings = false, focus_apps = false }, quick_settings = { tiles = { "wifi", "night", "refresh", "edit", "sleep", "power_saving" } }, notifications = { items = {} }, power_saving = false },
     toggleWidget = function(self, id) self.settings.widgets[id] = not self.settings.widgets[id] end,
     showHome = function(_, skip_lock) log.home = (log.home or 0) + 1; log.last_home_skip_lock = skip_lock end,
     showManager = function() log.manager = (log.manager or 0) + 1 end,
@@ -154,7 +156,14 @@ local appdock = {
         return { background = permissions.background == true, autostart = permissions.autostart == true }
     end,
     getPinnedApps = function() return { { id = "dapp:first", title = "First App" }, { id = "dapp:second", title = "Second App" } } end,
+    seedDefaults = function() end,
     getStoreWidgets = function() return { { widget_id = "quote_widget", title = "Quote Widget" }, { widget_id = "weather_widget", title = "Weather Widget" } } end,
+    isStoreWidgetEnabled = function() return true end,
+    isSimpleModeEnabled = function(self, option) return self.settings.simple_mode[option] == true end,
+    setSimpleModeOption = function(self, option, enabled) self.settings.simple_mode[option] = enabled == true; self:_saveSettings(); return true end,
+    getQuickSettingsTiles = function(self) return self:isSimpleModeEnabled("quick_settings") and { "wifi", "night", "power_saving" } or self.settings.quick_settings.tiles end,
+    getNotifications = function() return {} end,
+    getUnreadNotificationCount = function() return 0 end,
     movePinned = function() log.moved_app = true; return true end,
     moveStoreWidget = function() log.moved_widget = true; return true end,
     setTheme = function(self, id) self.settings.theme = self.settings.theme or { custom = {} }; self.settings.theme.selected = id; return true end,
@@ -320,6 +329,20 @@ manager:showArrangementEditor(settings_instance, { requestRebuild = function() l
 local arrangement_dialog = log.shown[#log.shown]
 assert(arrangement_dialog.title == "Arrange apps & widgets" and arrangement_dialog.buttons[#arrangement_dialog.buttons][1].text == "Done", "Settings must open one compact arrangement dialog with a Done action")
 assert(#arrangement_dialog.buttons >= 6, "Settings arrangement dialog must list apps and widgets")
+settings_instance.settings_category = "simple"
+manager:activate("settings")
+assert(settings_instance.pane.settings_layout.category == "simple" and settings_instance.pane.settings_layout.row_count == 3, "Simple Mode must expose three independent settings switches")
+assert(appdock:setSimpleModeOption("homescreen", true) and appdock:setSimpleModeOption("quick_settings", true) and appdock:setSimpleModeOption("focus_apps", true), "Simple Mode switches must be independently persisted")
+local HomeScreen = dofile(plugin_dir .. "appdock_homescreen.lua")
+local simple_home = HomeScreen:new{ appdock = appdock }
+assert(simple_home.simple_layout and simple_home.simple_layout.columns == 4 and simple_home.simple_layout.rows == 3 and simple_home.simple_layout.app_count == 2, "Simple homescreen must contain only the visible apps in a 4×3 grid")
+assert(not simple_home._widget_tick, "Simple homescreen must not schedule hidden widget refreshes")
+local QuickSettings = dofile(plugin_dir .. "appdock_quicksettings.lua")
+local simple_quick_settings = QuickSettings:new{ appdock = appdock, home = simple_home }
+assert(simple_quick_settings.layout.simple_mode and simple_quick_settings.layout.tile_count == 3 and not simple_quick_settings.layout.show_notifications, "Simple quick settings must contain the three required tiles, brightness, and no notifications")
+appdock:setSimpleModeOption("homescreen", false)
+appdock:setSimpleModeOption("quick_settings", false)
+appdock:setSimpleModeOption("focus_apps", false)
 
 local recents = {}
 manager:showDAppActions("analog_clock", recents)
@@ -341,11 +364,15 @@ end
 assert(split_divider and split_host.ges_events.PanSplitHost and split_host.ges_events.PanReleaseSplitHost and split_host._split_touch_range and split_host._split_touch_range.h > 8, "Split screen must expose a broad absolute host touch zone instead of a divider-owned gesture")
 local first_height_before_drag = clock_instance.pane.dimen.h
 local chrome_before_drag = split_host[1]
+local fast_before_drag = #log.dirties
+local yields_before_drag = log.epdc_yields or 0
 assert(split_host:onPanSplitHost(nil, { pos = { y = 560 } }), "Dragging the split divider downward through the host must be handled")
 assert(split_host._split_last_y == 560, "Host split dragging must retain the latest touch position for the release fallback")
-assert(split_host[1] == chrome_before_drag and split_host.split_ratio > .5, "A downward pan must retain the same divider gesture surface until release")
+assert(split_host[1] ~= chrome_before_drag and split_host.split_ratio > .5 and clock_instance.pane.dimen.h > first_height_before_drag, "A downward pan must visibly rebuild the split panes during the gesture")
+assert(#log.dirties > fast_before_drag and log.dirties[#log.dirties].kind == "fast" and (log.epdc_yields or 0) > yields_before_drag, "Live split resizing must request a fast E-Ink refresh and yield to the controller")
+local chrome_after_down = split_host[1]
 assert(split_host:onPanSplitHost(nil, { pos = { y = 360 } }), "Dragging the same divider back upward through the host must be handled")
-assert(split_host._split_last_y == 360 and split_host[1] == chrome_before_drag and split_host.split_ratio < .5, "An upward pan after a downward pan must remain bound to the same absolute host gesture surface")
+assert(split_host._split_last_y == 360 and split_host[1] ~= chrome_after_down and split_host.split_ratio < .5, "An upward pan after a downward pan must remain bound to the same absolute host gesture surface")
 assert(clock_instance.visible and settings_instance.visible and clock_instance.in_split and settings_instance.in_split and #split_host.active_panes == 2, "Resizing split panes must keep both DApps active without leaving split screen")
 local saves_before_split_release = log.store_saved or 0
 assert(split_host:onPanReleaseSplitHost(nil, {}), "Releasing the split divider without a final position must use the previous host pan position")

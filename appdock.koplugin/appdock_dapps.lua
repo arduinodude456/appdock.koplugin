@@ -2201,13 +2201,15 @@ function DAppManager:_buildSettingsPane(instance, context)
     local content_x = margin + sidebar_width + gap
     local content_width = width - content_x - margin
     local row_height = math.max(scale(52), math.min(scale(62), math.floor((height - scale(78) - gap * 2) / 3)))
-    local category_height = math.min(scale(70), math.floor((height - 2 * margin - 3 * gap) / 4))
+    local category_height
     local categories = {
         { id = "network", title = _("Network"), subtitle = _("Connections"), logo = "network" },
         { id = "display", title = _("Display"), subtitle = _("Light and theme"), logo = "display" },
         { id = "storage", title = _("Storage"), subtitle = _("Space usage"), logo = "archive" },
+        { id = "simple", title = _("Simple"), subtitle = _("Focus mode"), logo = "other" },
         { id = "other", title = _("Other"), subtitle = _("AppDock"), logo = "other" },
     }
+    category_height = math.max(scale(46), math.min(scale(70), math.floor((height - 2 * margin - (#categories - 1) * gap) / #categories)))
     instance.settings_category = instance.settings_category or "network"
     local selected_id = instance.settings_category
     local wifi_on, wifi_available = self:_wifiState()
@@ -2265,6 +2267,35 @@ function DAppManager:_buildSettingsPane(instance, context)
                 show_state = false,
             },
         },
+        simple = {
+            {
+                title = _("Simple homescreen"),
+                subtitle = _("Apps only · 4×3 grid"),
+                enabled = self.appdock:isSimpleModeEnabled("homescreen"),
+                callback = function()
+                    self.appdock:setSimpleModeOption("homescreen", not self.appdock:isSimpleModeEnabled("homescreen"))
+                    context.requestRebuild("ui")
+                end,
+            },
+            {
+                title = _("Simple quick settings"),
+                subtitle = _("Wi-Fi, Night, Save power, brightness"),
+                enabled = self.appdock:isSimpleModeEnabled("quick_settings"),
+                callback = function()
+                    self.appdock:setSimpleModeOption("quick_settings", not self.appdock:isSimpleModeEnabled("quick_settings"))
+                    context.requestRebuild("ui")
+                end,
+            },
+            {
+                title = _("Quick find"),
+                subtitle = _("Settings, files, reading, browser"),
+                enabled = self.appdock:isSimpleModeEnabled("focus_apps"),
+                callback = function()
+                    self.appdock:setSimpleModeOption("focus_apps", not self.appdock:isSimpleModeEnabled("focus_apps"))
+                    context.requestRebuild("ui")
+                end,
+            },
+        },
         other = {
             {
                 title = _("Lockscreen"),
@@ -2292,10 +2323,10 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("About AppDock"),
-                subtitle = _( "Version 4.2.4 · Stability"),
+                subtitle = _( "Version 4.3.0 · Simple Mode"),
                 show_state = false,
                 callback = function()
-                    self:showSettingsNotice(_("AppDock 4.2.4 · Stability\n\nSplit screen now receives drag gestures directly at the permanent AppDock host through an absolute touch zone around the divider. This makes resizing independent of the previous drag direction. The Web Browser also initializes its Theme helper explicitly, preventing the browser-start crash."))
+                    self:showSettingsNotice(_("AppDock 4.3.0 · Simple Mode\n\nSimple Mode adds three independent switches: an apps-only 4×3 homescreen, reduced Quick Settings with Wi-Fi, Night, Save power and brightness, plus a focused app list. Split screen now also updates its panes with fast E-Ink refreshes while you drag the divider."))
                 end,
             },
             {
@@ -2452,11 +2483,11 @@ function DAppHost:setSplitFromGesture(position_y, persist)
             if appdock._saveSettings then appdock:_saveSettings() end
         end
     end
-    if persist then
+    if changed or persist then
         self:rebuild(true)
-        UIManager:setDirty(self, "ui")
-    elseif changed then
-        UIManager:setDirty(self, "fast")
+        UIManager:setDirty(self, persist and "ui" or "fast")
+        if not persist and UIManager.forceRePaint then UIManager:forceRePaint() end
+        if not persist and UIManager.yieldToEPDC then UIManager:yieldToEPDC() end
     end
     return true
 end

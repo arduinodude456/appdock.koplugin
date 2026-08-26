@@ -373,6 +373,7 @@ end
 
 function AppDockHomeScreen:_scheduleStoreWidgetRefresh()
     if self._widget_tick then UIManager:unschedule(self._widget_tick) end
+    if self.appdock:isSimpleModeEnabled("homescreen") then return end
     local has_visible_widget = false
     for _, widget in ipairs(self.appdock:getStoreWidgets()) do
         if self.appdock:isStoreWidgetEnabled(widget.widget_id) then has_visible_widget = true; break end
@@ -403,8 +404,8 @@ function AppDockHomeScreen:showAppSearch()
     dialog:onShowKeyboard()
 end
 
-function AppDockHomeScreen:_pageInfo(apps)
-    local per_page = 6
+function AppDockHomeScreen:_pageInfo(apps, per_page)
+    per_page = math.max(1, tonumber(per_page) or 6)
     local pages = math.max(1, math.ceil(#apps / per_page))
     if self.page > pages then self.page = pages end
     local first = (self.page - 1) * per_page + 1
@@ -497,8 +498,67 @@ function AppDockHomeScreen:_addTopSystemLine(dashboard, width, margin)
     })
 end
 
+function AppDockHomeScreen:_buildSimpleMode(width, height)
+    local margin = scale(16)
+    local column_gap, row_gap, label_height = scale(12), scale(14), scale(22)
+    local apps = self.appdock:getPinnedApps()
+    local visible_apps, page_count = self:_pageInfo(apps, 12)
+    local grid_width = width - 2 * margin
+    local by_width = math.floor((grid_width - 3 * column_gap) / 4)
+    local by_height = math.floor((height - 2 * margin - 2 * row_gap - 3 * label_height) / 3)
+    local tile_size = math.max(scale(40), math.min(by_width, by_height, scale(92)))
+    local grid_height = 3 * (tile_size + label_height) + 2 * row_gap
+    local grid_y = math.max(margin, math.floor((height - grid_height) / 2))
+    local grid_x = math.floor((width - (4 * tile_size + 3 * column_gap)) / 2)
+    local dashboard = OverlapGroup:new{
+        dimen = Geom:new{ w = width, h = height },
+        allow_mirroring = false,
+        FrameContainer:new{
+            width = width, height = height, padding = 0, bordersize = 0,
+            background = PALETTE.background,
+            emptySizedWidget(width, height),
+        },
+    }
+    for index, app in ipairs(visible_apps) do
+        local col = (index - 1) % 4
+        local row = math.floor((index - 1) / 4)
+        local tone = toneFor(app, index)
+        table.insert(dashboard, AppTile:new{
+            appdock = self.appdock,
+            home = self,
+            app = app,
+            tile_size = tile_size,
+            label_height = label_height,
+            shape = self.appdock.settings.layout.logo_shape,
+            background = tone.background,
+            foreground = tone.foreground,
+            overlap_offset = {
+                grid_x + col * (tile_size + column_gap),
+                grid_y + row * (tile_size + label_height + row_gap),
+            },
+        })
+    end
+    if page_count > 1 then
+        local nav_y = height - scale(38)
+        local nav_center = math.floor(width / 2)
+        if self.page > 1 then table.insert(dashboard, self:_navControl("‹", nav_center - scale(64), nav_y, function() self:_showPage(self.page - 1) end)) end
+        if self.page < page_count then table.insert(dashboard, self:_navControl("›", nav_center + scale(34), nav_y, function() self:_showPage(self.page + 1) end)) end
+        table.insert(dashboard, TextWidget:new{
+            text = string.format("%d / %d", self.page, page_count),
+            face = Font:getFace("smallinfofont", scale(12)), fgcolor = PALETTE.on_surface_variant,
+            overlap_offset = { nav_center - scale(12), nav_y + scale(8) },
+        })
+    end
+    self.simple_layout = { columns = 4, rows = 3, tile_size = tile_size, app_count = #visible_apps, page_count = page_count }
+    self[1] = dashboard
+end
+
 function AppDockHomeScreen:build()
     local width, height = self.dimen.w, self.dimen.h
+    if self.appdock:isSimpleModeEnabled("homescreen") then
+        self:_buildSimpleMode(width, height)
+        return
+    end
     local margin = scale(22)
     local top_line_height = scale(30)
     local header_y = top_line_height + scale(18)
