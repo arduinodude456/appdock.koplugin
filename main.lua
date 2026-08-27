@@ -16,6 +16,10 @@ local AppDock = WidgetContainer:extend{
     settings_key = "appdock_homescreen",
 }
 
+-- Bump this only when a new AppDock release should offer the optional guide.
+-- It is intentionally not a remote update check: all assistant state stays local.
+local SETUP_ASSISTANT_VERSION = "6.0.6"
+
 local DEFAULT_SETTINGS = {
     pinned_apps = {
         "system:library",
@@ -54,6 +58,7 @@ local DEFAULT_SETTINGS = {
     accessibility = { text_scale = 1, high_contrast = false },
     dapp_permissions = {},
     widget_generator = { items = {}, next_id = 0 },
+    setup_assistant = { offered_version = "", completed_version = "" },
     power_saving = false,
     layout_version = 19,
 }
@@ -77,6 +82,12 @@ function AppDock:init()
         local restored = manager and self.settings.workspace and self.settings.workspace.restore_enabled
             and manager.restoreWorkspace and manager:restoreWorkspace()
         if self.settings.launch_on_start and not restored then self:showHome() end
+        if self:shouldOfferSetupAssistant() and manager and manager.showSetupAssistant then
+            -- Record the offer first, so closing the dialog does not repeatedly
+            -- interrupt later KOReader starts for this same AppDock version.
+            self:markSetupAssistantOffered()
+            manager:showSetupAssistant(nil, nil, true)
+        end
     end)
 end
 
@@ -123,6 +134,7 @@ function AppDock:_loadSettings()
         accessibility = stored.accessibility or { text_scale = 1, high_contrast = false },
         dapp_permissions = stored.dapp_permissions or {},
         widget_generator = stored.widget_generator or { items = {}, next_id = 0 },
+        setup_assistant = stored.setup_assistant or { offered_version = "", completed_version = "" },
         power_saving = stored.power_saving == true,
         layout_version = stored.layout_version or 1,
     }
@@ -236,6 +248,9 @@ function AppDock:_loadSettings()
     self.settings.widget_generator = self.settings.widget_generator or { items = {}, next_id = 0 }
     self.settings.widget_generator.items = type(self.settings.widget_generator.items) == "table" and self.settings.widget_generator.items or {}
     self.settings.widget_generator.next_id = math.max(0, math.floor(tonumber(self.settings.widget_generator.next_id) or 0))
+    self.settings.setup_assistant = type(self.settings.setup_assistant) == "table" and self.settings.setup_assistant or {}
+    self.settings.setup_assistant.offered_version = type(self.settings.setup_assistant.offered_version) == "string" and self.settings.setup_assistant.offered_version:sub(1, 24) or ""
+    self.settings.setup_assistant.completed_version = type(self.settings.setup_assistant.completed_version) == "string" and self.settings.setup_assistant.completed_version:sub(1, 24) or ""
     local normalized_generated = {}
     local generated_count = 0
     for id, item in pairs(self.settings.widget_generator.items) do
@@ -276,6 +291,33 @@ end
 
 function AppDock:_saveSettings()
     G_reader_settings:saveSetting(self.settings_key, self.settings)
+end
+
+function AppDock:getSetupAssistantStatus()
+    local state = self.settings.setup_assistant or {}
+    return {
+        version = SETUP_ASSISTANT_VERSION,
+        offered = state.offered_version == SETUP_ASSISTANT_VERSION,
+        completed = state.completed_version == SETUP_ASSISTANT_VERSION,
+    }
+end
+
+function AppDock:shouldOfferSetupAssistant()
+    local status = self:getSetupAssistantStatus()
+    return not status.completed and not status.offered
+end
+
+function AppDock:markSetupAssistantOffered()
+    self.settings.setup_assistant = self.settings.setup_assistant or {}
+    self.settings.setup_assistant.offered_version = SETUP_ASSISTANT_VERSION
+    self:_saveSettings()
+end
+
+function AppDock:completeSetupAssistant()
+    self.settings.setup_assistant = self.settings.setup_assistant or {}
+    self.settings.setup_assistant.offered_version = SETUP_ASSISTANT_VERSION
+    self.settings.setup_assistant.completed_version = SETUP_ASSISTANT_VERSION
+    self:_saveSettings()
 end
 
 function AppDock:setLaunchOnStart(enabled)

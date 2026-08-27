@@ -205,7 +205,7 @@ local parsed_design = assert(AppStoreParser:_parseDesign("id=forest\ntitle=Fores
 assert(parsed_design.id == "forest" and parsed_design.wallpaper == "designs/wallpapers/forest.png", "A declarative design must parse only its allowed appearance values")
 assert(not AppStoreParser:_parseDesign("id=forest\ntitle=Forest\nhighlight=#A5D6A7\nbackground=#122219\nbutton=#2D6745\ntext=#EFF8E9\ndropdown=#183125\nwallpaper=../forest.png"), "A design must reject traversal paths in its optional wallpaper")
 local appdock = {
-    settings = { widgets = { clock = true, status = true, reading_hint = true, store = {}, store_order = {} }, theme = { selected = "lavender", custom = {} }, design = { active_id = nil, installed = {} }, plugin_logos = {}, layout = { app_spacing = 12, logo_shape = "rounded", search_enabled = false }, store = { installed = {} }, workspace = { restore_enabled = false, session = nil }, accessibility = { text_scale = 1, high_contrast = false }, dapp_permissions = {}, widget_generator = { items = {}, next_id = 0 }, beta = { plugin_dapp_host = false, black_borders = false, keep_wallpaper_original_in_night = false, manual_app_spacing = false, plugin_custom_logos = false }, simple_mode = { homescreen = false, quick_settings = false, focus_apps = false }, quick_settings = { tiles = { "wifi", "night", "refresh", "edit", "sleep", "power_saving" } }, notifications = { items = {} }, power_saving = false },
+    settings = { widgets = { clock = true, status = true, reading_hint = true, store = {}, store_order = {} }, theme = { selected = "lavender", custom = {} }, design = { active_id = nil, installed = {} }, plugin_logos = {}, layout = { app_spacing = 12, logo_shape = "rounded", search_enabled = false }, store = { installed = {} }, workspace = { restore_enabled = false, session = nil }, accessibility = { text_scale = 1, high_contrast = false }, dapp_permissions = {}, widget_generator = { items = {}, next_id = 0 }, setup_assistant = { offered_version = "", completed_version = "" }, beta = { plugin_dapp_host = false, black_borders = false, keep_wallpaper_original_in_night = false, manual_app_spacing = false, plugin_custom_logos = false }, simple_mode = { homescreen = false, quick_settings = false, focus_apps = false }, quick_settings = { tiles = { "wifi", "night", "refresh", "edit", "sleep", "power_saving" } }, notifications = { items = {} }, power_saving = false },
     toggleWidget = function(self, id) self.settings.widgets[id] = not self.settings.widgets[id] end,
     showHome = function(_, skip_lock) log.home = (log.home or 0) + 1; log.last_home_skip_lock = skip_lock end,
     showManager = function() log.manager = (log.manager or 0) + 1 end,
@@ -241,6 +241,11 @@ local appdock = {
         if not enabled then self.settings.workspace.session = nil end
         self:_saveSettings()
         return true
+    end,
+    completeSetupAssistant = function(self)
+        self.settings.setup_assistant.offered_version = "6.0.6"
+        self.settings.setup_assistant.completed_version = "6.0.6"
+        self:_saveSettings()
     end,
     setLauncherLayout = function(self, changes) for key, value in pairs(changes or {}) do self.settings.layout[key] = value end; self:_saveSettings(); return true end,
     setBetaOption = function(self, key, enabled) self.settings.beta[key] = enabled == true; self:_saveSettings(); return true end,
@@ -504,8 +509,23 @@ manager:toggleColorTheme({ requestRebuild = function() log.settings_rebuilds = (
 assert(log.events[#log.events] == "ToggleNightMode" and log.settings_rebuilds == 1, "Color themes must trigger KOReader's night-mode event")
 settings_instance.settings_category = "other"
 manager:activate("settings")
-assert(settings_instance.pane.settings_layout.category == "other" and settings_instance.pane.settings_layout.row_count == 9, "Other category must include the opt-in local workspace alongside lockscreen, control center, permissions, arrangement and startup")
+assert(settings_instance.pane.settings_layout.category == "other" and settings_instance.pane.settings_layout.row_count == 10, "Other category must include the setup wizard alongside the opt-in local workspace, lockscreen, control center, permissions, arrangement and startup")
 assert(settings_instance.pane.settings_layout.text_scale == 1.3 and settings_instance.pane.settings_layout.high_contrast and not settings_instance.pane.settings_layout.workspace_enabled, "Settings metadata must expose the applied local accessibility and workspace state")
+local setup_dialogs_before = #log.shown
+manager:showSetupAssistant(settings_instance, { requestRebuild = function() log.setup_rebuilds = (log.setup_rebuilds or 0) + 1 end }, false)
+local setup_start = log.shown[#log.shown]
+assert(#log.shown == setup_dialogs_before + 1 and setup_start.title == "AppDock setup wizard", "Settings must expose an always-available manual setup assistant")
+setup_start.buttons[1][1].callback()
+local appearance_step = log.shown[#log.shown]
+assert(appearance_step.title:find("Setup 1/3", 1, true), "The setup assistant must start with an explicit appearance choice")
+appearance_step.buttons[3][1].callback()
+local search_step = log.shown[#log.shown]
+assert(search_step.title:find("Setup 2/3", 1, true), "Skipping appearance must retain current Simple Mode and advance safely")
+search_step.buttons[3][1].callback()
+local workspace_step = log.shown[#log.shown]
+assert(workspace_step.title:find("Setup 3/3", 1, true), "Skipping app search must advance to the local workspace choice")
+workspace_step.buttons[3][1].callback()
+assert(appdock.settings.setup_assistant.completed_version == "6.0.6" and not appdock:isSimpleModeEnabled("homescreen") and (log.setup_rebuilds or 0) == 1, "Finishing without changes must record setup locally and leave Simple Mode untouched")
 assert(appdock:setWorkspaceRestoreEnabled(true), "Local workspace restoration must be explicitly enabled through a persisted setting")
 manager:activate("settings")
 assert(manager.instances.settings.pane.settings_layout.workspace_enabled, "Settings must immediately expose the opt-in local workspace state")

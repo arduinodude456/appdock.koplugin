@@ -1954,6 +1954,106 @@ function DAppManager:showSettingsNotice(text)
     UIManager:show(InfoMessage:new{ text = text })
 end
 
+function DAppManager:showSetupAssistant(instance, context, automatic)
+    local dialog
+    local function refreshSettings()
+        if context and context.requestRebuild then context.requestRebuild("ui") end
+    end
+    local function closeDialog()
+        if dialog then UIManager:close(dialog) end
+    end
+    local function finish()
+        self.appdock:completeSetupAssistant()
+        closeDialog()
+        refreshSettings()
+        self:showSettingsNotice(_("AppDock setup is complete. You can run the setup wizard again at any time from Settings → Other."))
+    end
+    local function showWorkspaceStep()
+        local workspace = self.appdock.settings.workspace or {}
+        dialog = ButtonDialog:new{
+            title = _("Setup 3/3 · Local workspace") .. "\n" .. _("Optionally restore permitted local AppDock apps after a KOReader restart. No documents, browser pages or plugin hosts are restored."),
+            buttons = {
+                { { text = workspace.restore_enabled and _("Keep restoration enabled") or _("Enable restoration"), callback = function()
+                    self.appdock:setWorkspaceRestoreEnabled(true)
+                    finish()
+                end } },
+                { { text = workspace.restore_enabled and _("Disable restoration") or _("Keep disabled"), callback = function()
+                    self.appdock:setWorkspaceRestoreEnabled(false)
+                    finish()
+                end } },
+                { { text = _("Finish without changing"), callback = finish } },
+                { { text = _("Cancel"), callback = closeDialog } },
+            },
+        }
+        UIManager:show(dialog)
+    end
+    local function showSearchStep()
+        local layout = self.appdock.settings.layout or {}
+        dialog = ButtonDialog:new{
+            title = _("Setup 2/3 · Find apps") .. "\n" .. _("Choose whether the normal homescreen should show an optional local app search field."),
+            buttons = {
+                { { text = layout.search_enabled and _("Keep app search enabled") or _("Enable app search"), callback = function()
+                    self.appdock:setLauncherLayout({ search_enabled = true })
+                    closeDialog()
+                    showWorkspaceStep()
+                end } },
+                { { text = layout.search_enabled and _("Hide app search") or _("Keep hidden"), callback = function()
+                    self.appdock:setLauncherLayout({ search_enabled = false })
+                    closeDialog()
+                    showWorkspaceStep()
+                end } },
+                { { text = _("Skip this step"), callback = function()
+                    closeDialog()
+                    showWorkspaceStep()
+                end } },
+                { { text = _("Cancel"), callback = closeDialog } },
+            },
+        }
+        UIManager:show(dialog)
+    end
+    local function showAppearanceStep()
+        local simple_mode = self.appdock:isSimpleModeEnabled("homescreen")
+            or self.appdock:isSimpleModeEnabled("quick_settings")
+            or self.appdock:isSimpleModeEnabled("focus_apps")
+        dialog = ButtonDialog:new{
+            title = _("Setup 1/3 · Appearance") .. "\n" .. _("Choose the full AppDock interface or the existing reduced Simple Mode. This choice only changes after you select an option."),
+            buttons = {
+                { { text = simple_mode and _("Use full AppDock") or _("Keep full AppDock"), callback = function()
+                    self.appdock:setSimpleModeOption("homescreen", false)
+                    self.appdock:setSimpleModeOption("quick_settings", false)
+                    self.appdock:setSimpleModeOption("focus_apps", false)
+                    closeDialog()
+                    showSearchStep()
+                end } },
+                { { text = simple_mode and _("Keep Simple Mode") or _("Use Simple Mode"), callback = function()
+                    self.appdock:setSimpleModeOption("homescreen", true)
+                    self.appdock:setSimpleModeOption("quick_settings", true)
+                    self.appdock:setSimpleModeOption("focus_apps", true)
+                    closeDialog()
+                    showSearchStep()
+                end } },
+                { { text = _("Skip this step"), callback = function()
+                    closeDialog()
+                    showSearchStep()
+                end } },
+                { { text = _("Cancel"), callback = closeDialog } },
+            },
+        }
+        UIManager:show(dialog)
+    end
+    dialog = ButtonDialog:new{
+        title = automatic and _("AppDock was updated") or _("AppDock setup wizard"),
+        buttons = {
+            { { text = _("Start setup"), callback = function()
+                closeDialog()
+                showAppearanceStep()
+            end } },
+            { { text = automatic and _("Later") or _("Cancel"), callback = closeDialog } },
+        },
+    }
+    UIManager:show(dialog)
+end
+
 function DAppManager:getIntegrityStatus()
     local installed = self.appdock.settings.store and self.appdock.settings.store.installed or {}
     local app_count, missing_count = 0, 0
@@ -2704,6 +2804,12 @@ function DAppManager:_buildSettingsPane(instance, context)
         },
         other = {
             {
+                title = _("Setup wizard"),
+                subtitle = _("Review AppDock appearance and local options"),
+                show_state = false,
+                callback = function() self:showSetupAssistant(instance, context, false) end,
+            },
+            {
                 title = _("Lockscreen"),
                 subtitle = lockscreen_settings.enabled and (lockscreen_settings.method == "pin" and _("PIN") or lockscreen_settings.method == "pattern" and _("Pattern") or _("Swipe")) or _("Disabled"),
                 show_state = false,
@@ -2729,10 +2835,10 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("About AppDock"),
-                subtitle = _( "Version 6.0.5 · Fixed Bounds"),
+                subtitle = _( "Version 6.0.6 · Setup Wizard"),
                 show_state = false,
                 callback = function()
-                    self:showSettingsNotice(_("AppDock 6.0.5 · Fixed Bounds\n\nThis corrective update replaces the fragile text-overlap path used by core AppDock cards and rows. Text and icons are now painted through one explicit, fixed-bounds foreground container after each card background, and each child position is clamped to that card. This prevents a label from escaping its own surface or being hidden behind a later-drawn internal layer when KOReader reports different font metrics. Settings, Open Apps, Quick Settings, Homescreen cards, AppStore and Files use this path; fixed one-line controls also disable TextWidget vertical padding. Simple Mode remains unchanged."))
+                    self:showSettingsNotice(_("AppDock 6.0.6 · Setup Wizard\n\nThis update adds an optional local setup wizard. After a new AppDock version it is offered once, and it can always be opened again in Settings → Other. It guides you through full AppDock or Simple Mode, optional app search and optional local workspace restoration. Nothing changes unless you choose an option. Choosing Later suppresses only the automatic offer for this version; it remains available in Settings. The Fixed Bounds layout correction and Simple Mode separation remain in place."))
                 end,
             },
             {
