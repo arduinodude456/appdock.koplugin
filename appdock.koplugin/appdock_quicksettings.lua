@@ -15,6 +15,7 @@ local GestureRange = require("ui/gesturerange")
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local InfoMessage = require("ui/widget/infomessage")
 local InputContainer = require("ui/widget/container/inputcontainer")
+local Layout = require("appdock_layout")
 local Theme = require("appdock_theme")
 local OverlapGroup = require("ui/widget/overlapgroup")
 local TextWidget = require("ui/widget/textwidget")
@@ -186,12 +187,14 @@ function QuickTile:init()
         color = frame_style.color,
         radius = frame_style.radius or math.floor(self.height * (self.expressive and 0.40 or 0.32)),
         background = background,
-        OverlapGroup:new{
-            dimen = self.dimen,
-            allow_mirroring = false,
-            CenterContainer:new{ dimen = Geom:new{ w = self.width, h = symbol_widget:getSize().h }, symbol_widget, overlap_offset = { 0, positions[1] } },
-            CenterContainer:new{ dimen = Geom:new{ w = self.width, h = title_widget:getSize().h }, title_widget, overlap_offset = { 0, positions[2] } },
-            subtitle_widget and CenterContainer:new{ dimen = Geom:new{ w = self.width, h = subtitle_widget:getSize().h }, subtitle_widget, overlap_offset = { 0, positions[3] } } or nil,
+        Layout.FixedStack:new{
+            width = self.width,
+            height = self.height,
+            entries = {
+                { widget = CenterContainer:new{ dimen = Geom:new{ w = self.width, h = symbol_widget:getSize().h }, symbol_widget }, x = 0, y = positions[1] },
+                { widget = CenterContainer:new{ dimen = Geom:new{ w = self.width, h = title_widget:getSize().h }, title_widget }, x = 0, y = positions[2] },
+                subtitle_widget and { widget = CenterContainer:new{ dimen = Geom:new{ w = self.width, h = subtitle_widget:getSize().h }, subtitle_widget }, x = 0, y = positions[3] } or nil,
+            },
         },
     }
     self.ges_events = {
@@ -225,19 +228,20 @@ function NotificationRow:init()
     local message_widget = TextWidget:new{ text = message, face = Font:getFace("smallinfofont", message_size), fgcolor = message_color, max_width = text_width, padding = 0 }
     local positions = Theme.centeredStack(self.height, { title_widget, message_widget }, scale(3), scale(3))
     local title_y, message_y = positions[1], positions[2]
+    local unread_marker = TextWidget:new{ text = notification.read and "" or "•", face = Font:getFace("cfont", scale(18)), fgcolor = foreground, padding = 0 }
     self[1] = FrameContainer:new{
         width = self.width, height = self.height, padding = 0, bordersize = 0,
         radius = scale(11), background = background,
-        OverlapGroup:new{
-            dimen = self.dimen,
-            allow_mirroring = false,
-            title_widget,
-            message_widget,
-            TextWidget:new{ text = notification.read and "" or "•", face = Font:getFace("cfont", scale(18)), fgcolor = foreground, overlap_offset = { self.width - scale(18), scale(8) } },
+        Layout.FixedStack:new{
+            width = self.width,
+            height = self.height,
+            entries = {
+                { widget = title_widget, x = scale(12), y = title_y },
+                { widget = message_widget, x = scale(12), y = message_y },
+                { widget = unread_marker, x = self.width - scale(18), y = scale(8) },
+            },
         },
     }
-    title_widget.overlap_offset = { scale(12), title_y }
-    message_widget.overlap_offset = { scale(12), message_y }
     self.ges_events = { TapNotification = { GestureRange:new{ ges = "tap", range = self.dimen } } }
 end
 

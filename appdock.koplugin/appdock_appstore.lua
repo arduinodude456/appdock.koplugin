@@ -11,6 +11,7 @@ local ConfirmBox = require("ui/widget/confirmbox")
 local DataStorage = require("datastorage")
 local Device = require("device")
 local DAppLogo = require("appdock_logo")
+local Layout = require("appdock_layout")
 local Theme = require("appdock_theme")
 local Font = require("ui/font")
 local FrameContainer = require("ui/widget/container/framecontainer")
@@ -114,21 +115,18 @@ function StoreButton:init()
     local positions = Theme.centeredStack(self.height, items, scale(3), scale(3))
     local title_y, subtitle_y = positions[1], positions[2]
     self.layout = { title = title, subtitle = subtitle, title_y = title_y, subtitle_y = subtitle_y }
-    local layers = {
-        title_widget,
+    local entries = {
+        { widget = title_widget, x = text_x, y = title_y },
     }
-    title_widget.overlap_offset = { text_x, title_y }
     if self.logo then
-        table.insert(layers, DAppLogo:new{
+        table.insert(entries, { widget = DAppLogo:new{
             kind = self.logo,
             size = icon_size,
             ink = self.foreground,
-            overlap_offset = { inset, math.max(0, math.floor((self.height - icon_size) / 2)) },
-        })
+        }, x = inset, y = math.max(0, math.floor((self.height - icon_size) / 2)) })
     end
     if has_subtitle then
-        subtitle_widget.overlap_offset = { text_x, subtitle_y }
-        table.insert(layers, subtitle_widget)
+        table.insert(entries, { widget = subtitle_widget, x = text_x, y = subtitle_y })
     end
     self[1] = FrameContainer:new{
         width = self.width,
@@ -138,7 +136,7 @@ function StoreButton:init()
         color = self.frame_style and self.frame_style.color or nil,
         radius = self.frame_style and self.frame_style.radius or math.floor(self.height * 0.24),
         background = self.background,
-        OverlapGroup:new{ dimen = self.dimen, allow_mirroring = false, unpack(layers) },
+        Layout.FixedStack:new{ width = self.width, height = self.height, entries = entries },
     }
     self.ges_events = {
         TapAppStoreButton = { GestureRange:new{ ges = "tap", range = self.dimen } },

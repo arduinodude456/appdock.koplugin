@@ -8,6 +8,7 @@ local Blitbuffer = require("ffi/blitbuffer")
 local CenterContainer = require("ui/widget/container/centercontainer")
 local Device = require("device")
 local DocumentRegistry = require("document/documentregistry")
+local Layout = require("appdock_layout")
 local Theme = require("appdock_theme")
 local FileManagerUtil = require("apps/filemanager/filemanagerutil")
 local Font = require("ui/font")
@@ -111,6 +112,7 @@ function ToolbarButton:init()
                 fgcolor = self.foreground or PALETTE.on_surface,
                 bold = true,
                 max_width = self.width - scale(10),
+                padding = 0,
             },
         },
     }
@@ -149,14 +151,15 @@ function FileRow:init()
         bordersize = 0,
         radius = scale(12),
         background = self.background or PALETTE.surface,
-        OverlapGroup:new{
-            dimen = self.dimen, allow_mirroring = false,
-            title_widget,
-            subtitle_widget,
+        Layout.FixedStack:new{
+            width = self.width,
+            height = self.height,
+            entries = {
+                { widget = title_widget, x = scale(13), y = title_y },
+                { widget = subtitle_widget, x = scale(13), y = subtitle_y },
+            },
         },
     }
-    title_widget.overlap_offset = { scale(13), title_y }
-    subtitle_widget.overlap_offset = { scale(13), subtitle_y }
     self.ges_events = {
         TapFileRow = { GestureRange:new{ ges = "tap", range = self.dimen } },
     }

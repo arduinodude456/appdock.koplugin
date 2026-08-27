@@ -16,6 +16,7 @@ local HorizontalSpan = require("ui/widget/horizontalspan")
 local InputDialog = require("ui/widget/inputdialog")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local DAppLogo = require("appdock_logo")
+local Layout = require("appdock_layout")
 local Theme = require("appdock_theme")
 local Wallpaper = require("appdock_wallpaper")
 local OverlapGroup = require("ui/widget/overlapgroup")
@@ -195,8 +196,6 @@ function InfoCard:init()
     local title_widget = TextWidget:new{ text = title, face = Font:getFace("smallinfofont", title_size), fgcolor = self.foreground or PALETTE.on_surface_variant, bold = true, max_width = text_width, padding = 0 }
     local body_widget = TextWidget:new{ text = body, face = Font:getFace("smallinfofont", body_size), fgcolor = self.foreground or PALETTE.on_surface, max_width = text_width, padding = 0 }
     local positions = Theme.centeredStack(self.height, { title_widget, body_widget }, scale(4), scale(5))
-    title_widget.overlap_offset = { scale(18), positions[1] }
-    body_widget.overlap_offset = { scale(18), positions[2] }
     self[1] = FrameContainer:new{
         width = self.width,
         height = self.height,
@@ -205,7 +204,14 @@ function InfoCard:init()
         color = Blitbuffer.COLOR_BLACK,
         radius = math.floor(self.height * 0.30),
         background = self.background or PALETTE.surface,
-        OverlapGroup:new{ dimen = self.dimen, allow_mirroring = false, title_widget, body_widget },
+        Layout.FixedStack:new{
+            width = self.width,
+            height = self.height,
+            entries = {
+                { widget = title_widget, x = scale(18), y = positions[1] },
+                { widget = body_widget, x = scale(18), y = positions[2] },
+            },
+        },
     }
 end
 
@@ -251,7 +257,7 @@ function SearchBar:init()
         radius = math.floor(self.height * 0.36), background = PALETTE.surface_variant,
         CenterContainer:new{
             dimen = self.dimen,
-            TextWidget:new{ text = label, face = Font:getFace("smallinfofont", label_size), fgcolor = PALETTE.on_surface_variant, max_width = self.width - scale(20) },
+            TextWidget:new{ text = label, face = Font:getFace("smallinfofont", label_size), fgcolor = PALETTE.on_surface_variant, max_width = self.width - scale(20), padding = 0 },
         },
     }
     self.ges_events = { TapSearchApps = { GestureRange:new{ ges = "tap", range = self.dimen } } }
@@ -315,6 +321,7 @@ function AppTile:init()
         face = Font:getFace("smallinfofont", label_size),
         fgcolor = PALETTE.on_surface,
         max_width = self.tile_size,
+        padding = 0,
     }
 
     self[1] = VerticalGroup:new{

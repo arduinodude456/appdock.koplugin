@@ -18,6 +18,7 @@ local HorizontalSpan = require("ui/widget/horizontalspan")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local InputDialog = require("ui/widget/inputdialog")
 local DAppLogo = require("appdock_logo")
+local Layout = require("appdock_layout")
 local Theme = require("appdock_theme")
 local Help = require("appdock_help")
 local WebBrowser = require("appdock_browser")
@@ -422,7 +423,17 @@ function ActionChip:init()
         color = frame_style.color,
         radius = frame_style.radius or math.floor(self.height * 0.36),
         background = self.background or PALETTE.surface_variant,
-        OverlapGroup:new{ dimen = self.dimen, allow_mirroring = false, unpack(layers) },
+        Layout.FixedStack:new{
+            width = self.width,
+            height = self.height,
+            entries = (function()
+                local entries = {}
+                for layer_index, layer in ipairs(layers) do
+                    table.insert(entries, { widget = layer, x = 0, y = positions[layer_index] or 0 })
+                end
+                return entries
+            end)(),
+        },
     }
     self.ges_events = {
         TapDAppAction = { GestureRange:new{ ges = "tap", range = self.dimen } },
@@ -487,6 +498,7 @@ function SettingsCategory:init()
                     fgcolor = foreground,
                     bold = true,
                     max_width = self.width - scale(8),
+                    padding = 0,
                 },
             },
         },
@@ -531,14 +543,15 @@ function SettingsRow:init()
         color = frame_style.color,
         radius = frame_style.radius or math.floor(self.height * .28),
         background = self.enabled and PALETTE.primary or PALETTE.surface,
-        OverlapGroup:new{
-            dimen = self.dimen, allow_mirroring = false,
-            title_widget,
-            detail_widget,
+        Layout.FixedStack:new{
+            width = self.width,
+            height = self.height,
+            entries = {
+                { widget = title_widget, x = scale(13), y = title_y },
+                { widget = detail_widget, x = scale(13), y = detail_y },
+            },
         },
     }
-    title_widget.overlap_offset = { scale(13), title_y }
-    detail_widget.overlap_offset = { scale(13), detail_y }
     self.ges_events = {
         TapDAppSetting = { GestureRange:new{ ges = "tap", range = self.dimen } },
     }
@@ -2716,10 +2729,10 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("About AppDock"),
-                subtitle = _( "Version 6.0.4 · Continuity"),
+                subtitle = _( "Version 6.0.5 · Fixed Bounds"),
                 show_state = false,
                 callback = function()
-                    self:showSettingsNotice(_("AppDock 6.0.4 · Continuity\n\nThis maintenance update now reduces the actual visible heights and outer gaps of standard AppDock surfaces, not only internal text rhythm. Settings rows, Open Apps cards, Quick Settings tiles, Homescreen labels and cards, AppStore controls, Files rows and navigation are all visibly more compact while retaining safe unpadded glyph measurement. Simple Mode keeps its existing reduced appearance. Optional workspace restoration only resumes explicitly permitted local DApps. Files can use registered local DApp handlers, and Settings adds text size, contrast and read-only local integrity status."))
+                    self:showSettingsNotice(_("AppDock 6.0.5 · Fixed Bounds\n\nThis corrective update replaces the fragile text-overlap path used by core AppDock cards and rows. Text and icons are now painted through one explicit, fixed-bounds foreground container after each card background, and each child position is clamped to that card. This prevents a label from escaping its own surface or being hidden behind a later-drawn internal layer when KOReader reports different font metrics. Settings, Open Apps, Quick Settings, Homescreen cards, AppStore and Files use this path; fixed one-line controls also disable TextWidget vertical padding. Simple Mode remains unchanged."))
                 end,
             },
             {

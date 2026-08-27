@@ -147,6 +147,19 @@ local DAppManager = dofile(plugin_dir .. "appdock_dapps.lua")
 local Device = require("device")
 local Theme = require("appdock_theme")
 local UIManager = require("ui/uimanager")
+local Layout = require("appdock_layout")
+local fixed_stack_paints = {}
+local fixed_stack = Layout.FixedStack:new{
+    width = 40,
+    height = 20,
+    entries = {
+        { widget = { getSize = function() return { w = 18, h = 8 } end, paintTo = function(_, _, x, y) table.insert(fixed_stack_paints, { x = x, y = y }) end }, x = -10, y = 30 },
+        { widget = { getSize = function() return { w = 12, h = 6 } end, paintTo = function(_, _, x, y) table.insert(fixed_stack_paints, { x = x, y = y }) end }, x = 99, y = 99 },
+    },
+}
+fixed_stack:paintTo({}, 100, 200)
+assert(fixed_stack:getSize().w == 40 and fixed_stack:getSize().h == 20, "Fixed text stacks must consume exactly their declared card bounds")
+assert(fixed_stack_paints[1].x == 100 and fixed_stack_paints[1].y == 212 and fixed_stack_paints[2].x == 128 and fixed_stack_paints[2].y == 214, "Fixed text stacks must clamp every child inside its card before painting")
 assert(Theme.ellipsize("ABCDE", 4) == "ABC…", "Text overflow must use a bounded one-line ellipsis")
 assert(Theme.ellipsize("Äpfel", 4) == "Äpf…", "Text overflow must preserve complete UTF-8 characters")
 assert(Theme.fitLabel("A long compact button label", 30, 10, 0):find("…", 1, true), "Narrow controls must shorten labels instead of allowing wrapped text")
@@ -168,12 +181,16 @@ assert(not simple_mode_source:find("Theme.centeredStack", 1, true) and not simpl
 assert(recents_source:find('title = "", symbol = "⌂", width = scale(72), height = scale(44)', 1, true), "Compact Open Apps navigation must not place a text label beneath its Home button")
 assert(recents_source:find("local margin, gap = scale(10), scale(4)", 1, true) and recents_source:find("math.min(scale(50)", 1, true), "Settings must use visibly compact row and category spacing")
 assert(recents_source:find("local card_height = expressive and scale(64) or scale(60)", 1, true) and recents_source:find("local gap = expressive and scale(6) or scale(6)", 1, true), "Open Apps must use visibly compact cards and list gaps")
+assert(recents_source:find("local Layout = require(\"appdock_layout\")", 1, true) and recents_source:find("Layout.FixedStack:new", 1, true), "DApp settings and action controls must use fixed-bounds foreground drawing")
 assert(quick_settings_source:find("tile_height = scale(68)", 1, true) and quick_settings_source:find("slider_spacing = scale(8)", 1, true), "Normal Quick Settings must use compact visible tile and sheet spacing")
+assert(quick_settings_source:find("Layout.FixedStack:new", 1, true), "Quick Settings tiles and notifications must keep their text inside explicit fixed bounds")
 assert(appstore_source:find("local compact_height = scale(42)", 1, true) and appstore_source:find("local list_y, card_height", 1, true) and appstore_source:find("scale(58)", 1, true), "AppStore must use compact visible controls and catalog cards")
 assert(homescreen_source:find("local label_height = scale(20)", 1, true) and homescreen_source:find("local label_gap = scale(3)", 1, true) and homescreen_source:find("local row_gap = scale(12)", 1, true), "Normal Homescreen app labels and rows must use compact visible spacing")
+assert(appstore_source:find("Layout.FixedStack:new", 1, true) and homescreen_source:find("Layout.FixedStack:new", 1, true), "AppStore and Homescreen cards must draw text through the fixed-bounds container")
 assert(simple_mode_source:find("local column_gap, row_gap, label_height = scale(12), scale(14), scale(22)", 1, true), "Simple Mode must retain its original app-grid spacing")
 local files_source = assert(io.open(plugin_dir .. "appdock_filemanager.lua", "rb")):read("*a")
 assert(files_source:find("local margin, gap = scale(12), scale(5)", 1, true) and files_source:find("local row_height = scale(54)", 1, true), "Files must use compact visible rows and gaps")
+assert(files_source:find("Layout.FixedStack:new", 1, true), "File rows must draw labels through the same fixed-bounds container")
 local design_definition = Theme.normalizeDesignDefinition({
     id = "galaxy", title = "Galaxy", version = "1.0.0", highlight = "#A98BFF", background = "#111126",
     button = "#282653", text = "#F8F7FF", dropdown = "#181634", button_style = "3d", logo_shape = "circle",

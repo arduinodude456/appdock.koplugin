@@ -128,6 +128,7 @@ function BrowserButton:init()
                 fgcolor = self.foreground or PALETTE.on_surface,
                 bold = true,
                 max_width = self.width - scale(12),
+                padding = 0,
             },
         },
     }
