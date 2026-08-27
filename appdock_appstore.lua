@@ -108,10 +108,10 @@ function StoreButton:init()
     local has_subtitle = self.subtitle and self.subtitle ~= ""
     local title = Theme.fitLabel(self.title or "", text_width, title_size, 0)
     local subtitle = Theme.fitLabel(self.subtitle or "", text_width, subtitle_size, 0)
-    local title_widget = TextWidget:new{ text = title, face = Font:getFace("smallinfofont", title_size), fgcolor = self.foreground, bold = true, max_width = text_width }
-    local subtitle_widget = has_subtitle and TextWidget:new{ text = subtitle, face = Font:getFace("smallinfofont", subtitle_size), fgcolor = self.foreground, max_width = text_width } or nil
+    local title_widget = TextWidget:new{ text = title, face = Font:getFace("smallinfofont", title_size), fgcolor = self.foreground, bold = true, max_width = text_width, padding = 0 }
+    local subtitle_widget = has_subtitle and TextWidget:new{ text = subtitle, face = Font:getFace("smallinfofont", subtitle_size), fgcolor = self.foreground, max_width = text_width, padding = 0 } or nil
     local items = subtitle_widget and { title_widget, subtitle_widget } or { title_widget }
-    local positions = Theme.centeredStack(self.height, items, scale(3), scale(4))
+    local positions = Theme.centeredStack(self.height, items, scale(3), scale(3))
     local title_y, subtitle_y = positions[1], positions[2]
     self.layout = { title = title, subtitle = subtitle, title_y = title_y, subtitle_y = subtitle_y }
     local layers = {
@@ -595,8 +595,8 @@ function AppStore:buildPane(instance, context)
     local palette = Theme.getPalette(context.manager.appdock)
     local width, height = context.dimen.w, context.dimen.h
     local margin, gap = scale(14), scale(8)
-    local heading_title = TextWidget:new{ text = _("AppStore"), face = Font:getFace("cfont", scale(21)), fgcolor = palette.on_surface, bold = true }
-    local heading_subtitle = TextWidget:new{ text = _("Trusted DApps, widgets, and designs from arduinodude456/DApps"), face = Font:getFace("smallinfofont", scale(10)), fgcolor = palette.on_variant, max_width = width - 2 * margin }
+    local heading_title = TextWidget:new{ text = _("AppStore"), face = Font:getFace("cfont", scale(21)), fgcolor = palette.on_surface, bold = true, padding = 0 }
+    local heading_subtitle = TextWidget:new{ text = _("Trusted DApps, widgets, and designs from arduinodude456/DApps"), face = Font:getFace("smallinfofont", scale(10)), fgcolor = palette.on_variant, max_width = width - 2 * margin, padding = 0 }
     local header_height = math.max(scale(52), heading_title:getSize().h + heading_subtitle:getSize().h + scale(10))
     local header_positions = Theme.centeredStack(header_height, { heading_title, heading_subtitle }, scale(4), scale(4))
     heading_title.overlap_offset = { margin, header_positions[1] }

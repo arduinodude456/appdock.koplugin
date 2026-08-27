@@ -192,8 +192,8 @@ function InfoCard:init()
     local text_width = math.max(scale(12), self.width - 2 * scale(18))
     local title = Theme.fitLabel(self.title or "", text_width, title_size, 0)
     local body = Theme.fitLabel(self.body or "", text_width, body_size, 0)
-    local title_widget = TextWidget:new{ text = title, face = Font:getFace("smallinfofont", title_size), fgcolor = self.foreground or PALETTE.on_surface_variant, bold = true, max_width = text_width }
-    local body_widget = TextWidget:new{ text = body, face = Font:getFace("smallinfofont", body_size), fgcolor = self.foreground or PALETTE.on_surface, max_width = text_width }
+    local title_widget = TextWidget:new{ text = title, face = Font:getFace("smallinfofont", title_size), fgcolor = self.foreground or PALETTE.on_surface_variant, bold = true, max_width = text_width, padding = 0 }
+    local body_widget = TextWidget:new{ text = body, face = Font:getFace("smallinfofont", body_size), fgcolor = self.foreground or PALETTE.on_surface, max_width = text_width, padding = 0 }
     local positions = Theme.centeredStack(self.height, { title_widget, body_widget }, scale(4), scale(5))
     title_widget.overlap_offset = { scale(18), positions[1] }
     body_widget.overlap_offset = { scale(18), positions[2] }
@@ -565,12 +565,14 @@ function AppDockHomeScreen:build()
         fgcolor = PALETTE.on_surface,
         bold = true,
         max_width = width - 2 * margin,
+        padding = 0,
     }
     local date_text = TextWidget:new{
         text = os.date("%A, %d %B"),
         face = Font:getFace("smallinfofont", Theme.adjustText(self.appdock, scale(15), scale(10))),
         fgcolor = PALETTE.on_surface_variant,
         max_width = width - 2 * margin,
+        padding = 0,
     }
     local header_height = math.max(scale(62), greeting_text:getSize().h + date_text:getSize().h + scale(14))
     local header_positions = Theme.centeredStack(header_height, { greeting_text, date_text }, scale(4), scale(6))

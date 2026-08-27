@@ -148,11 +148,35 @@ function QuickTile:init()
     local title = Theme.fitLabel(self.title or "", text_width, title_size, 0)
     local subtitle = Theme.fitLabel(self.subtitle or "", text_width, subtitle_size, 0)
     local line_gap = math.max(scale(1), math.floor(self.height * .025))
-    local symbol_widget = TextWidget:new{ text = self.symbol, face = Font:getFace("cfont", symbol_size), fgcolor = foreground, bold = true }
-    local title_widget = TextWidget:new{ text = title, face = Font:getFace("smallinfofont", title_size), fgcolor = foreground, bold = true, max_width = text_width }
-    local subtitle_widget = TextWidget:new{ text = subtitle, face = Font:getFace("smallinfofont", subtitle_size), fgcolor = self.active and PALETTE.on_primary or PALETTE.on_variant, max_width = text_width }
-    local positions = Theme.centeredStack(self.height, { symbol_widget, title_widget, subtitle_widget }, line_gap, scale(4))
-    self.layout = { title = title, subtitle = subtitle, line_gap = line_gap, positions = positions, expressive = self.expressive == true }
+    local minimum_symbol, minimum_title, minimum_subtitle = scale(10), scale(8), scale(7)
+    local symbol_widget, title_widget, subtitle_widget, positions, stack_height
+    local function buildStack(include_subtitle)
+        symbol_widget = TextWidget:new{ text = self.symbol, face = Font:getFace("cfont", symbol_size), fgcolor = foreground, bold = true, padding = 0 }
+        title_widget = TextWidget:new{ text = title, face = Font:getFace("smallinfofont", title_size), fgcolor = foreground, bold = true, max_width = text_width, padding = 0 }
+        subtitle_widget = include_subtitle and TextWidget:new{ text = subtitle, face = Font:getFace("smallinfofont", subtitle_size), fgcolor = self.active and PALETTE.on_primary or PALETTE.on_variant, max_width = text_width, padding = 0 } or nil
+        local stack = subtitle_widget and { symbol_widget, title_widget, subtitle_widget } or { symbol_widget, title_widget }
+        positions, stack_height = Theme.centeredStack(self.height, stack, line_gap, scale(3))
+    end
+    buildStack(true)
+    local available_height = self.height - 2 * scale(3)
+    local attempts = 0
+    while stack_height > available_height and attempts < 48 do
+        if symbol_size > minimum_symbol then
+            symbol_size = symbol_size - scale(1)
+        elseif title_size > minimum_title then
+            title_size = title_size - scale(1)
+        elseif subtitle_size > minimum_subtitle then
+            subtitle_size = subtitle_size - scale(1)
+        else
+            break
+        end
+        title = Theme.fitLabel(self.title or "", text_width, title_size, 0)
+        subtitle = Theme.fitLabel(self.subtitle or "", text_width, subtitle_size, 0)
+        buildStack(true)
+        attempts = attempts + 1
+    end
+    if stack_height > available_height then buildStack(false) end
+    self.layout = { title = title, subtitle = subtitle_widget and subtitle or "", line_gap = line_gap, positions = positions, stack_height = stack_height, available_height = available_height, expressive = self.expressive == true }
     local frame_style = Theme.getButtonFrameStyle(self.appdock, self.height, math.floor(self.height * .32))
     self[1] = FrameContainer:new{
         width = self.width,
@@ -167,7 +191,7 @@ function QuickTile:init()
             allow_mirroring = false,
             CenterContainer:new{ dimen = Geom:new{ w = self.width, h = symbol_widget:getSize().h }, symbol_widget, overlap_offset = { 0, positions[1] } },
             CenterContainer:new{ dimen = Geom:new{ w = self.width, h = title_widget:getSize().h }, title_widget, overlap_offset = { 0, positions[2] } },
-            CenterContainer:new{ dimen = Geom:new{ w = self.width, h = subtitle_widget:getSize().h }, subtitle_widget, overlap_offset = { 0, positions[3] } },
+            subtitle_widget and CenterContainer:new{ dimen = Geom:new{ w = self.width, h = subtitle_widget:getSize().h }, subtitle_widget, overlap_offset = { 0, positions[3] } } or nil,
         },
     }
     self.ges_events = {
@@ -197,8 +221,8 @@ function NotificationRow:init()
     local text_width = math.max(scale(12), self.width - scale(30))
     local title = Theme.fitLabel(notification.title or _("AppDock"), text_width, title_size, 0)
     local message = Theme.fitLabel(notification.message or "", text_width, message_size, 0)
-    local title_widget = TextWidget:new{ text = title, face = Font:getFace("smallinfofont", title_size), fgcolor = foreground, bold = true, max_width = text_width }
-    local message_widget = TextWidget:new{ text = message, face = Font:getFace("smallinfofont", message_size), fgcolor = message_color, max_width = text_width }
+    local title_widget = TextWidget:new{ text = title, face = Font:getFace("smallinfofont", title_size), fgcolor = foreground, bold = true, max_width = text_width, padding = 0 }
+    local message_widget = TextWidget:new{ text = message, face = Font:getFace("smallinfofont", message_size), fgcolor = message_color, max_width = text_width, padding = 0 }
     local positions = Theme.centeredStack(self.height, { title_widget, message_widget }, scale(3), scale(3))
     local title_y, message_y = positions[1], positions[2]
     self[1] = FrameContainer:new{
@@ -474,6 +498,7 @@ function QuickSettings:rebuild(refresh)
         face = Font:getFace("cfont", expressive and Theme.adjustText(self.appdock, scale(22), scale(16)) or scale(22)),
         fgcolor = PALETTE.on_surface,
         bold = true,
+        padding = 0,
     }
     if expressive then
         header_height = scale(62)

@@ -387,12 +387,12 @@ function ActionChip:init()
         icon_widget = self.logo and DAppLogo:new{
             kind = self.logo, size = icon_size, ink = foreground,
         } or TextWidget:new{
-            text = self.symbol, face = Font:getFace("cfont", icon_size), fgcolor = foreground, bold = true,
+            text = self.symbol, face = Font:getFace("cfont", icon_size), fgcolor = foreground, bold = true, padding = 0,
         }
     end
     local title_widget = title ~= "" and TextWidget:new{
         text = title, face = Font:getFace("smallinfofont", title_size), fgcolor = foreground,
-        bold = true, max_width = math.max(scale(8), self.width - scale(12)),
+        bold = true, max_width = math.max(scale(8), self.width - scale(12)), padding = 0,
     } or nil
     local items = icon_widget and (title_widget and { icon_widget, title_widget } or { icon_widget }) or (title_widget and { title_widget } or {})
     local positions = Theme.centeredStack(self.height, items, title_widget and scale(2) or 0, scale(2))
@@ -517,8 +517,8 @@ function SettingsRow:init()
     local text_width = math.max(scale(14), self.width - scale(26))
     local title = Theme.fitLabel(self.title or "", text_width, title_size, 0)
     detail = Theme.fitLabel(detail, text_width, detail_size, 0)
-    local title_widget = TextWidget:new{ text = title, face = Font:getFace("smallinfofont", title_size), fgcolor = self.enabled and PALETTE.on_primary or PALETTE.on_surface, bold = true, max_width = text_width }
-    local detail_widget = TextWidget:new{ text = detail, face = Font:getFace("smallinfofont", detail_size), fgcolor = self.enabled and PALETTE.on_primary or PALETTE.on_variant, max_width = text_width }
+    local title_widget = TextWidget:new{ text = title, face = Font:getFace("smallinfofont", title_size), fgcolor = self.enabled and PALETTE.on_primary or PALETTE.on_surface, bold = true, max_width = text_width, padding = 0 }
+    local detail_widget = TextWidget:new{ text = detail, face = Font:getFace("smallinfofont", detail_size), fgcolor = self.enabled and PALETTE.on_primary or PALETTE.on_variant, max_width = text_width, padding = 0 }
     local positions = Theme.centeredStack(self.height, { title_widget, detail_widget }, scale(3), scale(4))
     local title_y, detail_y = positions[1], positions[2]
     self.layout = { title = title, detail = detail, title_y = title_y, detail_y = detail_y }
@@ -2716,10 +2716,10 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("About AppDock"),
-                subtitle = _( "Version 6.0.1 · Continuity"),
+                subtitle = _( "Version 6.0.2 · Continuity"),
                 show_state = false,
                 callback = function()
-                    self:showSettingsNotice(_("AppDock 6.0.1 · Continuity\n\nThis maintenance update measures text rows before placing them, so AppStore, Quick Settings, Open Apps, the normal Homescreen and navigation no longer stack text over their controls. Simple Mode keeps its existing reduced appearance. Optional workspace restoration only resumes explicitly permitted local DApps. Files can use registered local DApp handlers, and Settings adds text size, contrast and read-only local integrity status."))
+                    self:showSettingsNotice(_("AppDock 6.0.2 · Continuity\n\nThis maintenance update uses the actual unpadded glyph height of AppDock text before placing it in fixed controls. AppStore, Quick Settings, Open Apps, the normal Homescreen and navigation no longer stack text behind later button surfaces. Simple Mode keeps its existing reduced appearance. Optional workspace restoration only resumes explicitly permitted local DApps. Files can use registered local DApp handlers, and Settings adds text size, contrast and read-only local integrity status."))
                 end,
             },
             {
@@ -2953,6 +2953,7 @@ function DAppHost:rebuild(preserve_active)
         fgcolor = PALETTE.on_surface,
         bold = true,
         max_width = width - scale(100),
+        padding = 0,
     }
     local host_title_y = math.max(scale(2), math.floor((appbar_height - host_title:getSize().h) / 2))
     host_title.overlap_offset = { expressive and scale(28) or scale(18), host_title_y }
@@ -3111,12 +3112,15 @@ function DAppRecents:build()
         face = Font:getFace("cfont", expressive and Theme.adjustText(self.manager.appdock, scale(23), scale(16)) or scale(25)),
         fgcolor = PALETTE.on_surface,
         bold = true,
+        padding = 0,
+        padding = 0,
     }
     local heading_subtitle = TextWidget:new{
         text = _("Hold an app to start split screen"),
         face = Font:getFace("smallinfofont", expressive and scale(11) or scale(12)),
         fgcolor = PALETTE.on_variant,
         max_width = card_width,
+        padding = 0,
     }
     local header_height = math.max(expressive and scale(72) or scale(64), heading_title:getSize().h + heading_subtitle:getSize().h + scale(12))
     local header_positions = Theme.centeredStack(header_height, { heading_title, heading_subtitle }, scale(4), scale(5))
@@ -3179,7 +3183,7 @@ function DAppRecents:build()
         })
     end
     table.insert(content, ActionChip:new{
-        title = _("Home"), symbol = "⌂", width = scale(72), height = scale(44),
+        title = "", symbol = "⌂", width = scale(72), height = scale(44),
         background = PALETTE.primary, foreground = PALETTE.on_primary,
         callback = function()
             UIManager:close(self)

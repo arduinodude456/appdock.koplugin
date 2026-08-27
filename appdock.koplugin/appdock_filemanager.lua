@@ -137,8 +137,8 @@ function FileRow:init()
     local text_width = math.max(scale(14), self.width - scale(26))
     local title = Theme.fitLabel(self.title or "", text_width, title_size, 0)
     local subtitle = Theme.fitLabel(self.subtitle or "", text_width, subtitle_size, 0)
-    local title_widget = TextWidget:new{ text = title, face = Font:getFace("smallinfofont", title_size), fgcolor = self.foreground or PALETTE.on_surface, bold = true, max_width = text_width }
-    local subtitle_widget = TextWidget:new{ text = subtitle, face = Font:getFace("smallinfofont", subtitle_size), fgcolor = PALETTE.on_variant, max_width = text_width }
+    local title_widget = TextWidget:new{ text = title, face = Font:getFace("smallinfofont", title_size), fgcolor = self.foreground or PALETTE.on_surface, bold = true, max_width = text_width, padding = 0 }
+    local subtitle_widget = TextWidget:new{ text = subtitle, face = Font:getFace("smallinfofont", subtitle_size), fgcolor = PALETTE.on_variant, max_width = text_width, padding = 0 }
     local positions = Theme.centeredStack(self.height, { title_widget, subtitle_widget }, scale(2), scale(3))
     local title_y, subtitle_y = positions[1], positions[2]
     self.layout = { title = title, subtitle = subtitle, title_y = title_y, subtitle_y = subtitle_y }
