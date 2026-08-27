@@ -328,9 +328,15 @@ function FileBrowser:buildPane(instance, context)
     else
         for entry_index, entry in ipairs(state.entries) do
             local title = entry.is_dir and ("Folder · " .. entry.name) or entry.name
+            local handlers = not entry.is_dir and context.manager and context.manager.getFileHandlers
+                and context.manager:getFileHandlers(entry.path) or {}
             local subtitle
             if entry.is_dir then
                 subtitle = entry.path
+            elseif #handlers == 1 then
+                subtitle = handlers[1].title .. " · " .. humanSize(entry.size)
+            elseif #handlers > 1 then
+                subtitle = _("Open with AppDock") .. " · " .. humanSize(entry.size)
             elseif entry.is_lua then
                 subtitle = _("Open in NightLua") .. " · " .. humanSize(entry.size)
             elseif entry.is_markup then
@@ -352,6 +358,8 @@ function FileBrowser:buildPane(instance, context)
                 callback = function()
                     if entry.is_dir then
                         self:enterDirectory(instance, context, entry.path)
+                    elseif #handlers > 0 and context.manager and context.manager.showFileHandlerChoices then
+                        context.manager:showFileHandlerChoices(entry.path, handlers)
                     elseif entry.is_lua then
                         self:openLuaFile(instance, context, entry.path)
                     elseif entry.is_markup then

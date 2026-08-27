@@ -164,6 +164,63 @@ local function emptySizedWidget(width, height)
     }
 end
 
+local LEGACY_FILE_HANDLERS = {
+    night_lua = { "lua" },
+    dreader = { "epub", "html", "htm", "xhtml" },
+    markup = { "md", "markdown", "mdown", "mkdn" },
+}
+
+local function normalizedExtensions(source)
+    local result, seen = {}, {}
+    for extension_index, extension in ipairs(type(source) == "table" and source or {}) do
+        local normalized = type(extension) == "string" and extension:lower():gsub("^%.", "") or ""
+        if normalized:match("^[a-z0-9]+$") and #normalized <= 12 and not seen[normalized] and #result < 12 then
+            result[#result + 1], seen[normalized] = normalized, true
+        end
+    end
+    return result
+end
+
+local function safeSessionValue(value, depth, budget)
+    local value_type = type(value)
+    if value_type == "nil" or value_type == "boolean" then return value end
+    if value_type == "number" then
+        if value ~= value or value == math.huge or value == -math.huge then return nil, false end
+        return value
+    end
+    if value_type == "string" then
+        if #value > 1024 then return value:sub(1, 1024) end
+        return value
+    end
+    if value_type ~= "table" or depth >= 3 then return nil, false end
+    local result, count = {}, 0
+    for key, item in pairs(value) do
+        count = count + 1
+        if count > 24 or budget.remaining <= 0 then return nil, false end
+        local key_type = type(key)
+        if not ((key_type == "number" and key >= 1 and key <= 24 and math.floor(key) == key) or (key_type == "string" and #key <= 48 and key:match("^[%w_%-]+$"))) then return nil, false end
+        if key_type == "string" then
+            local normalized_key = key:lower()
+            if normalized_key:find("content", 1, true) or normalized_key:find("document", 1, true) or normalized_key:find("token", 1, true)
+                    or normalized_key:find("secret", 1, true) or normalized_key:find("password", 1, true) or normalized_key == "key" then
+                return nil, false
+            end
+        end
+        budget.remaining = budget.remaining - 1
+        local copied, valid = safeSessionValue(item, depth + 1, budget)
+        if valid == false then return nil, false end
+        result[key] = copied
+    end
+    return result
+end
+
+local function sanitizeSessionState(value)
+    if value == nil then return nil end
+    local copied, valid = safeSessionValue(value, 0, { remaining = 96 })
+    if valid == false then return nil end
+    return copied
+end
+
 local function paintLine(bb, x0, y0, x1, y1, thickness, ink)
     local dx, dy = x1 - x0, y1 - y0
     local steps = math.max(math.abs(dx), math.abs(dy))
@@ -398,7 +455,7 @@ function SettingsCategory:init()
     self.dimen = Geom:new{ w = self.width, h = self.height }
     local background = self.selected and PALETTE.primary or PALETTE.surface
     local foreground = self.selected and PALETTE.on_primary or PALETTE.on_surface
-    local title_size = math.max(scale(7), math.min(scale(9), math.floor(self.height * .18)))
+    local title_size = Theme.adjustText(ACTIVE_APPDOCK, math.max(scale(7), math.min(scale(9), math.floor(self.height * .18))), scale(7))
     local title = Theme.fitLabel(self.title or "", self.width, title_size, scale(8))
     local frame_style = Theme.getButtonFrameStyle(ACTIVE_APPDOCK, self.height, scale(13))
     self[1] = FrameContainer:new{
@@ -445,8 +502,8 @@ function SettingsRow:init()
     local state = self.show_state and (self.enabled and _("On") or _("Off")) or ""
     local detail = self.subtitle or ""
     if state ~= "" then detail = detail .. " · " .. state end
-    local title_size = math.max(scale(10), math.min(scale(15), math.floor(self.height * .34)))
-    local detail_size = math.max(scale(8), math.min(scale(12), math.floor(self.height * .26)))
+    local title_size = Theme.adjustText(ACTIVE_APPDOCK, math.max(scale(10), math.min(scale(15), math.floor(self.height * .34))), scale(9))
+    local detail_size = Theme.adjustText(ACTIVE_APPDOCK, math.max(scale(8), math.min(scale(12), math.floor(self.height * .26))), scale(7))
     local text_width = math.max(scale(14), self.width - scale(26))
     local title = Theme.fitLabel(self.title or "", text_width, title_size, 0)
     detail = Theme.fitLabel(detail, text_width, detail_size, 0)
@@ -551,6 +608,7 @@ function DAppManager:_registerBuiltins()
         subtitle = _("A calm, minute-updating clock"),
         symbol = "C",
         logo = "analog_clock",
+        workspace_restore = true,
         buildPane = function(instance, context)
             return self:_buildClockPane(instance, context)
         end,
@@ -561,6 +619,7 @@ function DAppManager:_registerBuiltins()
         subtitle = _("Learn AppDock on your device"),
         symbol = "?",
         logo = "help",
+        workspace_restore = true,
         buildPane = function(instance, context)
             return self:_buildHelpPane(instance, context)
         end,
@@ -604,6 +663,7 @@ function DAppManager:_registerBuiltins()
         subtitle = _("Configure AppDock"),
         symbol = "S",
         logo = "settings",
+        workspace_restore = true,
         buildPane = function(instance, context)
             return self:_buildSettingsPane(instance, context)
         end,
@@ -664,6 +724,11 @@ function DAppManager:loadStoreDApp(file, source_path, restoring, expected_id, al
         version = type(definition.version) == "string" and definition.version or nil,
         buildPane = definition.buildPane,
         openFile = type(definition.openFile) == "function" and definition.openFile or nil,
+        file_extensions = normalizedExtensions(definition.file_extensions),
+        file_handler_title = type(definition.file_handler_title) == "string" and Theme.ellipsize(definition.file_handler_title, 48) or nil,
+        workspace_restore = definition.workspace_restore == true,
+        serializeState = type(definition.serializeState) == "function" and definition.serializeState or nil,
+        restoreState = type(definition.restoreState) == "function" and definition.restoreState or nil,
         backgroundTick = type(definition.backgroundTick) == "function" and definition.backgroundTick or nil,
         onAutostart = type(definition.onAutostart) == "function" and definition.onAutostart or nil,
     }
@@ -684,6 +749,49 @@ function DAppManager:loadStoreDApp(file, source_path, restoring, expected_id, al
         self.appdock:_saveSettings()
     end
     return true, definition.id
+end
+
+function DAppManager:getFileHandlers(path)
+    local extension = type(path) == "string" and path:lower():match("%.([a-z0-9]+)$") or nil
+    if not extension then return {} end
+    local handlers = {}
+    for id, definition in pairs(self.definitions) do
+        if definition.openFile then
+            local extensions = definition.file_extensions
+            if #extensions == 0 then extensions = LEGACY_FILE_HANDLERS[id] or {} end
+            for extension_index, supported_extension in ipairs(extensions) do
+                if supported_extension == extension then
+                    handlers[#handlers + 1] = {
+                        id = id,
+                        title = definition.file_handler_title or (_("Open in ") .. definition.title),
+                        app_title = definition.title,
+                        logo = definition.logo,
+                    }
+                    break
+                end
+            end
+        end
+    end
+    table.sort(handlers, function(left, right) return left.title:lower() < right.title:lower() end)
+    return handlers
+end
+
+function DAppManager:showFileHandlerChoices(path, handlers)
+    if type(path) ~= "string" or type(handlers) ~= "table" or #handlers == 0 then return false end
+    if #handlers == 1 then return self:openDAppFile(handlers[1].id, path) end
+    local dialog
+    local buttons = {}
+    for handler_index, handler in ipairs(handlers) do
+        buttons[#buttons + 1] = {
+            { text = handler.title, callback = function()
+                UIManager:close(dialog)
+                self:openDAppFile(handler.id, path)
+            end },
+        }
+    end
+    dialog = ButtonDialog:new{ title = _("Open with"), buttons = buttons, rows_per_page = { 5, 6, 7 } }
+    UIManager:show(dialog)
+    return true
 end
 
 function DAppManager:loadStoreWidget(file, source_path, restoring, expected_id, allow_replace, stored_file)
@@ -970,6 +1078,56 @@ function DAppManager:getOpenApps()
         end
     end
     return apps
+end
+
+function DAppManager:captureWorkspace()
+    local workspace = self.appdock.settings.workspace or {}
+    if workspace.restore_enabled ~= true then return false end
+    local records = {}
+    for open_index, id in ipairs(self.open_order) do
+        local instance = self.instances[id]
+        local definition = instance and instance.definition or nil
+        if definition and definition.workspace_restore == true and definition.host_kind ~= "plugin" and #records < 4 then
+            local state
+            if definition.serializeState then
+                local ok, serialized = pcall(definition.serializeState, instance)
+                if ok then state = sanitizeSessionState(serialized) end
+            end
+            records[#records + 1] = { id = id, state = state }
+        end
+    end
+    workspace.session = { version = 1, active_id = self.active_id, apps = records, saved_at = os.time() }
+    self.appdock.settings.workspace = workspace
+    self.appdock:_saveSettings()
+    return true
+end
+
+function DAppManager:restoreWorkspace()
+    local workspace = self.appdock.settings.workspace or {}
+    local session = workspace.restore_enabled == true and workspace.session or nil
+    if self._workspace_restored or type(session) ~= "table" or session.version ~= 1 then return false end
+    self._workspace_restored = true
+    local allowed, active_id = {}, type(session.active_id) == "string" and session.active_id or nil
+    for record_index, record in ipairs(type(session.apps) == "table" and session.apps or {}) do
+        if #allowed >= 4 then break end
+        local id = type(record) == "table" and record.id or nil
+        local definition = type(id) == "string" and self.definitions[id] or nil
+        if definition and definition.workspace_restore == true and definition.host_kind ~= "plugin" then
+            local instance = self:_instanceFor(id)
+            instance.workspace_state = sanitizeSessionState(record.state)
+            self:_touchOpen(id)
+            allowed[#allowed + 1] = id
+        end
+    end
+    if active_id and self.instances[active_id] then
+        self:activate(active_id)
+        return true
+    end
+    if allowed[1] then
+        self:activate(allowed[1])
+        return true
+    end
+    return false
 end
 
 function DAppManager:_pluginHostContext(instance, context)
@@ -1469,6 +1627,7 @@ function DAppManager:activate(id, home)
     instance.visible = true
     self:_touchOpen(id)
     instance.in_split = false
+    self:captureWorkspace()
     local host = DAppHost:new{ manager = self, dapp_id = id, dapp_ids = { id }, split = false }
     self.active_host = host
     UIManager:show(host)
@@ -1596,6 +1755,7 @@ function DAppManager:startSplit(first_id, second_id)
         instance.in_split = true
         self:_touchOpen(instance.id)
     end
+    self:captureWorkspace()
     local host = DAppHost:new{
         manager = self,
         dapp_ids = { first_id, second_id },
@@ -1620,6 +1780,7 @@ function DAppManager:detachHost(host)
     end
     self.active_host = nil
     self.active_id = nil
+    self:captureWorkspace()
 end
 
 function DAppManager:closeDApp(id)
@@ -1642,6 +1803,7 @@ function DAppManager:closeDApp(id)
     if instance.definition.host_kind == "plugin" then self.plugin_definitions[id] = nil end
     self.instances[id] = nil
     if self.active_id == id then self.active_id = nil end
+    self:captureWorkspace()
     return true
 end
 
@@ -1763,6 +1925,74 @@ end
 
 function DAppManager:showSettingsNotice(text)
     UIManager:show(InfoMessage:new{ text = text })
+end
+
+function DAppManager:getIntegrityStatus()
+    local installed = self.appdock.settings.store and self.appdock.settings.store.installed or {}
+    local app_count, missing_count = 0, 0
+    for _, record in pairs(installed) do
+        app_count = app_count + 1
+        local file = type(record) == "table" and type(record.file) == "string" and io.open(record.file, "rb") or nil
+        if not file then
+            missing_count = missing_count + 1
+        else
+            file:close()
+        end
+    end
+    local workspace = self.appdock.settings.workspace or {}
+    local session_apps = workspace.session and type(workspace.session.apps) == "table" and #workspace.session.apps or 0
+    return {
+        installed = app_count,
+        missing = missing_count,
+        open = #self.open_order,
+        workspace_enabled = workspace.restore_enabled == true,
+        session_apps = session_apps,
+    }
+end
+
+function DAppManager:showAccessibilityEditor(instance, context)
+    local current = self.appdock.settings.accessibility or { text_scale = 1, high_contrast = false }
+    local dialog
+    local function choose(changes)
+        if self.appdock:setAccessibility(changes) then
+            UIManager:close(dialog)
+            context.requestRebuild("ui")
+        end
+    end
+    dialog = ButtonDialog:new{
+        title = _("Accessibility") .. "\n" .. string.format(_("Text size: %d%% · contrast: %s"), math.floor((current.text_scale or 1) * 100 + .5), current.high_contrast and _("high") or _("standard")),
+        buttons = {
+            { { text = "90%", callback = function() choose({ text_scale = .9 }) end }, { text = "100%", callback = function() choose({ text_scale = 1 }) end } },
+            { { text = "115%", callback = function() choose({ text_scale = 1.15 }) end }, { text = "130%", callback = function() choose({ text_scale = 1.3 }) end } },
+            { { text = current.high_contrast and _("Use standard contrast") or _("Use high contrast"), callback = function() choose({ high_contrast = not current.high_contrast }) end } },
+            { { text = _("Cancel"), callback = function() UIManager:close(dialog) end } },
+        },
+    }
+    UIManager:show(dialog)
+end
+
+function DAppManager:showWorkspaceEditor(instance, context)
+    local workspace = self.appdock.settings.workspace or { restore_enabled = false, session = nil }
+    local session_apps = workspace.session and type(workspace.session.apps) == "table" and #workspace.session.apps or 0
+    local dialog
+    dialog = ButtonDialog:new{
+        title = _("Local workspace") .. "\n" .. string.format(_("%d restorable local app(s)"), session_apps),
+        buttons = {
+            { { text = workspace.restore_enabled and _("Disable and clear") or _("Enable restoration"), callback = function()
+                self.appdock:setWorkspaceRestoreEnabled(not workspace.restore_enabled)
+                UIManager:close(dialog)
+                context.requestRebuild("ui")
+            end } },
+            { { text = _("Cancel"), callback = function() UIManager:close(dialog) end } },
+        },
+    }
+    UIManager:show(dialog)
+end
+
+function DAppManager:showIntegrityStatus()
+    local status = self:getIntegrityStatus()
+    local issue = status.missing > 0 and string.format(_("%d Store file(s) are missing."), status.missing) or _("No missing Store DApp files found.")
+    self:showSettingsNotice(string.format(_("Local AppDock status\n\nStore items: %d\nOpen apps: %d\nWorkspace restoration: %s\nSaved local apps: %d\n\n%s\n\nNo files were changed."), status.installed, status.open, status.workspace_enabled and _("enabled") or _("disabled"), status.session_apps, issue))
 end
 
 function DAppManager:showArrangementEditor(instance, context)
@@ -2329,6 +2559,8 @@ function DAppManager:_buildSettingsPane(instance, context)
     local wallpaper_settings = self.appdock.settings.wallpaper or { enabled = false, path = "" }
     local beta_settings = self.appdock.settings.beta or { black_borders = false, keep_wallpaper_original_in_night = false }
     local lockscreen_settings = self.appdock.settings.lockscreen or { enabled = false, method = "swipe" }
+    local workspace_settings = self.appdock.settings.workspace or { restore_enabled = false, session = nil }
+    local accessibility_settings = self.appdock.settings.accessibility or { text_scale = 1, high_contrast = false }
     local rows_by_category = {
         network = {
             {
@@ -2362,6 +2594,12 @@ function DAppManager:_buildSettingsPane(instance, context)
                 subtitle = string.format(_("%d px spacing · %s · search %s"), self.appdock.settings.layout.app_spacing, self.appdock.settings.layout.logo_shape == "circle" and _("circle") or _("rounded"), self.appdock.settings.layout.search_enabled and _("on") or _("off")),
                 show_state = false,
                 callback = function() self:showLauncherLayout(instance, context) end,
+            },
+            {
+                title = _("Text & contrast"),
+                subtitle = string.format(_("%d%% text · %s contrast"), math.floor((accessibility_settings.text_scale or 1) * 100 + .5), accessibility_settings.high_contrast and _("high") or _("standard")),
+                show_state = false,
+                callback = function() self:showAccessibilityEditor(instance, context) end,
             },
             {
                 title = _("Background image"),
@@ -2402,9 +2640,10 @@ function DAppManager:_buildSettingsPane(instance, context)
         },
         storage = {
             {
-                title = _("Storage usage"),
+                title = _("Storage & integrity"),
                 subtitle = _("Calculating local AppDock data"),
                 show_state = false,
+                callback = function() self:showIntegrityStatus() end,
             },
         },
         simple = {
@@ -2463,10 +2702,10 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("About AppDock"),
-                subtitle = _( "Version 5.3.0 · MarkUP Files"),
+                subtitle = _( "Version 6.0.0 · Continuity"),
                 show_state = false,
                 callback = function()
-                    self:showSettingsNotice(_("AppDock 5.3.0 · MarkUP Files\n\nMarkdown files opened through the AppDock Files DApp are now handed to the MarkUP Store editor. MarkUP is a local editor with its own touch keyboard, preview and safe atomic saves. Apps may refuse closing while they have unsaved changes, so documents cannot be closed accidentally."))
+                    self:showSettingsNotice(_("AppDock 6.0.0 · Continuity\n\nThe standard interface now uses clearer Material-oriented surfaces, while Simple Mode keeps its existing reduced appearance. Optional workspace restoration only resumes explicitly permitted local DApps. Files can use registered local DApp handlers, and Settings adds text size, contrast and read-only local integrity status."))
                 end,
             },
             {
@@ -2483,6 +2722,12 @@ function DAppManager:_buildSettingsPane(instance, context)
                     self.appdock:setLaunchOnStart(not self.appdock.settings.launch_on_start)
                     context.requestRebuild("ui")
                 end,
+            },
+            {
+                title = _("Local workspace"),
+                subtitle = workspace_settings.restore_enabled and _("Restore permitted local apps") or _("Disabled · no session is restored"),
+                enabled = workspace_settings.restore_enabled,
+                callback = function() self:showWorkspaceEditor(instance, context) end,
             },
             {
                 title = _("Refresh"),
@@ -2586,6 +2831,10 @@ function DAppManager:_buildSettingsPane(instance, context)
         category_height = category_height,
         row_height = row_height,
         row_count = #rows,
+        text_scale = accessibility_settings.text_scale or 1,
+        high_contrast = accessibility_settings.high_contrast == true,
+        workspace_enabled = workspace_settings.restore_enabled == true,
+        integrity = selected_category.id == "storage" and self:getIntegrityStatus() or nil,
     }
     pane[1] = content
     return pane
@@ -2651,8 +2900,9 @@ end
 function DAppHost:rebuild(preserve_active)
     applyTheme(self.manager.appdock)
     local width, height = self.dimen.w, self.dimen.h
-    local appbar_height = scale(52)
-    local navigation_height = scale(50)
+    local expressive = type(self.manager.appdock.isExpressiveUiEnabled) == "function" and self.manager.appdock:isExpressiveUiEnabled()
+    local appbar_height = expressive and scale(58) or scale(52)
+    local navigation_height = expressive and scale(58) or scale(50)
     local content_top, content_bottom = appbar_height, height - navigation_height
     local ids = self.dapp_ids or { self.dapp_id }
     self.dapp_ids = ids
@@ -2698,23 +2948,40 @@ function DAppHost:rebuild(preserve_active)
         },
         TextWidget:new{
             text = title,
-            face = Font:getFace("smallinfofont", scale(17)),
+            face = Font:getFace("smallinfofont", expressive and Theme.adjustText(self.manager.appdock, scale(17), scale(11)) or scale(17)),
             fgcolor = PALETTE.on_surface,
             bold = true,
-            overlap_offset = { scale(18), scale(17) },
+            overlap_offset = { expressive and scale(26) or scale(18), expressive and scale(20) or scale(17) },
         },
         ActionChip:new{
             title = "", symbol = "⌄", width = scale(34), height = scale(34),
-            background = PALETTE.surface_variant,
+            background = expressive and PALETTE.primary or PALETTE.surface_variant,
+            foreground = expressive and PALETTE.on_primary or PALETTE.on_variant,
             callback = function() self.manager:showQuickSettingsFromHost(self) end,
-            overlap_offset = { width - scale(46), math.max(scale(4), math.floor((appbar_height - scale(34)) / 2)) },
+            overlap_offset = { width - (expressive and scale(52) or scale(46)), math.max(scale(4), math.floor((appbar_height - scale(34)) / 2)) },
         },
     }
+    if expressive then
+        table.insert(chrome, FrameContainer:new{
+            width = width - scale(36), height = scale(42), padding = 0, bordersize = 0,
+            radius = scale(21), background = PALETTE.surface_variant,
+            emptySizedWidget(width - scale(36), scale(42)), overlap_offset = { scale(18), scale(8) },
+        })
+        table.insert(chrome, TextWidget:new{
+            text = title, face = Font:getFace("smallinfofont", Theme.adjustText(self.manager.appdock, scale(17), scale(11))), fgcolor = PALETTE.on_surface,
+            bold = true, overlap_offset = { scale(28), scale(20) },
+        })
+    end
 
     for index, id in ipairs(ids) do
         local instance = self.manager:_instanceFor(id)
         local region = pane_regions[index]
         local context = self.manager:_newContext(self, instance, region)
+        if instance.workspace_state ~= nil and instance.definition.restoreState and not instance._workspace_state_applied then
+            pcall(instance.definition.restoreState, instance, instance.workspace_state, context)
+            instance._workspace_state_applied = true
+            instance.workspace_state = nil
+        end
         local pane = instance.definition.buildPane(instance, context)
         instance.pane = pane
         instance.visible = true
@@ -2746,8 +3013,8 @@ function DAppHost:rebuild(preserve_active)
         })
     end
 
-    local chip_size, chip_gap = scale(34), scale(11)
-    local navigation_height = scale(50)
+    local chip_size, chip_gap = expressive and scale(38) or scale(34), expressive and scale(12) or scale(11)
+    local navigation_height = expressive and scale(58) or scale(50)
     local navigation_y = height - navigation_height
     local navigation_width = chip_size * 3 + chip_gap * 2
     local navigation_x = math.floor((width - navigation_width) / 2)
@@ -2758,6 +3025,14 @@ function DAppHost:rebuild(preserve_active)
         emptySizedWidget(width, navigation_height),
         overlap_offset = { 0, navigation_y },
     })
+    if expressive then
+        table.insert(chrome, FrameContainer:new{
+            width = navigation_width + scale(20), height = chip_size + scale(10), padding = 0, bordersize = 0,
+            radius = math.floor((chip_size + scale(10)) / 2), background = PALETTE.surface_variant,
+            emptySizedWidget(navigation_width + scale(20), chip_size + scale(10)),
+            overlap_offset = { navigation_x - scale(10), navigation_y + math.floor((navigation_height - chip_size - scale(10)) / 2) },
+        })
+    end
     table.insert(chrome, ActionChip:new{
         title = "", symbol = "⌂", width = chip_size, height = chip_size,
         callback = function() self.manager:showHomeFromHost(self) end,
@@ -2780,6 +3055,12 @@ function DAppHost:rebuild(preserve_active)
         end,
         overlap_offset = { navigation_x + 2 * (chip_size + chip_gap), chip_y },
     })
+    self.chrome_layout = {
+        expressive = expressive,
+        appbar_height = appbar_height,
+        navigation_height = navigation_height,
+        has_navigation_pill = expressive,
+    }
     self:clear()
     self[1] = chrome
 end
@@ -2802,10 +3083,11 @@ end
 
 function DAppRecents:build()
     local width, height = self.dimen.w, self.dimen.h
-    local margin = scale(22)
+    local expressive = type(self.manager.appdock.isExpressiveUiEnabled) == "function" and self.manager.appdock:isExpressiveUiEnabled()
+    local margin = expressive and scale(18) or scale(22)
     local card_width = width - 2 * margin
-    local card_height = scale(76)
-    local gap = scale(12)
+    local card_height = expressive and scale(82) or scale(76)
+    local gap = expressive and scale(14) or scale(12)
     local content = OverlapGroup:new{
         dimen = Geom:new{ w = width, h = height },
         allow_mirroring = false,
@@ -2816,7 +3098,7 @@ function DAppRecents:build()
         },
         TextWidget:new{
             text = _("Open apps"),
-            face = Font:getFace("cfont", scale(25)),
+            face = Font:getFace("cfont", expressive and Theme.adjustText(self.manager.appdock, scale(25), scale(16)) or scale(25)),
             fgcolor = PALETTE.on_surface,
             bold = true,
             overlap_offset = { margin, scale(20) },
@@ -2828,6 +3110,21 @@ function DAppRecents:build()
             overlap_offset = { margin, scale(52) },
         },
     }
+    if expressive then
+        table.insert(content, FrameContainer:new{
+            width = width - 2 * margin, height = scale(50), padding = 0, bordersize = 0,
+            radius = scale(25), background = PALETTE.surface,
+            emptySizedWidget(width - 2 * margin, scale(50)), overlap_offset = { margin, scale(14) },
+        })
+        table.insert(content, TextWidget:new{
+            text = _("Open apps"), face = Font:getFace("cfont", Theme.adjustText(self.manager.appdock, scale(23), scale(16))), fgcolor = PALETTE.on_surface,
+            bold = true, overlap_offset = { margin + scale(14), scale(25) },
+        })
+        table.insert(content, TextWidget:new{
+            text = _("Hold an app to start split screen"), face = Font:getFace("smallinfofont", scale(11)), fgcolor = PALETTE.on_variant,
+            overlap_offset = { margin, scale(70) },
+        })
+    end
     local open_apps = self.manager:getOpenApps()
     if #open_apps == 0 then
         table.insert(content, TextWidget:new{
@@ -2838,13 +3135,14 @@ function DAppRecents:build()
         })
     end
     for index, app in ipairs(open_apps) do
-        local y = scale(74) + (index - 1) * (card_height + gap)
+        local y = (expressive and scale(94) or scale(74)) + (index - 1) * (card_height + gap)
         table.insert(content, ActionChip:new{
             title = app.title,
             symbol = app.symbol,
             logo = app.logo,
             width = card_width, height = card_height,
-            background = PALETTE.surface, foreground = PALETTE.on_surface,
+            background = expressive and (index % 2 == 0 and PALETTE.secondary or PALETTE.surface) or PALETTE.surface,
+            foreground = PALETTE.on_surface,
             callback = function()
                 UIManager:close(self)
                 UIManager:nextTick(function() self.manager:activate(app.id) end)
@@ -2862,7 +3160,7 @@ function DAppRecents:build()
                 self:build()
                 UIManager:setDirty(self, "ui")
             end,
-            overlap_offset = { width - margin - scale(38), y + scale(23) },
+            overlap_offset = { width - margin - scale(38), y + math.floor((card_height - scale(30)) / 2) },
         })
     end
     table.insert(content, ActionChip:new{
@@ -2872,7 +3170,7 @@ function DAppRecents:build()
             UIManager:close(self)
             UIManager:nextTick(function() self.manager.appdock:showHome(true) end)
         end,
-        overlap_offset = { margin, height - scale(60) },
+        overlap_offset = { margin, height - (expressive and scale(68) or scale(60)) },
     })
     self:clear()
     self[1] = content

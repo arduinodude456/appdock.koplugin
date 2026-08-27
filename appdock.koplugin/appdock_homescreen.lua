@@ -187,8 +187,8 @@ end
 
 function InfoCard:init()
     self.dimen = Geom:new{ w = self.width, h = self.height }
-    local title_size = math.max(scale(8), math.min(scale(13), math.floor(self.height * .25)))
-    local body_size = math.max(scale(9), math.min(scale(16), math.floor(self.height * .30)))
+    local title_size = Theme.adjustText(self.appdock, math.max(scale(8), math.min(scale(13), math.floor(self.height * .25))), scale(8))
+    local body_size = Theme.adjustText(self.appdock, math.max(scale(9), math.min(scale(16), math.floor(self.height * .30))), scale(9))
     local text_width = math.max(scale(12), self.width - 2 * scale(18))
     local title = Theme.fitLabel(self.title or "", text_width, title_size, 0)
     local body = Theme.fitLabel(self.body or "", text_width, body_size, 0)
@@ -235,7 +235,7 @@ function StoreWidgetCard:init()
     if not ok or not content then
         content = TextWidget:new{
             text = _("This widget could not be displayed."),
-            face = Font:getFace("smallinfofont", scale(12)),
+            face = Font:getFace("smallinfofont", Theme.adjustText(self.appdock, scale(12), scale(9))),
             fgcolor = self.foreground or PALETTE.on_surface,
             max_width = self.width - scale(20),
         }
@@ -258,7 +258,7 @@ end
 function SearchBar:init()
     self.dimen = Geom:new{ w = self.width, h = self.height }
     local query_text = self.query ~= "" and (_("Search: ") .. self.query) or _("Search apps")
-    local label_size = math.max(scale(9), math.min(scale(14), math.floor(self.height * .42)))
+    local label_size = Theme.adjustText(self.appdock, math.max(scale(9), math.min(scale(14), math.floor(self.height * .42))), scale(9))
     local label = Theme.fitLabel("⌕  " .. query_text, self.width, label_size, scale(20))
     self[1] = FrameContainer:new{
         width = self.width, height = self.height, padding = 0, bordersize = 0,
@@ -319,6 +319,9 @@ function AppTile:init()
         },
     }
     local label_size = math.max(scale(8), math.min(scale(13), self.label_height - scale(6)))
+    if self.home and self.home.appdock and self.home.appdock.isExpressiveUiEnabled and self.home.appdock:isExpressiveUiEnabled() then
+        label_size = Theme.adjustText(self.appdock, label_size, scale(8))
+    end
     local label_text = Theme.fitLabel(self.app.title or "", self.tile_size, label_size, 0)
     self.layout = { label = label_text, label_size = label_size }
     local label = TextWidget:new{
@@ -484,6 +487,7 @@ function AppDockHomeScreen:_addTopSystemLine(dashboard, width, margin)
         right.overlap_offset = { width - margin - right:getSize().w, scale(11) }
         table.insert(dashboard, right)
     end
+    local expressive = type(self.appdock.isExpressiveUiEnabled) == "function" and self.appdock:isExpressiveUiEnabled()
     table.insert(dashboard, AppTile:new{
         appdock = self.appdock,
         home = self,
@@ -491,8 +495,8 @@ function AppDockHomeScreen:_addTopSystemLine(dashboard, width, margin)
         symbol = "⌄",
         tile_size = quick_size,
         label_height = 0,
-        background = PALETTE.surface_variant,
-        foreground = PALETTE.on_surface_variant,
+        background = expressive and PALETTE.primary_container or PALETTE.surface_variant,
+        foreground = expressive and PALETTE.on_primary_container or PALETTE.on_surface_variant,
         onTapSelectAppTile = function()
             self:showQuickSettings()
             return true
@@ -565,6 +569,7 @@ function AppDockHomeScreen:build()
         self:_buildSimpleMode(width, height)
         return
     end
+    local expressive = type(self.appdock.isExpressiveUiEnabled) == "function" and self.appdock:isExpressiveUiEnabled()
     local margin = scale(22)
     local top_line_height = scale(30)
     local header_y = top_line_height + scale(18)
@@ -603,18 +608,26 @@ function AppDockHomeScreen:build()
         table.insert(dashboard, wallpaper)
     end
 
+    if expressive then
+        table.insert(dashboard, FrameContainer:new{
+            width = width - 2 * margin, height = scale(62), padding = 0, bordersize = 0,
+            radius = scale(30), background = PALETTE.surface,
+            emptySizedWidget(width - 2 * margin, scale(62)),
+            overlap_offset = { margin, math.max(scale(32), header_y - scale(8)) },
+        })
+    end
     self:_addTopSystemLine(dashboard, width, margin)
 
     table.insert(dashboard, TextWidget:new{
         text = greeting(),
-        face = Font:getFace("cfont", scale(28)),
+        face = Font:getFace("cfont", Theme.adjustText(self.appdock, scale(28), scale(18))),
         fgcolor = PALETTE.on_surface,
         bold = true,
         overlap_offset = { margin, header_y },
     })
     table.insert(dashboard, TextWidget:new{
         text = os.date("%A, %d %B"),
-        face = Font:getFace("smallinfofont", scale(15)),
+        face = Font:getFace("smallinfofont", Theme.adjustText(self.appdock, scale(15), scale(10))),
         fgcolor = PALETTE.on_surface_variant,
         overlap_offset = { margin, header_y + scale(36) },
     })
@@ -683,6 +696,16 @@ function AppDockHomeScreen:build()
     local grid_width = tile_size * 3 + tile_gap * 2
     local grid_x = math.floor((width - grid_width) / 2)
     local row_gap = scale(18)
+    local grid_rows = math.max(1, math.ceil(#visible_apps / 3))
+    local grid_height = grid_rows * (tile_size + label_height) + math.max(0, grid_rows - 1) * row_gap
+    if expressive and #visible_apps > 0 then
+        table.insert(dashboard, FrameContainer:new{
+            width = math.min(width - 2 * margin, grid_width + scale(30)), height = grid_height + scale(20), padding = 0, bordersize = 0,
+            radius = scale(28), background = PALETTE.surface,
+            emptySizedWidget(math.min(width - 2 * margin, grid_width + scale(30)), grid_height + scale(20)),
+            overlap_offset = { math.floor((width - math.min(width - 2 * margin, grid_width + scale(30))) / 2), grid_y - scale(10) },
+        })
+    end
     for index, app in ipairs(visible_apps) do
         local col = (index - 1) % 3
         local row = math.floor((index - 1) / 3)
@@ -725,6 +748,7 @@ function AppDockHomeScreen:build()
         table.insert(dashboard, page_label)
     end
 
+    self.normal_layout = { expressive = expressive, has_header_surface = expressive, has_app_dock_surface = expressive, grid_rows = grid_rows, tile_size = tile_size }
     self[1] = dashboard
 end
 

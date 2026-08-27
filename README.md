@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **4.1.1 „Bueno“** vermittelt Standarddialoge gehosteter Plugins als AppDock-Overlays und erweitert den JavaScript-freien Webbrowser um sichere statische Bilddarstellung aus servergerenderten HTML-Seiten. [1] [2]
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **6.0.0 „Continuity“** erweitert die lokale DApp-Plattform um eine klarere Android-/Material-orientierte Standardoberfläche, registrierte Dateiübergaben, opt-in-Arbeitsbereichswiederherstellung, Zugänglichkeitssteuerung und einen rein lokalen Integritätsstatus. [1] [2]
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst die Formensprache und Informationsstruktur, nicht die Android-Animationen, Unschärfen oder Transparenzeffekte. Damit bleiben Aktualisierungen sparsam und die Darstellung auf monochromen Readern kontrastreich.
 
@@ -19,6 +19,8 @@
 > **4.1.0 „Bueno“:** Web Browser zeigt unterstützte statische Webbilder über einen begrenzten lokalen Ressourcen-Cache an. Relative und HTTPS-Bildquellen werden sicher aufgelöst; nicht verfügbare, zu große oder nicht unterstützte Quellen fallen auf Alt-Text zurück. Details stehen in [`RELEASE_NOTES_4.1.0.md`](RELEASE_NOTES_4.1.0.md).
 
 > **4.1.1 „Bueno“:** Der Plugin-Host stellt Standard-Pluginmenüs, Bestätigungen und Infomeldungen, die aus einer gehosteten Aktion heraus geöffnet werden, als AppDock-Overlay dar. Eingabedialoge zeigen zunächst eine AppDock-Hülle und übergeben die Texteingabe an einen AppDock-erzeugten Editor zurück an das originale Pluginobjekt. Komplexe eigenständige Pluginfenster werden bewusst nicht global umgeschrieben. Details stehen in [`RELEASE_NOTES_4.1.1.md`](RELEASE_NOTES_4.1.1.md).
+
+> **6.0.0 „Continuity“:** Die normale AppDock-Oberfläche erhält stärkere Material-orientierte Oberflächen für Homescreen, Kontrollzentrum, Open Apps und DApp-Navigation. **Simple Mode bleibt absichtlich unverändert:** sein 4×3-Raster, die reduzierte Kontrollzentrale und die fokussierte Appauswahl erhalten keine zusätzlichen Karten, Statusbereiche oder Dekorationen. Arbeitsbereichswiederherstellung ist standardmäßig aus, lokal begrenzt und setzt nur ausdrücklich freigegebene DApps fort. Details stehen in [`RELEASE_NOTES_6.0.0.md`](RELEASE_NOTES_6.0.0.md).
 
 ## Neu in 3.0.0 „Cappuccino“
 
@@ -47,6 +49,17 @@
 | Periodischer Refresh | Alle 60 Sekunden fordert AppDock einen vollständigen E-Ink-Refresh an, um Geisterbilder zu reduzieren und statische Informationen sichtbar zu aktualisieren. |
 
 Ein Antippen startet die zugewiesene Aktion. Ein Halten auf einer App-Kachel öffnet die Verwaltung. Die bestehende Plugin-App-Erkennung, das Hinzufügen und Entfernen sowie die sichere Menüausführung bleiben erhalten.
+
+## Neu in 6.0.0 „Continuity“
+
+| Bereich | Umsetzung und Grenze |
+|---|---|
+| Standardoberfläche | Homescreen, Kontrollzentrum, Open Apps und DApp-Host verwenden im normalen Modus klarere, abgerundete Material-orientierte Flächen, aktive Akzentzustände und eine zusammenhängende untere Navigation. Bestehende Themes, Store-Designs und Graustufen-Kontrastrollen bleiben maßgeblich. |
+| Simple Mode | Bleibt ein separater reduzierter Modus: 4×3-Appgitter, bisherige einfache Schnelleinstellungen und fokussierte Appauswahl bleiben ohne neue grafische Standard-Extras erhalten. |
+| Lokaler Arbeitsbereich | Die Funktion ist standardmäßig deaktiviert. Wenn sie in **Settings → Other → Local workspace** aktiviert wird, speichert sie maximal vier ausdrücklich freigegebene DApps und kleine, geprüfte lokale Zustände. Browser, Files, AppStore, Plugin-Hosts, Dokumentinhalt, Kennwörter und Tokens werden nicht wiederhergestellt. |
+| Dateiübergaben | Store-DApps können sichere Dateiendungen deklarieren. Files zeigt einen eindeutigen Handler direkt oder bei mehreren Handlern eine sichtbare Auswahl. Bestehende NightLua-, DReader- und MarkUP-Wege bleiben als kompatible Standardzuordnungen erhalten. |
+| Zugänglichkeit | **Settings → Display → Text & contrast** bietet 90 %, 100 %, 115 % oder 130 % Textgröße sowie einen kontraststarken Farbpfad für AppDock-eigene Normaloberflächen. |
+| Integrität | **Settings → Storage** zeigt den lokalen Zustand installierter Store-Dateien, geöffneter Apps und Arbeitsbereichsmetadaten. Die Ansicht ist rein lesend und ändert oder löscht keine Dateien selbstständig. |
 
 ## Installation
 

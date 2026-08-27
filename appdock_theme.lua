@@ -98,6 +98,20 @@ function Theme.fitLabel(value, width, font_size, padding)
     return Theme.ellipsize(value, math.max(1, math.floor(available / average_character_width)))
 end
 
+function Theme.textSize(appdock, logical_size, minimum)
+    local requested = appdock and appdock.settings and appdock.settings.accessibility and tonumber(appdock.settings.accessibility.text_scale) or 1
+    if requested ~= .9 and requested ~= 1.15 and requested ~= 1.3 then requested = 1 end
+    local base = Device.screen:scaleBySize(tonumber(logical_size) or 10)
+    local floor_size = Device.screen:scaleBySize(tonumber(minimum) or 7)
+    return math.max(floor_size, math.floor(base * requested + .5))
+end
+
+function Theme.adjustText(appdock, scaled_size, minimum)
+    local requested = appdock and appdock.settings and appdock.settings.accessibility and tonumber(appdock.settings.accessibility.text_scale) or 1
+    if requested ~= .9 and requested ~= 1.15 and requested ~= 1.3 then requested = 1 end
+    return math.max(tonumber(minimum) or 1, math.floor((tonumber(scaled_size) or 1) * requested + .5))
+end
+
 function Theme.getBuiltinThemes()
     local themes = {}
     for id, definition in pairs(BUILTIN) do
@@ -204,10 +218,12 @@ function Theme.getPalette(appdock)
         button = design.button
         dropdown = design.dropdown
     end
-    local secondary = mix(primary, background, .42)
-    local tertiary = mix(button, background, .56)
-    local surface = mix(background, text, .93)
-    local surface_variant = mix(button, background, .25)
+    local high_contrast = settings and settings.accessibility and settings.accessibility.high_contrast == true
+    if high_contrast then text = contrastInk(background) end
+    local secondary = mix(primary, background, high_contrast and .62 or .42)
+    local tertiary = mix(button, background, high_contrast and .72 or .56)
+    local surface = high_contrast and background or mix(background, text, .93)
+    local surface_variant = high_contrast and mix(text, background, .10) or mix(button, background, .25)
     return {
         background = color(background, GRAYS.background),
         surface = color(surface, GRAYS.surface),
@@ -226,6 +242,7 @@ function Theme.getPalette(appdock)
         outline = color(mix(text, background, .48), GRAYS.outline),
         track = color(mix(button, background, .52), GRAYS.track),
         primary_hex = primary,
+        high_contrast = high_contrast,
     }
 end
 

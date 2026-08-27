@@ -50,10 +50,12 @@ local DEFAULT_SETTINGS = {
     beta = { black_borders = false, keep_wallpaper_original_in_night = false, plugin_dapp_host = false, manual_app_spacing = false, plugin_custom_logos = false },
     quick_settings = { tiles = { "wifi", "night", "refresh", "edit", "sleep", "power_saving", "wallpaper" } },
     simple_mode = { homescreen = false, quick_settings = false, focus_apps = false },
+    workspace = { restore_enabled = false, session = nil },
+    accessibility = { text_scale = 1, high_contrast = false },
     dapp_permissions = {},
     widget_generator = { items = {}, next_id = 0 },
     power_saving = false,
-    layout_version = 18,
+    layout_version = 19,
 }
 
 local function copyArray(source)
@@ -72,10 +74,10 @@ function AppDock:init()
     UIManager:nextTick(function()
         local manager = self:getDAppManager()
         if manager and manager.runPermittedAutostarts then manager:runPermittedAutostarts() end
+        local restored = manager and self.settings.workspace and self.settings.workspace.restore_enabled
+            and manager.restoreWorkspace and manager:restoreWorkspace()
+        if self.settings.launch_on_start and not restored then self:showHome() end
     end)
-    if self.settings.launch_on_start then
-        UIManager:nextTick(function() self:showHome() end)
-    end
 end
 
 function AppDock:onSuspend()
@@ -84,6 +86,7 @@ function AppDock:onSuspend()
     self._lock_after_resume = self.settings
         and self.settings.lockscreen
         and self.settings.lockscreen.enabled == true
+    if self.dapp_manager and self.dapp_manager.captureWorkspace then self.dapp_manager:captureWorkspace() end
 end
 
 function AppDock:onResume()
@@ -116,6 +119,8 @@ function AppDock:_loadSettings()
         beta = stored.beta or { black_borders = false, keep_wallpaper_original_in_night = false, plugin_dapp_host = false, manual_app_spacing = false, plugin_custom_logos = false },
         quick_settings = stored.quick_settings or { tiles = copyArray(DEFAULT_SETTINGS.quick_settings.tiles) },
         simple_mode = stored.simple_mode or { homescreen = false, quick_settings = false, focus_apps = false },
+        workspace = stored.workspace or { restore_enabled = false, session = nil },
+        accessibility = stored.accessibility or { text_scale = 1, high_contrast = false },
         dapp_permissions = stored.dapp_permissions or {},
         widget_generator = stored.widget_generator or { items = {}, next_id = 0 },
         power_saving = stored.power_saving == true,
@@ -131,7 +136,7 @@ function AppDock:_loadSettings()
     self.settings.layout.split_ratio = tonumber(self.settings.layout.split_ratio) or DEFAULT_SETTINGS.layout.split_ratio
     self.settings.layout.split_ratio = math.max(.20, math.min(.80, self.settings.layout.split_ratio))
 
-    if self.settings.layout_version < DEFAULT_SETTINGS.layout_version then
+    if self.settings.layout_version < 18 then
         local migrated = copyArray(DEFAULT_SETTINGS.pinned_apps)
         for _, app_id in ipairs(self.settings.pinned_apps) do
             if app_id:match("^plugin:") or app_id:match("^dapp:") then
@@ -139,8 +144,8 @@ function AppDock:_loadSettings()
             end
         end
         self.settings.pinned_apps = migrated
-        self.settings.layout_version = DEFAULT_SETTINGS.layout_version
     end
+    if self.settings.layout_version < DEFAULT_SETTINGS.layout_version then self.settings.layout_version = DEFAULT_SETTINGS.layout_version end
 
     if self.settings.widgets.clock == nil then
         self.settings.widgets.clock = true
@@ -217,6 +222,16 @@ function AppDock:_loadSettings()
     self.settings.simple_mode.homescreen = self.settings.simple_mode.homescreen == true
     self.settings.simple_mode.quick_settings = self.settings.simple_mode.quick_settings == true
     self.settings.simple_mode.focus_apps = self.settings.simple_mode.focus_apps == true
+    self.settings.workspace = type(self.settings.workspace) == "table" and self.settings.workspace or { restore_enabled = false, session = nil }
+    self.settings.workspace.restore_enabled = self.settings.workspace.restore_enabled == true
+    if type(self.settings.workspace.session) ~= "table" or self.settings.workspace.session.version ~= 1 then
+        self.settings.workspace.session = nil
+    end
+    self.settings.accessibility = type(self.settings.accessibility) == "table" and self.settings.accessibility or { text_scale = 1, high_contrast = false }
+    local allowed_text_scales = { [0.9] = true, [1] = true, [1.15] = true, [1.3] = true }
+    local stored_text_scale = tonumber(self.settings.accessibility.text_scale) or 1
+    self.settings.accessibility.text_scale = allowed_text_scales[stored_text_scale] and stored_text_scale or 1
+    self.settings.accessibility.high_contrast = self.settings.accessibility.high_contrast == true
     self.settings.dapp_permissions = self.settings.dapp_permissions or {}
     self.settings.widget_generator = self.settings.widget_generator or { items = {}, next_id = 0 }
     self.settings.widget_generator.items = type(self.settings.widget_generator.items) == "table" and self.settings.widget_generator.items or {}
@@ -266,6 +281,28 @@ end
 function AppDock:setLaunchOnStart(enabled)
     self.settings.launch_on_start = not not enabled
     self:_saveSettings()
+end
+
+function AppDock:setWorkspaceRestoreEnabled(enabled)
+    self.settings.workspace = self.settings.workspace or { restore_enabled = false, session = nil }
+    self.settings.workspace.restore_enabled = enabled == true
+    if not self.settings.workspace.restore_enabled then self.settings.workspace.session = nil end
+    self:_saveSettings()
+    return true
+end
+
+function AppDock:setAccessibility(changes)
+    changes = type(changes) == "table" and changes or {}
+    self.settings.accessibility = self.settings.accessibility or { text_scale = 1, high_contrast = false }
+    if changes.text_scale ~= nil then
+        local allowed_text_scales = { [0.9] = true, [1] = true, [1.15] = true, [1.3] = true }
+        local requested = tonumber(changes.text_scale)
+        if not allowed_text_scales[requested] then return false end
+        self.settings.accessibility.text_scale = requested
+    end
+    if changes.high_contrast ~= nil then self.settings.accessibility.high_contrast = changes.high_contrast == true end
+    self:_saveSettings()
+    return true
 end
 
 function AppDock:setLauncherLayout(changes)
@@ -478,6 +515,14 @@ function AppDock:isSimpleModeEnabled(option)
     return self.settings.simple_mode and self.settings.simple_mode[option] == true
 end
 
+-- The expressive Material-oriented surface is a normal-mode presentation only.
+-- Any selected Simple Mode component deliberately keeps its established layout.
+function AppDock:isExpressiveUiEnabled()
+    return not self:isSimpleModeEnabled("homescreen")
+        and not self:isSimpleModeEnabled("quick_settings")
+        and not self:isSimpleModeEnabled("focus_apps")
+end
+
 function AppDock:setSimpleModeOption(option, enabled)
     if option ~= "homescreen" and option ~= "quick_settings" and option ~= "focus_apps" then return false end
     self.settings.simple_mode = self.settings.simple_mode or {}
@@ -627,6 +672,7 @@ function AppDock:_scheduleDAppTasks()
 end
 
 function AppDock:onCloseWidget()
+    if self.dapp_manager and self.dapp_manager.captureWorkspace then self.dapp_manager:captureWorkspace() end
     if self._screen_refresh_tick then
         UIManager:unschedule(self._screen_refresh_tick)
     end

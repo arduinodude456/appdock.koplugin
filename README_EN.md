@@ -4,7 +4,7 @@
 
 # New releases regulary commited at 3:00 AM CET
 
-**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **4.1.1 “Bueno”** bridges standard dialogs from hosted plugins into AppDock overlays and extends the JavaScript-free Web Browser with safe static image rendering from server-rendered HTML pages. [1] [2]
+**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **6.0.0 “Continuity”** extends the local DApp platform with a clearer Android-/Material-oriented standard interface, registered file handoffs, opt-in workspace restoration, accessibility controls, and a read-only local integrity status. [1] [2]
 
 > **E-Ink approach:** AppDock deliberately borrows the visual language and information structure, not Android's animations, blur, or transparency effects. This keeps updates economical and maintains contrast on monochrome readers.
 
@@ -19,6 +19,8 @@
 > **4.1.0 “Bueno”:** Web Browser renders supported static web images through a bounded local resource cache. Relative and HTTPS image sources are resolved safely; unavailable, oversized, or unsupported sources fall back to alt text. See [`RELEASE_NOTES_4.1.0.md`](RELEASE_NOTES_4.1.0.md).
 
 > **4.1.1 “Bueno”:** The plugin host renders standard plugin menus, confirmations, and information messages opened from a hosted action as AppDock overlays. Input dialogs first show an AppDock shell and hand text editing through an AppDock-created editor back to the original plugin object. Complex standalone plugin windows are deliberately not globally rewritten. See [`RELEASE_NOTES_4.1.1.md`](RELEASE_NOTES_4.1.1.md).
+
+> **6.0.0 “Continuity”:** The normal AppDock interface receives stronger Material-oriented surfaces for the homescreen, Control Center, Open Apps, and DApp navigation. **Simple Mode intentionally remains unchanged:** its 4×3 grid, reduced Control Center, and focused app selection receive no extra cards, status areas, or decoration. Workspace restoration is disabled by default, bounded locally, and resumes only explicitly permitted DApps. See [`RELEASE_NOTES_6.0.0.md`](RELEASE_NOTES_6.0.0.md) for details.
 
 ## UI on real hardware
 

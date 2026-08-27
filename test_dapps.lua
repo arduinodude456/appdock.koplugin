@@ -164,7 +164,7 @@ local parsed_design = assert(AppStoreParser:_parseDesign("id=forest\ntitle=Fores
 assert(parsed_design.id == "forest" and parsed_design.wallpaper == "designs/wallpapers/forest.png", "A declarative design must parse only its allowed appearance values")
 assert(not AppStoreParser:_parseDesign("id=forest\ntitle=Forest\nhighlight=#A5D6A7\nbackground=#122219\nbutton=#2D6745\ntext=#EFF8E9\ndropdown=#183125\nwallpaper=../forest.png"), "A design must reject traversal paths in its optional wallpaper")
 local appdock = {
-    settings = { widgets = { clock = true, status = true, reading_hint = true, store = {}, store_order = {} }, theme = { selected = "lavender", custom = {} }, design = { active_id = nil, installed = {} }, plugin_logos = {}, layout = { app_spacing = 12, logo_shape = "rounded", search_enabled = false }, store = { installed = {} }, dapp_permissions = {}, widget_generator = { items = {}, next_id = 0 }, beta = { plugin_dapp_host = false, black_borders = false, keep_wallpaper_original_in_night = false, manual_app_spacing = false, plugin_custom_logos = false }, simple_mode = { homescreen = false, quick_settings = false, focus_apps = false }, quick_settings = { tiles = { "wifi", "night", "refresh", "edit", "sleep", "power_saving" } }, notifications = { items = {} }, power_saving = false },
+    settings = { widgets = { clock = true, status = true, reading_hint = true, store = {}, store_order = {} }, theme = { selected = "lavender", custom = {} }, design = { active_id = nil, installed = {} }, plugin_logos = {}, layout = { app_spacing = 12, logo_shape = "rounded", search_enabled = false }, store = { installed = {} }, workspace = { restore_enabled = false, session = nil }, accessibility = { text_scale = 1, high_contrast = false }, dapp_permissions = {}, widget_generator = { items = {}, next_id = 0 }, beta = { plugin_dapp_host = false, black_borders = false, keep_wallpaper_original_in_night = false, manual_app_spacing = false, plugin_custom_logos = false }, simple_mode = { homescreen = false, quick_settings = false, focus_apps = false }, quick_settings = { tiles = { "wifi", "night", "refresh", "edit", "sleep", "power_saving" } }, notifications = { items = {} }, power_saving = false },
     toggleWidget = function(self, id) self.settings.widgets[id] = not self.settings.widgets[id] end,
     showHome = function(_, skip_lock) log.home = (log.home or 0) + 1; log.last_home_skip_lock = skip_lock end,
     showManager = function() log.manager = (log.manager or 0) + 1 end,
@@ -179,6 +179,9 @@ local appdock = {
     getStoreWidgets = function() return { { widget_id = "quote_widget", title = "Quote Widget" }, { widget_id = "weather_widget", title = "Weather Widget" } } end,
     isStoreWidgetEnabled = function() return true end,
     isSimpleModeEnabled = function(self, option) return self.settings.simple_mode[option] == true end,
+    isExpressiveUiEnabled = function(self)
+        return not self:isSimpleModeEnabled("homescreen") and not self:isSimpleModeEnabled("quick_settings") and not self:isSimpleModeEnabled("focus_apps")
+    end,
     setSimpleModeOption = function(self, option, enabled) self.settings.simple_mode[option] = enabled == true; self:_saveSettings(); return true end,
     getQuickSettingsTiles = function(self) return self:isSimpleModeEnabled("quick_settings") and { "wifi", "night", "power_saving" } or self.settings.quick_settings.tiles end,
     getNotifications = function() return {} end,
@@ -186,6 +189,18 @@ local appdock = {
     movePinned = function() log.moved_app = true; return true end,
     moveStoreWidget = function() log.moved_widget = true; return true end,
     setTheme = function(self, id) self.settings.theme = self.settings.theme or { custom = {} }; self.settings.theme.selected = id; return true end,
+    setAccessibility = function(self, changes)
+        if changes.text_scale ~= nil then self.settings.accessibility.text_scale = changes.text_scale end
+        if changes.high_contrast ~= nil then self.settings.accessibility.high_contrast = changes.high_contrast == true end
+        self:_saveSettings()
+        return true
+    end,
+    setWorkspaceRestoreEnabled = function(self, enabled)
+        self.settings.workspace.restore_enabled = enabled == true
+        if not enabled then self.settings.workspace.session = nil end
+        self:_saveSettings()
+        return true
+    end,
     setLauncherLayout = function(self, changes) for key, value in pairs(changes or {}) do self.settings.layout[key] = value end; self:_saveSettings(); return true end,
     setBetaOption = function(self, key, enabled) self.settings.beta[key] = enabled == true; self:_saveSettings(); return true end,
     getPluginApps = function(self) return { { id = "plugin:text_editor", title = "Text editor", custom_logo_path = self.settings.plugin_logos["plugin:text_editor"] } } end,
@@ -225,6 +240,14 @@ assert(active_design and active_design.id == "galaxy" and active_design.wallpape
 assert(Theme.getAppLogoShape(appdock) == "circle" and Theme.getPalette(appdock).primary_hex == "#A98BFF", "An active design must override the launcher logo form and highlight color")
 assert(Theme.getButtonFrameStyle(appdock, 48, 12).bordersize == 1, "The Galaxy design must select the visible 3D button frame")
 local manager = DAppManager:new(appdock)
+appdock.getDAppManager = function() return manager end
+appdock.getStoreWidgets = function()
+    local function buildWidget(_, context) return WidgetContainer:new{ dimen = context.dimen } end
+    return {
+        { widget_id = "quote_widget", title = "Quote Widget", definition = { buildWidget = buildWidget }, instance = {} },
+        { widget_id = "weather_widget", title = "Weather Widget", definition = { buildWidget = buildWidget }, instance = {} },
+    }
+end
 assert(not appdock:setPluginLogo("plugin:text_editor", "/books/logo.png"), "Custom non-DApp plugin logos must remain unavailable until their Beta option is enabled")
 assert(appdock:setBetaOption("plugin_custom_logos", true) and appdock:setPluginLogo("plugin:text_editor", "/books/logo.png") and appdock.settings.plugin_logos["plugin:text_editor"] == "/books/logo.png", "Enabled custom plugin logos must stay isolated to the selected non-DApp plugin")
 appdock:setBetaOption("manual_app_spacing", true)
@@ -266,6 +289,23 @@ assert(appdock.settings.store.installed.quote_card.file == store_fixture and app
 local removed = assert(manager:uninstallStoreDApp("quote_card"))
 assert(removed and not manager.definitions.quote_card and not appdock.settings.store.installed.quote_card and not io.open(store_fixture, "rb"), "Uninstall must remove Store registry, persisted metadata, and the local Lua file")
 os.remove(updated_fixture)
+
+local workspace_fixture = "/tmp/appdock_workspace_fixture.lua"
+local workspace_file = assert(io.open(workspace_fixture, "wb"))
+workspace_file:write("return { id = 'workspace_card', title = 'Workspace Card', version = '1.0.0', workspace_restore = true, file_extensions = { 'note', 'MD' }, file_handler_title = 'Open note workspace', openFile = function(instance, path) instance.opened_file = path; return true end, serializeState = function() return { filter = 'today', page = 2 } end, restoreState = function(instance, state) instance.restored_filter = state.filter; instance.restored_page = state.page end, buildPane = function(instance, context) return { dimen = context.dimen } end } ")
+workspace_file:close()
+local workspace_installed, workspace_id = manager:loadStoreDApp(workspace_fixture, "fixtures/workspace_card.lua")
+assert(workspace_installed and workspace_id == "workspace_card", "A Store DApp may opt in to the local workspace contract")
+local note_handlers = manager:getFileHandlers("/books/today.note")
+assert(#note_handlers == 1 and note_handlers[1].id == "workspace_card" and note_handlers[1].title == "Open note workspace", "Declared file extensions must be normalized and exposed through the central handler registry")
+appdock.settings.workspace = { restore_enabled = true, session = nil }
+manager:activate("workspace_card")
+assert(manager:captureWorkspace() and appdock.settings.workspace.session.apps[1].id == "workspace_card" and appdock.settings.workspace.session.apps[1].state.filter == "today", "Workspace capture must store only the explicitly permitted DApp and its small local state")
+local restored_manager = DAppManager:new(appdock)
+assert(restored_manager:restoreWorkspace() and restored_manager.instances.workspace_card.restored_filter == "today" and restored_manager.instances.workspace_card.restored_page == 2, "Workspace restoration must run the optional local restore hook before rendering the permitted DApp")
+appdock.settings.workspace.restore_enabled = false
+assert(not manager:captureWorkspace(), "Disabled workspace restoration must not persist new session state")
+assert(manager:closeDApp("workspace_card") and manager:uninstallStoreDApp("workspace_card"), "Workspace fixture cleanup must remove the temporary open DApp and its stored test file")
 
 package.preload["document/documentregistry"] = function() return { hasProvider = function() return false end } end
 package.preload["apps/filemanager/filemanagerutil"] = function() return { getHomeFolder = function() return "/tmp" end } end
@@ -351,9 +391,14 @@ for _, child in ipairs(host_chrome) do if child.symbol == "⌄" then host_quick_
 assert(host_quick_access and host_quick_access.overlap_offset[2] < 52, "Each DApp host must expose a compact appbar control-center entry")
 host_quick_access:onTapDAppAction()
 assert(log.quick_settings_host == manager.active_host, "The DApp-host control-center entry must open Quick Settings without leaving a DApp")
-local navigation_bar, home_chip, recents_chip, close_chip = host_chrome[#host_chrome - 3], host_chrome[#host_chrome - 2], host_chrome[#host_chrome - 1], host_chrome[#host_chrome]
-assert(navigation_bar.overlap_offset[2] == 750 and navigation_bar.height == 50, "DApp hosts must reserve a separate lower system-navigation bar")
-assert(home_chip.overlap_offset[2] >= 750 and recents_chip.overlap_offset[2] == home_chip.overlap_offset[2] and close_chip.overlap_offset[2] == home_chip.overlap_offset[2], "Home, open-apps and close chips must share the lower navigation row")
+local home_chip, recents_chip, close_chip
+for _, child in ipairs(host_chrome) do
+    if child.symbol == "⌂" then home_chip = child end
+    if child.symbol == "□" then recents_chip = child end
+    if child.symbol == "×" then close_chip = child end
+end
+assert(manager.active_host.chrome_layout and manager.active_host.chrome_layout.expressive and manager.active_host.chrome_layout.navigation_height == 58 and manager.active_host.chrome_layout.has_navigation_pill, "Normal AppDock mode must use the larger expressive app bar and lower navigation pill")
+assert(home_chip.overlap_offset[2] >= 742 and recents_chip.overlap_offset[2] == home_chip.overlap_offset[2] and close_chip.overlap_offset[2] == home_chip.overlap_offset[2], "Home, open-apps and close chips must share the lower navigation row")
 assert(home_chip.overlap_offset[1] < recents_chip.overlap_offset[1] and recents_chip.overlap_offset[1] < close_chip.overlap_offset[1] and math.abs((recents_chip.overlap_offset[1] + math.floor(recents_chip.width / 2)) - 300) <= 1, "System actions must be centered and ordered Home, Open Apps, Close")
 local home_closed = false
 for _, closed_widget in ipairs(log.closed) do if closed_widget == "home" then home_closed = true; break end end
@@ -407,16 +452,22 @@ local function findStorageSegments(node)
 end
 local storage_segments = findStorageSegments(settings_instance.pane)
 assert(storage_segments and storage_segments[1] and storage_segments[1].bytes >= 1536 and storage_segments[1].title == "books", "Storage breakdown must retain LuaFileSystem iterator state and report readable local files")
+assert(settings_instance.pane.settings_layout.integrity and settings_instance.pane.settings_layout.integrity.missing == 0, "Storage settings must expose a local read-only integrity status without marking valid Store records as missing")
 settings_instance.settings_category = "display"
 manager:activate("settings")
-assert(settings_instance.pane.settings_layout.category == "display" and settings_instance.pane.settings_layout.row_count == 9, "Display category must expose regular search, outline, night-image and custom-logo controls alongside Store design, wallpaper and beta settings")
+assert(settings_instance.pane.settings_layout.category == "display" and settings_instance.pane.settings_layout.row_count == 10, "Display category must expose text and contrast controls alongside themes, launcher, wallpaper and beta settings")
+assert(appdock:setAccessibility({ text_scale = 1.3, high_contrast = true }) and Theme.getPalette(appdock).high_contrast, "Accessibility settings must persist a bounded text scale and activate the high-contrast palette")
 manager:showFrontlightSettings()
 assert(log.events[#log.events] == "ShowFlDialog", "Brightness and warmth must use KOReader's native frontlight dialog")
 manager:toggleColorTheme({ requestRebuild = function() log.settings_rebuilds = (log.settings_rebuilds or 0) + 1 end })
 assert(log.events[#log.events] == "ToggleNightMode" and log.settings_rebuilds == 1, "Color themes must trigger KOReader's night-mode event")
 settings_instance.settings_category = "other"
 manager:activate("settings")
-assert(settings_instance.pane.settings_layout.category == "other" and settings_instance.pane.settings_layout.row_count == 8, "Other category must include lockscreen, control center, DApp permissions, arrangement, about, language, startup, and refresh entries")
+assert(settings_instance.pane.settings_layout.category == "other" and settings_instance.pane.settings_layout.row_count == 9, "Other category must include the opt-in local workspace alongside lockscreen, control center, permissions, arrangement and startup")
+assert(settings_instance.pane.settings_layout.text_scale == 1.3 and settings_instance.pane.settings_layout.high_contrast and not settings_instance.pane.settings_layout.workspace_enabled, "Settings metadata must expose the applied local accessibility and workspace state")
+assert(appdock:setWorkspaceRestoreEnabled(true), "Local workspace restoration must be explicitly enabled through a persisted setting")
+manager:activate("settings")
+assert(manager.instances.settings.pane.settings_layout.workspace_enabled, "Settings must immediately expose the opt-in local workspace state")
 manager:showArrangementEditor(settings_instance, { requestRebuild = function() log.arrangement_rebuilds = (log.arrangement_rebuilds or 0) + 1 end })
 local arrangement_dialog = log.shown[#log.shown]
 assert(arrangement_dialog.title == "Arrange apps & widgets" and arrangement_dialog.buttons[#arrangement_dialog.buttons][1].text == "Done", "Settings must open one compact arrangement dialog with a Done action")
@@ -428,13 +479,19 @@ assert(appdock:setSimpleModeOption("homescreen", true) and appdock:setSimpleMode
 local HomeScreen = dofile(plugin_dir .. "appdock_homescreen.lua")
 local simple_home = HomeScreen:new{ appdock = appdock }
 assert(simple_home.simple_layout and simple_home.simple_layout.columns == 4 and simple_home.simple_layout.rows == 3 and simple_home.simple_layout.app_count == 2, "Simple homescreen must contain only the visible apps in a 4×3 grid")
+assert(not simple_home.normal_layout, "Simple homescreen must not create any normal-mode expressive layout metadata")
 assert(not simple_home._widget_tick, "Simple homescreen must not schedule hidden widget refreshes")
 local QuickSettings = dofile(plugin_dir .. "appdock_quicksettings.lua")
 local simple_quick_settings = QuickSettings:new{ appdock = appdock, home = simple_home }
 assert(simple_quick_settings.layout.simple_mode and simple_quick_settings.layout.tile_count == 3 and not simple_quick_settings.layout.show_notifications, "Simple quick settings must contain the three required tiles, brightness, and no notifications")
+assert(not simple_quick_settings.layout.expressive and simple_quick_settings.sheet_height < 400, "Simple quick settings must retain its existing compact non-expressive layout")
 appdock:setSimpleModeOption("homescreen", false)
 appdock:setSimpleModeOption("quick_settings", false)
 appdock:setSimpleModeOption("focus_apps", false)
+local expressive_home = HomeScreen:new{ appdock = appdock }
+assert(expressive_home.normal_layout and expressive_home.normal_layout.expressive and expressive_home.normal_layout.has_header_surface and expressive_home.normal_layout.has_app_dock_surface, "Normal homescreen must restore expressive Material surfaces only after Simple Mode is disabled")
+local expressive_quick_settings = QuickSettings:new{ appdock = appdock, home = expressive_home }
+assert(expressive_quick_settings.layout.expressive and not expressive_quick_settings.layout.simple_mode and expressive_quick_settings.sheet_height >= 0, "Normal quick settings must use expressive layout only outside Simple Mode")
 
 local recents = {}
 manager:showDAppActions("analog_clock", recents)
