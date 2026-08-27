@@ -307,12 +307,12 @@ function FileBrowser:buildPane(instance, context)
     end
     local pane = WidgetContainer:new{ dimen = Geom:new{ w = context.dimen.w, h = context.dimen.h } }
     local width, height = context.dimen.w, context.dimen.h
-    local margin, gap = scale(14), scale(8)
+    local margin, gap = scale(12), scale(5)
     local action_y, action_height = scale(54), scale(38)
     -- Keep a real visual gap between the final toolbar row and the scroller.
     -- The old 84px reservation started the list underneath a 34px high button.
     local toolbar_height = action_y + action_height + scale(10)
-    local row_height = scale(64)
+    local row_height = scale(54)
     local small_width = math.max(scale(46), math.floor((width - 2 * margin - 2 * gap) / 3))
     local list_width = width - 2 * margin
     local list = VerticalGroup:new{}

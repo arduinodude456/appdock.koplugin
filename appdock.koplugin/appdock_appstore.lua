@@ -594,10 +594,10 @@ function AppStore:buildPane(instance, context)
     local state = self:_ensureState(instance)
     local palette = Theme.getPalette(context.manager.appdock)
     local width, height = context.dimen.w, context.dimen.h
-    local margin, gap = scale(14), scale(8)
+    local margin, gap = scale(12), scale(6)
     local heading_title = TextWidget:new{ text = _("AppStore"), face = Font:getFace("cfont", scale(21)), fgcolor = palette.on_surface, bold = true, padding = 0 }
     local heading_subtitle = TextWidget:new{ text = _("Trusted DApps, widgets, and designs from arduinodude456/DApps"), face = Font:getFace("smallinfofont", scale(10)), fgcolor = palette.on_variant, max_width = width - 2 * margin, padding = 0 }
-    local header_height = math.max(scale(52), heading_title:getSize().h + heading_subtitle:getSize().h + scale(10))
+    local header_height = math.max(scale(46), heading_title:getSize().h + heading_subtitle:getSize().h + scale(6))
     local header_positions = Theme.centeredStack(header_height, { heading_title, heading_subtitle }, scale(4), scale(4))
     heading_title.overlap_offset = { margin, header_positions[1] }
     heading_subtitle.overlap_offset = { margin, header_positions[2] }
@@ -613,7 +613,7 @@ function AppStore:buildPane(instance, context)
         heading_subtitle,
     }
     local action_y = header_height + gap
-    local compact_height = scale(46)
+    local compact_height = scale(42)
     local refresh_width = math.floor((width - 2 * margin - gap) * 0.44)
     table.insert(content, StoreButton:new{
         title = _("Refresh catalog"), subtitle = _("Read apps, widgets, designs"),
@@ -639,7 +639,7 @@ function AppStore:buildPane(instance, context)
         title = query == "" and _("Search catalog") or (_("Search: ") .. query),
         subtitle = query == "" and _("Filter loaded apps, widgets, and designs") or _("Tap to change or clear this local filter"),
         logo = "app_store",
-        width = width - 2 * margin, height = scale(42),
+        width = width - 2 * margin, height = scale(38),
         background = palette.surface_variant or palette.surface, foreground = palette.on_surface_variant or palette.on_surface,
         callback = function() self:promptSearch(instance, context) end,
         overlap_offset = { margin, action_y + compact_height + gap },
@@ -648,14 +648,14 @@ function AppStore:buildPane(instance, context)
         title = _("Category: ") .. (category_labels[state.category] or category_labels.all),
         subtitle = _("Tap to switch between all, apps, widgets, and designs"),
         logo = "palette",
-        width = width - 2 * margin, height = scale(42),
+        width = width - 2 * margin, height = scale(38),
         background = palette.button or palette.primary, foreground = palette.on_button or palette.on_primary,
-        frame_style = Theme.getButtonFrameStyle(context.appdock, scale(42), math.floor(scale(42) * .24)),
+        frame_style = Theme.getButtonFrameStyle(context.appdock, scale(38), math.floor(scale(38) * .24)),
         callback = function() self:cycleCategory(instance, context) end,
-        overlap_offset = { margin, action_y + compact_height + gap + scale(42) + gap },
+        overlap_offset = { margin, action_y + compact_height + gap + scale(38) + gap },
     })
 
-    local list_y, card_height = action_y + compact_height + gap + scale(42) + gap + scale(42) + gap, scale(68)
+    local list_y, card_height = action_y + compact_height + gap + scale(38) + gap + scale(38) + gap, scale(58)
     if not state.refreshed then
         table.insert(content, StoreButton:new{
             title = _("Catalog ready"),

@@ -2549,11 +2549,11 @@ function DAppManager:_buildSettingsPane(instance, context)
         dimen = Geom:new{ w = context.dimen.w, h = context.dimen.h },
     }
     local width, height = context.dimen.w, context.dimen.h
-    local margin, gap = scale(12), scale(8)
+    local margin, gap = scale(10), scale(4)
     local sidebar_width = math.min(scale(82), math.max(scale(68), math.floor(width * 0.18)))
     local content_x = margin + sidebar_width + gap
     local content_width = width - content_x - margin
-    local row_height = math.max(scale(52), math.min(scale(62), math.floor((height - scale(78) - gap * 2) / 3)))
+    local row_height = math.max(scale(42), math.min(scale(50), math.floor((height - scale(64) - gap * 2) / 3)))
     local category_height
     local categories = {
         { id = "network", title = _("Network"), subtitle = _("Connections"), logo = "network" },
@@ -2562,7 +2562,7 @@ function DAppManager:_buildSettingsPane(instance, context)
         { id = "simple", title = _("Simple Mode"), subtitle = _("Focus mode"), logo = "other" },
         { id = "other", title = _("Other"), subtitle = _("AppDock"), logo = "other" },
     }
-    category_height = math.max(scale(46), math.min(scale(70), math.floor((height - 2 * margin - (#categories - 1) * gap) / #categories)))
+    category_height = math.max(scale(40), math.min(scale(58), math.floor((height - 2 * margin - (#categories - 1) * gap) / #categories)))
     instance.settings_category = instance.settings_category or "network"
     local selected_id = instance.settings_category
     local wifi_on, wifi_available = self:_wifiState()
@@ -2716,10 +2716,10 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("About AppDock"),
-                subtitle = _( "Version 6.0.3 · Continuity"),
+                subtitle = _( "Version 6.0.4 · Continuity"),
                 show_state = false,
                 callback = function()
-                    self:showSettingsNotice(_("AppDock 6.0.3 · Continuity\n\nThis maintenance update keeps the safe unpadded glyph measurement from 6.0.2 while using a more compact vertical rhythm across the normal AppDock interface. AppStore, Quick Settings, Open Apps, the normal Homescreen, Files, Settings and navigation use shorter gaps between their measured text lines. Simple Mode keeps its existing reduced appearance. Optional workspace restoration only resumes explicitly permitted local DApps. Files can use registered local DApp handlers, and Settings adds text size, contrast and read-only local integrity status."))
+                    self:showSettingsNotice(_("AppDock 6.0.4 · Continuity\n\nThis maintenance update now reduces the actual visible heights and outer gaps of standard AppDock surfaces, not only internal text rhythm. Settings rows, Open Apps cards, Quick Settings tiles, Homescreen labels and cards, AppStore controls, Files rows and navigation are all visibly more compact while retaining safe unpadded glyph measurement. Simple Mode keeps its existing reduced appearance. Optional workspace restoration only resumes explicitly permitted local DApps. Files can use registered local DApp handlers, and Settings adds text size, contrast and read-only local integrity status."))
                 end,
             },
             {
@@ -2764,7 +2764,7 @@ function DAppManager:_buildSettingsPane(instance, context)
         if category.id == selected_id then selected_category = category; break end
     end
     local rows = rows_by_category[selected_category.id]
-    row_height = math.max(scale(38), math.min(scale(62), math.floor((height - scale(78) - gap * math.max(0, #rows - 1)) / #rows)))
+    row_height = math.max(scale(40), math.min(scale(50), math.floor((height - scale(64) - gap * math.max(0, #rows - 1)) / #rows)))
     local storage_segments, storage_total, storage_file_count, storage_dapps
     if selected_category.id == "storage" then
         local storage_ok
@@ -2787,14 +2787,14 @@ function DAppManager:_buildSettingsPane(instance, context)
             face = Font:getFace("cfont", scale(20)),
             fgcolor = PALETTE.on_surface,
             bold = true,
-            overlap_offset = { content_x, scale(14) },
+            overlap_offset = { content_x, scale(10) },
         },
         TextWidget:new{
             text = selected_category.subtitle,
             face = Font:getFace("smallinfofont", scale(11)),
             fgcolor = PALETTE.on_variant,
             max_width = content_width,
-            overlap_offset = { content_x, scale(41) },
+            overlap_offset = { content_x, scale(32) },
         },
     }
     for category_index, category in ipairs(categories) do
@@ -2820,7 +2820,7 @@ function DAppManager:_buildSettingsPane(instance, context)
             width = content_width,
             height = row_height,
             callback = row.callback,
-            overlap_offset = { content_x, scale(64) + (row_index - 1) * (row_height + gap) },
+            overlap_offset = { content_x, scale(56) + (row_index - 1) * (row_height + gap) },
         })
     end
     if selected_category.id == "storage" then
@@ -3103,10 +3103,10 @@ end
 function DAppRecents:build()
     local width, height = self.dimen.w, self.dimen.h
     local expressive = type(self.manager.appdock.isExpressiveUiEnabled) == "function" and self.manager.appdock:isExpressiveUiEnabled()
-    local margin = expressive and scale(18) or scale(22)
+    local margin = expressive and scale(14) or scale(18)
     local card_width = width - 2 * margin
-    local card_height = expressive and scale(82) or scale(76)
-    local gap = expressive and scale(14) or scale(12)
+    local card_height = expressive and scale(64) or scale(60)
+    local gap = expressive and scale(6) or scale(6)
     local heading_title = TextWidget:new{
         text = _("Open apps"),
         face = Font:getFace("cfont", expressive and Theme.adjustText(self.manager.appdock, scale(23), scale(16)) or scale(25)),
@@ -3122,7 +3122,7 @@ function DAppRecents:build()
         max_width = card_width,
         padding = 0,
     }
-    local header_height = math.max(expressive and scale(72) or scale(64), heading_title:getSize().h + heading_subtitle:getSize().h + scale(12))
+    local header_height = math.max(expressive and scale(56) or scale(54), heading_title:getSize().h + heading_subtitle:getSize().h + scale(8))
     local header_positions = Theme.centeredStack(header_height, { heading_title, heading_subtitle }, scale(4), scale(5))
     heading_title.overlap_offset = { expressive and margin + scale(14) or margin, header_positions[1] }
     heading_subtitle.overlap_offset = { margin, header_positions[2] }
@@ -3137,9 +3137,9 @@ function DAppRecents:build()
     }
     if expressive then
         table.insert(content, FrameContainer:new{
-            width = width - 2 * margin, height = header_height - scale(8), padding = 0, bordersize = 0,
-            radius = math.floor((header_height - scale(8)) / 2), background = PALETTE.surface,
-            emptySizedWidget(width - 2 * margin, header_height - scale(8)), overlap_offset = { margin, scale(4) },
+            width = width - 2 * margin, height = header_height - scale(6), padding = 0, bordersize = 0,
+            radius = math.floor((header_height - scale(6)) / 2), background = PALETTE.surface,
+            emptySizedWidget(width - 2 * margin, header_height - scale(6)), overlap_offset = { margin, scale(3) },
         })
     end
     table.insert(content, heading_title)
@@ -3189,7 +3189,7 @@ function DAppRecents:build()
             UIManager:close(self)
             UIManager:nextTick(function() self.manager.appdock:showHome(true) end)
         end,
-        overlap_offset = { margin, height - (expressive and scale(68) or scale(60)) },
+        overlap_offset = { margin, height - (expressive and scale(56) or scale(54)) },
     })
     self:clear()
     self[1] = content

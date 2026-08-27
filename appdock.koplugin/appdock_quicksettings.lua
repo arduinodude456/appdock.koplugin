@@ -501,9 +501,21 @@ function QuickSettings:rebuild(refresh)
         padding = 0,
     }
     if expressive then
-        header_height = scale(62)
-        tile_height = scale(82)
-        slider_spacing = scale(14)
+        margin = scale(18)
+        gap = scale(6)
+        header_height = scale(50)
+        tile_height = scale(68)
+        slider_height = scale(52)
+        slider_spacing = scale(8)
+        sheet_bottom = scale(12)
+    elseif not simple_mode then
+        margin = scale(18)
+        gap = scale(6)
+        header_height = scale(46)
+        tile_height = scale(68)
+        slider_height = scale(52)
+        slider_spacing = scale(8)
+        sheet_bottom = scale(12)
     end
     header_height = math.max(header_height, header_title:getSize().h + scale(22))
     local selected_tile_ids = type(self.appdock.getQuickSettingsTiles) == "function"

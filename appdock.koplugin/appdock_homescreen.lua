@@ -558,7 +558,7 @@ function AppDockHomeScreen:build()
     local expressive = type(self.appdock.isExpressiveUiEnabled) == "function" and self.appdock:isExpressiveUiEnabled()
     local margin = scale(22)
     local top_line_height = scale(30)
-    local header_y = top_line_height + scale(18)
+    local header_y = top_line_height + scale(14)
     local greeting_text = TextWidget:new{
         text = greeting(),
         face = Font:getFace("cfont", Theme.adjustText(self.appdock, scale(28), scale(18))),
@@ -574,7 +574,7 @@ function AppDockHomeScreen:build()
         max_width = width - 2 * margin,
         padding = 0,
     }
-    local header_height = math.max(scale(62), greeting_text:getSize().h + date_text:getSize().h + scale(14))
+    local header_height = math.max(scale(56), greeting_text:getSize().h + date_text:getSize().h + scale(8))
     local header_positions = Theme.centeredStack(header_height, { greeting_text, date_text }, scale(4), scale(6))
     greeting_text.overlap_offset = { margin, header_y + header_positions[1] }
     date_text.overlap_offset = { margin, header_y + header_positions[2] }
@@ -582,7 +582,8 @@ function AppDockHomeScreen:build()
     local tile_size = math.floor(math.min(width * 0.20, height * 0.13))
     tile_size = math.max(scale(62), math.min(tile_size, scale(110)))
     local tile_gap = scale(math.max(8, math.min(34, tonumber(layout.app_spacing) or 16)))
-    local label_height = scale(28)
+    local label_height = scale(20)
+    local label_gap = scale(3)
     local apps = self.appdock:getPinnedApps()
     local search_query = (self.search_query or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
     if layout.search_enabled and search_query ~= "" then
@@ -626,20 +627,20 @@ function AppDockHomeScreen:build()
     table.insert(dashboard, greeting_text)
     table.insert(dashboard, date_text)
 
-    local card_y = header_y + header_height + scale(12)
+    local card_y = header_y + header_height + scale(8)
     if layout.search_enabled then
         table.insert(dashboard, SearchBar:new{
-            appdock = self.appdock, home = self, width = width - 2 * margin, height = scale(42),
-            query = self.search_query or "", overlap_offset = { margin, header_y + header_height + scale(8) },
+            appdock = self.appdock, home = self, width = width - 2 * margin, height = scale(38),
+            query = self.search_query or "", overlap_offset = { margin, header_y + header_height + scale(5) },
         })
-        card_y = header_y + header_height + scale(42) + scale(20)
+        card_y = header_y + header_height + scale(38) + scale(12)
     end
     if self.appdock.settings.widgets.status then
         local status_body = safeBatteryText() or _("All systems ready")
         table.insert(dashboard, InfoCard:new{
             appdock = self.appdock,
             width = math.floor((width - 2 * margin - scale(10)) * 0.42),
-            height = scale(62),
+            height = scale(54),
             title = _("Device"),
             body = status_body,
             background = PALETTE.secondary_container,
@@ -658,7 +659,7 @@ function AppDockHomeScreen:build()
         table.insert(dashboard, InfoCard:new{
             appdock = self.appdock,
             width = reading_width,
-            height = scale(62),
+            height = scale(54),
             title = _("Continue reading"),
             body = currentBookText(self.appdock),
             background = PALETTE.primary_container,
@@ -668,7 +669,7 @@ function AppDockHomeScreen:build()
     end
 
     local has_cards = self.appdock.settings.widgets.status or self.appdock.settings.widgets.reading_hint
-    local widget_y = card_y + (has_cards and scale(62) or 0) + (has_cards and scale(12) or 0)
+    local widget_y = card_y + (has_cards and scale(54) or 0) + (has_cards and scale(8) or 0)
     local widget_height = scale(98)
     local visible_widgets = {}
     for _, widget in ipairs(self.appdock:getStoreWidgets()) do
@@ -686,12 +687,12 @@ function AppDockHomeScreen:build()
         })
     end
     local widget_space = #visible_widgets * widget_height + math.max(0, #visible_widgets - 1) * scale(10)
-    local grid_y = widget_y + widget_space + scale(34)
+    local grid_y = widget_y + widget_space + scale(24)
     local grid_width = tile_size * 3 + tile_gap * 2
     local grid_x = math.floor((width - grid_width) / 2)
-    local row_gap = scale(18)
+    local row_gap = scale(12)
     local grid_rows = math.max(1, math.ceil(#visible_apps / 3))
-    local grid_height = grid_rows * (tile_size + label_height) + math.max(0, grid_rows - 1) * row_gap
+    local grid_height = grid_rows * (tile_size + label_gap + label_height) + math.max(0, grid_rows - 1) * row_gap
     if expressive and #visible_apps > 0 then
         table.insert(dashboard, FrameContainer:new{
             width = math.min(width - 2 * margin, grid_width + scale(30)), height = grid_height + scale(20), padding = 0, bordersize = 0,
@@ -715,7 +716,7 @@ function AppDockHomeScreen:build()
             foreground = tone.foreground,
             overlap_offset = {
                 grid_x + col * (tile_size + tile_gap),
-                grid_y + row * (tile_size + label_height + row_gap),
+                grid_y + row * (tile_size + label_gap + label_height + row_gap),
             },
         })
     end

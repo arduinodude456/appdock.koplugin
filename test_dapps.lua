@@ -166,6 +166,14 @@ local simple_mode_source = homescreen_source:match("function AppDockHomeScreen:_
 assert(homescreen_source:find("local header_positions = Theme.centeredStack", 1, true) and homescreen_source:find("local card_y = header_y + header_height", 1, true), "Normal Homescreen cards must begin after measured greeting lines")
 assert(not simple_mode_source:find("Theme.centeredStack", 1, true) and not simple_mode_source:find("has_header_surface", 1, true), "Simple Mode must retain its independent reduced layout path")
 assert(recents_source:find('title = "", symbol = "⌂", width = scale(72), height = scale(44)', 1, true), "Compact Open Apps navigation must not place a text label beneath its Home button")
+assert(recents_source:find("local margin, gap = scale(10), scale(4)", 1, true) and recents_source:find("math.min(scale(50)", 1, true), "Settings must use visibly compact row and category spacing")
+assert(recents_source:find("local card_height = expressive and scale(64) or scale(60)", 1, true) and recents_source:find("local gap = expressive and scale(6) or scale(6)", 1, true), "Open Apps must use visibly compact cards and list gaps")
+assert(quick_settings_source:find("tile_height = scale(68)", 1, true) and quick_settings_source:find("slider_spacing = scale(8)", 1, true), "Normal Quick Settings must use compact visible tile and sheet spacing")
+assert(appstore_source:find("local compact_height = scale(42)", 1, true) and appstore_source:find("local list_y, card_height", 1, true) and appstore_source:find("scale(58)", 1, true), "AppStore must use compact visible controls and catalog cards")
+assert(homescreen_source:find("local label_height = scale(20)", 1, true) and homescreen_source:find("local label_gap = scale(3)", 1, true) and homescreen_source:find("local row_gap = scale(12)", 1, true), "Normal Homescreen app labels and rows must use compact visible spacing")
+assert(simple_mode_source:find("local column_gap, row_gap, label_height = scale(12), scale(14), scale(22)", 1, true), "Simple Mode must retain its original app-grid spacing")
+local files_source = assert(io.open(plugin_dir .. "appdock_filemanager.lua", "rb")):read("*a")
+assert(files_source:find("local margin, gap = scale(12), scale(5)", 1, true) and files_source:find("local row_height = scale(54)", 1, true), "Files must use compact visible rows and gaps")
 local design_definition = Theme.normalizeDesignDefinition({
     id = "galaxy", title = "Galaxy", version = "1.0.0", highlight = "#A98BFF", background = "#111126",
     button = "#282653", text = "#F8F7FF", dropdown = "#181634", button_style = "3d", logo_shape = "circle",
