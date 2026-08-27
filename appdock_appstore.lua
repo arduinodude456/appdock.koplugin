@@ -108,19 +108,16 @@ function StoreButton:init()
     local has_subtitle = self.subtitle and self.subtitle ~= ""
     local title = Theme.fitLabel(self.title or "", text_width, title_size, 0)
     local subtitle = Theme.fitLabel(self.subtitle or "", text_width, subtitle_size, 0)
-    local title_y = has_subtitle and math.max(scale(4), math.floor((self.height - title_size - subtitle_size - scale(3)) / 2)) or math.floor((self.height - title_size) / 2)
-    local subtitle_y = math.min(self.height - subtitle_size - scale(3), title_y + title_size + scale(3))
+    local title_widget = TextWidget:new{ text = title, face = Font:getFace("smallinfofont", title_size), fgcolor = self.foreground, bold = true, max_width = text_width }
+    local subtitle_widget = has_subtitle and TextWidget:new{ text = subtitle, face = Font:getFace("smallinfofont", subtitle_size), fgcolor = self.foreground, max_width = text_width } or nil
+    local items = subtitle_widget and { title_widget, subtitle_widget } or { title_widget }
+    local positions = Theme.centeredStack(self.height, items, scale(3), scale(4))
+    local title_y, subtitle_y = positions[1], positions[2]
     self.layout = { title = title, subtitle = subtitle, title_y = title_y, subtitle_y = subtitle_y }
     local layers = {
-        TextWidget:new{
-            text = title,
-            face = Font:getFace("smallinfofont", title_size),
-            fgcolor = self.foreground,
-            bold = true,
-            max_width = text_width,
-            overlap_offset = { text_x, title_y },
-        },
+        title_widget,
     }
+    title_widget.overlap_offset = { text_x, title_y }
     if self.logo then
         table.insert(layers, DAppLogo:new{
             kind = self.logo,
@@ -130,13 +127,8 @@ function StoreButton:init()
         })
     end
     if has_subtitle then
-        table.insert(layers, TextWidget:new{
-            text = subtitle,
-            face = Font:getFace("smallinfofont", subtitle_size),
-            fgcolor = self.foreground,
-            max_width = text_width,
-            overlap_offset = { text_x, subtitle_y },
-        })
+        subtitle_widget.overlap_offset = { text_x, subtitle_y }
+        table.insert(layers, subtitle_widget)
     end
     self[1] = FrameContainer:new{
         width = self.width,
@@ -603,6 +595,12 @@ function AppStore:buildPane(instance, context)
     local palette = Theme.getPalette(context.manager.appdock)
     local width, height = context.dimen.w, context.dimen.h
     local margin, gap = scale(14), scale(8)
+    local heading_title = TextWidget:new{ text = _("AppStore"), face = Font:getFace("cfont", scale(21)), fgcolor = palette.on_surface, bold = true }
+    local heading_subtitle = TextWidget:new{ text = _("Trusted DApps, widgets, and designs from arduinodude456/DApps"), face = Font:getFace("smallinfofont", scale(10)), fgcolor = palette.on_variant, max_width = width - 2 * margin }
+    local header_height = math.max(scale(52), heading_title:getSize().h + heading_subtitle:getSize().h + scale(10))
+    local header_positions = Theme.centeredStack(header_height, { heading_title, heading_subtitle }, scale(4), scale(4))
+    heading_title.overlap_offset = { margin, header_positions[1] }
+    heading_subtitle.overlap_offset = { margin, header_positions[2] }
     local content = OverlapGroup:new{
         dimen = Geom:new{ w = width, h = height },
         allow_mirroring = false,
@@ -611,39 +609,29 @@ function AppStore:buildPane(instance, context)
             background = palette.background,
             emptySizedWidget(width, height),
         },
-        TextWidget:new{
-            text = _("AppStore"),
-            face = Font:getFace("cfont", scale(21)),
-            fgcolor = palette.on_surface,
-            bold = true,
-            overlap_offset = { margin, scale(12) },
-        },
-        TextWidget:new{
-            text = _("Trusted DApps, widgets, and designs from arduinodude456/DApps"),
-            face = Font:getFace("smallinfofont", scale(10)),
-            fgcolor = palette.on_variant,
-            max_width = width - 2 * margin,
-            overlap_offset = { margin, scale(40) },
-        },
+        heading_title,
+        heading_subtitle,
     }
+    local action_y = header_height + gap
+    local compact_height = scale(46)
     local refresh_width = math.floor((width - 2 * margin - gap) * 0.44)
     table.insert(content, StoreButton:new{
         title = _("Refresh catalog"), subtitle = _("Read apps, widgets, designs"),
         logo = "sync",
-        width = refresh_width, height = scale(46),
+        width = refresh_width, height = compact_height,
         background = palette.primary, foreground = palette.on_primary,
         callback = function() self:refresh(instance, context) end,
-        overlap_offset = { margin, scale(58) },
+        overlap_offset = { margin, action_y },
     })
     table.insert(content, StoreButton:new{
         title = _("Safe updates"), subtitle = _("Confirmation required"),
         logo = "app_store",
-        width = width - 2 * margin - refresh_width - gap, height = scale(46),
+        width = width - 2 * margin - refresh_width - gap, height = compact_height,
         background = palette.secondary, foreground = palette.on_secondary,
         callback = function()
             UIManager:show(InfoMessage:new{ text = _("Installations, updates, and removals always require an explicit confirmation.") })
         end,
-        overlap_offset = { margin + refresh_width + gap, scale(58) },
+        overlap_offset = { margin + refresh_width + gap, action_y },
     })
     local query = trim(state.query or "")
     local category_labels = { all = _("All"), dapp = _("Apps"), widget = _("Widgets"), design = _("Designs") }
@@ -654,7 +642,7 @@ function AppStore:buildPane(instance, context)
         width = width - 2 * margin, height = scale(42),
         background = palette.surface_variant or palette.surface, foreground = palette.on_surface_variant or palette.on_surface,
         callback = function() self:promptSearch(instance, context) end,
-        overlap_offset = { margin, scale(110) },
+        overlap_offset = { margin, action_y + compact_height + gap },
     })
     table.insert(content, StoreButton:new{
         title = _("Category: ") .. (category_labels[state.category] or category_labels.all),
@@ -664,10 +652,10 @@ function AppStore:buildPane(instance, context)
         background = palette.button or palette.primary, foreground = palette.on_button or palette.on_primary,
         frame_style = Theme.getButtonFrameStyle(context.appdock, scale(42), math.floor(scale(42) * .24)),
         callback = function() self:cycleCategory(instance, context) end,
-        overlap_offset = { margin, scale(160) },
+        overlap_offset = { margin, action_y + compact_height + gap + scale(42) + gap },
     })
 
-    local list_y, card_height = scale(210), scale(68)
+    local list_y, card_height = action_y + compact_height + gap + scale(42) + gap + scale(42) + gap, scale(68)
     if not state.refreshed then
         table.insert(content, StoreButton:new{
             title = _("Catalog ready"),

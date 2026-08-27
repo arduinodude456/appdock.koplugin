@@ -137,8 +137,10 @@ function FileRow:init()
     local text_width = math.max(scale(14), self.width - scale(26))
     local title = Theme.fitLabel(self.title or "", text_width, title_size, 0)
     local subtitle = Theme.fitLabel(self.subtitle or "", text_width, subtitle_size, 0)
-    local title_y = math.max(scale(3), math.floor((self.height - title_size - subtitle_size - scale(2)) / 2))
-    local subtitle_y = math.min(self.height - subtitle_size - scale(3), title_y + title_size + scale(2))
+    local title_widget = TextWidget:new{ text = title, face = Font:getFace("smallinfofont", title_size), fgcolor = self.foreground or PALETTE.on_surface, bold = true, max_width = text_width }
+    local subtitle_widget = TextWidget:new{ text = subtitle, face = Font:getFace("smallinfofont", subtitle_size), fgcolor = PALETTE.on_variant, max_width = text_width }
+    local positions = Theme.centeredStack(self.height, { title_widget, subtitle_widget }, scale(2), scale(3))
+    local title_y, subtitle_y = positions[1], positions[2]
     self.layout = { title = title, subtitle = subtitle, title_y = title_y, subtitle_y = subtitle_y }
     self[1] = FrameContainer:new{
         width = self.width,
@@ -149,10 +151,12 @@ function FileRow:init()
         background = self.background or PALETTE.surface,
         OverlapGroup:new{
             dimen = self.dimen, allow_mirroring = false,
-            TextWidget:new{ text = title, face = Font:getFace("smallinfofont", title_size), fgcolor = self.foreground or PALETTE.on_surface, bold = true, max_width = text_width, overlap_offset = { scale(13), title_y } },
-            TextWidget:new{ text = subtitle, face = Font:getFace("smallinfofont", subtitle_size), fgcolor = PALETTE.on_variant, max_width = text_width, overlap_offset = { scale(13), subtitle_y } },
+            title_widget,
+            subtitle_widget,
         },
     }
+    title_widget.overlap_offset = { scale(13), title_y }
+    subtitle_widget.overlap_offset = { scale(13), subtitle_y }
     self.ges_events = {
         TapFileRow = { GestureRange:new{ ges = "tap", range = self.dimen } },
     }

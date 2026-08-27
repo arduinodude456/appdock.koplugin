@@ -382,27 +382,37 @@ function ActionChip:init()
     local title = Theme.fitLabel(self.title or "", self.width, title_size, scale(12))
     local has_icon = self.logo or (self.symbol and self.symbol ~= "")
     local icon_size = math.max(scale(14), math.min(scale(24), math.floor(self.height * .52)))
-    local layers = {}
-    local title_y = math.floor((self.height - title_size) / 2)
+    local icon_widget = nil
     if has_icon then
-        local icon = self.logo and DAppLogo:new{
+        icon_widget = self.logo and DAppLogo:new{
             kind = self.logo, size = icon_size, ink = foreground,
         } or TextWidget:new{
             text = self.symbol, face = Font:getFace("cfont", icon_size), fgcolor = foreground, bold = true,
         }
-        local icon_y = title ~= "" and math.max(scale(2), math.floor(self.height * .08)) or math.max(scale(1), math.floor((self.height - icon_size) / 2) - scale(3))
-        icon.overlap_offset = { math.floor((self.width - icon_size) / 2), icon_y }
-        table.insert(layers, icon)
-        if title ~= "" then title_y = math.max(icon_y + icon_size, self.height - title_size - scale(3)) end
     end
-    if title ~= "" then
-        table.insert(layers, TextWidget:new{
-            text = title, face = Font:getFace("smallinfofont", title_size), fgcolor = foreground,
-            bold = true, max_width = math.max(scale(8), self.width - scale(12)),
-            overlap_offset = { scale(6), title_y },
+    local title_widget = title ~= "" and TextWidget:new{
+        text = title, face = Font:getFace("smallinfofont", title_size), fgcolor = foreground,
+        bold = true, max_width = math.max(scale(8), self.width - scale(12)),
+    } or nil
+    local items = icon_widget and (title_widget and { icon_widget, title_widget } or { icon_widget }) or (title_widget and { title_widget } or {})
+    local positions = Theme.centeredStack(self.height, items, title_widget and scale(2) or 0, scale(2))
+    local layers = {}
+    if icon_widget then
+        table.insert(layers, CenterContainer:new{
+            dimen = Geom:new{ w = self.width, h = icon_widget:getSize().h },
+            icon_widget,
+            overlap_offset = { 0, positions[1] },
         })
     end
-    self.layout = { title = title, title_y = title_y, has_icon = has_icon }
+    if title ~= "" then
+        local title_index = icon_widget and 2 or 1
+        table.insert(layers, CenterContainer:new{
+            dimen = Geom:new{ w = self.width, h = title_widget:getSize().h },
+            title_widget,
+            overlap_offset = { 0, positions[title_index] },
+        })
+    end
+    self.layout = { title = title, positions = positions, has_icon = has_icon }
     local frame_style = Theme.getButtonFrameStyle(ACTIVE_APPDOCK, self.height, math.floor(self.height * .36))
     self[1] = FrameContainer:new{
         width = self.width,
@@ -507,8 +517,10 @@ function SettingsRow:init()
     local text_width = math.max(scale(14), self.width - scale(26))
     local title = Theme.fitLabel(self.title or "", text_width, title_size, 0)
     detail = Theme.fitLabel(detail, text_width, detail_size, 0)
-    local title_y = math.max(scale(4), math.floor((self.height - title_size - detail_size - scale(3)) / 2))
-    local detail_y = math.min(self.height - detail_size - scale(3), title_y + title_size + scale(3))
+    local title_widget = TextWidget:new{ text = title, face = Font:getFace("smallinfofont", title_size), fgcolor = self.enabled and PALETTE.on_primary or PALETTE.on_surface, bold = true, max_width = text_width }
+    local detail_widget = TextWidget:new{ text = detail, face = Font:getFace("smallinfofont", detail_size), fgcolor = self.enabled and PALETTE.on_primary or PALETTE.on_variant, max_width = text_width }
+    local positions = Theme.centeredStack(self.height, { title_widget, detail_widget }, scale(3), scale(4))
+    local title_y, detail_y = positions[1], positions[2]
     self.layout = { title = title, detail = detail, title_y = title_y, detail_y = detail_y }
     local frame_style = Theme.getButtonFrameStyle(ACTIVE_APPDOCK, self.height, math.floor(self.height * .28))
     self[1] = FrameContainer:new{
@@ -521,10 +533,12 @@ function SettingsRow:init()
         background = self.enabled and PALETTE.primary or PALETTE.surface,
         OverlapGroup:new{
             dimen = self.dimen, allow_mirroring = false,
-            TextWidget:new{ text = title, face = Font:getFace("smallinfofont", title_size), fgcolor = self.enabled and PALETTE.on_primary or PALETTE.on_surface, bold = true, max_width = text_width, overlap_offset = { scale(13), title_y } },
-            TextWidget:new{ text = detail, face = Font:getFace("smallinfofont", detail_size), fgcolor = self.enabled and PALETTE.on_primary or PALETTE.on_variant, max_width = text_width, overlap_offset = { scale(13), detail_y } },
+            title_widget,
+            detail_widget,
         },
     }
+    title_widget.overlap_offset = { scale(13), title_y }
+    detail_widget.overlap_offset = { scale(13), detail_y }
     self.ges_events = {
         TapDAppSetting = { GestureRange:new{ ges = "tap", range = self.dimen } },
     }
@@ -2702,10 +2716,10 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("About AppDock"),
-                subtitle = _( "Version 6.0.0 · Continuity"),
+                subtitle = _( "Version 6.0.1 · Continuity"),
                 show_state = false,
                 callback = function()
-                    self:showSettingsNotice(_("AppDock 6.0.0 · Continuity\n\nThe standard interface now uses clearer Material-oriented surfaces, while Simple Mode keeps its existing reduced appearance. Optional workspace restoration only resumes explicitly permitted local DApps. Files can use registered local DApp handlers, and Settings adds text size, contrast and read-only local integrity status."))
+                    self:showSettingsNotice(_("AppDock 6.0.1 · Continuity\n\nThis maintenance update measures text rows before placing them, so AppStore, Quick Settings, Open Apps, the normal Homescreen and navigation no longer stack text over their controls. Simple Mode keeps its existing reduced appearance. Optional workspace restoration only resumes explicitly permitted local DApps. Files can use registered local DApp handlers, and Settings adds text size, contrast and read-only local integrity status."))
                 end,
             },
             {
@@ -2933,6 +2947,22 @@ function DAppHost:rebuild(preserve_active)
     end
 
     local title = self.split and _("Split screen") or self.manager.instances[ids[1]].definition.title
+    local host_title = TextWidget:new{
+        text = title,
+        face = Font:getFace("smallinfofont", expressive and Theme.adjustText(self.manager.appdock, scale(17), scale(11)) or scale(17)),
+        fgcolor = PALETTE.on_surface,
+        bold = true,
+        max_width = width - scale(100),
+    }
+    local host_title_y = math.max(scale(2), math.floor((appbar_height - host_title:getSize().h) / 2))
+    host_title.overlap_offset = { expressive and scale(28) or scale(18), host_title_y }
+    local quick_action = ActionChip:new{
+        title = "", symbol = "⌄", width = scale(34), height = scale(34),
+        background = expressive and PALETTE.primary or PALETTE.surface_variant,
+        foreground = expressive and PALETTE.on_primary or PALETTE.on_variant,
+        callback = function() self.manager:showQuickSettingsFromHost(self) end,
+        overlap_offset = { width - (expressive and scale(52) or scale(46)), math.max(scale(4), math.floor((appbar_height - scale(34)) / 2)) },
+    }
     local chrome = OverlapGroup:new{
         dimen = Geom:new{ w = width, h = height },
         allow_mirroring = false,
@@ -2946,20 +2976,8 @@ function DAppHost:rebuild(preserve_active)
             background = PALETTE.surface,
             emptySizedWidget(width, appbar_height),
         },
-        TextWidget:new{
-            text = title,
-            face = Font:getFace("smallinfofont", expressive and Theme.adjustText(self.manager.appdock, scale(17), scale(11)) or scale(17)),
-            fgcolor = PALETTE.on_surface,
-            bold = true,
-            overlap_offset = { expressive and scale(26) or scale(18), expressive and scale(20) or scale(17) },
-        },
-        ActionChip:new{
-            title = "", symbol = "⌄", width = scale(34), height = scale(34),
-            background = expressive and PALETTE.primary or PALETTE.surface_variant,
-            foreground = expressive and PALETTE.on_primary or PALETTE.on_variant,
-            callback = function() self.manager:showQuickSettingsFromHost(self) end,
-            overlap_offset = { width - (expressive and scale(52) or scale(46)), math.max(scale(4), math.floor((appbar_height - scale(34)) / 2)) },
-        },
+        host_title,
+        quick_action,
     }
     if expressive then
         table.insert(chrome, FrameContainer:new{
@@ -2967,10 +2985,10 @@ function DAppHost:rebuild(preserve_active)
             radius = scale(21), background = PALETTE.surface_variant,
             emptySizedWidget(width - scale(36), scale(42)), overlap_offset = { scale(18), scale(8) },
         })
-        table.insert(chrome, TextWidget:new{
-            text = title, face = Font:getFace("smallinfofont", Theme.adjustText(self.manager.appdock, scale(17), scale(11))), fgcolor = PALETTE.on_surface,
-            bold = true, overlap_offset = { scale(28), scale(20) },
-        })
+        table.remove(chrome, 3)
+        table.remove(chrome, 3)
+        table.insert(chrome, host_title)
+        table.insert(chrome, quick_action)
     end
 
     for index, id in ipairs(ids) do
@@ -3088,6 +3106,22 @@ function DAppRecents:build()
     local card_width = width - 2 * margin
     local card_height = expressive and scale(82) or scale(76)
     local gap = expressive and scale(14) or scale(12)
+    local heading_title = TextWidget:new{
+        text = _("Open apps"),
+        face = Font:getFace("cfont", expressive and Theme.adjustText(self.manager.appdock, scale(23), scale(16)) or scale(25)),
+        fgcolor = PALETTE.on_surface,
+        bold = true,
+    }
+    local heading_subtitle = TextWidget:new{
+        text = _("Hold an app to start split screen"),
+        face = Font:getFace("smallinfofont", expressive and scale(11) or scale(12)),
+        fgcolor = PALETTE.on_variant,
+        max_width = card_width,
+    }
+    local header_height = math.max(expressive and scale(72) or scale(64), heading_title:getSize().h + heading_subtitle:getSize().h + scale(12))
+    local header_positions = Theme.centeredStack(header_height, { heading_title, heading_subtitle }, scale(4), scale(5))
+    heading_title.overlap_offset = { expressive and margin + scale(14) or margin, header_positions[1] }
+    heading_subtitle.overlap_offset = { margin, header_positions[2] }
     local content = OverlapGroup:new{
         dimen = Geom:new{ w = width, h = height },
         allow_mirroring = false,
@@ -3096,46 +3130,27 @@ function DAppRecents:build()
             background = PALETTE.background,
             emptySizedWidget(width, height),
         },
-        TextWidget:new{
-            text = _("Open apps"),
-            face = Font:getFace("cfont", expressive and Theme.adjustText(self.manager.appdock, scale(25), scale(16)) or scale(25)),
-            fgcolor = PALETTE.on_surface,
-            bold = true,
-            overlap_offset = { margin, scale(20) },
-        },
-        TextWidget:new{
-            text = _("Hold an app to start split screen"),
-            face = Font:getFace("smallinfofont", scale(12)),
-            fgcolor = PALETTE.on_variant,
-            overlap_offset = { margin, scale(52) },
-        },
     }
     if expressive then
         table.insert(content, FrameContainer:new{
-            width = width - 2 * margin, height = scale(50), padding = 0, bordersize = 0,
-            radius = scale(25), background = PALETTE.surface,
-            emptySizedWidget(width - 2 * margin, scale(50)), overlap_offset = { margin, scale(14) },
-        })
-        table.insert(content, TextWidget:new{
-            text = _("Open apps"), face = Font:getFace("cfont", Theme.adjustText(self.manager.appdock, scale(23), scale(16))), fgcolor = PALETTE.on_surface,
-            bold = true, overlap_offset = { margin + scale(14), scale(25) },
-        })
-        table.insert(content, TextWidget:new{
-            text = _("Hold an app to start split screen"), face = Font:getFace("smallinfofont", scale(11)), fgcolor = PALETTE.on_variant,
-            overlap_offset = { margin, scale(70) },
+            width = width - 2 * margin, height = header_height - scale(8), padding = 0, bordersize = 0,
+            radius = math.floor((header_height - scale(8)) / 2), background = PALETTE.surface,
+            emptySizedWidget(width - 2 * margin, header_height - scale(8)), overlap_offset = { margin, scale(4) },
         })
     end
+    table.insert(content, heading_title)
+    table.insert(content, heading_subtitle)
     local open_apps = self.manager:getOpenApps()
     if #open_apps == 0 then
         table.insert(content, TextWidget:new{
             text = _("No DApps are open yet."),
             face = Font:getFace("smallinfofont", scale(16)),
             fgcolor = PALETTE.on_variant,
-            overlap_offset = { margin, scale(80) },
+            overlap_offset = { margin, header_height + gap },
         })
     end
     for index, app in ipairs(open_apps) do
-        local y = (expressive and scale(94) or scale(74)) + (index - 1) * (card_height + gap)
+        local y = header_height + gap + (index - 1) * (card_height + gap)
         table.insert(content, ActionChip:new{
             title = app.title,
             symbol = app.symbol,

@@ -192,22 +192,11 @@ function InfoCard:init()
     local text_width = math.max(scale(12), self.width - 2 * scale(18))
     local title = Theme.fitLabel(self.title or "", text_width, title_size, 0)
     local body = Theme.fitLabel(self.body or "", text_width, body_size, 0)
-    local content = VerticalGroup:new{
-        TextWidget:new{
-            text = title,
-            face = Font:getFace("smallinfofont", title_size),
-            fgcolor = self.foreground or PALETTE.on_surface_variant,
-            bold = true,
-            max_width = text_width,
-        },
-        VerticalSpan:new{ width = scale(4) },
-        TextWidget:new{
-            text = body,
-            face = Font:getFace("smallinfofont", body_size),
-            fgcolor = self.foreground or PALETTE.on_surface,
-            max_width = text_width,
-        },
-    }
+    local title_widget = TextWidget:new{ text = title, face = Font:getFace("smallinfofont", title_size), fgcolor = self.foreground or PALETTE.on_surface_variant, bold = true, max_width = text_width }
+    local body_widget = TextWidget:new{ text = body, face = Font:getFace("smallinfofont", body_size), fgcolor = self.foreground or PALETTE.on_surface, max_width = text_width }
+    local positions = Theme.centeredStack(self.height, { title_widget, body_widget }, scale(4), scale(5))
+    title_widget.overlap_offset = { scale(18), positions[1] }
+    body_widget.overlap_offset = { scale(18), positions[2] }
     self[1] = FrameContainer:new{
         width = self.width,
         height = self.height,
@@ -216,10 +205,7 @@ function InfoCard:init()
         color = Blitbuffer.COLOR_BLACK,
         radius = math.floor(self.height * 0.30),
         background = self.background or PALETTE.surface,
-        CenterContainer:new{
-            dimen = Geom:new{ w = self.width, h = self.height },
-            content,
-        },
+        OverlapGroup:new{ dimen = self.dimen, allow_mirroring = false, title_widget, body_widget },
     }
 end
 
@@ -573,6 +559,23 @@ function AppDockHomeScreen:build()
     local margin = scale(22)
     local top_line_height = scale(30)
     local header_y = top_line_height + scale(18)
+    local greeting_text = TextWidget:new{
+        text = greeting(),
+        face = Font:getFace("cfont", Theme.adjustText(self.appdock, scale(28), scale(18))),
+        fgcolor = PALETTE.on_surface,
+        bold = true,
+        max_width = width - 2 * margin,
+    }
+    local date_text = TextWidget:new{
+        text = os.date("%A, %d %B"),
+        face = Font:getFace("smallinfofont", Theme.adjustText(self.appdock, scale(15), scale(10))),
+        fgcolor = PALETTE.on_surface_variant,
+        max_width = width - 2 * margin,
+    }
+    local header_height = math.max(scale(62), greeting_text:getSize().h + date_text:getSize().h + scale(14))
+    local header_positions = Theme.centeredStack(header_height, { greeting_text, date_text }, scale(4), scale(6))
+    greeting_text.overlap_offset = { margin, header_y + header_positions[1] }
+    date_text.overlap_offset = { margin, header_y + header_positions[2] }
     local layout = self.appdock.settings.layout or {}
     local tile_size = math.floor(math.min(width * 0.20, height * 0.13))
     tile_size = math.max(scale(62), math.min(tile_size, scale(110)))
@@ -610,35 +613,24 @@ function AppDockHomeScreen:build()
 
     if expressive then
         table.insert(dashboard, FrameContainer:new{
-            width = width - 2 * margin, height = scale(62), padding = 0, bordersize = 0,
-            radius = scale(30), background = PALETTE.surface,
-            emptySizedWidget(width - 2 * margin, scale(62)),
-            overlap_offset = { margin, math.max(scale(32), header_y - scale(8)) },
+            width = width - 2 * margin, height = header_height, padding = 0, bordersize = 0,
+            radius = math.floor(header_height / 2), background = PALETTE.surface,
+            emptySizedWidget(width - 2 * margin, header_height),
+            overlap_offset = { margin, header_y },
         })
     end
     self:_addTopSystemLine(dashboard, width, margin)
 
-    table.insert(dashboard, TextWidget:new{
-        text = greeting(),
-        face = Font:getFace("cfont", Theme.adjustText(self.appdock, scale(28), scale(18))),
-        fgcolor = PALETTE.on_surface,
-        bold = true,
-        overlap_offset = { margin, header_y },
-    })
-    table.insert(dashboard, TextWidget:new{
-        text = os.date("%A, %d %B"),
-        face = Font:getFace("smallinfofont", Theme.adjustText(self.appdock, scale(15), scale(10))),
-        fgcolor = PALETTE.on_surface_variant,
-        overlap_offset = { margin, header_y + scale(36) },
-    })
+    table.insert(dashboard, greeting_text)
+    table.insert(dashboard, date_text)
 
-    local card_y = header_y + scale(66)
+    local card_y = header_y + header_height + scale(12)
     if layout.search_enabled then
         table.insert(dashboard, SearchBar:new{
             appdock = self.appdock, home = self, width = width - 2 * margin, height = scale(42),
-            query = self.search_query or "", overlap_offset = { margin, header_y + scale(70) },
+            query = self.search_query or "", overlap_offset = { margin, header_y + header_height + scale(8) },
         })
-        card_y = header_y + scale(122)
+        card_y = header_y + header_height + scale(42) + scale(20)
     end
     if self.appdock.settings.widgets.status then
         local status_body = safeBatteryText() or _("All systems ready")

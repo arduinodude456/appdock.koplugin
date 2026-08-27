@@ -150,6 +150,19 @@ local UIManager = require("ui/uimanager")
 assert(Theme.ellipsize("ABCDE", 4) == "ABC…", "Text overflow must use a bounded one-line ellipsis")
 assert(Theme.ellipsize("Äpfel", 4) == "Äpf…", "Text overflow must preserve complete UTF-8 characters")
 assert(Theme.fitLabel("A long compact button label", 30, 10, 0):find("…", 1, true), "Narrow controls must shorten labels instead of allowing wrapped text")
+local stack_positions, stack_total = Theme.centeredStack(80, { 18, 12, 10 }, 4, 3)
+assert(stack_total == 48 and stack_positions[1] >= 3 and stack_positions[2] >= stack_positions[1] + 22 and stack_positions[3] >= stack_positions[2] + 16, "Measured text stacks must keep every line ordered and inside a padded control")
+local recents_source = assert(io.open(plugin_dir .. "appdock_dapps.lua", "rb")):read("*a")
+local open_apps_title_count = select(2, recents_source:gsub('text = _%("Open apps"%)', ""))
+assert(open_apps_title_count == 1 and recents_source:find("local y = header_height + gap", 1, true), "Open Apps must draw one measured header and begin cards below it")
+local quick_settings_source = assert(io.open(plugin_dir .. "appdock_quicksettings.lua", "rb")):read("*a")
+assert(quick_settings_source:find("Theme.centeredStack(self.height, { symbol_widget, title_widget, subtitle_widget }", 1, true) and quick_settings_source:find("local tile_y = header_height + gap", 1, true), "Quick Settings must measure tile text and reserve a header gap before tiles")
+local appstore_source = assert(io.open(plugin_dir .. "appdock_appstore.lua", "rb")):read("*a")
+assert(appstore_source:find("local header_height = math.max", 1, true) and appstore_source:find("local list_y, card_height = action_y", 1, true), "AppStore rows must begin after their measured header and control rows")
+local homescreen_source = assert(io.open(plugin_dir .. "appdock_homescreen.lua", "rb")):read("*a")
+local simple_mode_source = homescreen_source:match("function AppDockHomeScreen:_buildSimpleMode.-\nend") or ""
+assert(homescreen_source:find("local header_positions = Theme.centeredStack", 1, true) and homescreen_source:find("local card_y = header_y + header_height", 1, true), "Normal Homescreen cards must begin after measured greeting lines")
+assert(not simple_mode_source:find("Theme.centeredStack", 1, true) and not simple_mode_source:find("has_header_surface", 1, true), "Simple Mode must retain its independent reduced layout path")
 local design_definition = Theme.normalizeDesignDefinition({
     id = "galaxy", title = "Galaxy", version = "1.0.0", highlight = "#A98BFF", background = "#111126",
     button = "#282653", text = "#F8F7FF", dropdown = "#181634", button_style = "3d", logo_shape = "circle",

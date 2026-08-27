@@ -147,8 +147,12 @@ function QuickTile:init()
     local text_width = math.max(scale(12), self.width - scale(14))
     local title = Theme.fitLabel(self.title or "", text_width, title_size, 0)
     local subtitle = Theme.fitLabel(self.subtitle or "", text_width, subtitle_size, 0)
-    local line_gap = math.max(0, math.floor(self.height * .01))
-    self.layout = { title = title, subtitle = subtitle, line_gap = line_gap, expressive = self.expressive == true }
+    local line_gap = math.max(scale(1), math.floor(self.height * .025))
+    local symbol_widget = TextWidget:new{ text = self.symbol, face = Font:getFace("cfont", symbol_size), fgcolor = foreground, bold = true }
+    local title_widget = TextWidget:new{ text = title, face = Font:getFace("smallinfofont", title_size), fgcolor = foreground, bold = true, max_width = text_width }
+    local subtitle_widget = TextWidget:new{ text = subtitle, face = Font:getFace("smallinfofont", subtitle_size), fgcolor = self.active and PALETTE.on_primary or PALETTE.on_variant, max_width = text_width }
+    local positions = Theme.centeredStack(self.height, { symbol_widget, title_widget, subtitle_widget }, line_gap, scale(4))
+    self.layout = { title = title, subtitle = subtitle, line_gap = line_gap, positions = positions, expressive = self.expressive == true }
     local frame_style = Theme.getButtonFrameStyle(self.appdock, self.height, math.floor(self.height * .32))
     self[1] = FrameContainer:new{
         width = self.width,
@@ -158,31 +162,12 @@ function QuickTile:init()
         color = frame_style.color,
         radius = frame_style.radius or math.floor(self.height * (self.expressive and 0.40 or 0.32)),
         background = background,
-        CenterContainer:new{
-            dimen = Geom:new{ w = self.width, h = self.height },
-            VerticalGroup:new{
-                TextWidget:new{
-                    text = self.symbol,
-                    face = Font:getFace("cfont", symbol_size),
-                    fgcolor = foreground,
-                    bold = true,
-                },
-                VerticalSpan:new{ width = line_gap },
-                TextWidget:new{
-                    text = title,
-                    face = Font:getFace("smallinfofont", title_size),
-                    fgcolor = foreground,
-                    bold = true,
-                    max_width = text_width,
-                },
-                VerticalSpan:new{ width = line_gap },
-                TextWidget:new{
-                    text = subtitle,
-                    face = Font:getFace("smallinfofont", subtitle_size),
-                    fgcolor = self.active and PALETTE.on_primary or PALETTE.on_variant,
-                    max_width = text_width,
-                },
-            },
+        OverlapGroup:new{
+            dimen = self.dimen,
+            allow_mirroring = false,
+            CenterContainer:new{ dimen = Geom:new{ w = self.width, h = symbol_widget:getSize().h }, symbol_widget, overlap_offset = { 0, positions[1] } },
+            CenterContainer:new{ dimen = Geom:new{ w = self.width, h = title_widget:getSize().h }, title_widget, overlap_offset = { 0, positions[2] } },
+            CenterContainer:new{ dimen = Geom:new{ w = self.width, h = subtitle_widget:getSize().h }, subtitle_widget, overlap_offset = { 0, positions[3] } },
         },
     }
     self.ges_events = {
@@ -212,19 +197,23 @@ function NotificationRow:init()
     local text_width = math.max(scale(12), self.width - scale(30))
     local title = Theme.fitLabel(notification.title or _("AppDock"), text_width, title_size, 0)
     local message = Theme.fitLabel(notification.message or "", text_width, message_size, 0)
-    local title_y = math.max(scale(3), math.floor((self.height - title_size - message_size - scale(3)) / 2))
-    local message_y = math.min(self.height - message_size - scale(3), title_y + title_size + scale(3))
+    local title_widget = TextWidget:new{ text = title, face = Font:getFace("smallinfofont", title_size), fgcolor = foreground, bold = true, max_width = text_width }
+    local message_widget = TextWidget:new{ text = message, face = Font:getFace("smallinfofont", message_size), fgcolor = message_color, max_width = text_width }
+    local positions = Theme.centeredStack(self.height, { title_widget, message_widget }, scale(3), scale(3))
+    local title_y, message_y = positions[1], positions[2]
     self[1] = FrameContainer:new{
         width = self.width, height = self.height, padding = 0, bordersize = 0,
         radius = scale(11), background = background,
         OverlapGroup:new{
             dimen = self.dimen,
             allow_mirroring = false,
-            TextWidget:new{ text = title, face = Font:getFace("smallinfofont", title_size), fgcolor = foreground, bold = true, max_width = text_width, overlap_offset = { scale(12), title_y } },
-            TextWidget:new{ text = message, face = Font:getFace("smallinfofont", message_size), fgcolor = message_color, max_width = text_width, overlap_offset = { scale(12), message_y } },
+            title_widget,
+            message_widget,
             TextWidget:new{ text = notification.read and "" or "•", face = Font:getFace("cfont", scale(18)), fgcolor = foreground, overlap_offset = { self.width - scale(18), scale(8) } },
         },
     }
+    title_widget.overlap_offset = { scale(12), title_y }
+    message_widget.overlap_offset = { scale(12), message_y }
     self.ges_events = { TapNotification = { GestureRange:new{ ges = "tap", range = self.dimen } } }
 end
 
@@ -480,11 +469,18 @@ function QuickSettings:rebuild(refresh)
     local notification_action_height = scale(34)
     local simple_mode = type(self.appdock.isSimpleModeEnabled) == "function" and self.appdock:isSimpleModeEnabled("quick_settings")
     local expressive = not simple_mode and type(self.appdock.isExpressiveUiEnabled) == "function" and self.appdock:isExpressiveUiEnabled()
+    local header_title = TextWidget:new{
+        text = _("Quick settings"),
+        face = Font:getFace("cfont", expressive and Theme.adjustText(self.appdock, scale(22), scale(16)) or scale(22)),
+        fgcolor = PALETTE.on_surface,
+        bold = true,
+    }
     if expressive then
         header_height = scale(62)
         tile_height = scale(82)
         slider_spacing = scale(14)
     end
+    header_height = math.max(header_height, header_title:getSize().h + scale(22))
     local selected_tile_ids = type(self.appdock.getQuickSettingsTiles) == "function"
         and self.appdock:getQuickSettingsTiles()
         or { "wifi", "night", "refresh", "edit" }
@@ -494,7 +490,7 @@ function QuickSettings:rebuild(refresh)
     local notification_count = #notification_items
     local show_notifications = not simple_mode
     local notification_height = notification_title_height + notification_count * (notification_row_height + gap) + (notification_count > 0 and notification_action_height + gap or 0)
-    local natural_height = header_height + tile_area_height + slider_spacing + slider_height + slider_spacing + notification_height + sheet_bottom
+    local natural_height = header_height + gap + tile_area_height + slider_spacing + slider_height + slider_spacing + notification_height + sheet_bottom
     local compact = natural_height > maximum_sheet_height
     if compact then
         margin = scale(16)
@@ -511,14 +507,15 @@ function QuickSettings:rebuild(refresh)
         notification_count = #notification_items
         notification_height = notification_title_height + notification_count * (notification_row_height + gap) + (notification_count > 0 and notification_action_height + gap or 0)
         tile_area_height = tile_rows * tile_height + math.max(0, tile_rows - 1) * gap
-        natural_height = header_height + tile_area_height + slider_spacing + slider_height + slider_spacing + notification_height + sheet_bottom
+        header_height = math.max(header_height, header_title:getSize().h + scale(16))
+        natural_height = header_height + gap + tile_area_height + slider_spacing + slider_height + slider_spacing + notification_height + sheet_bottom
         if self.dimen.h < scale(360) then
             show_notifications = false
             notification_items, notification_count, notification_height = {}, 0, 0
-            local available_tile_height = self.dimen.h - header_height - slider_spacing - slider_height - sheet_bottom - math.max(0, tile_rows - 1) * gap
+            local available_tile_height = self.dimen.h - header_height - gap - slider_spacing - slider_height - sheet_bottom - math.max(0, tile_rows - 1) * gap
             tile_height = math.max(scale(28), math.floor(available_tile_height / math.max(1, tile_rows)))
             tile_area_height = tile_rows * tile_height + math.max(0, tile_rows - 1) * gap
-            natural_height = header_height + tile_area_height + slider_spacing + slider_height + sheet_bottom
+            natural_height = header_height + gap + tile_area_height + slider_spacing + slider_height + sheet_bottom
         end
     end
     local tile_width = math.floor((width - 2 * margin - gap) / 2)
@@ -546,29 +543,26 @@ function QuickSettings:rebuild(refresh)
     }
     table.insert(content, self.sheet_frame)
 
+    local header_title_y = math.max(scale(3), math.floor((header_height - header_title:getSize().h) / 2))
     if expressive then
+        local pill_y = math.max(scale(3), header_title_y - scale(8))
         table.insert(content, FrameContainer:new{
-            width = width - 2 * margin, height = scale(44), padding = 0, bordersize = 0,
-            radius = scale(22), background = PALETTE.surface,
-            emptySizedWidget(width - 2 * margin, scale(44)), overlap_offset = { margin, scale(9) },
+            width = width - 2 * margin, height = header_title:getSize().h + scale(16), padding = 0, bordersize = 0,
+            radius = math.floor((header_title:getSize().h + scale(16)) / 2), background = PALETTE.surface,
+            emptySizedWidget(width - 2 * margin, header_title:getSize().h + scale(16)), overlap_offset = { margin, pill_y },
         })
     end
-    table.insert(content, TextWidget:new{
-        text = _("Quick settings"),
-        face = Font:getFace("cfont", expressive and Theme.adjustText(self.appdock, scale(22), scale(16)) or scale(22)),
-        fgcolor = PALETTE.on_surface,
-        bold = true,
-        overlap_offset = { expressive and margin + scale(14) or margin, expressive and scale(20) or scale(16) },
-    })
+    header_title.overlap_offset = { expressive and margin + scale(14) or margin, header_title_y }
+    table.insert(content, header_title)
     local close = TextWidget:new{
         text = "×",
         face = Font:getFace("cfont", scale(24)),
         fgcolor = PALETTE.on_variant,
     }
-    close.overlap_offset = { width - margin - close:getSize().w - (expressive and scale(12) or 0), expressive and scale(17) or scale(13) }
+    close.overlap_offset = { width - margin - close:getSize().w - (expressive and scale(12) or 0), math.max(scale(2), math.floor((header_height - close:getSize().h) / 2)) }
     table.insert(content, close)
 
-    local tile_y = header_height
+    local tile_y = header_height + gap
     local tile_definitions = {
         wifi = {
             title = _("Wi-Fi"), symbol = "W",

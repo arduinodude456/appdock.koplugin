@@ -112,6 +112,26 @@ function Theme.adjustText(appdock, scaled_size, minimum)
     return math.max(tonumber(minimum) or 1, math.floor((tonumber(scaled_size) or 1) * requested + .5))
 end
 
+function Theme.centeredStack(container_height, items, gap, padding)
+    local heights, total = {}, 0
+    local safe_gap = math.max(0, tonumber(gap) or 0)
+    local safe_padding = math.max(0, tonumber(padding) or 0)
+    for index, item in ipairs(items or {}) do
+        local size = type(item) == "table" and type(item.getSize) == "function" and item:getSize() or nil
+        local height = size and tonumber(size.h) or tonumber(item) or 0
+        heights[index] = math.max(0, math.floor(height + .5))
+        total = total + heights[index]
+    end
+    if #heights > 1 then total = total + safe_gap * (#heights - 1) end
+    local y = math.max(safe_padding, math.floor(((tonumber(container_height) or 0) - total) / 2))
+    local positions = {}
+    for index, height in ipairs(heights) do
+        positions[index] = y
+        y = y + height + safe_gap
+    end
+    return positions, total
+end
+
 function Theme.getBuiltinThemes()
     local themes = {}
     for id, definition in pairs(BUILTIN) do
