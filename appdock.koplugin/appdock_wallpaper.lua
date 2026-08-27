@@ -31,6 +31,12 @@ function Wallpaper.buildPath(path, width, height, keep_original)
 end
 
 function Wallpaper.build(appdock, width, height)
+    local active_design = appdock and appdock.getActiveDesign and appdock:getActiveDesign() or nil
+    if active_design and type(active_design.wallpaper_file) == "string" and active_design.wallpaper_file ~= "" then
+        local keep_original = appdock.settings.beta and appdock.settings.beta.keep_wallpaper_original_in_night == true
+        local design_wallpaper = Wallpaper.buildPath(active_design.wallpaper_file, width, height, keep_original)
+        if design_wallpaper then return design_wallpaper end
+    end
     local settings = appdock.settings.wallpaper or {}
     if settings.enabled ~= true then return nil end
     local keep_original = appdock.settings.beta and appdock.settings.beta.keep_wallpaper_original_in_night == true

@@ -39,6 +39,7 @@ local DEFAULT_SETTINGS = {
     },
     did_seed = false,
     theme = { selected = "lavender", custom = {} },
+    design = { active_id = nil, installed = {} },
     store = { installed = {} },
     layout = { app_spacing = 16, logo_shape = "rounded", search_enabled = false, split_ratio = .5 },
     launch_on_start = false,
@@ -103,6 +104,7 @@ function AppDock:_loadSettings()
         },
         did_seed = stored.did_seed or false,
         theme = stored.theme or { selected = "lavender", custom = {} },
+        design = stored.design or { active_id = nil, installed = {} },
         store = stored.store or { installed = {} },
         layout = stored.layout or {},
         launch_on_start = stored.launch_on_start == true,
@@ -153,6 +155,23 @@ function AppDock:_loadSettings()
     self.settings.theme = self.settings.theme or { selected = "lavender", custom = {} }
     self.settings.theme.selected = self.settings.theme.selected or "lavender"
     self.settings.theme.custom = self.settings.theme.custom or {}
+    self.settings.design = self.settings.design or { active_id = nil, installed = {} }
+    self.settings.design.installed = self.settings.design.installed or {}
+    local Theme = require("appdock_theme")
+    local normalized_designs = {}
+    for id, record in pairs(self.settings.design.installed) do
+        local normalized = Theme.normalizeDesignDefinition(record)
+        if normalized and normalized.id == id then
+            normalized.source_path = type(record.source_path) == "string" and record.source_path:sub(1, 180) or ""
+            normalized.file = type(record.file) == "string" and record.file:sub(1, 360) or ""
+            normalized.wallpaper_file = type(record.wallpaper_file) == "string" and record.wallpaper_file:sub(1, 360) or ""
+            normalized_designs[id] = normalized
+        end
+    end
+    self.settings.design.installed = normalized_designs
+    if type(self.settings.design.active_id) ~= "string" or not normalized_designs[self.settings.design.active_id] then
+        self.settings.design.active_id = nil
+    end
     self.settings.store = self.settings.store or { installed = {} }
     self.settings.store.installed = self.settings.store.installed or {}
     self.settings.notifications = self.settings.notifications or { items = {}, next_id = 0 }
@@ -256,6 +275,63 @@ function AppDock:setWallpaper(path, enabled)
     if enabled ~= nil then self.settings.wallpaper.enabled = enabled == true and Wallpaper.isValidPath(self.settings.wallpaper.path) end
     self:_saveSettings()
     return self.settings.wallpaper.enabled
+end
+
+function AppDock:getActiveDesign()
+    local Theme = require("appdock_theme")
+    return Theme.getActiveDesign(self.settings)
+end
+
+function AppDock:getStoreDesignBySource(source_path)
+    for id, record in pairs((self.settings.design and self.settings.design.installed) or {}) do
+        if record and record.source_path == source_path then return record, id end
+    end
+    return nil, nil
+end
+
+function AppDock:installStoreDesign(definition, source_path, design_file, wallpaper_file)
+    local Theme = require("appdock_theme")
+    local normalized = Theme.normalizeDesignDefinition(definition)
+    if not normalized then return false, "The design definition is invalid." end
+    if type(source_path) ~= "string" or type(design_file) ~= "string" then return false, "The design source is invalid." end
+    self.settings.design = self.settings.design or { active_id = nil, installed = {} }
+    self.settings.design.installed = self.settings.design.installed or {}
+    local current = self.settings.design.installed[normalized.id]
+    if current and current.source_path ~= source_path then return false, "A different design already uses this id." end
+    local previous_wallpaper_file = current and current.wallpaper_file or ""
+    normalized.source_path = source_path:sub(1, 180)
+    normalized.file = design_file:sub(1, 360)
+    normalized.wallpaper_file = type(wallpaper_file) == "string" and wallpaper_file:sub(1, 360) or ""
+    self.settings.design.installed[normalized.id] = normalized
+    if previous_wallpaper_file ~= "" and previous_wallpaper_file ~= normalized.wallpaper_file then os.remove(previous_wallpaper_file) end
+    self.settings.design.active_id = normalized.id
+    self:_saveSettings()
+    return true, normalized
+end
+
+function AppDock:setStoreDesignActive(id)
+    if id == nil then
+        self.settings.design.active_id = nil
+    elseif type(id) == "string" and self.settings.design and self.settings.design.installed and self.settings.design.installed[id] then
+        self.settings.design.active_id = id
+    else
+        return false
+    end
+    self:_saveSettings()
+    return true
+end
+
+function AppDock:uninstallStoreDesign(id)
+    local designs = self.settings.design and self.settings.design.installed or {}
+    local record = designs[id]
+    if not record then return false, "This AppStore design is not installed." end
+    for _, path in ipairs({ record.file, record.wallpaper_file }) do
+        if type(path) == "string" and path ~= "" then os.remove(path) end
+    end
+    designs[id] = nil
+    if self.settings.design.active_id == id then self.settings.design.active_id = nil end
+    self:_saveSettings()
+    return true
 end
 
 function AppDock:setBetaOption(key, enabled)

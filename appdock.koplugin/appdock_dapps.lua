@@ -37,6 +37,7 @@ local ok_lfs, lfs = pcall(require, "libs/libkoreader-lfs")
 if not ok_lfs then lfs = require("lfs") end
 
 local Screen = Device.screen
+local ACTIVE_APPDOCK = nil
 
 local DAppManager = {}
 DAppManager.__index = DAppManager
@@ -142,12 +143,13 @@ local PALETTE = {
 }
 
 local function applyTheme(appdock)
+    ACTIVE_APPDOCK = appdock
     local palette = Theme.getPalette(appdock)
     PALETTE.background = palette.background
     PALETTE.surface = palette.surface
     PALETTE.surface_variant = palette.surface_variant
-    PALETTE.primary = palette.primary
-    PALETTE.on_primary = palette.on_primary
+    PALETTE.primary = palette.button or palette.primary
+    PALETTE.on_primary = palette.on_button or palette.on_primary
     PALETTE.secondary = palette.secondary
     PALETTE.on_secondary = palette.on_secondary
     PALETTE.on_surface = palette.on_surface
@@ -344,12 +346,14 @@ function ActionChip:init()
         })
     end
     self.layout = { title = title, title_y = title_y, has_icon = has_icon }
+    local frame_style = Theme.getButtonFrameStyle(ACTIVE_APPDOCK, self.height, math.floor(self.height * .36))
     self[1] = FrameContainer:new{
         width = self.width,
         height = self.height,
         padding = 0,
-        bordersize = 0,
-        radius = math.floor(self.height * 0.36),
+        bordersize = frame_style.bordersize or 0,
+        color = frame_style.color,
+        radius = frame_style.radius or math.floor(self.height * 0.36),
         background = self.background or PALETTE.surface_variant,
         OverlapGroup:new{ dimen = self.dimen, allow_mirroring = false, unpack(layers) },
     }
@@ -396,12 +400,14 @@ function SettingsCategory:init()
     local foreground = self.selected and PALETTE.on_primary or PALETTE.on_surface
     local title_size = math.max(scale(7), math.min(scale(9), math.floor(self.height * .18)))
     local title = Theme.fitLabel(self.title or "", self.width, title_size, scale(8))
+    local frame_style = Theme.getButtonFrameStyle(ACTIVE_APPDOCK, self.height, scale(13))
     self[1] = FrameContainer:new{
         width = self.width,
         height = self.height,
         padding = 0,
-        bordersize = 0,
-        radius = scale(13),
+        bordersize = frame_style.bordersize or 0,
+        color = frame_style.color,
+        radius = frame_style.radius or scale(13),
         background = background,
         CenterContainer:new{
             dimen = Geom:new{ w = self.width, h = self.height },
@@ -447,12 +453,14 @@ function SettingsRow:init()
     local title_y = math.max(scale(4), math.floor((self.height - title_size - detail_size - scale(3)) / 2))
     local detail_y = math.min(self.height - detail_size - scale(3), title_y + title_size + scale(3))
     self.layout = { title = title, detail = detail, title_y = title_y, detail_y = detail_y }
+    local frame_style = Theme.getButtonFrameStyle(ACTIVE_APPDOCK, self.height, math.floor(self.height * .28))
     self[1] = FrameContainer:new{
         width = self.width,
         height = self.height,
         padding = 0,
-        bordersize = 0,
-        radius = math.floor(self.height * 0.28),
+        bordersize = frame_style.bordersize or 0,
+        color = frame_style.color,
+        radius = frame_style.radius or math.floor(self.height * .28),
         background = self.enabled and PALETTE.primary or PALETTE.surface,
         OverlapGroup:new{
             dimen = self.dimen, allow_mirroring = false,
@@ -1833,6 +1841,27 @@ function DAppManager:showThemeEditor(instance, context)
     UIManager:show(dialog)
 end
 
+function DAppManager:showStoreDesignEditor(instance, context)
+    local design = self.appdock:getActiveDesign()
+    if not design then
+        self:showSettingsNotice(_("No Store design is active. Open AppStore → Category: Designs to browse available designs."))
+        return
+    end
+    local dialog
+    dialog = ButtonDialog:new{
+        title = _("Active Store design") .. "\n" .. design.title .. " · " .. (design.button_style == "3d" and _("3D buttons") or _("Rounded buttons")) .. " · " .. (design.logo_shape == "circle" and _("circle logos") or _("rounded logos")),
+        buttons = {
+            { { text = _("Use personal appearance"), callback = function()
+                self.appdock:setStoreDesignActive(nil)
+                UIManager:close(dialog)
+                context.requestRebuild("ui")
+            end } },
+            { { text = _("Keep design"), callback = function() UIManager:close(dialog) end } },
+        },
+    }
+    UIManager:show(dialog)
+end
+
 function DAppManager:showLanguageSelector(context)
     local Language = require("ui/language")
     local dialog
@@ -2206,7 +2235,7 @@ function DAppManager:_buildSettingsPane(instance, context)
         { id = "network", title = _("Network"), subtitle = _("Connections"), logo = "network" },
         { id = "display", title = _("Display"), subtitle = _("Light and theme"), logo = "display" },
         { id = "storage", title = _("Storage"), subtitle = _("Space usage"), logo = "archive" },
-        { id = "simple", title = _("Simple"), subtitle = _("Focus mode"), logo = "other" },
+        { id = "simple", title = _("Simple Mode"), subtitle = _("Focus mode"), logo = "other" },
         { id = "other", title = _("Other"), subtitle = _("AppDock"), logo = "other" },
     }
     category_height = math.max(scale(46), math.min(scale(70), math.floor((height - 2 * margin - (#categories - 1) * gap) / #categories)))
@@ -2215,6 +2244,7 @@ function DAppManager:_buildSettingsPane(instance, context)
     local wifi_on, wifi_available = self:_wifiState()
     local selected_theme_id, selected_theme = Theme.resolveDefinition(self.appdock.settings)
     local selected_theme_title = selected_theme.title or selected_theme_id
+    local active_design = self.appdock:getActiveDesign()
     local night_mode = G_reader_settings:isTrue("night_mode")
     local wallpaper_settings = self.appdock.settings.wallpaper or { enabled = false, path = "" }
     local beta_settings = self.appdock.settings.beta or { black_borders = false, keep_wallpaper_original_in_night = false }
@@ -2240,6 +2270,12 @@ function DAppManager:_buildSettingsPane(instance, context)
                 subtitle = selected_theme_title .. " · " .. selected_theme.primary,
                 show_state = false,
                 callback = function() self:showThemeEditor(instance, context) end,
+            },
+            {
+                title = _("Store design"),
+                subtitle = active_design and (active_design.title .. " · " .. (active_design.button_style == "3d" and _("3D") or _("rounded"))) or _("Not active · browse AppStore designs"),
+                show_state = false,
+                callback = function() self:showStoreDesignEditor(instance, context) end,
             },
             {
                 title = _("Launcher layout"),
@@ -2323,10 +2359,10 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("About AppDock"),
-                subtitle = _( "Version 4.3.0 · Simple Mode"),
+                subtitle = _( "Version 4.4.0 · AppStore Designs"),
                 show_state = false,
                 callback = function()
-                    self:showSettingsNotice(_("AppDock 4.3.0 · Simple Mode\n\nSimple Mode adds three independent switches: an apps-only 4×3 homescreen, reduced Quick Settings with Wi-Fi, Night, Save power and brightness, plus a focused app list. Split screen now also updates its panes with fast E-Ink refreshes while you drag the divider."))
+                    self:showSettingsNotice(_("AppDock 4.4.0 · AppStore Designs\n\nAppStore now includes a Designs category. A Design securely applies a complete AppDock appearance: highlight, background, button, text, and dropdown colors; a local background image; button style; and app-logo shape. Galaxy and Forest are the first example designs. Designs are declarative data and are never executed as code."))
                 end,
             },
             {

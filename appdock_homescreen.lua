@@ -111,8 +111,8 @@ local function applyTheme(appdock)
     PALETTE.background = palette.background
     PALETTE.surface = palette.surface
     PALETTE.surface_variant = palette.surface_variant
-    PALETTE.primary_container = palette.primary
-    PALETTE.on_primary_container = palette.on_primary
+    PALETTE.primary_container = palette.button or palette.primary
+    PALETTE.on_primary_container = palette.on_button or palette.on_primary
     PALETTE.secondary_container = palette.secondary
     PALETTE.on_secondary_container = palette.on_secondary
     PALETTE.tertiary_container = palette.tertiary
@@ -299,13 +299,16 @@ function AppTile:init()
         fgcolor = self.foreground or PALETTE.on_primary_container,
         bold = true,
     }
+    local requested_shape = Theme.getAppLogoShape(self.appdock) or self.shape
+    local frame_style = Theme.getButtonFrameStyle(self.appdock, self.tile_size, math.floor(self.tile_size * 0.32))
+    local has_black_border = self.appdock.settings.beta and self.appdock.settings.beta.black_borders
     local tile = FrameContainer:new{
         width = self.tile_size,
         height = self.tile_size,
         padding = 0,
-        bordersize = self.appdock.settings.beta and self.appdock.settings.beta.black_borders and scale(1) or 0,
-        color = Blitbuffer.COLOR_BLACK,
-        radius = self.shape == "circle" and math.floor(self.tile_size / 2) or math.floor(self.tile_size * 0.32),
+        bordersize = has_black_border and scale(1) or (frame_style.bordersize or 0),
+        color = has_black_border and Blitbuffer.COLOR_BLACK or frame_style.color,
+        radius = requested_shape == "circle" and math.floor(self.tile_size / 2) or (frame_style.radius or math.floor(self.tile_size * 0.32)),
         background = self.background or PALETTE.primary_container,
         CenterContainer:new{
             dimen = Geom:new{ w = self.tile_size, h = self.tile_size },

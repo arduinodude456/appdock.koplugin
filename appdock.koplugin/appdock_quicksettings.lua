@@ -35,6 +35,7 @@ local QuickSettings = InputContainer:extend{
 }
 
 local QuickTile = InputContainer:extend{
+    appdock = nil,
     title = nil,
     symbol = nil,
     subtitle = nil,
@@ -85,11 +86,11 @@ local PALETTE = {
 
 local function applyTheme(appdock)
     local palette = Theme.getPalette(appdock)
-    PALETTE.sheet = palette.background
+    PALETTE.sheet = palette.dropdown or palette.background
     PALETTE.surface = palette.surface
     PALETTE.surface_variant = palette.surface_variant
-    PALETTE.primary = palette.primary
-    PALETTE.on_primary = palette.on_primary
+    PALETTE.primary = palette.button or palette.primary
+    PALETTE.on_primary = palette.on_button or palette.on_primary
     PALETTE.secondary = palette.secondary
     PALETTE.on_secondary = palette.on_secondary
     PALETTE.on_surface = palette.on_surface
@@ -143,12 +144,14 @@ function QuickTile:init()
     local subtitle = Theme.fitLabel(self.subtitle or "", text_width, subtitle_size, 0)
     local line_gap = math.max(0, math.floor(self.height * .01))
     self.layout = { title = title, subtitle = subtitle, line_gap = line_gap }
+    local frame_style = Theme.getButtonFrameStyle(self.appdock, self.height, math.floor(self.height * .32))
     self[1] = FrameContainer:new{
         width = self.width,
         height = self.height,
         padding = 0,
-        bordersize = 0,
-        radius = math.floor(self.height * 0.32),
+        bordersize = frame_style.bordersize or 0,
+        color = frame_style.color,
+        radius = frame_style.radius or math.floor(self.height * 0.32),
         background = background,
         CenterContainer:new{
             dimen = Geom:new{ w = self.width, h = self.height },
@@ -599,6 +602,7 @@ function QuickSettings:rebuild(refresh)
         local col = (index - 1) % 2
         local row = math.floor((index - 1) / 2)
         table.insert(content, QuickTile:new{
+            appdock = self.appdock,
             title = tile.title,
             symbol = tile.symbol,
             subtitle = tile.subtitle,
@@ -648,11 +652,11 @@ function QuickSettings:rebuild(refresh)
             local action_y = notifications_y + notification_title_height + notification_count * (notification_row_height + gap)
             local action_width = math.floor((width - 2 * margin - gap) / 2)
             table.insert(content, QuickTile:new{
-                title = _("Read all"), symbol = "✓", subtitle = _("Inbox"), active = false, callback = function() self:markAllNotificationsRead() end,
+                appdock = self.appdock, title = _("Read all"), symbol = "✓", subtitle = _("Inbox"), active = false, callback = function() self:markAllNotificationsRead() end,
                 width = action_width, height = notification_action_height, compact = true, overlap_offset = { margin, action_y },
             })
             table.insert(content, QuickTile:new{
-                title = _("Clear all"), symbol = "×", subtitle = _("Inbox"), active = false, callback = function() self:clearNotifications() end,
+                appdock = self.appdock, title = _("Clear all"), symbol = "×", subtitle = _("Inbox"), active = false, callback = function() self:clearNotifications() end,
                 width = action_width, height = notification_action_height, compact = true, overlap_offset = { margin + action_width + gap, action_y },
             })
         end

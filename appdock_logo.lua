@@ -170,7 +170,7 @@ end
 
 local EXTENDED_KINDS = {
     "archive", "bookmark", "calendar", "camera", "chat", "cloud", "code", "calculator",
-    "dictionary", "document", "download", "gallery", "location", "mail", "map", "music",
+    "dictionary", "document", "download", "gallery", "location", "mail", "map", "music", "palette",
     "notes", "podcast", "reading", "rss", "search", "security", "sync", "tasks", "terminal",
     "timer", "translate", "upload", "weather",
 }
@@ -247,6 +247,13 @@ function DAppLogo:_paintExtended(bb, x, y, size, kind)
         rect(x + math.floor(size * 0.29), y + math.floor(size * 0.31), math.floor(size * 0.13), math.floor(size * 0.13))
         line(bb, x + math.floor(size * 0.24), y + math.floor(size * 0.75), x + math.floor(size * 0.47), y + math.floor(size * 0.51), stroke, self.ink)
         line(bb, x + math.floor(size * 0.47), y + math.floor(size * 0.51), x + math.floor(size * 0.76), y + math.floor(size * 0.75), stroke, self.ink)
+    elseif kind == "palette" then
+        hollow(left, top, right - left, bottom - top, stroke)
+        local swatch = math.max(thin * 2, math.floor(size * 0.18))
+        rect(x + math.floor(size * 0.29), y + math.floor(size * 0.31), swatch, swatch)
+        rect(x + math.floor(size * 0.53), y + math.floor(size * 0.31), swatch, swatch)
+        rect(x + math.floor(size * 0.29), y + math.floor(size * 0.55), swatch, swatch)
+        rect(x + math.floor(size * 0.53), y + math.floor(size * 0.55), swatch, swatch)
     elseif kind == "camera" then
         hollow(x + math.floor(size * 0.12), y + math.floor(size * 0.32), math.floor(size * 0.76), math.floor(size * 0.48), stroke)
         rect(x + math.floor(size * 0.31), y + math.floor(size * 0.22), math.floor(size * 0.25), math.floor(size * 0.12))

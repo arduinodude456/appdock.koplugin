@@ -132,26 +132,99 @@ function Theme.resolveDefinition(settings)
     return "lavender", BUILTIN.lavender
 end
 
+function Theme.normalizeDesignDefinition(definition)
+    if type(definition) ~= "table" then return nil end
+    local id = type(definition.id) == "string" and definition.id:match("^%s*(.-)%s*$") or ""
+    local title = type(definition.title) == "string" and definition.title:match("^%s*(.-)%s*$") or ""
+    local highlight = Theme.normalizeHex(definition.highlight)
+    local background = Theme.normalizeHex(definition.background)
+    local button = Theme.normalizeHex(definition.button)
+    local text = Theme.normalizeHex(definition.text)
+    local dropdown = Theme.normalizeHex(definition.dropdown)
+    if not id:match("^[%w_%-]+$") or title == "" or #title > 48 then return nil end
+    if not highlight or not background or not button or not text or not dropdown then return nil end
+    return {
+        id = id,
+        title = title,
+        version = type(definition.version) == "string" and definition.version or nil,
+        highlight = highlight,
+        background = background,
+        button = button,
+        text = text,
+        dropdown = dropdown,
+        button_style = definition.button_style == "3d" and "3d" or "rounded",
+        logo_shape = definition.logo_shape == "circle" and "circle" or "rounded",
+        wallpaper = type(definition.wallpaper) == "string" and definition.wallpaper or "",
+        source_path = type(definition.source_path) == "string" and definition.source_path or "",
+        file = type(definition.file) == "string" and definition.file or "",
+        wallpaper_file = type(definition.wallpaper_file) == "string" and definition.wallpaper_file or "",
+    }
+end
+
+function Theme.getActiveDesign(settings)
+    local design = settings and settings.design or nil
+    local active_id = design and design.active_id
+    local record = type(active_id) == "string" and design.installed and design.installed[active_id] or nil
+    return Theme.normalizeDesignDefinition(record)
+end
+
+function Theme.getAppLogoShape(appdock)
+    local settings = appdock and appdock.settings or nil
+    local design = Theme.getActiveDesign(settings)
+    if design then return design.logo_shape end
+    return settings and settings.layout and settings.layout.logo_shape == "circle" and "circle" or "rounded"
+end
+
+function Theme.getButtonFrameStyle(appdock, height, rounded_radius)
+    local design = Theme.getActiveDesign(appdock and appdock.settings)
+    if not design or design.button_style ~= "3d" then
+        return { radius = rounded_radius, bordersize = 0, color = nil }
+    end
+    local border = math.max(1, Device.screen:scaleBySize(1))
+    return {
+        radius = math.max(border * 2, math.floor((tonumber(height) or 20) * .14)),
+        bordersize = border,
+        color = color(mix(design.text, design.background, .46), GRAYS.outline),
+    }
+end
+
 function Theme.getPalette(appdock)
     local settings = appdock and appdock.settings or nil
+    local design = Theme.getActiveDesign(settings)
     local resolved_theme_id, definition = Theme.resolveDefinition(settings)
     local primary = Theme.normalizeHex(definition.primary) or BUILTIN.lavender.primary
-    local secondary = mix(primary, "#E7E1F2", 0.30)
-    local tertiary = mix(primary, "#F0D8F4", 0.20)
+    local background = "#FAF8FF"
+    local text = "#1F1D24"
+    local button = primary
+    local dropdown = background
+    if design then
+        primary = design.highlight
+        background = design.background
+        text = design.text
+        button = design.button
+        dropdown = design.dropdown
+    end
+    local secondary = mix(primary, background, .42)
+    local tertiary = mix(button, background, .56)
+    local surface = mix(background, text, .93)
+    local surface_variant = mix(button, background, .25)
     return {
-        background = color("#FAF8FF", GRAYS.background),
-        surface = color("#F2F0F7", GRAYS.surface),
-        surface_variant = color("#E5E2EC", GRAYS.surface_variant),
+        background = color(background, GRAYS.background),
+        surface = color(surface, GRAYS.surface),
+        surface_variant = color(surface_variant, GRAYS.surface_variant),
         primary = color(primary, GRAYS.primary),
         secondary = color(secondary, GRAYS.secondary),
         tertiary = color(tertiary, GRAYS.tertiary),
-        on_primary = color(contrastInk(primary), GRAYS.on_primary),
-        on_secondary = color(contrastInk(secondary), GRAYS.on_secondary),
-        on_tertiary = color(contrastInk(tertiary), GRAYS.on_tertiary),
-        on_surface = color("#1F1D24", GRAYS.on_surface),
-        on_variant = color("#4C4954", GRAYS.on_variant),
-        outline = color("#797580", GRAYS.outline),
-        track = color("#C6C4CD", GRAYS.track),
+        button = color(button, GRAYS.primary),
+        dropdown = color(dropdown, GRAYS.background),
+        on_primary = color(design and text or contrastInk(primary), GRAYS.on_primary),
+        on_secondary = color(design and text or contrastInk(secondary), GRAYS.on_secondary),
+        on_tertiary = color(design and text or contrastInk(tertiary), GRAYS.on_tertiary),
+        on_button = color(design and text or contrastInk(button), GRAYS.on_primary),
+        on_surface = color(text, GRAYS.on_surface),
+        on_variant = color(mix(text, background, .70), GRAYS.on_variant),
+        outline = color(mix(text, background, .48), GRAYS.outline),
+        track = color(mix(button, background, .52), GRAYS.track),
         primary_hex = primary,
     }
 end

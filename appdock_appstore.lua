@@ -39,6 +39,9 @@ local MANIFEST_URL = REPOSITORY .. "dapps.txt"
 local MAX_MANIFEST_BYTES = 128 * 1024
 local MAX_DAPP_BYTES = 512 * 1024
 local MAX_WIDGET_BYTES = 256 * 1024
+local MAX_DESIGN_BYTES = 32 * 1024
+local MAX_WALLPAPER_BYTES = 2 * 1024 * 1024
+local DESIGN_IMAGE_SUFFIXES = { png = true, jpg = true, jpeg = true, webp = true }
 local KNOWN_LOGOS = {}
 for _, kind in ipairs(DAppLogo.availableKinds()) do KNOWN_LOGOS[kind] = true end
 
@@ -48,6 +51,31 @@ end
 
 local function trim(value)
     return type(value) == "string" and value:gsub("^%s+", ""):gsub("%s+$", "") or ""
+end
+
+local function safeDesignImagePath(path)
+    if type(path) ~= "string" or #path == 0 or #path > 180 or path:find("..", 1, true) then return false end
+    if not path:match("^[%w%._/%-]+$") then return false end
+    local suffix = path:match("%.([%w]+)$")
+    return suffix and DESIGN_IMAGE_SUFFIXES[suffix:lower()] == true or false
+end
+
+local function saveFile(path, body)
+    local temporary = path .. ".tmp"
+    os.remove(temporary)
+    local file, write_err = io.open(temporary, "wb")
+    if not file then return false, write_err end
+    local written, close_err = file:write(body)
+    file:close()
+    if not written then
+        os.remove(temporary)
+        return false, close_err
+    end
+    if not os.rename(temporary, path) then
+        os.remove(temporary)
+        return false, "could not replace local file"
+    end
+    return true
 end
 
 local function emptySizedWidget(width, height)
@@ -114,8 +142,9 @@ function StoreButton:init()
         width = self.width,
         height = self.height,
         padding = 0,
-        bordersize = 0,
-        radius = math.floor(self.height * 0.24),
+        bordersize = self.frame_style and self.frame_style.bordersize or 0,
+        color = self.frame_style and self.frame_style.color or nil,
+        radius = self.frame_style and self.frame_style.radius or math.floor(self.height * 0.24),
         background = self.background,
         OverlapGroup:new{ dimen = self.dimen, allow_mirroring = false, unpack(layers) },
     }
@@ -199,10 +228,11 @@ function AppStore.parseManifest(body)
         local path = parts[1] or value
         local version = normalizedVersion(parts[2]) and parts[2] or nil
         local logo = type(parts[3]) == "string" and KNOWN_LOGOS[parts[3]] and parts[3] or nil
-        local kind = parts[4] == "widget" and "widget" or "dapp"
-        if path ~= "" and path:match("^[%w%._/%-]+%.lua$") and not path:find("..", 1, true) and not known[path] then
+        local kind = parts[4] == "widget" and "widget" or (parts[4] == "design" and "design" or "dapp")
+        local expected_suffix = kind == "design" and "%.appdock%-design$" or "%.lua$"
+        if path ~= "" and path:match("^[%w%._/%-]+$") and path:match(expected_suffix) and not path:find("..", 1, true) and not known[path] then
             known[path] = true
-            local name = path:match("([^/]+)%.lua$") or path
+            local name = path:match("([^/]+)%.appdock%-design$") or path:match("([^/]+)%.lua$") or path
             name = name:gsub("[_%-]+", " "):gsub("%f[%a].", string.upper)
             table.insert(entries, { path = path, title = name, version = version, logo = logo, kind = kind })
         end
@@ -211,13 +241,14 @@ function AppStore.parseManifest(body)
     return entries
 end
 
-function AppStore.filterEntries(entries, query)
+function AppStore.filterEntries(entries, query, category)
     local needle = trim(query or ""):lower()
-    if needle == "" then return entries or {} end
     local result = {}
     for _, entry in ipairs(entries or {}) do
         local haystack = table.concat({ entry.title or "", entry.path or "", entry.kind or "" }, " "):lower()
-        if haystack:find(needle, 1, true) then table.insert(result, entry) end
+        local matches_query = needle == "" or haystack:find(needle, 1, true)
+        local matches_category = not category or category == "all" or entry.kind == category
+        if matches_query and matches_category then table.insert(result, entry) end
     end
     return result
 end
@@ -232,8 +263,11 @@ function AppStore:_ensureState(instance)
         error = nil,
         refreshed = false,
         query = "",
+        category = "all",
     }
     instance.app_store.query = type(instance.app_store.query) == "string" and instance.app_store.query or ""
+    local category = instance.app_store.category
+    instance.app_store.category = (category == "dapp" or category == "widget" or category == "design") and category or "all"
     return instance.app_store
 end
 
@@ -243,7 +277,7 @@ function AppStore:promptSearch(instance, context)
     dialog = InputDialog:new{
         title = _("Search AppStore"),
         input = state.query or "",
-        input_hint = _("Name, file path, DApp, or widget"),
+        input_hint = _("Name, file path, DApp, widget, or design"),
         buttons = {
             {
                 { text = _("Clear"), callback = function() state.query = ""; UIManager:close(dialog); context.requestRebuild("ui") end },
@@ -254,6 +288,17 @@ function AppStore:promptSearch(instance, context)
     }
     UIManager:show(dialog)
     dialog:onShowKeyboard()
+end
+
+function AppStore:cycleCategory(instance, context)
+    local state = self:_ensureState(instance)
+    local categories = { "all", "dapp", "widget", "design" }
+    local position = 1
+    for index, category in ipairs(categories) do
+        if category == state.category then position = index; break end
+    end
+    state.category = categories[position % #categories + 1]
+    context.requestRebuild("ui")
 end
 
 function AppStore:refresh(instance, context)
@@ -271,9 +316,17 @@ function AppStore:_storeDirectory()
     return path
 end
 
+function AppStore:_designDirectory()
+    local path = DataStorage:getDataDir() .. "/appdock_designs"
+    if lfs.attributes(path, "mode") ~= "directory" then lfs.mkdir(path) end
+    return path
+end
+
 function AppStore:_entryState(context, entry)
     local definition, record
-    if entry.kind == "widget" then
+    if entry.kind == "design" then
+        definition, record = context.appdock:getStoreDesignBySource(entry.path)
+    elseif entry.kind == "widget" then
         definition, record = context.manager:getStoreWidgetBySource(entry.path)
     else
         definition, record = context.manager:getStoreDAppBySource(entry.path)
@@ -289,23 +342,106 @@ end
 function AppStore:confirmInstall(instance, context, entry)
     local state = self:_entryState(context, entry)
     if state == "installed" then
+        if entry.kind == "design" then
+            local design = context.appdock:getStoreDesignBySource(entry.path)
+            if design and context.appdock:setStoreDesignActive(design.id) then
+                UIManager:show(InfoMessage:new{ text = _("Activated ") .. entry.title .. _(". Its colors, styles, and background are now in use.") })
+                context.requestRebuild("ui")
+                return
+            end
+        end
         UIManager:show(InfoMessage:new{ text = entry.title .. _(" is already installed and up to date.") })
         return
     end
     local is_update = state == "update"
     local is_widget = entry.kind == "widget"
-    local item_name = is_widget and _("widget") or _("DApp")
+    local is_design = entry.kind == "design"
+    local item_name = is_design and _("design") or (is_widget and _("widget") or _("DApp"))
     local action = is_update and _("Update") or _("Install")
     local message = is_update and (_("Update this installed ") .. item_name .. _(" from your trusted AppDock GitHub repository?\n\n")) or (_("Install this ") .. item_name .. _(" from your trusted AppDock GitHub repository?\n\n"))
     local dialog = ConfirmBox:new{
-        text = message .. entry.path .. (entry.version and ("\n\n" .. _("Repository version: ") .. entry.version) or "") .. _("\n\nThe file is downloaded only after you choose this action. It will be validated before being added to AppDock."),
+        text = message .. entry.path .. (entry.version and ("\n\n" .. _("Repository version: ") .. entry.version) or "") .. (is_design and _("\n\nA design is declarative data only. It is validated and applied locally; it never executes code.") or _("\n\nThe file is downloaded only after you choose this action. It will be validated before being added to AppDock.")),
         ok_text = action,
         ok_callback = function() self:install(instance, context, entry, is_update) end,
     }
     UIManager:show(dialog)
 end
 
+function AppStore:_parseDesign(body)
+    local definition = {}
+    local allowed = {
+        id = true, title = true, version = true, highlight = true, background = true,
+        button = true, text = true, dropdown = true, button_style = true, logo_shape = true, wallpaper = true,
+    }
+    for raw_line in (body or ""):gmatch("[^\r\n]+") do
+        local key, value = raw_line:match("^%s*([%w_%-]+)%s*=%s*(.-)%s*$")
+        if key and value and allowed[key] and definition[key] == nil then definition[key] = value end
+    end
+    if definition.wallpaper ~= nil and definition.wallpaper ~= "" and not safeDesignImagePath(definition.wallpaper) then
+        return nil, _("The design wallpaper path is invalid.")
+    end
+    local normalized = Theme.normalizeDesignDefinition(definition)
+    if not normalized then return nil, _("A design requires an id, title, five valid colors, and valid styles.") end
+    return normalized
+end
+
+function AppStore:installDesign(instance, context, entry)
+    local source, err = fetchText(REPOSITORY .. entry.path, MAX_DESIGN_BYTES)
+    if not source then
+        UIManager:show(InfoMessage:new{ text = _("Could not download this design: ") .. (err or "") })
+        return
+    end
+    local definition, inspect_err = self:_parseDesign(source)
+    if not definition then
+        UIManager:show(InfoMessage:new{ text = _("This file is not a valid AppDock design.\n\n") .. tostring(inspect_err) })
+        return
+    end
+    if entry.version and definition.version ~= entry.version then
+        UIManager:show(InfoMessage:new{ text = _("The downloaded design version does not match the catalog entry.") })
+        return
+    end
+    local installed, installed_id = context.appdock:getStoreDesignBySource(entry.path)
+    if installed and installed_id ~= definition.id then
+        UIManager:show(InfoMessage:new{ text = _("This update changes the design identity and was rejected.") })
+        return
+    end
+    local design_directory = self:_designDirectory()
+    local wallpaper_file = ""
+    if definition.wallpaper and definition.wallpaper ~= "" then
+        local image, image_err = fetchText(REPOSITORY .. definition.wallpaper, MAX_WALLPAPER_BYTES)
+        if not image then
+            UIManager:show(InfoMessage:new{ text = _("Could not download this design background: ") .. tostring(image_err or "") })
+            return
+        end
+        local suffix = definition.wallpaper:match("%.([%w]+)$") or "png"
+        wallpaper_file = design_directory .. "/" .. definition.id .. "_wallpaper." .. suffix:lower()
+        local image_saved, image_save_err = saveFile(wallpaper_file, image)
+        if not image_saved then
+            UIManager:show(InfoMessage:new{ text = _("Could not save this design background: ") .. tostring(image_save_err or "") })
+            return
+        end
+    end
+    local filename = entry.path:gsub("[^%w%._%-]", "_")
+    local target = design_directory .. "/" .. filename
+    local saved, save_err = saveFile(target, source)
+    if not saved then
+        UIManager:show(InfoMessage:new{ text = _("Could not save this design: ") .. tostring(save_err or "") })
+        return
+    end
+    local ok, stored = context.appdock:installStoreDesign(definition, entry.path, target, wallpaper_file)
+    if not ok then
+        UIManager:show(InfoMessage:new{ text = _("Could not activate this design: ") .. tostring(stored or "") })
+        return
+    end
+    UIManager:show(InfoMessage:new{ text = _("Installed and activated ") .. entry.title .. _(". It now controls AppDock colors, background, buttons, and app logos.") })
+    context.requestRebuild("ui")
+end
+
 function AppStore:install(instance, context, entry, is_update)
+    if entry.kind == "design" then
+        self:installDesign(instance, context, entry)
+        return
+    end
     local is_widget = entry.kind == "widget"
     local source, err = fetchText(REPOSITORY .. entry.path, is_widget and MAX_WIDGET_BYTES or MAX_DAPP_BYTES)
     if not source then
@@ -438,6 +574,24 @@ function AppStore:confirmUninstall(instance, context, entry, definition)
     UIManager:show(dialog)
 end
 
+function AppStore:confirmUninstallDesign(instance, context, entry, definition)
+    local dialog
+    dialog = ConfirmBox:new{
+        text = _("Remove this AppStore design?\n\n") .. entry.title .. _("\n\nIf it is active, AppDock returns to your existing theme, button style, and personal background settings."),
+        ok_text = _("Uninstall"),
+        ok_callback = function()
+            local ok, err = context.appdock:uninstallStoreDesign(definition.id)
+            if ok then
+                UIManager:show(InfoMessage:new{ text = _("Removed ") .. entry.title .. _(". The previous AppDock appearance is restored.") })
+                context.requestRebuild("ui")
+            else
+                UIManager:show(InfoMessage:new{ text = _("Could not remove this design: ") .. tostring(err) })
+            end
+        end,
+    }
+    UIManager:show(dialog)
+end
+
 function AppStore:_showStatus(entry, state)
     if state == "update" then return _("Update available") .. (entry.version and (" · " .. entry.version) or "") end
     if state == "installed" then return _("Installed") .. (entry.version and (" · " .. entry.version) or "") end
@@ -465,7 +619,7 @@ function AppStore:buildPane(instance, context)
             overlap_offset = { margin, scale(12) },
         },
         TextWidget:new{
-            text = _("Trusted DApps and widgets from arduinodude456/DApps"),
+            text = _("Trusted DApps, widgets, and designs from arduinodude456/DApps"),
             face = Font:getFace("smallinfofont", scale(10)),
             fgcolor = palette.on_variant,
             max_width = width - 2 * margin,
@@ -474,7 +628,7 @@ function AppStore:buildPane(instance, context)
     }
     local refresh_width = math.floor((width - 2 * margin - gap) * 0.44)
     table.insert(content, StoreButton:new{
-        title = _("Refresh catalog"), subtitle = _("Read DApps and widgets"),
+        title = _("Refresh catalog"), subtitle = _("Read apps, widgets, designs"),
         logo = "sync",
         width = refresh_width, height = scale(46),
         background = palette.primary, foreground = palette.on_primary,
@@ -492,21 +646,32 @@ function AppStore:buildPane(instance, context)
         overlap_offset = { margin + refresh_width + gap, scale(58) },
     })
     local query = trim(state.query or "")
+    local category_labels = { all = _("All"), dapp = _("Apps"), widget = _("Widgets"), design = _("Designs") }
     table.insert(content, StoreButton:new{
         title = query == "" and _("Search catalog") or (_("Search: ") .. query),
-        subtitle = query == "" and _("Filter loaded DApps and widgets") or _("Tap to change or clear this local filter"),
+        subtitle = query == "" and _("Filter loaded apps, widgets, and designs") or _("Tap to change or clear this local filter"),
         logo = "app_store",
         width = width - 2 * margin, height = scale(42),
         background = palette.surface_variant or palette.surface, foreground = palette.on_surface_variant or palette.on_surface,
         callback = function() self:promptSearch(instance, context) end,
         overlap_offset = { margin, scale(110) },
     })
+    table.insert(content, StoreButton:new{
+        title = _("Category: ") .. (category_labels[state.category] or category_labels.all),
+        subtitle = _("Tap to switch between all, apps, widgets, and designs"),
+        logo = "palette",
+        width = width - 2 * margin, height = scale(42),
+        background = palette.button or palette.primary, foreground = palette.on_button or palette.on_primary,
+        frame_style = Theme.getButtonFrameStyle(context.appdock, scale(42), math.floor(scale(42) * .24)),
+        callback = function() self:cycleCategory(instance, context) end,
+        overlap_offset = { margin, scale(160) },
+    })
 
-    local list_y, card_height = scale(160), scale(68)
+    local list_y, card_height = scale(210), scale(68)
     if not state.refreshed then
         table.insert(content, StoreButton:new{
             title = _("Catalog ready"),
-            subtitle = _("Refresh after dapps.txt is published in your repository."),
+            subtitle = _("Refresh after catalog entries are published."),
             logo = "app_store",
             width = width - 2 * margin, height = card_height,
             background = palette.surface, foreground = palette.on_surface,
@@ -522,17 +687,17 @@ function AppStore:buildPane(instance, context)
         })
     elseif not state.entries or #state.entries == 0 then
         table.insert(content, StoreButton:new{
-            title = _("No store items listed"), subtitle = _("Add relative .lua paths and versions to dapps.txt."),
+            title = _("No store items listed"), subtitle = _("Add DApps, widgets, or design paths to dapps.txt."),
             logo = "app_store",
             width = width - 2 * margin, height = card_height,
             background = palette.surface, foreground = palette.on_surface,
             overlap_offset = { margin, list_y },
         })
     else
-        local visible_entries = AppStore.filterEntries(state.entries, query)
+        local visible_entries = AppStore.filterEntries(state.entries, query, state.category)
         if #visible_entries == 0 then
             table.insert(content, StoreButton:new{
-                title = _("No matching store items"), subtitle = _("Change or clear the local search filter."),
+                title = _("No matching store items"), subtitle = _("Change the search or category filter."),
                 logo = "app_store",
                 width = width - 2 * margin, height = card_height,
                 background = palette.surface, foreground = palette.on_surface,
@@ -556,15 +721,17 @@ function AppStore:buildPane(instance, context)
                 logo = definition and definition.logo or entry.logo or "app_store",
                 width = primary_width, height = card_height,
                 background = background, foreground = foreground,
+                frame_style = Theme.getButtonFrameStyle(context.appdock, card_height, math.floor(card_height * .24)),
                 callback = function() self:confirmInstall(instance, context, entry) end,
                 overlap_offset = { 0, row_y },
             })
             if action_state == "installed" then
                 local action_height = math.floor((card_height - gap) / 2)
                 table.insert(cards, StoreButton:new{
-                    title = _("Installed"), subtitle = "",
+                    title = entry.kind == "design" and _("Use") or _("Installed"), subtitle = "",
                     width = action_width, height = action_height,
-                    background = palette.primary, foreground = palette.on_primary,
+                    background = palette.button or palette.primary, foreground = palette.on_button or palette.on_primary,
+                    frame_style = Theme.getButtonFrameStyle(context.appdock, action_height, math.floor(action_height * .24)),
                     callback = function() self:confirmInstall(instance, context, entry) end,
                     overlap_offset = { primary_width + gap, row_y },
                 })
@@ -573,7 +740,9 @@ function AppStore:buildPane(instance, context)
                     width = action_width, height = card_height - action_height - gap,
                     background = palette.tertiary, foreground = palette.on_tertiary,
                     callback = function()
-                        if entry.kind == "widget" then
+                        if entry.kind == "design" then
+                            self:confirmUninstallDesign(instance, context, entry, definition)
+                        elseif entry.kind == "widget" then
                             self:confirmUninstallWidget(instance, context, entry, definition)
                         else
                             self:confirmUninstall(instance, context, entry, definition)
@@ -585,7 +754,8 @@ function AppStore:buildPane(instance, context)
                 table.insert(cards, StoreButton:new{
                     title = action_state == "update" and _("Update") or _("Install"), subtitle = "",
                     width = action_width, height = card_height,
-                    background = palette.primary, foreground = palette.on_primary,
+                    background = palette.button or palette.primary, foreground = palette.on_button or palette.on_primary,
+                    frame_style = Theme.getButtonFrameStyle(context.appdock, card_height, math.floor(card_height * .24)),
                     callback = function() self:confirmInstall(instance, context, entry) end,
                     overlap_offset = { primary_width + gap, row_y },
                 })

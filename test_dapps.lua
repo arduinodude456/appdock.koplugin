@@ -60,7 +60,11 @@ package.preload["ui/event"] = function() return { new = function(_, name) return
 package.preload["appdock_theme"] = function()
     return dofile(plugin_dir .. "appdock_theme.lua")
 end
-package.preload["appdock_logo"] = function() return Widget end
+package.preload["appdock_logo"] = function()
+    local Logo = Widget:extend({})
+    function Logo.availableKinds() return { "app_store", "palette" } end
+    return Logo
+end
 package.preload["appdock_appstore"] = function()
     return {
         new = function()
@@ -101,6 +105,7 @@ package.preload["ui/network/manager"] = function()
         toggleWifiOff = function(_, callback) wifi_on = false; callback() end,
     }
 end
+package.preload["ui/widget/confirmbox"] = function() return WidgetContainer end
 package.preload["ui/widget/inputdialog"] = function() return WidgetContainer end
 package.preload["ui/widget/buttondialog"] = function() return WidgetContainer end
 package.preload["ui/widget/infomessage"] = function() return WidgetContainer end
@@ -111,6 +116,7 @@ package.preload["ui/widget/container/inputcontainer"] = function() return InputC
 package.preload["ui/widget/container/centercontainer"] = function() return CenterContainer end
 package.preload["ui/widget/container/framecontainer"] = function() return FrameContainer end
 package.preload["ui/widget/overlapgroup"] = function() return OverlapGroup end
+package.preload["ui/widget/container/scrollablecontainer"] = function() return WidgetContainer end
 package.preload["ui/widget/verticalgroup"] = function() return VerticalGroup end
 package.preload["ui/widget/horizontalspan"] = function() return HorizontalSpan end
 package.preload["ui/widget/verticalspan"] = function() return VerticalSpan end
@@ -144,8 +150,21 @@ local UIManager = require("ui/uimanager")
 assert(Theme.ellipsize("ABCDE", 4) == "ABC…", "Text overflow must use a bounded one-line ellipsis")
 assert(Theme.ellipsize("Äpfel", 4) == "Äpf…", "Text overflow must preserve complete UTF-8 characters")
 assert(Theme.fitLabel("A long compact button label", 30, 10, 0):find("…", 1, true), "Narrow controls must shorten labels instead of allowing wrapped text")
+local design_definition = Theme.normalizeDesignDefinition({
+    id = "galaxy", title = "Galaxy", version = "1.0.0", highlight = "#A98BFF", background = "#111126",
+    button = "#282653", text = "#F8F7FF", dropdown = "#181634", button_style = "3d", logo_shape = "circle",
+})
+assert(design_definition and design_definition.id == "galaxy" and design_definition.button_style == "3d" and design_definition.logo_shape == "circle", "A Store design must normalize all declared appearance fields")
+assert(not Theme.normalizeDesignDefinition({ id = "unsafe/id", title = "Bad", highlight = "#000000", background = "#000000", button = "#000000", text = "#FFFFFF", dropdown = "#000000" }), "Design ids must stay local-safe and require every declared color")
+local AppStoreParser = dofile(plugin_dir .. "appdock_appstore.lua")
+local design_entries = AppStoreParser.parseManifest("designs/galaxy.appdock-design | 1.0.0 | palette | design\nquote_widget.lua | 1.0.0 | help | widget")
+assert(#design_entries == 2 and design_entries[1].kind == "design" and design_entries[1].path == "designs/galaxy.appdock-design", "The AppStore catalog must accept isolated declarative design entries")
+assert(#AppStoreParser.filterEntries(design_entries, "", "design") == 1 and #AppStoreParser.filterEntries(design_entries, "", "widget") == 1, "The AppStore category filter must isolate designs from widgets")
+local parsed_design = assert(AppStoreParser:_parseDesign("id=forest\ntitle=Forest\nversion=1.0.0\nhighlight=#A5D6A7\nbackground=#122219\nbutton=#2D6745\ntext=#EFF8E9\ndropdown=#183125\nbutton_style=rounded\nlogo_shape=rounded\nwallpaper=designs/wallpapers/forest.png"))
+assert(parsed_design.id == "forest" and parsed_design.wallpaper == "designs/wallpapers/forest.png", "A declarative design must parse only its allowed appearance values")
+assert(not AppStoreParser:_parseDesign("id=forest\ntitle=Forest\nhighlight=#A5D6A7\nbackground=#122219\nbutton=#2D6745\ntext=#EFF8E9\ndropdown=#183125\nwallpaper=../forest.png"), "A design must reject traversal paths in its optional wallpaper")
 local appdock = {
-    settings = { widgets = { clock = true, status = true, reading_hint = true, store = {}, store_order = {} }, theme = { selected = "lavender", custom = {} }, layout = { app_spacing = 12, logo_shape = "rounded", search_enabled = false }, store = { installed = {} }, dapp_permissions = {}, widget_generator = { items = {}, next_id = 0 }, beta = { plugin_dapp_host = false }, simple_mode = { homescreen = false, quick_settings = false, focus_apps = false }, quick_settings = { tiles = { "wifi", "night", "refresh", "edit", "sleep", "power_saving" } }, notifications = { items = {} }, power_saving = false },
+    settings = { widgets = { clock = true, status = true, reading_hint = true, store = {}, store_order = {} }, theme = { selected = "lavender", custom = {} }, design = { active_id = nil, installed = {} }, layout = { app_spacing = 12, logo_shape = "rounded", search_enabled = false }, store = { installed = {} }, dapp_permissions = {}, widget_generator = { items = {}, next_id = 0 }, beta = { plugin_dapp_host = false }, simple_mode = { homescreen = false, quick_settings = false, focus_apps = false }, quick_settings = { tiles = { "wifi", "night", "refresh", "edit", "sleep", "power_saving" } }, notifications = { items = {} }, power_saving = false },
     toggleWidget = function(self, id) self.settings.widgets[id] = not self.settings.widgets[id] end,
     showHome = function(_, skip_lock) log.home = (log.home or 0) + 1; log.last_home_skip_lock = skip_lock end,
     showManager = function() log.manager = (log.manager or 0) + 1 end,
@@ -174,11 +193,30 @@ local appdock = {
         self.settings.theme.selected = "custom_test"
         return "custom_test"
     end,
+    getActiveDesign = function(self) return Theme.getActiveDesign(self.settings) end,
+    getStoreDesignBySource = function(self, source_path)
+        for id, design in pairs(self.settings.design.installed) do
+            if design.source_path == source_path then return design, id end
+        end
+        return nil, nil
+    end,
+    setStoreDesignActive = function(self, id) self.settings.design.active_id = id; self:_saveSettings(); return true end,
+    uninstallStoreDesign = function(self, id) self.settings.design.installed[id] = nil; if self.settings.design.active_id == id then self.settings.design.active_id = nil end; self:_saveSettings(); return true end,
     ui = {
         showFileManager = function(_, file) log.file_manager_file = file or true end,
         document = { file = "/books/example.epub" },
     },
 }
+appdock.settings.design.installed.galaxy = {
+    id = "galaxy", title = "Galaxy", version = "1.0.0", highlight = "#A98BFF", background = "#111126",
+    button = "#282653", text = "#F8F7FF", dropdown = "#181634", button_style = "3d", logo_shape = "circle",
+    source_path = "designs/galaxy.appdock-design", wallpaper_file = "/tmp/galaxy.png",
+}
+appdock.settings.design.active_id = "galaxy"
+local active_design = appdock:getActiveDesign()
+assert(active_design and active_design.id == "galaxy" and active_design.wallpaper_file == "/tmp/galaxy.png", "Active designs must retain their validated local wallpaper record")
+assert(Theme.getAppLogoShape(appdock) == "circle" and Theme.getPalette(appdock).primary_hex == "#A98BFF", "An active design must override the launcher logo form and highlight color")
+assert(Theme.getButtonFrameStyle(appdock, 48, 12).bordersize == 1, "The Galaxy design must select the visible 3D button frame")
 local manager = DAppManager:new(appdock)
 local catalog = manager:getCatalogApps()
 assert(#catalog == 6 and catalog[1].id and catalog[2].id and catalog[3].id and catalog[4].id and catalog[5].id and catalog[6].id, "DApp registry must expose all built-in catalog apps")
@@ -317,7 +355,7 @@ local storage_segments = findStorageSegments(settings_instance.pane)
 assert(storage_segments and storage_segments[1] and storage_segments[1].bytes >= 1536 and storage_segments[1].title == "books", "Storage breakdown must retain LuaFileSystem iterator state and report readable local files")
 settings_instance.settings_category = "display"
 manager:activate("settings")
-assert(settings_instance.pane.settings_layout.category == "display" and settings_instance.pane.settings_layout.row_count == 5, "Display category must include wallpaper and beta controls in the settings DApp state")
+assert(settings_instance.pane.settings_layout.category == "display" and settings_instance.pane.settings_layout.row_count == 6, "Display category must include the active Store-design, wallpaper, and beta controls in the settings DApp state")
 manager:showFrontlightSettings()
 assert(log.events[#log.events] == "ShowFlDialog", "Brightness and warmth must use KOReader's native frontlight dialog")
 manager:toggleColorTheme({ requestRebuild = function() log.settings_rebuilds = (log.settings_rebuilds or 0) + 1 end })
