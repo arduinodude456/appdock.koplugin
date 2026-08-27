@@ -2455,10 +2455,10 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("About AppDock"),
-                subtitle = _( "Version 5.1.0 · Google Search"),
+                subtitle = _( "Version 5.2.0 · HTML Reader"),
                 show_state = false,
                 callback = function()
-                    self:showSettingsNotice(_("AppDock 5.1.0 · Google Search\n\nThe Web Browser now offers direct Google GET search and renders returned result links as compact AppDock cards with title and target address. Google redirect links are opened directly. If Google requests JavaScript, CAPTCHA, or verification, AppDock shows this transparently and does not bypass the requirement."))
+                    self:showSettingsNotice(_("AppDock 5.2.0 · HTML Reader\n\nThe Web Browser now safely prepares complex server-rendered pages for E-Ink: metadata and active embeds are removed; semantic content, quotes, details, captions, tables and lazy-loaded images are preserved or normalized; unsafe document forms remain native AppDock actions only. Google search stays direct and transparent about JavaScript or verification limits."))
                 end,
             },
             {

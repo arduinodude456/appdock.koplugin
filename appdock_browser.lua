@@ -74,9 +74,17 @@ local PALETTE = {
 local BROWSER_CSS = [[
   html, body { margin: 0; padding: 0; font-family: sans-serif; line-height: 1.35; }
   body { color: #202020; background: #ffffff; }
-  h1 { font-size: 1.45em; margin: 0.7em 0 0.35em; }
-  h2, h3 { margin: 0.8em 0 0.35em; }
+  h1 { font-size: 1.45em; margin: 0.7em 0 0.35em; border-bottom: 1px solid #777777; padding-bottom: 0.2em; }
+  h2 { font-size: 1.24em; margin: 0.9em 0 0.35em; }
+  h3 { font-size: 1.08em; margin: 0.8em 0 0.3em; }
+  h4, h5, h6 { font-size: 1em; margin: 0.7em 0 0.25em; }
   p, li { margin: 0.32em 0; }
+  ul, ol { margin: 0.45em 0 0.55em 1.2em; padding: 0; }
+  blockquote { margin: 0.65em 0; padding: 0.2em 0 0.2em 0.75em; border-left: 0.35em solid #777777; color: #454545; }
+  dl { margin: 0.55em 0; } dt { font-weight: bold; margin-top: 0.45em; } dd { margin: 0.16em 0 0.35em 1em; }
+  figure { margin: 0.65em 0; } figcaption { color: #555555; font-size: 0.88em; margin: 0.25em 0; }
+  hr { border: 0; border-top: 1px solid #888888; margin: 0.9em 0; }
+  mark { background: #e5e5e5; color: #202020; }
   a { color: #173b6f; text-decoration: underline; }
   pre, code { white-space: pre-wrap; }
   img { display: block; max-width: 100%; height: auto; margin: 0.7em auto; }
@@ -88,6 +96,9 @@ local BROWSER_CSS = [[
   .appdock-google-result { border: 1px solid #777777; padding: 0.35em 0.5em; margin: 0.45em 0; }
   .appdock-google-result small { color: #555555; word-break: break-all; }
   .appdock-google-notice { border-left: 0.35em solid #777777; padding-left: 0.6em; color: #444444; }
+  .appdock-main { max-width: 100%; }
+  .appdock-details { border: 1px solid #999999; padding: 0.25em 0.5em; margin: 0.55em 0; }
+  .appdock-details-title { margin-top: 0.2em; }
   video, audio, canvas, svg, iframe, form, button, input, select, textarea { display: none; }
 ]]
 
@@ -201,12 +212,29 @@ end
 local function sanitizeHtml(html)
     -- The browser intentionally has no active web platform. Strip the most
     -- problematic blocks before passing the remaining server-rendered HTML to MuPDF.
+    html = tostring(html or ""):sub(1, MAX_BODY_BYTES)
+    html = html:gsub("<!%-%-.-%-%->", "")
+    html = html:gsub("<![Dd][Oo][Cc][Tt][Yy][Pp][Ee][^>]*>", "")
+    html = html:gsub("<[Hh][Ee][Aa][Dd][^>]*>.-</[Hh][Ee][Aa][Dd]%s*>", "")
     html = html:gsub("<[sS][cC][rR][iI][pP][tT][^>]*>.-</[sS][cC][rR][iI][pP][tT]%s*>", "")
     html = html:gsub("<[iI][fF][rR][aA][mM][eE][^>]*>.-</[iI][fF][rR][aA][mM][eE]%s*>", "")
     html = html:gsub("<[nN][oO][sS][cC][rR][iI][pP][tT][^>]*>.-</[nN][oO][sS][cC][rR][iI][pP][tT]%s*>", "")
+    html = html:gsub("<[Tt][Ee][Mm][Pp][Ll][Aa][Tt][Ee][^>]*>.-</[Tt][Ee][Mm][Pp][Ll][Aa][Tt][Ee]%s*>", "")
+    html = html:gsub("<[Oo][Bb][Jj][Ee][Cc][Tt][^>]*>.-</[Oo][Bb][Jj][Ee][Cc][Tt]%s*>", "")
+    html = html:gsub("<[Ee][Mm][Bb][Ee][Dd][^>]*>", "")
+    html = html:gsub("<[Ss][Tt][Yy][Ll][Ee][^>]*>.-</[Ss][Tt][Yy][Ll][Ee]%s*>", "")
+    html = html:gsub("<[Bb][Aa][Ss][Ee][^>]*>", "")
+    html = html:gsub("<[Mm][Ee][Tt][Aa][^>]*>", "")
+    html = html:gsub("<[Ll][Ii][Nn][Kk][^>]*>", "")
     html = html:gsub("<[fF][oO][rR][mM][^>]*>.-</[fF][oO][rR][mM]%s*>", "")
-    html = html:gsub("%s[oO][nN][%w_-]+%s*=%s*(['\"]).-\1", "")
-    html = html:gsub("%s[hH][rR][eE][fF]%s*=%s*(['\"])[jJ][aA][vV][aA][sS][cC][rR][iI][pP][tT]:.-\1", "")
+    html = html:gsub("%s[oO][nN][%w_-]+%s*=%s*\"[^\"]*\"", "")
+    html = html:gsub("%s[oO][nN][%w_-]+%s*=%s*'[^']*'", "")
+    html = html:gsub("%s[oO][nN][%w_-]+%s*=%s*[^%s>]+", "")
+    html = html:gsub("%s[hH][rR][eE][fF]%s*=%s*\"%s*[jJ][aA][vV][aA][sS][cC][rR][iI][pP][tT]:[^\"]*\"", "")
+    html = html:gsub("%s[hH][rR][eE][fF]%s*=%s*'%s*[jJ][aA][vV][aA][sS][cC][rR][iI][pP][tT]:[^']*'", "")
+    html = html:gsub("%s[hH][rR][eE][fF]%s*=%s*[jJ][aA][vV][aA][sS][cC][rR][iI][pP][tT]:[^%s>]*", "")
+    html = html:gsub("%s[sS][rR][cC]%s*=%s*(['\"])[dD][aA][tT][aA]:.-\1", "")
+    html = html:gsub("%s[sS][rR][cC]%s*=%s*[dD][aA][tT][aA]:[^%s>]*", "")
     return html
 end
 
@@ -245,11 +273,64 @@ local function getHtmlAttribute(tag, name)
     for index = 2, #name do
         prefix = prefix .. "[" .. name:sub(index, index):lower() .. name:sub(index, index):upper() .. "]"
     end
+    prefix = "%s" .. prefix
     local double = tag:match(prefix .. "%s*=%s*\"([^\"]*)\"")
     if double then return double end
     local single = tag:match(prefix .. "%s*=%s*'([^']*)'")
     if single then return single end
     return tag:match(prefix .. "%s*=%s*([^%s>]+)")
+end
+
+local function sanitizeInlineStyle(value)
+    local style = sanitizeCss(value or "")
+    style = style:gsub("[Dd][Ii][Ss][Pp][Ll][Aa][Yy]%s*:%s*[Nn][Oo][Nn][Ee]%s*;?", "")
+    style = style:gsub("[Vv][Ii][Ss][Ii][Bb][Ii][Ll][Ii][Tt][Yy]%s*:%s*[Hh][Ii][Dd][Dd][Ee][Nn]%s*;?", "")
+    style = style:gsub("[Pp][Oo][Ss][Ii][Tt][Ii][Oo][Nn]%s*:%s*[Ff][Ii][Xx][Ee][Dd]%s*;?", "")
+    return style
+end
+
+local function sanitizeInlineStyles(html)
+    local function quoted(prefix, value)
+        local clean = sanitizeInlineStyle(value)
+        return clean ~= "" and prefix .. "\"" .. escapeHtml(clean) .. "\"" or ""
+    end
+    html = html:gsub("(%s[Ss][Tt][Yy][Ll][Ee]%s*=%s*)\"([^\"]*)\"", quoted)
+    html = html:gsub("(%s[Ss][Tt][Yy][Ll][Ee]%s*=%s*)'([^']*)'", function(prefix, value)
+        local clean = sanitizeInlineStyle(value)
+        return clean ~= "" and prefix .. "'" .. clean:gsub("'", "") .. "'" or ""
+    end)
+    return html
+end
+
+local function normalizeLazyImages(html)
+    return html:gsub("(<[Ii][Mm][Gg][^>]*)(/?>)", function(tag, ending)
+        if getHtmlAttribute(tag, "src") then return tag .. ending end
+        local source = getHtmlAttribute(tag, "data-src") or getHtmlAttribute(tag, "data-original") or getHtmlAttribute(tag, "data-lazy-src")
+        if not source then
+            local source_set = getHtmlAttribute(tag, "srcset") or getHtmlAttribute(tag, "data-srcset")
+            source = source_set and source_set:match("^%s*([^,%s]+)") or nil
+        end
+        if source and source ~= "" and not source:match("^[dD][aA][tT][aA]:") and not source:match("^[jJ][aA][vV][aA][sS][cC][rR][iI][pP][tT]:") then
+            return tag .. " src=\"" .. escapeHtml(source) .. "\"" .. ending
+        end
+        return tag .. ending
+    end)
+end
+
+local function normalizeSemanticHtml(html)
+    html = html:gsub("<[Mm][Aa][Ii][Nn][^>]*>", "<div class=\"appdock-main\">")
+    html = html:gsub("</[Mm][Aa][Ii][Nn]%s*>", "</div>")
+    html = html:gsub("<[Aa][Rr][Tt][Ii][Cc][Ll][Ee][^>]*>", "<article class=\"appdock-main\">")
+    html = html:gsub("<[Dd][Ee][Tt][Aa][Ii][Ll][Ss][^>]*>", "<section class=\"appdock-details\">")
+    html = html:gsub("</[Dd][Ee][Tt][Aa][Ii][Ll][Ss]%s*>", "</section>")
+    html = html:gsub("<[Ss][Uu][Mm][Mm][Aa][Rr][Yy][^>]*>", "<h3 class=\"appdock-details-title\">")
+    html = html:gsub("</[Ss][Uu][Mm][Mm][Aa][Rr][Yy]%s*>", "</h3>")
+    html = html:gsub("<[Bb][Rr][^>]*>", "<br/>")
+    return html
+end
+
+local function prepareDocument(html)
+    return normalizeLazyImages(normalizeSemanticHtml(sanitizeInlineStyles(sanitizeHtml(html))))
 end
 
 local function stripHtml(value)
@@ -725,7 +806,7 @@ function Browser:navigate(instance, context, target, add_history)
     else
         state.forms = extractSimpleForms(html, url)
         state.page_css = pageStylesheet(html, url)
-        state.html = prepareImages(sanitizeHtml(html), url, state)
+        state.html = prepareImages(prepareDocument(html), url, state)
     end
     state.error = nil
     state.is_home = false
@@ -873,6 +954,8 @@ Browser._test = {
     sanitizeHtml = sanitizeHtml,
     sanitizeCss = sanitizeCss,
     inlineStylesheets = inlineStylesheets,
+    prepareDocument = prepareDocument,
+    normalizeLazyImages = normalizeLazyImages,
     extractSimpleForms = extractSimpleForms,
     isGoogleSearch = isGoogleSearch,
     unwrapGoogle = unwrapGoogle,
