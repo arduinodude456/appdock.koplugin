@@ -164,7 +164,7 @@ local parsed_design = assert(AppStoreParser:_parseDesign("id=forest\ntitle=Fores
 assert(parsed_design.id == "forest" and parsed_design.wallpaper == "designs/wallpapers/forest.png", "A declarative design must parse only its allowed appearance values")
 assert(not AppStoreParser:_parseDesign("id=forest\ntitle=Forest\nhighlight=#A5D6A7\nbackground=#122219\nbutton=#2D6745\ntext=#EFF8E9\ndropdown=#183125\nwallpaper=../forest.png"), "A design must reject traversal paths in its optional wallpaper")
 local appdock = {
-    settings = { widgets = { clock = true, status = true, reading_hint = true, store = {}, store_order = {} }, theme = { selected = "lavender", custom = {} }, design = { active_id = nil, installed = {} }, layout = { app_spacing = 12, logo_shape = "rounded", search_enabled = false }, store = { installed = {} }, dapp_permissions = {}, widget_generator = { items = {}, next_id = 0 }, beta = { plugin_dapp_host = false }, simple_mode = { homescreen = false, quick_settings = false, focus_apps = false }, quick_settings = { tiles = { "wifi", "night", "refresh", "edit", "sleep", "power_saving" } }, notifications = { items = {} }, power_saving = false },
+    settings = { widgets = { clock = true, status = true, reading_hint = true, store = {}, store_order = {} }, theme = { selected = "lavender", custom = {} }, design = { active_id = nil, installed = {} }, plugin_logos = {}, layout = { app_spacing = 12, logo_shape = "rounded", search_enabled = false }, store = { installed = {} }, dapp_permissions = {}, widget_generator = { items = {}, next_id = 0 }, beta = { plugin_dapp_host = false, black_borders = false, keep_wallpaper_original_in_night = false, manual_app_spacing = false, plugin_custom_logos = false }, simple_mode = { homescreen = false, quick_settings = false, focus_apps = false }, quick_settings = { tiles = { "wifi", "night", "refresh", "edit", "sleep", "power_saving" } }, notifications = { items = {} }, power_saving = false },
     toggleWidget = function(self, id) self.settings.widgets[id] = not self.settings.widgets[id] end,
     showHome = function(_, skip_lock) log.home = (log.home or 0) + 1; log.last_home_skip_lock = skip_lock end,
     showManager = function() log.manager = (log.manager or 0) + 1 end,
@@ -186,6 +186,13 @@ local appdock = {
     movePinned = function() log.moved_app = true; return true end,
     moveStoreWidget = function() log.moved_widget = true; return true end,
     setTheme = function(self, id) self.settings.theme = self.settings.theme or { custom = {} }; self.settings.theme.selected = id; return true end,
+    setLauncherLayout = function(self, changes) for key, value in pairs(changes or {}) do self.settings.layout[key] = value end; self:_saveSettings(); return true end,
+    setBetaOption = function(self, key, enabled) self.settings.beta[key] = enabled == true; self:_saveSettings(); return true end,
+    getPluginApps = function(self) return { { id = "plugin:text_editor", title = "Text editor", custom_logo_path = self.settings.plugin_logos["plugin:text_editor"] } } end,
+    setPluginLogo = function(self, app_id, path)
+        if self.settings.beta.plugin_custom_logos ~= true or app_id ~= "plugin:text_editor" then return false end
+        self.settings.plugin_logos[app_id] = path or nil; self:_saveSettings(); return true
+    end,
     createCustomTheme = function(self, title, hex)
         self.settings.theme = self.settings.theme or { custom = {} }
         self.settings.theme.custom = self.settings.theme.custom or {}
@@ -218,15 +225,20 @@ assert(active_design and active_design.id == "galaxy" and active_design.wallpape
 assert(Theme.getAppLogoShape(appdock) == "circle" and Theme.getPalette(appdock).primary_hex == "#A98BFF", "An active design must override the launcher logo form and highlight color")
 assert(Theme.getButtonFrameStyle(appdock, 48, 12).bordersize == 1, "The Galaxy design must select the visible 3D button frame")
 local manager = DAppManager:new(appdock)
+assert(not appdock:setPluginLogo("plugin:text_editor", "/books/logo.png"), "Custom non-DApp plugin logos must remain unavailable until their Beta option is enabled")
+assert(appdock:setBetaOption("plugin_custom_logos", true) and appdock:setPluginLogo("plugin:text_editor", "/books/logo.png") and appdock.settings.plugin_logos["plugin:text_editor"] == "/books/logo.png", "Enabled custom plugin logos must stay isolated to the selected non-DApp plugin")
+appdock:setBetaOption("manual_app_spacing", true)
+assert(appdock.settings.beta.manual_app_spacing and appdock:setLauncherLayout({ app_spacing = 21 }) and appdock.settings.layout.app_spacing == 21, "Manual spacing Beta must persist a bounded launcher spacing value through the layout contract")
 local catalog = manager:getCatalogApps()
 assert(#catalog == 6 and catalog[1].id and catalog[2].id and catalog[3].id and catalog[4].id and catalog[5].id and catalog[6].id, "DApp registry must expose all built-in catalog apps")
+local store_saves_before_install = log.store_saved or 0
 local store_fixture = "/tmp/appdock_store_fixture.lua"
 local store_file = assert(io.open(store_fixture, "wb"))
 store_file:write("return { id = 'quote_card', title = 'Quote Card', version = '1.0.0', subtitle = 'Stored test DApp', openFile = function(instance, path) instance.opened_file = path; return true end, backgroundTick = function(instance, context) instance.background_runs = (instance.background_runs or 0) + 1; instance.background_context = context.background end, onAutostart = function(instance, context) instance.autostart_runs = (instance.autostart_runs or 0) + 1; instance.autostart_context = context.background end, buildPane = function(instance, context) return { dimen = context.dimen } end }")
 store_file:close()
 local installed, store_id = manager:loadStoreDApp(store_fixture, "fixtures/quote_card.lua")
 assert(installed and store_id == "quote_card" and manager.definitions.quote_card, "Confirmed store DApps must be added to the AppDock registry")
-assert(appdock.settings.store.installed.quote_card and appdock.settings.store.installed.quote_card.version == "1.0.0" and log.store_saved == 1, "Store DApps must persist their local installation record and version")
+assert(appdock.settings.store.installed.quote_card and appdock.settings.store.installed.quote_card.version == "1.0.0" and log.store_saved == store_saves_before_install + 1, "Store DApps must persist their local installation record and version")
 manager:runPermittedAutostarts()
 manager:runPermittedBackgroundTasks()
 assert(not manager.instances.quote_card, "Store DApp background hooks must not instantiate or run without explicit permissions")
@@ -297,6 +309,12 @@ manager:closeDApp("bwr_video")
 manager:activate("analog_clock", "home")
 assert(manager.active_id == "analog_clock" and #manager:getOpenApps() == 1, "Activating a DApp must retain it in the open-app list")
 local host_chrome = manager.active_host[1]
+manager.showQuickSettingsFromHost = function(_, host) log.quick_settings_host = host end
+local host_quick_access
+for _, child in ipairs(host_chrome) do if child.symbol == "⌄" then host_quick_access = child; break end end
+assert(host_quick_access and host_quick_access.overlap_offset[2] < 52, "Each DApp host must expose a compact appbar control-center entry")
+host_quick_access:onTapDAppAction()
+assert(log.quick_settings_host == manager.active_host, "The DApp-host control-center entry must open Quick Settings without leaving a DApp")
 local navigation_bar, home_chip, recents_chip, close_chip = host_chrome[#host_chrome - 3], host_chrome[#host_chrome - 2], host_chrome[#host_chrome - 1], host_chrome[#host_chrome]
 assert(navigation_bar.overlap_offset[2] == 750 and navigation_bar.height == 50, "DApp hosts must reserve a separate lower system-navigation bar")
 assert(home_chip.overlap_offset[2] >= 750 and recents_chip.overlap_offset[2] == home_chip.overlap_offset[2] and close_chip.overlap_offset[2] == home_chip.overlap_offset[2], "Home, open-apps and close chips must share the lower navigation row")
@@ -355,7 +373,7 @@ local storage_segments = findStorageSegments(settings_instance.pane)
 assert(storage_segments and storage_segments[1] and storage_segments[1].bytes >= 1536 and storage_segments[1].title == "books", "Storage breakdown must retain LuaFileSystem iterator state and report readable local files")
 settings_instance.settings_category = "display"
 manager:activate("settings")
-assert(settings_instance.pane.settings_layout.category == "display" and settings_instance.pane.settings_layout.row_count == 6, "Display category must include the active Store-design, wallpaper, and beta controls in the settings DApp state")
+assert(settings_instance.pane.settings_layout.category == "display" and settings_instance.pane.settings_layout.row_count == 9, "Display category must expose regular search, outline, night-image and custom-logo controls alongside Store design, wallpaper and beta settings")
 manager:showFrontlightSettings()
 assert(log.events[#log.events] == "ShowFlDialog", "Brightness and warmth must use KOReader's native frontlight dialog")
 manager:toggleColorTheme({ requestRebuild = function() log.settings_rebuilds = (log.settings_rebuilds or 0) + 1 end })

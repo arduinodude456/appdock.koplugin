@@ -289,16 +289,19 @@ function AppTile:init()
         h = self.tile_size + scale(6) + self.label_height,
     }
 
-    local icon = self.app.logo and DAppLogo:new{
+    local icon_size = math.floor(self.tile_size * 0.52)
+    local is_plugin = type(self.app.id) == "string" and self.app.id:match("^plugin:") ~= nil
+    local icon = is_plugin and self.app.custom_logo_path and Wallpaper.buildPath(self.app.custom_logo_path, icon_size, icon_size, true) or nil
+    if not icon then icon = self.app.logo and DAppLogo:new{
         kind = self.app.logo,
-        size = math.floor(self.tile_size * 0.52),
+        size = icon_size,
         ink = self.foreground or PALETTE.on_primary_container,
     } or TextWidget:new{
         text = self.symbol or iconFor(self.app),
         face = Font:getFace("cfont", math.floor(self.tile_size * 0.40)),
         fgcolor = self.foreground or PALETTE.on_primary_container,
         bold = true,
-    }
+    } end
     local requested_shape = Theme.getAppLogoShape(self.appdock) or self.shape
     local frame_style = Theme.getButtonFrameStyle(self.appdock, self.tile_size, math.floor(self.tile_size * 0.32))
     local has_black_border = self.appdock.settings.beta and self.appdock.settings.beta.black_borders

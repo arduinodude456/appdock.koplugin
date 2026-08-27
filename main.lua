@@ -40,13 +40,14 @@ local DEFAULT_SETTINGS = {
     did_seed = false,
     theme = { selected = "lavender", custom = {} },
     design = { active_id = nil, installed = {} },
+    plugin_logos = {},
     store = { installed = {} },
     layout = { app_spacing = 16, logo_shape = "rounded", search_enabled = false, split_ratio = .5 },
     launch_on_start = false,
     notifications = { items = {}, next_id = 0 },
     wallpaper = { enabled = false, path = "" },
     lockscreen = { enabled = false, method = "swipe", secret_hash = nil, profile_name = "", profile_image_path = "" },
-    beta = { black_borders = false, keep_wallpaper_original_in_night = false, plugin_dapp_host = false },
+    beta = { black_borders = false, keep_wallpaper_original_in_night = false, plugin_dapp_host = false, manual_app_spacing = false, plugin_custom_logos = false },
     quick_settings = { tiles = { "wifi", "night", "refresh", "edit", "sleep", "power_saving", "wallpaper" } },
     simple_mode = { homescreen = false, quick_settings = false, focus_apps = false },
     dapp_permissions = {},
@@ -105,13 +106,14 @@ function AppDock:_loadSettings()
         did_seed = stored.did_seed or false,
         theme = stored.theme or { selected = "lavender", custom = {} },
         design = stored.design or { active_id = nil, installed = {} },
+        plugin_logos = stored.plugin_logos or {},
         store = stored.store or { installed = {} },
         layout = stored.layout or {},
         launch_on_start = stored.launch_on_start == true,
         notifications = stored.notifications or { items = {}, next_id = 0 },
         wallpaper = stored.wallpaper or { enabled = false, path = "" },
         lockscreen = stored.lockscreen or { enabled = false, method = "swipe", secret_hash = nil, profile_name = "", profile_image_path = "" },
-        beta = stored.beta or { black_borders = false, keep_wallpaper_original_in_night = false, plugin_dapp_host = false },
+        beta = stored.beta or { black_borders = false, keep_wallpaper_original_in_night = false, plugin_dapp_host = false, manual_app_spacing = false, plugin_custom_logos = false },
         quick_settings = stored.quick_settings or { tiles = copyArray(DEFAULT_SETTINGS.quick_settings.tiles) },
         simple_mode = stored.simple_mode or { homescreen = false, quick_settings = false, focus_apps = false },
         dapp_permissions = stored.dapp_permissions or {},
@@ -172,6 +174,16 @@ function AppDock:_loadSettings()
     if type(self.settings.design.active_id) ~= "string" or not normalized_designs[self.settings.design.active_id] then
         self.settings.design.active_id = nil
     end
+    self.settings.plugin_logos = self.settings.plugin_logos or {}
+    local Wallpaper = require("appdock_wallpaper")
+    local normalized_plugin_logos = {}
+    for app_id, path in pairs(self.settings.plugin_logos) do
+        if type(app_id) == "string" and app_id:match("^plugin:[%w_%-]+$") and type(path) == "string" and Wallpaper.isValidPath(path) then
+            local logo_file = io.open(path, "rb")
+            if logo_file then logo_file:close(); normalized_plugin_logos[app_id] = path:sub(1, 360) end
+        end
+    end
+    self.settings.plugin_logos = normalized_plugin_logos
     self.settings.store = self.settings.store or { installed = {} }
     self.settings.store.installed = self.settings.store.installed or {}
     self.settings.notifications = self.settings.notifications or { items = {}, next_id = 0 }
@@ -185,7 +197,6 @@ function AppDock:_loadSettings()
     if self.settings.lockscreen.method ~= "pin" and self.settings.lockscreen.method ~= "pattern" then self.settings.lockscreen.method = "swipe" end
     self.settings.lockscreen.secret_hash = type(self.settings.lockscreen.secret_hash) == "string" and self.settings.lockscreen.secret_hash or nil
     self.settings.lockscreen.profile_name = type(self.settings.lockscreen.profile_name) == "string" and (self.settings.lockscreen.profile_name:sub(1, 36):match("^%s*(.-)%s*$") or "") or ""
-    local Wallpaper = require("appdock_wallpaper")
     local profile_path = type(self.settings.lockscreen.profile_image_path) == "string" and self.settings.lockscreen.profile_image_path:sub(1, 360) or ""
     if profile_path ~= "" and Wallpaper.isValidPath(profile_path) then
         local profile_file = io.open(profile_path, "rb")
@@ -198,6 +209,8 @@ function AppDock:_loadSettings()
     self.settings.beta.black_borders = self.settings.beta.black_borders == true
     self.settings.beta.keep_wallpaper_original_in_night = self.settings.beta.keep_wallpaper_original_in_night == true
     self.settings.beta.plugin_dapp_host = self.settings.beta.plugin_dapp_host == true
+    self.settings.beta.manual_app_spacing = self.settings.beta.manual_app_spacing == true
+    self.settings.beta.plugin_custom_logos = self.settings.beta.plugin_custom_logos == true
     self.settings.quick_settings = self.settings.quick_settings or {}
     self.settings.quick_settings.tiles = copyArray(self.settings.quick_settings.tiles or DEFAULT_SETTINGS.quick_settings.tiles)
     self.settings.simple_mode = self.settings.simple_mode or {}
@@ -321,6 +334,30 @@ function AppDock:setStoreDesignActive(id)
     return true
 end
 
+function AppDock:getPluginLogo(app_id)
+    local logos = self.settings.plugin_logos or {}
+    return type(app_id) == "string" and logos[app_id] or nil
+end
+
+function AppDock:setPluginLogo(app_id, path)
+    if self.settings.beta.plugin_custom_logos ~= true or type(app_id) ~= "string" or not app_id:match("^plugin:[%w_%-]+$") then return false end
+    self.settings.plugin_logos = self.settings.plugin_logos or {}
+    if path == nil or path == "" then
+        self.settings.plugin_logos[app_id] = nil
+        self:_saveSettings()
+        return true
+    end
+    local Wallpaper = require("appdock_wallpaper")
+    local candidate = type(path) == "string" and path:sub(1, 360) or ""
+    if not Wallpaper.isValidPath(candidate) then return false end
+    local logo_file = io.open(candidate, "rb")
+    if not logo_file then return false end
+    logo_file:close()
+    self.settings.plugin_logos[app_id] = candidate
+    self:_saveSettings()
+    return true
+end
+
 function AppDock:uninstallStoreDesign(id)
     local designs = self.settings.design and self.settings.design.installed or {}
     local record = designs[id]
@@ -335,7 +372,7 @@ function AppDock:uninstallStoreDesign(id)
 end
 
 function AppDock:setBetaOption(key, enabled)
-    if key ~= "black_borders" and key ~= "keep_wallpaper_original_in_night" and key ~= "plugin_dapp_host" then return false end
+    if key ~= "black_borders" and key ~= "keep_wallpaper_original_in_night" and key ~= "plugin_dapp_host" and key ~= "manual_app_spacing" and key ~= "plugin_custom_logos" then return false end
     self.settings.beta[key] = enabled == true
     self:_saveSettings()
     return true
@@ -762,6 +799,7 @@ function AppDock:_makePluginApp(plugin_module)
         subtitle = plugin_module.description or plugin_module.name,
         actions = actions,
         instance = instance,
+        custom_logo_path = self:getPluginLogo("plugin:" .. plugin_module.name),
         buildAppDockPane = type(instance.buildAppDockPane) == "function" and instance.buildAppDockPane or nil,
     }
 end

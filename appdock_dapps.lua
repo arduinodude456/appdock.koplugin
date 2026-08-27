@@ -333,7 +333,7 @@ function ActionChip:init()
         } or TextWidget:new{
             text = self.symbol, face = Font:getFace("cfont", icon_size), fgcolor = foreground, bold = true,
         }
-        local icon_y = title ~= "" and math.max(scale(2), math.floor(self.height * .08)) or math.floor((self.height - icon_size) / 2)
+        local icon_y = title ~= "" and math.max(scale(2), math.floor(self.height * .08)) or math.max(scale(1), math.floor((self.height - icon_size) / 2) - scale(3))
         icon.overlap_offset = { math.floor((self.width - icon_size) / 2), icon_y }
         table.insert(layers, icon)
         if title ~= "" then title_y = math.max(icon_y + icon_size, self.height - title_size - scale(3)) end
@@ -1894,7 +1894,8 @@ function DAppManager:showLauncherLayout(instance, context)
         buttons = {
             { { text = _("Compact spacing"), callback = function() choose({ app_spacing = 10 }) end }, { text = _("Comfortable spacing"), callback = function() choose({ app_spacing = 16 }) end } },
             { { text = _("Wide spacing"), callback = function() choose({ app_spacing = 24 }) end }, { text = layout.logo_shape == "circle" and _("Use rounded boxes") or _("Use circles"), callback = function() choose({ logo_shape = layout.logo_shape == "circle" and "rounded" or "circle" }) end } },
-            { { text = layout.search_enabled and _("Disable app search") or _("Enable app search (Beta)"), callback = function() choose({ search_enabled = not layout.search_enabled }) end } },
+            { { text = layout.search_enabled and _("Disable app search") or _("Enable app search"), callback = function() choose({ search_enabled = not layout.search_enabled }) end } },
+            { { text = _("Set spacing manually (Beta)"), callback = function() UIManager:close(dialog); self:showManualAppSpacingDialog(instance, context) end } },
             { { text = _("Cancel"), callback = function() UIManager:close(dialog) end } },
         },
     }
@@ -2017,6 +2018,77 @@ function DAppManager:showLockscreenEditor(instance, context)
     UIManager:show(dialog)
 end
 
+function DAppManager:showManualAppSpacingDialog(instance, context)
+    if self.appdock.settings.beta.manual_app_spacing ~= true then
+        self:showSettingsNotice(_("Enable manual app spacing in Beta features first."))
+        return
+    end
+    local dialog
+    dialog = InputDialog:new{
+        title = _("Manual app spacing"),
+        description = _("Choose a value from 8 to 34 pixels. This controls the distance between homescreen apps."),
+        input_hint = _("8–34"), input_type = "number", input = tostring(self.appdock.settings.layout.app_spacing or 16),
+        buttons = { {
+            { text = _("Cancel"), callback = function() UIManager:close(dialog) end },
+            { text = _("Save"), is_enter_default = true, callback = function()
+                local value = tonumber(dialog:getInputText() or "")
+                UIManager:close(dialog)
+                if not value or value < 8 or value > 34 then
+                    self:showSettingsNotice(_("Enter a whole number from 8 to 34."))
+                    return
+                end
+                self.appdock:setLauncherLayout({ app_spacing = math.floor(value) })
+                context.requestRebuild("ui")
+            end },
+        } },
+    }
+    UIManager:show(dialog); dialog:onShowKeyboard()
+end
+
+function DAppManager:showPluginLogoPathDialog(instance, context, app)
+    local dialog
+    dialog = InputDialog:new{
+        title = _("Plugin logo") .. " · " .. app.title,
+        description = _("Choose an existing local PNG, JPG, GIF, WEBP or SVG file. This logo is used only for this non-DApp plugin tile."),
+        input_hint = _("Full local image path"), input = app.custom_logo_path or "",
+        buttons = { {
+            { text = _("Clear logo"), callback = function()
+                self.appdock:setPluginLogo(app.id, nil)
+                UIManager:close(dialog); context.requestRebuild("ui")
+            end },
+            { text = _("Use image"), is_enter_default = true, callback = function()
+                local saved = self.appdock:setPluginLogo(app.id, dialog:getInputText() or "")
+                UIManager:close(dialog)
+                if not saved then self:showSettingsNotice(_("Choose an existing local PNG, JPG, GIF, WEBP or SVG file.")) end
+                context.requestRebuild("ui")
+            end },
+        } },
+    }
+    UIManager:show(dialog); dialog:onShowKeyboard()
+end
+
+function DAppManager:showPluginLogoEditor(instance, context)
+    if self.appdock.settings.beta.plugin_custom_logos ~= true then
+        self:showSettingsNotice(_("Enable custom plugin logos in Beta features first."))
+        return
+    end
+    local apps, buttons = self.appdock:getPluginApps(), {}
+    local dialog
+    for _, app in ipairs(apps) do
+        buttons[#buttons + 1] = { { text = app.custom_logo_path and ("✓ " .. app.title) or app.title, callback = function()
+            UIManager:close(dialog)
+            self:showPluginLogoPathDialog(instance, context, app)
+        end } }
+    end
+    if #buttons == 0 then
+        self:showSettingsNotice(_("No compatible non-DApp plugin tiles are currently available."))
+        return
+    end
+    buttons[#buttons + 1] = { { text = _("Cancel"), callback = function() UIManager:close(dialog) end } }
+    dialog = ButtonDialog:new{ title = _("Custom plugin logos"), buttons = buttons, rows_per_page = { 4, 5, 6 } }
+    UIManager:show(dialog)
+end
+
 function DAppManager:showBetaFeatures(instance, context)
     local beta = self.appdock.settings.beta
     local dialog
@@ -2028,9 +2100,9 @@ function DAppManager:showBetaFeatures(instance, context)
     dialog = ButtonDialog:new{
         title = _("Beta features"),
         buttons = {
-            { { text = (beta.black_borders and "✓ " or "") .. _("Black borders around AppDock controls"), callback = function() toggle("black_borders") end } },
-            { { text = (beta.keep_wallpaper_original_in_night and "✓ " or "") .. _("Do not invert background image in night mode"), callback = function() toggle("keep_wallpaper_original_in_night") end } },
             { { text = (beta.plugin_dapp_host and "✓ " or "") .. _("Run plugin tiles in AppDock hosts (Beta · no split screen)"), callback = function() toggle("plugin_dapp_host") end } },
+            { { text = (beta.manual_app_spacing and "✓ " or "") .. _("Manual app spacing"), callback = function() toggle("manual_app_spacing") end } },
+            { { text = (beta.plugin_custom_logos and "✓ " or "") .. _("Custom logos for non-DApp plugins"), callback = function() toggle("plugin_custom_logos") end } },
             { { text = _("Cancel"), callback = function() UIManager:close(dialog) end } },
         },
     }
@@ -2290,8 +2362,32 @@ function DAppManager:_buildSettingsPane(instance, context)
                 callback = function() self:showWallpaperEditor(instance, context) end,
             },
             {
+                title = _("Black outlines"),
+                subtitle = beta_settings.black_borders and _("Visible around AppDock controls") or _("Not shown"),
+                enabled = beta_settings.black_borders,
+                callback = function()
+                    self.appdock:setBetaOption("black_borders", not beta_settings.black_borders)
+                    context.requestRebuild("ui")
+                end,
+            },
+            {
+                title = _("Keep background image in night mode"),
+                subtitle = beta_settings.keep_wallpaper_original_in_night and _("Original image is retained") or _("Standard night processing"),
+                enabled = beta_settings.keep_wallpaper_original_in_night,
+                callback = function()
+                    self.appdock:setBetaOption("keep_wallpaper_original_in_night", not beta_settings.keep_wallpaper_original_in_night)
+                    context.requestRebuild("ui")
+                end,
+            },
+            {
+                title = _("Custom plugin logos"),
+                subtitle = beta_settings.plugin_custom_logos and _("Choose a local logo for a non-DApp plugin") or _("Enable in Beta features first"),
+                show_state = false,
+                callback = function() self:showPluginLogoEditor(instance, context) end,
+            },
+            {
                 title = _("Beta features"),
-                subtitle = (beta_settings.black_borders and _("Borders") or _("No borders")) .. " · " .. (beta_settings.keep_wallpaper_original_in_night and _("night image kept") or _("standard night image")),
+                subtitle = (beta_settings.manual_app_spacing and _("manual spacing") or _("fixed spacing")) .. " · " .. (beta_settings.plugin_custom_logos and _("plugin logos") or _("standard logos")),
                 show_state = false,
                 callback = function() self:showBetaFeatures(instance, context) end,
             },
@@ -2359,10 +2455,10 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("About AppDock"),
-                subtitle = _( "Version 4.4.0 · AppStore Designs"),
+                subtitle = _( "Version 5.0.0 · Antigravity"),
                 show_state = false,
                 callback = function()
-                    self:showSettingsNotice(_("AppDock 4.4.0 · AppStore Designs\n\nAppStore now includes a Designs category. A Design securely applies a complete AppDock appearance: highlight, background, button, text, and dropdown colors; a local background image; button style; and app-logo shape. Galaxy and Forest are the first example designs. Designs are declarative data and are never executed as code."))
+                    self:showSettingsNotice(_("AppDock 5.0.0 · Antigravity\n\nAntigravity brings regular launcher search, outlines and night-image controls; experimental manual app spacing and local custom logos for non-DApp plugins; a control-center button inside every DApp host; safer CSS, simple GET-form and table support in the browser; and improved Manga EPUB image paths in DReader. Install DBASIC from AppStore for local BASIC programs with bounded graphics and touch commands."))
                 end,
             },
             {
@@ -2598,6 +2694,12 @@ function DAppHost:rebuild(preserve_active)
             fgcolor = PALETTE.on_surface,
             bold = true,
             overlap_offset = { scale(18), scale(17) },
+        },
+        ActionChip:new{
+            title = "", symbol = "⌄", width = scale(34), height = scale(34),
+            background = PALETTE.surface_variant,
+            callback = function() self.manager:showQuickSettingsFromHost(self) end,
+            overlap_offset = { width - scale(46), math.max(scale(4), math.floor((appbar_height - scale(34)) / 2)) },
         },
     }
 

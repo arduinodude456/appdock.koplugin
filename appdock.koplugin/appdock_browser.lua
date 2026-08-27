@@ -32,6 +32,8 @@ local MAX_BODY_BYTES = 2 * 1024 * 1024
 local MAX_IMAGE_BYTES = 1536 * 1024
 local MAX_IMAGE_TOTAL_BYTES = 5 * 1024 * 1024
 local MAX_IMAGES_PER_PAGE = 8
+local MAX_CSS_BYTES = 192 * 1024
+local MAX_STYLESHEETS = 3
 local REQUEST_TIMEOUT = 12
 local REQUEST_MAX_TIME = 30
 local DUCKDUCKGO_HTML = "https://html.duckduckgo.com/html/?q="
@@ -76,6 +78,10 @@ local BROWSER_CSS = [[
   a { color: #173b6f; text-decoration: underline; }
   pre, code { white-space: pre-wrap; }
   img { display: block; max-width: 100%; height: auto; margin: 0.7em auto; }
+  table { width: 100%; border-collapse: collapse; margin: 0.75em 0; font-size: 0.90em; }
+  caption { font-weight: bold; text-align: left; margin: 0.3em 0; }
+  th, td { border: 1px solid #555555; padding: 0.28em 0.35em; vertical-align: top; }
+  th { background: #e9e9e9; font-weight: bold; }
   .appdock-image-fallback { color: #555555; font-style: italic; }
   video, audio, canvas, svg, iframe, form, button, input, select, textarea { display: none; }
 ]]
@@ -171,6 +177,32 @@ local function sanitizeHtml(html)
     return html
 end
 
+local function sanitizeCss(css)
+    if type(css) ~= "string" then return "" end
+    css = css:sub(1, MAX_CSS_BYTES)
+    css = css:gsub("/%*.-%*/", "")
+    css = css:gsub("@[Ii][Mm][Pp][Oo][Rr][Tt][^;]*;", "")
+    css = css:gsub("@[Ff][Oo][Nn][Tt]%-[Ff][Aa][Cc][Ee]%s*%b{}", "")
+    css = css:gsub("[Uu][Rr][Ll]%s*%b()", "")
+    css = css:gsub("[Ee][Xx][Pp][Rr][Ee][Ss][Ss][Ii][Oo][Nn]%s*%b()", "")
+    css = css:gsub("[Bb][Ee][Hh][Aa][Vv][Ii][Oo][Rr]%s*:[^;}]*;?", "")
+    return css
+end
+
+local function inlineStylesheets(html)
+    local parts, total = {}, 0
+    for css in (html or ""):gmatch("<[Ss][Tt][Yy][Ll][Ee][^>]*>(.-)</[Ss][Tt][Yy][Ll][Ee]%s*>") do
+        if total >= MAX_CSS_BYTES then break end
+        css = sanitizeCss(css)
+        if css ~= "" then
+            css = css:sub(1, MAX_CSS_BYTES - total)
+            parts[#parts + 1] = css
+            total = total + #css
+        end
+    end
+    return table.concat(parts, "\n")
+end
+
 local function escapeHtml(value)
     return tostring(value or ""):gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;"):gsub('"', "&quot;")
 end
@@ -185,6 +217,37 @@ local function getHtmlAttribute(tag, name)
     local single = tag:match(prefix .. "%s*=%s*'([^']*)'")
     if single then return single end
     return tag:match(prefix .. "%s*=%s*([^%s>]+)")
+end
+
+local function stripHtml(value)
+    local clean = tostring(value or ""):gsub("<[^>]->", ""):gsub("%s+", " ")
+    return clean:gsub("^%s+", ""):gsub("%s+$", "")
+end
+
+local function extractSimpleForms(html, page_url)
+    local socket_url = require("socket.url")
+    local forms = {}
+    for form_tag, body in (html or ""):gmatch("(<[Ff][Oo][Rr][Mm][^>]*>)(.-)</[Ff][Oo][Rr][Mm]%s*>") do
+        if #forms >= 4 then break end
+        local method = (getHtmlAttribute(form_tag, "method") or "get"):lower()
+        local action = getHtmlAttribute(form_tag, "action") or page_url
+        local input_tag = body:match("(<[Ii][Nn][Pp][Uu][Tt][^>]*>)")
+        local input = input_tag and getHtmlAttribute(input_tag, "name")
+        local input_type = input_tag and (getHtmlAttribute(input_tag, "type") or "text"):lower() or ""
+        if method == "get" and input and input:match("^[%a_][%w_%-]*$") and (input_type == "" or input_type == "text" or input_type == "search" or input_type == "email") then
+            local submit_tag = body:match("<[Bb][Uu][Tt][Tt][Oo][Nn][^>]*>(.-)</[Bb][Uu][Tt][Tt][Oo][Nn]>")
+            local target = socket_url.absolute(page_url, action)
+            if isHttpUrl(target) then
+                forms[#forms + 1] = {
+                    action = target, name = input,
+                    label = stripHtml(submit_tag) ~= "" and stripHtml(submit_tag) or _("Submit"),
+                    hint = getHtmlAttribute(input_tag, "placeholder") or input,
+                    value = getHtmlAttribute(input_tag, "value") or "",
+                }
+            end
+        end
+    end
+    return forms
 end
 
 local function imageExtension(content_type, url)
@@ -345,6 +408,73 @@ local function fetchUrl(url, redirects)
     return table.concat(chunks), nil
 end
 
+local function fetchStylesheet(url, redirects)
+    redirects = redirects or 0
+    if redirects > 3 then return nil end
+    local socket_url = require("socket.url")
+    local socket = require("socket")
+    local socketutil = require("socketutil")
+    local parsed = socket_url.parse(url)
+    if not parsed or (parsed.scheme ~= "http" and parsed.scheme ~= "https") then return nil end
+    local http = parsed.scheme == "https" and require("ssl.https") or require("socket.http")
+    local chunks, received = {}, 0
+    local started_at = os.time()
+    local function sink(chunk)
+        if os.time() - started_at > REQUEST_MAX_TIME then return nil, "response timed out" end
+        if chunk then
+            received = received + #chunk
+            if received > MAX_CSS_BYTES then return nil, "stylesheet too large" end
+            chunks[#chunks + 1] = chunk
+        end
+        return 1
+    end
+    socketutil:set_timeout(REQUEST_TIMEOUT, REQUEST_MAX_TIME)
+    local ok, code, headers = pcall(function()
+        return socket.skip(1, http.request{
+            url = url, method = "GET", sink = sink,
+            headers = { ["user-agent"] = socketutil.USER_AGENT, ["accept"] = "text/css,text/plain;q=0.6,*/*;q=0.1" },
+        })
+    end)
+    socketutil:reset_timeout()
+    if not ok or not headers then return nil end
+    if code and code >= 300 and code < 400 and headers.location then return fetchStylesheet(socket_url.absolute(url, headers.location), redirects + 1) end
+    if not code or code < 200 or code > 299 then return nil end
+    local content_type = (headers["content-type"] or ""):lower()
+    if content_type ~= "" and not content_type:find("css", 1, true) and not content_type:find("text/plain", 1, true) then return nil end
+    return sanitizeCss(table.concat(chunks))
+end
+
+local function externalStylesheets(html, page_url)
+    local socket_url = require("socket.url")
+    local parts, count, total = {}, 0, 0
+    for tag in (html or ""):gmatch("<[Ll][Ii][Nn][Kk][^>]*>") do
+        if count >= MAX_STYLESHEETS or total >= MAX_CSS_BYTES then break end
+        local rel = (getHtmlAttribute(tag, "rel") or ""):lower()
+        local href = getHtmlAttribute(tag, "href")
+        if rel:find("stylesheet", 1, true) and href then
+            local scheme = href:match("^[%a][%w+.-]*:")
+            if not scheme or isHttpUrl(href) then
+                local target = socket_url.absolute(page_url, href)
+                if isHttpUrl(target) then
+                    local css = fetchStylesheet(target)
+                    if css and css ~= "" then
+                        css = css:sub(1, MAX_CSS_BYTES - total)
+                        parts[#parts + 1] = css
+                        count, total = count + 1, total + #css
+                    end
+                end
+            end
+        end
+    end
+    return table.concat(parts, "\n")
+end
+
+local function pageStylesheet(html, page_url)
+    local inline = inlineStylesheets(html)
+    local external = externalStylesheets(html, page_url)
+    return BROWSER_CSS .. "\n" .. inline .. "\n" .. external
+end
+
 function Browser:new()
     return setmetatable({}, self)
 end
@@ -359,6 +489,8 @@ function Browser:_ensureState(instance)
         is_home = true,
         image_paths = {},
         image_resource_directory = nil,
+        forms = {},
+        page_css = BROWSER_CSS,
     }
     return instance.browser
 end
@@ -417,7 +549,30 @@ function Browser:goHome(instance, context)
     state.error = nil
     state.title = _("Web Browser")
     state.is_home = true
+    state.forms = {}
+    state.page_css = BROWSER_CSS
     context.requestRebuild("ui")
+end
+
+function Browser:showFormDialog(instance, context, form)
+    if not form then return end
+    local dialog
+    dialog = InputDialog:new{
+        title = form.label,
+        input_hint = form.hint,
+        input = form.value or "",
+        buttons = { {
+            { text = _("Cancel"), callback = function() UIManager:close(dialog) end },
+            { text = form.label, is_enter_default = true, callback = function()
+                local value = dialog:getInputText() or ""
+                UIManager:close(dialog)
+                local separator = form.action:find("?", 1, true) and "&" or "?"
+                self:navigate(instance, context, form.action .. separator .. form.name .. "=" .. util.urlEncode(value), true)
+            end },
+        } },
+    }
+    UIManager:show(dialog)
+    dialog:onShowKeyboard()
 end
 
 function Browser:cleanup(instance)
@@ -456,6 +611,8 @@ function Browser:navigate(instance, context, target, add_history)
         if #state.history > 20 then table.remove(state.history, 1) end
     end
     state.url = url
+    state.forms = extractSimpleForms(html, url)
+    state.page_css = pageStylesheet(html, url)
     state.html = prepareImages(sanitizeHtml(html), url, state)
     state.error = nil
     state.is_home = false
@@ -482,7 +639,9 @@ function Browser:buildPane(instance, context)
     }
     local width, height = context.dimen.w, context.dimen.h
     local margin, gap, button_height = scale(12), scale(6), scale(36)
-    local button_width = math.floor((width - 2 * margin - 3 * gap) / 4)
+    local has_form = state.forms and state.forms[1]
+    local button_count = has_form and 5 or 4
+    local button_width = math.floor((width - 2 * margin - (button_count - 1) * gap) / button_count)
     local toolbar_height = button_height + scale(48)
     local content = OverlapGroup:new{
         dimen = pane.dimen,
@@ -526,10 +685,18 @@ function Browser:buildPane(instance, context)
             overlap_offset = { margin, button_height + scale(16) },
         },
     }
+    if has_form then
+        table.insert(content, BrowserButton:new{
+            title = has_form.label, width = button_width, height = button_height,
+            background = PALETTE.surface, foreground = PALETTE.on_surface,
+            callback = function() self:showFormDialog(instance, context, has_form) end,
+            overlap_offset = { margin + (button_width + gap) * 4, scale(8) },
+        })
+    end
     if state.html and not state.error then
         local scroll = ScrollHtmlWidget:new{
             html_body = state.html,
-            css = BROWSER_CSS,
+            css = state.page_css or BROWSER_CSS,
             html_resource_directory = state.image_resource_directory,
             width = width - margin * 2,
             height = height - toolbar_height - margin,
@@ -588,5 +755,12 @@ function Browser:buildPane(instance, context)
     pane[1] = content
     return pane
 end
+
+Browser._test = {
+    sanitizeHtml = sanitizeHtml,
+    sanitizeCss = sanitizeCss,
+    inlineStylesheets = inlineStylesheets,
+    extractSimpleForms = extractSimpleForms,
+}
 
 return Browser
