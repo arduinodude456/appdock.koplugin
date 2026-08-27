@@ -29,7 +29,23 @@ package.preload["ui/widget/container/widgetcontainer"] = function() return Widge
 package.preload["appdock_theme"] = function() return { fitLabel = function(value) return value end } end
 package.preload["gettext"] = function() return function(value) return value end end
 package.preload["util"] = function() return { urlEncode = function(value) return value end } end
-package.preload["socket.url"] = function() return { absolute = function(base, relative) if relative:match("^https?://") then return relative end return base:match("^(https?://[^/]+)") .. relative end } end
+package.preload["socket.url"] = function()
+    local function parse(url)
+        local scheme, authority, tail = url:match("^(https?)://([^/]+)(.*)$")
+        if not scheme then return nil end
+        local path, query = tail:match("^([^?]*)%??(.*)$")
+        return { scheme = scheme, host = authority:gsub(":%d+$", ""), path = path == "" and "/" or path, query = query ~= "" and query or nil }
+    end
+    return {
+        parse = parse,
+        absolute = function(base, relative)
+            if relative:match("^https?://") then return relative end
+            local parsed = assert(parse(base))
+            return parsed.scheme .. "://" .. parsed.host .. (relative:match("^/") and relative or "/" .. relative)
+        end,
+        unescape = function(value) return (value:gsub("%%(%x%x)", function(hex) return string.char(tonumber(hex, 16)) end)) end,
+    }
+end
 
 local Browser = dofile(os.getenv("BROWSER_SOURCE") or "/home/ubuntu/appdock-antigravity-release/appdock_browser.lua")
 local html = [[<style>body { color: #123456; } @import url(evil.css);</style><form method="get" action="/search"><input type="search" name="q" placeholder="Search books"><button>Find</button></form><form method="post"><input name="x"></form><script>evil()</script>]]
@@ -40,4 +56,10 @@ assert(css:find("#123456", 1, true) and not css:find("url", 1, true) and not css
 assert(Browser._test.inlineStylesheets(html):find("#123456", 1, true), "Browser must retain safe embedded CSS rules")
 local forms = Browser._test.extractSimpleForms(html, "https://example.org/page")
 assert(#forms == 1 and forms[1].action == "https://example.org/search" and forms[1].name == "q" and forms[1].label == "Find", "Browser must expose only safe simple GET form actions")
+local google_html = [[<html><body><a href="/url?q=https%3A%2F%2Fkoreader.rocks%2F"><h3>KOReader</h3></a><a href="https://www.google.com/search?q=other"><h3>Internal Google</h3></a></body></html>]]
+assert(Browser._test.isGoogleSearch("https://www.google.com/search?q=KOReader") and Browser._test.unwrapGoogle("https://www.google.com/url?q=https%3A%2F%2Fkoreader.rocks%2F") == "https://koreader.rocks/", "Browser must recognize direct Google search pages and unwrap a Google result target")
+local google_results = Browser._test.extractGoogleResults(google_html, "https://www.google.com/search?q=KOReader")
+assert(#google_results == 1 and google_results[1].title == "KOReader" and google_results[1].url == "https://koreader.rocks/", "Browser must present external Google result links as direct readable targets")
+assert(Browser._test.googleBlocked("Please enable JavaScript and complete CAPTCHA") and Browser._test.googleBlocked("<a href=\"/httpservice/retry/enablejs?sei=abc\">Continue</a>"), "Browser must identify Google verification and JavaScript-gate responses rather than attempting to bypass them")
+assert(Browser._test.renderGoogleResults("KOReader", google_results):find("koreader.rocks", 1, true), "Browser must render Google results as browser-owned readable HTML cards")
 print("Browser test: OK")

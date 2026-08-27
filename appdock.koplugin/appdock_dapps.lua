@@ -2455,10 +2455,10 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("About AppDock"),
-                subtitle = _( "Version 5.0.0 · Antigravity"),
+                subtitle = _( "Version 5.1.0 · Google Search"),
                 show_state = false,
                 callback = function()
-                    self:showSettingsNotice(_("AppDock 5.0.0 · Antigravity\n\nAntigravity brings regular launcher search, outlines and night-image controls; experimental manual app spacing and local custom logos for non-DApp plugins; a control-center button inside every DApp host; safer CSS, simple GET-form and table support in the browser; and improved Manga EPUB image paths in DReader. Install DBASIC from AppStore for local BASIC programs with bounded graphics and touch commands."))
+                    self:showSettingsNotice(_("AppDock 5.1.0 · Google Search\n\nThe Web Browser now offers direct Google GET search and renders returned result links as compact AppDock cards with title and target address. Google redirect links are opened directly. If Google requests JavaScript, CAPTCHA, or verification, AppDock shows this transparently and does not bypass the requirement."))
                 end,
             },
             {

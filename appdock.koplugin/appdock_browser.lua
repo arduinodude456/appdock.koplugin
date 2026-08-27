@@ -37,6 +37,8 @@ local MAX_STYLESHEETS = 3
 local REQUEST_TIMEOUT = 12
 local REQUEST_MAX_TIME = 30
 local DUCKDUCKGO_HTML = "https://html.duckduckgo.com/html/?q="
+local GOOGLE_SEARCH = "https://www.google.com/search?gbv=1&filter=0&num=10&hl=de&q="
+local BROWSER_USER_AGENT = "Mozilla/5.0 (Linux; Android 12; eReader) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
 
 local BrowserButton = InputContainer:extend{
     title = nil,
@@ -83,6 +85,9 @@ local BROWSER_CSS = [[
   th, td { border: 1px solid #555555; padding: 0.28em 0.35em; vertical-align: top; }
   th { background: #e9e9e9; font-weight: bold; }
   .appdock-image-fallback { color: #555555; font-style: italic; }
+  .appdock-google-result { border: 1px solid #777777; padding: 0.35em 0.5em; margin: 0.45em 0; }
+  .appdock-google-result small { color: #555555; word-break: break-all; }
+  .appdock-google-notice { border-left: 0.35em solid #777777; padding-left: 0.6em; color: #444444; }
   video, audio, canvas, svg, iframe, form, button, input, select, textarea { display: none; }
 ]]
 
@@ -165,6 +170,34 @@ local function unwrapDuckDuckGo(url)
     return url
 end
 
+local function isGoogleHost(host)
+    host = type(host) == "string" and host:lower() or ""
+    return host:match("^google%.[%a%.]+$") ~= nil or host:match("%.google%.[%a%.]+$") ~= nil
+end
+
+local function isGoogleSearch(url)
+    local socket_url = require("socket.url")
+    local parsed = socket_url.parse(url)
+    return parsed and isGoogleHost(parsed.host) and parsed.path == "/search" or false
+end
+
+local function queryParameter(url, wanted)
+    local socket_url = require("socket.url")
+    local parsed = socket_url.parse(url)
+    if not parsed or not parsed.query then return nil end
+    for key, value in parsed.query:gmatch("([^&=]+)=([^&]*)") do
+        if socket_url.unescape(key) == wanted then return socket_url.unescape(value:gsub("+", " ")) end
+    end
+    return nil
+end
+
+local function unwrapGoogle(url)
+    local socket_url = require("socket.url")
+    local parsed = socket_url.parse(url)
+    if not parsed or not isGoogleHost(parsed.host) or parsed.path ~= "/url" then return url end
+    return queryParameter(url, "q") or queryParameter(url, "url") or url
+end
+
 local function sanitizeHtml(html)
     -- The browser intentionally has no active web platform. Strip the most
     -- problematic blocks before passing the remaining server-rendered HTML to MuPDF.
@@ -222,6 +255,48 @@ end
 local function stripHtml(value)
     local clean = tostring(value or ""):gsub("<[^>]->", ""):gsub("%s+", " ")
     return clean:gsub("^%s+", ""):gsub("%s+$", "")
+end
+
+local function decodeHtml(value)
+    value = stripHtml(value)
+    value = value:gsub("&amp;", "&"):gsub("&quot;", "\""):gsub("&#39;", "'"):gsub("&lt;", "<"):gsub("&gt;", ">")
+    return value
+end
+
+local function extractGoogleResults(html, page_url)
+    local socket_url = require("socket.url")
+    local results, seen = {}, {}
+    for tag, body in (html or ""):gmatch("(<[Aa][^>]*>)(.-)</[Aa]%s*>") do
+        if body:lower():find("<h3", 1, true) then
+            local href = getHtmlAttribute(tag, "href")
+            if href and href ~= "" then
+                local target = unwrapGoogle(socket_url.absolute(page_url, href))
+                local parsed = socket_url.parse(target)
+                local title = decodeHtml(body)
+                if title ~= "" and isHttpUrl(target) and parsed and parsed.host and not isGoogleHost(parsed.host) and not seen[target] then
+                    results[#results + 1] = { title = title, url = target }
+                    seen[target] = true
+                    if #results >= 10 then break end
+                end
+            end
+        end
+    end
+    return results
+end
+
+local function googleBlocked(html)
+    local lower = (html or ""):lower()
+    return lower:find("unusual traffic", 1, true) or lower:find("captcha", 1, true) or lower:find("enable javascript", 1, true) or lower:find("javascript is required", 1, true) or lower:find("httpservice/retry/enablejs", 1, true) or lower:find("emsg=sg_rel", 1, true)
+end
+
+local function renderGoogleResults(query, results, notice)
+    local parts = { "<h1>Google</h1>", "<p><b>Search:</b> " .. escapeHtml(query or "") .. "</p>" }
+    if notice and notice ~= "" then parts[#parts + 1] = "<p class=\"appdock-google-notice\">" .. escapeHtml(notice) .. "</p>" end
+    if #results == 0 and not notice then parts[#parts + 1] = "<p>No readable Google results were returned.</p>" end
+    for index, item in ipairs(results) do
+        parts[#parts + 1] = "<section class=\"appdock-google-result\"><p><b>" .. index .. ".</b> <a href=\"" .. escapeHtml(item.url) .. "\">" .. escapeHtml(item.title) .. "</a><br/><small>" .. escapeHtml(item.url) .. "</small></p></section>"
+    end
+    return table.concat(parts, "\n")
 end
 
 local function extractSimpleForms(html, page_url)
@@ -290,7 +365,7 @@ local function fetchImage(url, redirects)
             url = url,
             method = "GET",
             sink = sink,
-            headers = { ["user-agent"] = socketutil.USER_AGENT, ["accept"] = "image/png,image/jpeg,image/gif,image/webp;q=0.9,*/*;q=0.1" },
+            headers = { ["user-agent"] = BROWSER_USER_AGENT, ["accept"] = "image/png,image/jpeg,image/gif,image/webp;q=0.9,*/*;q=0.1" },
         })
     end)
     socketutil:reset_timeout()
@@ -387,7 +462,7 @@ local function fetchUrl(url, redirects)
             method = "GET",
             sink = sink,
             headers = {
-                ["user-agent"] = socketutil.USER_AGENT,
+                ["user-agent"] = BROWSER_USER_AGENT,
                 ["accept"] = "text/html,application/xhtml+xml;q=0.9,*/*;q=0.2",
             },
         })
@@ -432,7 +507,7 @@ local function fetchStylesheet(url, redirects)
     local ok, code, headers = pcall(function()
         return socket.skip(1, http.request{
             url = url, method = "GET", sink = sink,
-            headers = { ["user-agent"] = socketutil.USER_AGENT, ["accept"] = "text/css,text/plain;q=0.6,*/*;q=0.1" },
+            headers = { ["user-agent"] = BROWSER_USER_AGENT, ["accept"] = "text/css,text/plain;q=0.6,*/*;q=0.1" },
         })
     end)
     socketutil:reset_timeout()
@@ -491,6 +566,7 @@ function Browser:_ensureState(instance)
         image_resource_directory = nil,
         forms = {},
         page_css = BROWSER_CSS,
+        google_query = nil,
     }
     return instance.browser
 end
@@ -529,11 +605,36 @@ function Browser:showAddressDialog(instance, context, search)
     dialog:onShowKeyboard()
 end
 
+function Browser:showGoogleSearchDialog(instance, context)
+    local dialog
+    dialog = InputDialog:new{
+        title = _("Google search"),
+        input_hint = _("Search Google"),
+        input = "",
+        buttons = { {
+            { text = _("Cancel"), callback = function() UIManager:close(dialog) end },
+            { text = _("Search"), is_enter_default = true, callback = function()
+                local query = dialog:getInputText() or ""
+                UIManager:close(dialog)
+                self:googleSearch(instance, context, query)
+            end },
+        } },
+    }
+    UIManager:show(dialog)
+    dialog:onShowKeyboard()
+end
+
 function Browser:search(instance, context, query)
     local util = require("util")
     query = (query or ""):gsub("^%s+", ""):gsub("%s+$", "")
     if query == "" then return end
     self:navigate(instance, context, DUCKDUCKGO_HTML .. util.urlEncode(query), true)
+end
+
+function Browser:googleSearch(instance, context, query)
+    query = (query or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    if query == "" then return end
+    self:navigate(instance, context, GOOGLE_SEARCH .. util.urlEncode(query), true)
 end
 
 function Browser:reload(instance, context)
@@ -551,6 +652,7 @@ function Browser:goHome(instance, context)
     state.is_home = true
     state.forms = {}
     state.page_css = BROWSER_CSS
+    state.google_query = nil
     context.requestRebuild("ui")
 end
 
@@ -595,6 +697,7 @@ function Browser:navigate(instance, context, target, add_history)
         return
     end
     url = unwrapDuckDuckGo(url)
+    url = unwrapGoogle(url)
     if not isHttpUrl(url) then
         state.error = _("Only HTTP and HTTPS addresses are supported.")
         context.requestRebuild("ui")
@@ -611,9 +714,19 @@ function Browser:navigate(instance, context, target, add_history)
         if #state.history > 20 then table.remove(state.history, 1) end
     end
     state.url = url
-    state.forms = extractSimpleForms(html, url)
-    state.page_css = pageStylesheet(html, url)
-    state.html = prepareImages(sanitizeHtml(html), url, state)
+    state.google_query = isGoogleSearch(url) and queryParameter(url, "q") or nil
+    if state.google_query then
+        local results = extractGoogleResults(html, url)
+        local blocked = googleBlocked(html)
+        local notice = blocked and _("Google requested JavaScript or verification for this request. No verification is bypassed; try again later or use DuckDuckGo.") or nil
+        state.forms = {}
+        state.page_css = BROWSER_CSS
+        state.html = renderGoogleResults(state.google_query, results, notice)
+    else
+        state.forms = extractSimpleForms(html, url)
+        state.page_css = pageStylesheet(html, url)
+        state.html = prepareImages(sanitizeHtml(html), url, state)
+    end
     state.error = nil
     state.is_home = false
     state.title = url:match("^https?://([^/%?#]+)") or _("Web Browser")
@@ -658,9 +771,9 @@ function Browser:buildPane(instance, context)
             overlap_offset = { margin, scale(8) },
         },
         BrowserButton:new{
-            title = _("Search"), width = button_width, height = button_height,
+            title = _("Google"), width = button_width, height = button_height,
             background = PALETTE.surface, foreground = PALETTE.on_surface,
-            callback = function() self:showAddressDialog(instance, context, true) end,
+            callback = function() self:showGoogleSearchDialog(instance, context) end,
             overlap_offset = { margin + button_width + gap, scale(8) },
         },
         BrowserButton:new{
@@ -734,7 +847,7 @@ function Browser:buildPane(instance, context)
             overlap_offset = { margin, toolbar_height + scale(48) },
         })
         local destinations = {
-            { title = _("DuckDuckGo"), callback = function() self:showAddressDialog(instance, context, true) end },
+            { title = _("Google"), callback = function() self:showGoogleSearchDialog(instance, context) end },
             { title = _("Wikipedia"), callback = function() self:navigate(instance, context, "https://en.wikipedia.org/wiki/Main_Page", true) end },
             { title = _("Project Gutenberg"), callback = function() self:navigate(instance, context, "https://www.gutenberg.org/", true) end },
             { title = _("KOReader"), callback = function() self:navigate(instance, context, "https://koreader.rocks/", true) end },
@@ -761,6 +874,11 @@ Browser._test = {
     sanitizeCss = sanitizeCss,
     inlineStylesheets = inlineStylesheets,
     extractSimpleForms = extractSimpleForms,
+    isGoogleSearch = isGoogleSearch,
+    unwrapGoogle = unwrapGoogle,
+    extractGoogleResults = extractGoogleResults,
+    googleBlocked = googleBlocked,
+    renderGoogleResults = renderGoogleResults,
 }
 
 return Browser
