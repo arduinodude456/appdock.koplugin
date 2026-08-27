@@ -267,6 +267,42 @@ local removed = assert(manager:uninstallStoreDApp("quote_card"))
 assert(removed and not manager.definitions.quote_card and not appdock.settings.store.installed.quote_card and not io.open(store_fixture, "rb"), "Uninstall must remove Store registry, persisted metadata, and the local Lua file")
 os.remove(updated_fixture)
 
+package.preload["document/documentregistry"] = function() return { hasProvider = function() return false end } end
+package.preload["apps/filemanager/filemanagerutil"] = function() return { getHomeFolder = function() return "/tmp" end } end
+package.preload["libs/libkoreader-lfs"] = function()
+    return {
+        dir = function()
+            local returned = false
+            return function()
+                if returned then return nil end
+                returned = true
+                return "notes.md"
+            end
+        end,
+        attributes = function() return { mode = "file", size = 16 } end,
+    }
+end
+local FileBrowser = dofile(os.getenv("APPDOCK_FILEMANAGER_PATH") or (plugin_dir .. "appdock_filemanager.lua"))
+local markdown_entries = assert(FileBrowser:new():_readEntries("/books"))
+assert(#markdown_entries == 1 and markdown_entries[1].is_markup, "The AppDock Filebrowser must identify supported Markdown suffixes as MarkUP files")
+local markup_open = {}
+local markup_manager = {
+    openDAppFile = function(_, id, path)
+        markup_open.id, markup_open.path = id, path
+        return true
+    end,
+}
+FileBrowser:new():openMarkUPFile({}, { manager = markup_manager }, "/books/notes.md")
+assert(markup_open.id == "markup" and markup_open.path == "/books/notes.md", "The AppDock Filebrowser must open Markdown files through the MarkUP Store DApp")
+local guarded_instance = { definition = { canClose = function() return false, "Save first" end } }
+manager.instances.dirty_document = guarded_instance
+table.insert(manager.open_order, "dirty_document")
+assert(manager:closeDApp("dirty_document") == false and manager.instances.dirty_document == guarded_instance, "A DApp with unsaved changes must be able to refuse closing and remain open")
+manager.instances.dirty_document = nil
+for order_index, open_id in ipairs(manager.open_order) do
+    if open_id == "dirty_document" then table.remove(manager.open_order, order_index); break end
+end
+
 local widget_fixture = "/tmp/appdock_store_widget_fixture.lua"
 local widget_file = assert(io.open(widget_fixture, "wb"))
 widget_file:write("return { id = 'quote_widget', title = 'Quote Widget', version = '1.0.0', subtitle = 'Rotating test widget', buildWidget = function(instance, context) return { dimen = context.dimen } end }")

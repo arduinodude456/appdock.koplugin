@@ -1625,6 +1625,13 @@ end
 function DAppManager:closeDApp(id)
     local instance = self.instances[id]
     if not instance then return end
+    if type(instance.definition.canClose) == "function" then
+        local checked, allowed, message = pcall(instance.definition.canClose, instance)
+        if not checked or allowed == false then
+            UIManager:show(InfoMessage:new{ text = tostring(message or _("This app has unsaved changes.")) })
+            return false
+        end
+    end
     if self.active_id == id and self.active_host then
         UIManager:close(self.active_host)
     end
@@ -1635,6 +1642,7 @@ function DAppManager:closeDApp(id)
     if instance.definition.host_kind == "plugin" then self.plugin_definitions[id] = nil end
     self.instances[id] = nil
     if self.active_id == id then self.active_id = nil end
+    return true
 end
 
 function DAppManager:showRecents(home)
@@ -2455,10 +2463,10 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("About AppDock"),
-                subtitle = _( "Version 5.2.0 · HTML Reader"),
+                subtitle = _( "Version 5.3.0 · MarkUP Files"),
                 show_state = false,
                 callback = function()
-                    self:showSettingsNotice(_("AppDock 5.2.0 · HTML Reader\n\nThe Web Browser now safely prepares complex server-rendered pages for E-Ink: metadata and active embeds are removed; semantic content, quotes, details, captions, tables and lazy-loaded images are preserved or normalized; unsafe document forms remain native AppDock actions only. Google search stays direct and transparent about JavaScript or verification limits."))
+                    self:showSettingsNotice(_("AppDock 5.3.0 · MarkUP Files\n\nMarkdown files opened through the AppDock Files DApp are now handed to the MarkUP Store editor. MarkUP is a local editor with its own touch keyboard, preview and safe atomic saves. Apps may refuse closing while they have unsaved changes, so documents cannot be closed accidentally."))
                 end,
             },
             {

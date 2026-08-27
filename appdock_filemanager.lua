@@ -223,6 +223,7 @@ function FileBrowser:_readEntries(path)
                     size = attributes.size,
                     supported = attributes.mode == "file" and DocumentRegistry:hasProvider(fullpath),
                     is_lua = attributes.mode == "file" and fullpath:lower():match("%.lua$") ~= nil,
+                    is_markup = attributes.mode == "file" and (fullpath:lower():match("%.md$") ~= nil or fullpath:lower():match("%.markdown$") ~= nil or fullpath:lower():match("%.mdown$") ~= nil or fullpath:lower():match("%.mkdn$") ~= nil),
                     is_dreader = attributes.mode == "file" and (fullpath:lower():match("%.epub$") ~= nil or fullpath:lower():match("%.html$") ~= nil or fullpath:lower():match("%.htm$") ~= nil or fullpath:lower():match("%.xhtml$") ~= nil or fullpath:lower():match("%.md$") ~= nil or fullpath:lower():match("%.markdown$") ~= nil),
                 })
             end
@@ -267,6 +268,18 @@ function FileBrowser:openDReaderFile(instance, context, path)
     local ok, err = manager:openDAppFile("dreader", path)
     if not ok then
         UIManager:show(InfoMessage:new{ text = _("Install DReader from AppStore first.\n\n") .. tostring(err or "") })
+    end
+end
+
+function FileBrowser:openMarkUPFile(instance, context, path)
+    local manager = context.manager
+    if not manager or not manager.openDAppFile then
+        UIManager:show(InfoMessage:new{ text = _("MarkUP is not available in this AppDock session.") })
+        return
+    end
+    local ok, err = manager:openDAppFile("markup", path)
+    if not ok then
+        UIManager:show(InfoMessage:new{ text = _("Install MarkUP from AppStore first.\n\n") .. tostring(err or "") })
     end
 end
 
@@ -320,6 +333,8 @@ function FileBrowser:buildPane(instance, context)
                 subtitle = entry.path
             elseif entry.is_lua then
                 subtitle = _("Open in NightLua") .. " · " .. humanSize(entry.size)
+            elseif entry.is_markup then
+                subtitle = _("Open in MarkUP") .. " · " .. humanSize(entry.size)
             elseif entry.is_dreader then
                 subtitle = _("Open in DReader") .. " · " .. humanSize(entry.size)
             elseif entry.supported then
@@ -339,6 +354,8 @@ function FileBrowser:buildPane(instance, context)
                         self:enterDirectory(instance, context, entry.path)
                     elseif entry.is_lua then
                         self:openLuaFile(instance, context, entry.path)
+                    elseif entry.is_markup then
+                        self:openMarkUPFile(instance, context, entry.path)
                     elseif entry.is_dreader then
                         self:openDReaderFile(instance, context, entry.path)
                     else
