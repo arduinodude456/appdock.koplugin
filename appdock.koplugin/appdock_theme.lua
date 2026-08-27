@@ -114,7 +114,11 @@ end
 
 function Theme.centeredStack(container_height, items, gap, padding)
     local heights, total = {}, 0
-    local safe_gap = math.max(0, tonumber(gap) or 0)
+    -- AppDock text stacks use a compact rhythm on E-Ink: callers retain their
+    -- relative spacing, but the rendered gap is reduced before positioning.
+    -- Simple Mode does not use this helper and therefore keeps its layout.
+    local requested_gap = math.max(0, tonumber(gap) or 0)
+    local safe_gap = requested_gap > 0 and math.max(1, math.floor(requested_gap * 0.55 + .5)) or 0
     local safe_padding = math.max(0, tonumber(padding) or 0)
     for index, item in ipairs(items or {}) do
         local size = type(item) == "table" and type(item.getSize) == "function" and item:getSize() or nil

@@ -2716,10 +2716,10 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("About AppDock"),
-                subtitle = _( "Version 6.0.2 · Continuity"),
+                subtitle = _( "Version 6.0.3 · Continuity"),
                 show_state = false,
                 callback = function()
-                    self:showSettingsNotice(_("AppDock 6.0.2 · Continuity\n\nThis maintenance update uses the actual unpadded glyph height of AppDock text before placing it in fixed controls. AppStore, Quick Settings, Open Apps, the normal Homescreen and navigation no longer stack text behind later button surfaces. Simple Mode keeps its existing reduced appearance. Optional workspace restoration only resumes explicitly permitted local DApps. Files can use registered local DApp handlers, and Settings adds text size, contrast and read-only local integrity status."))
+                    self:showSettingsNotice(_("AppDock 6.0.3 · Continuity\n\nThis maintenance update keeps the safe unpadded glyph measurement from 6.0.2 while using a more compact vertical rhythm across the normal AppDock interface. AppStore, Quick Settings, Open Apps, the normal Homescreen, Files, Settings and navigation use shorter gaps between their measured text lines. Simple Mode keeps its existing reduced appearance. Optional workspace restoration only resumes explicitly permitted local DApps. Files can use registered local DApp handlers, and Settings adds text size, contrast and read-only local integrity status."))
                 end,
             },
             {

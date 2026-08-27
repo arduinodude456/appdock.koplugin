@@ -151,7 +151,7 @@ assert(Theme.ellipsize("ABCDE", 4) == "ABC…", "Text overflow must use a bounde
 assert(Theme.ellipsize("Äpfel", 4) == "Äpf…", "Text overflow must preserve complete UTF-8 characters")
 assert(Theme.fitLabel("A long compact button label", 30, 10, 0):find("…", 1, true), "Narrow controls must shorten labels instead of allowing wrapped text")
 local stack_positions, stack_total = Theme.centeredStack(80, { 18, 12, 10 }, 4, 3)
-assert(stack_total == 48 and stack_positions[1] >= 3 and stack_positions[2] >= stack_positions[1] + 22 and stack_positions[3] >= stack_positions[2] + 16, "Measured text stacks must keep every line ordered and inside a padded control")
+assert(stack_total == 44 and stack_positions[1] >= 3 and stack_positions[2] >= stack_positions[1] + 20 and stack_positions[3] >= stack_positions[2] + 14, "Compact text stacks must reduce gaps while keeping every line ordered and inside a padded control")
 local recents_source = assert(io.open(plugin_dir .. "appdock_dapps.lua", "rb")):read("*a")
 local open_apps_title_count = select(2, recents_source:gsub('text = _%("Open apps"%)', ""))
 assert(open_apps_title_count == 1 and recents_source:find("local y = header_height + gap", 1, true), "Open Apps must draw one measured header and begin cards below it")
