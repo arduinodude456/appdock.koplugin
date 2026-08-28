@@ -22,7 +22,7 @@ local function scale(value)
 end
 
 local function brandInk()
-    if Device.screen:isColorEnabled() then return Blitbuffer.ColorRGB32(96, 178, 55, 0xFF) end
+    if Device.screen:isColorEnabled() or true then return Blitbuffer.ColorRGB32(96, 178, 55, 0xFF) end
     return Blitbuffer.COLOR_DARK_GRAY
 end
 
