@@ -350,7 +350,7 @@ end
 function AppDock:setLauncherLayout(changes)
     changes = changes or {}
     if changes.app_spacing then
-        self.settings.layout.app_spacing = math.max(8, math.min(34, tonumber(changes.app_spacing) or 16))
+        self.settings.layout.app_spacing = math.max(8, math.min(200, tonumber(changes.app_spacing) or 16))
     end
     if changes.logo_shape == "circle" or changes.logo_shape == "rounded" then
         self.settings.layout.logo_shape = changes.logo_shape
