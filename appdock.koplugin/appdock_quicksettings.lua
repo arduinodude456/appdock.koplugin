@@ -399,7 +399,7 @@ function QuickSettings:setBrightness(intensity)
     -- Fast updates while panning make the slider feel direct. The final
     -- regular refresh below keeps all normal KOReader UI surfaces in sync.
     self:_refresh("fast", self.slider.dimen, true)
-    self:_refresh("ui", nil, false)
+    -- self:_refresh("ui", nil, false)
 end
 
 function QuickSettings:toggleWifi()
