@@ -2089,7 +2089,7 @@ function DAppManager:showAccessibilityEditor(instance, context)
     dialog = ButtonDialog:new{
         title = _("Accessibility") .. "\n" .. string.format(_("Text size: %d%% · contrast: %s"), math.floor((current.text_scale or 1) * 100 + .5), current.high_contrast and _("high") or _("standard")),
         buttons = {
-            { { text = "90%", callback = function() choose({ text_scale = .9 }) end }, { text = "100%", callback = function() choose({ text_scale = 1 }) end } },
+            { { text = "75%", callback = function() choose({ text_scale = .75 }) end }, { text = "90%", callback = function() choose({ text_scale = .9 }) end }, { text = "100%", callback = function() choose({ text_scale = 1 }) end } },
             { { text = "115%", callback = function() choose({ text_scale = 1.15 }) end }, { text = "130%", callback = function() choose({ text_scale = 1.3 }) end } },
             { { text = current.high_contrast and _("Use standard contrast") or _("Use high contrast"), callback = function() choose({ high_contrast = not current.high_contrast }) end } },
             { { text = _("Cancel"), callback = function() UIManager:close(dialog) end } },
@@ -2293,7 +2293,7 @@ function DAppManager:showLockscreenSecretDialog(instance, context, method)
     local dialog
     dialog = InputDialog:new{
         title = method == "pattern" and _("Set AppDock pattern") or _("Set AppDock PIN"),
-        description = method == "pattern" and _("Use 4–9 different digits from 1 to 9. Tap these points on the lockscreen in the same order.") or _("Choose a 4–32 digit AppDock PIN."),
+        description = method == "pattern" and _("Use 4 different digits from 1 to 9. Tap these points on the lockscreen in the same order.") or _("Choose a 4–32 digit AppDock PIN."),
         input_hint = method == "pattern" and _("Example: 1258") or _("PIN"),
         input = "",
         input_type = "number",
@@ -2391,15 +2391,15 @@ function DAppManager:showManualAppSpacingDialog(instance, context)
     local dialog
     dialog = InputDialog:new{
         title = _("Manual app spacing"),
-        description = _("Choose a value from 8 to 34 pixels. This controls the distance between homescreen apps."),
-        input_hint = _("8–34"), input_type = "number", input = tostring(self.appdock.settings.layout.app_spacing or 16),
+        description = _("Choose a value from 8 to 200 pixels. This controls the distance between homescreen apps."),
+        input_hint = _("8–200"), input_type = "number", input = tostring(self.appdock.settings.layout.app_spacing or 16),
         buttons = { {
             { text = _("Cancel"), callback = function() UIManager:close(dialog) end },
             { text = _("Save"), is_enter_default = true, callback = function()
                 local value = tonumber(dialog:getInputText() or "")
                 UIManager:close(dialog)
-                if not value or value < 8 or value > 34 then
-                    self:showSettingsNotice(_("Enter a whole number from 8 to 34."))
+                if not value or value < 8 or value > 200 then
+                    self:showSettingsNotice(_("Enter a whole number from 8 to 200."))
                     return
                 end
                 self.appdock:setLauncherLayout({ app_spacing = math.floor(value) })
