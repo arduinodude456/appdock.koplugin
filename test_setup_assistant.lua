@@ -19,7 +19,7 @@ end
 
 local WidgetContainer = baseClass({})
 local saved_settings = {}
-local log = { offers = 0, saves = 0 }
+local log = { offers = 0, saves = 0, sleep_show = 0, sleep_close = 0 }
 
 _G.G_reader_settings = {
     readSetting = function() return saved_settings end,
@@ -48,6 +48,12 @@ end
 package.preload["appdock_wallpaper"] = function()
     return { isValidPath = function() return false end }
 end
+package.preload["appdock_sleepscreen"] = function()
+    return {
+        show = function() log.sleep_show = log.sleep_show + 1 end,
+        close = function() log.sleep_close = log.sleep_close + 1 end,
+    }
+end
 package.preload["appdock_dapps"] = function()
     return {
         new = function()
@@ -69,6 +75,11 @@ local first = AppDock:new{ ui = ui }
 local first_status = first:getSetupAssistantStatus()
 assert(first_status.version == "6.0.6" and first_status.offered and not first_status.completed, "A new AppDock version must offer the assistant once and record that offer locally")
 assert(log.offers == 1, "The update-triggered assistant must be shown once")
+assert(first:setSleepScreenEnabled(true) and first.settings.sleepscreen_enabled, "The Sleep screen toggle must persist locally")
+first:onSuspend()
+assert(log.sleep_show == 1, "An enabled Sleep screen must be shown on Suspend")
+first:onResume()
+assert(log.sleep_close == 1, "The Sleep screen must close on Resume")
 first:completeSetupAssistant()
 assert(first:getSetupAssistantStatus().completed and not first:shouldOfferSetupAssistant(), "Completing setup must prevent repeat offers for the same version")
 local second = AppDock:new{ ui = ui }

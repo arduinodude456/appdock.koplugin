@@ -60,6 +60,7 @@ local DEFAULT_SETTINGS = {
     widget_generator = { items = {}, next_id = 0 },
     setup_assistant = { offered_version = "", completed_version = "" },
     power_saving = false,
+    sleepscreen_enabled = false,
     layout_version = 19,
 }
 
@@ -92,6 +93,10 @@ function AppDock:init()
 end
 
 function AppDock:onSuspend()
+    if self.settings.sleepscreen_enabled then
+        local ok, SleepScreen = pcall(require, "appdock_sleepscreen")
+        if ok and SleepScreen and SleepScreen.show then SleepScreen.show() end
+    end
     -- Lock only after an actual device suspend/resume cycle. Normal DApp
     -- navigation must not be mistaken for a fresh AppDock entry.
     self._lock_after_resume = self.settings
@@ -101,6 +106,8 @@ function AppDock:onSuspend()
 end
 
 function AppDock:onResume()
+    local ok, SleepScreen = pcall(require, "appdock_sleepscreen")
+    if ok and SleepScreen and SleepScreen.close then SleepScreen.close() end
     if not self._lock_after_resume then return end
     self._lock_after_resume = false
     UIManager:nextTick(function() self:showHome() end)
@@ -136,6 +143,7 @@ function AppDock:_loadSettings()
         widget_generator = stored.widget_generator or { items = {}, next_id = 0 },
         setup_assistant = stored.setup_assistant or { offered_version = "", completed_version = "" },
         power_saving = stored.power_saving == true,
+        sleepscreen_enabled = stored.sleepscreen_enabled == true,
         layout_version = stored.layout_version or 1,
     }
 
@@ -495,6 +503,12 @@ function AppDock:setLockscreenProfile(name, image_path)
     lockscreen.profile_image_path = profile_image_path
     self:_saveSettings()
     return true
+end
+
+function AppDock:setSleepScreenEnabled(enabled)
+    self.settings.sleepscreen_enabled = enabled == true
+    self:_saveSettings()
+    return self.settings.sleepscreen_enabled
 end
 
 function AppDock:setPowerSaving(enabled)

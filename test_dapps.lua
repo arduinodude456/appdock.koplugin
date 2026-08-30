@@ -191,6 +191,8 @@ assert(simple_mode_source:find("local column_gap, row_gap, label_height = scale(
 local files_source = assert(io.open(plugin_dir .. "appdock_filemanager.lua", "rb")):read("*a")
 assert(files_source:find("local margin, gap = scale(12), scale(5)", 1, true) and files_source:find("local row_height = scale(54)", 1, true), "Files must use compact visible rows and gaps")
 assert(files_source:find("Layout.FixedStack:new", 1, true), "File rows must draw labels through the same fixed-bounds container")
+local sleepscreen_source = assert(io.open(plugin_dir .. "appdock_sleepscreen.lua", "rb")):read("*a")
+assert(sleepscreen_source:find("function Sleep.show", 1, true) and sleepscreen_source:find("function Sleep.close", 1, true) and sleepscreen_source:find("Sleeping", 1, true), "The optional Sleep screen must provide a minimal full-screen show/close widget")
 local design_definition = Theme.normalizeDesignDefinition({
     id = "galaxy", title = "Galaxy", version = "1.0.0", highlight = "#A98BFF", background = "#111126",
     button = "#282653", text = "#F8F7FF", dropdown = "#181634", button_style = "3d", logo_shape = "circle",
@@ -509,7 +511,7 @@ manager:toggleColorTheme({ requestRebuild = function() log.settings_rebuilds = (
 assert(log.events[#log.events] == "ToggleNightMode" and log.settings_rebuilds == 1, "Color themes must trigger KOReader's night-mode event")
 settings_instance.settings_category = "other"
 manager:activate("settings")
-assert(settings_instance.pane.settings_layout.category == "other" and settings_instance.pane.settings_layout.row_count == 10, "Other category must include the setup wizard alongside the opt-in local workspace, lockscreen, control center, permissions, arrangement and startup")
+assert(settings_instance.pane.settings_layout.category == "other" and settings_instance.pane.settings_layout.row_count == 11, "Other category must include the sleep screen and setup wizard alongside the opt-in local workspace, lockscreen, control center, permissions, arrangement and startup")
 assert(settings_instance.pane.settings_layout.text_scale == 1.3 and settings_instance.pane.settings_layout.high_contrast and not settings_instance.pane.settings_layout.workspace_enabled, "Settings metadata must expose the applied local accessibility and workspace state")
 local setup_dialogs_before = #log.shown
 manager:showSetupAssistant(settings_instance, { requestRebuild = function() log.setup_rebuilds = (log.setup_rebuilds or 0) + 1 end }, false)

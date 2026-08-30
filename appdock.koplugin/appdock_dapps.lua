@@ -2804,6 +2804,15 @@ function DAppManager:_buildSettingsPane(instance, context)
         },
         other = {
             {
+                title = _("Sleep screen"),
+                subtitle = self.appdock.settings.sleepscreen_enabled and _("Show AppDock screen when entering sleep") or _("Use the standard KOReader sleep screen"),
+                enabled = self.appdock.settings.sleepscreen_enabled,
+                callback = function()
+                    self.appdock:setSleepScreenEnabled(not self.appdock.settings.sleepscreen_enabled)
+                    context.requestRebuild("ui")
+                end,
+            },
+            {
                 title = _("Setup wizard"),
                 subtitle = _("Review AppDock appearance and local options"),
                 show_state = false,
@@ -2835,10 +2844,10 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("About AppDock"),
-                subtitle = _( "Version 6.0.6 · Setup Wizard"),
+                subtitle = _( "Version 6.0.7 · Sleep screen"),
                 show_state = false,
                 callback = function()
-                    self:showSettingsNotice(_("AppDock 6.0.6 · Setup Wizard\n\nThis update adds an optional local setup wizard. After a new AppDock version it is offered once, and it can always be opened again in Settings → Other. It guides you through full AppDock or Simple Mode, optional app search and optional local workspace restoration. Nothing changes unless you choose an option. Choosing Later suppresses only the automatic offer for this version; it remains available in Settings. The Fixed Bounds layout correction and Simple Mode separation remain in place."))
+                    self:showSettingsNotice(_("AppDock 6.0.7 · Sleep screen\n\nThis update adds an optional AppDock sleep screen. Enable it in Settings → Other → Sleep screen to show a simple AppDock screen when KOReader enters sleep instead of the standard sleep message. It closes automatically on resume. The setup wizard, Fixed Bounds layout correction and Simple Mode separation remain in place."))
                 end,
             },
             {
