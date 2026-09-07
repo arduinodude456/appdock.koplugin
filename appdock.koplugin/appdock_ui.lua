@@ -107,7 +107,7 @@ function AppPopup:init()
     self[1] = FrameContainer:new{ width = self.width, height = h, padding = scale(14), bordersize = scale(2), color = palette.ink, background = palette.surface, radius = scale(20), self.content }
 end
 function AppPopup:paintTo(bb, x, y)
-    return InputContainer.paintTo(self, self.dimen.x, self.dimen.y)
+    return InputContainer.paintTo(self, bb, self.dimen.x, self.dimen.y)
 end
 function AppPopup:onCloseWidget() UIManager:close(self); return true end
 
@@ -157,7 +157,7 @@ function AppInputDialog:_key(key)
 end
 function AppInputDialog:getInputText() return self.value end
 function AppInputDialog:onShowKeyboard() return true end
-function AppInputDialog:paintTo(bb, x, y) return InputContainer.paintTo(self, self.dimen.x, self.dimen.y) end
+function AppInputDialog:paintTo(bb, x, y) return InputContainer.paintTo(self, bb, self.dimen.x, self.dimen.y) end
 
 local AppSnackbar = InputContainer:extend{ text = "", timeout = 3 }
 function AppSnackbar:init()
@@ -166,7 +166,7 @@ function AppSnackbar:init()
     self[1] = FrameContainer:new{ width = width, height = self.dimen.h, padding = scale(12), bordersize = scale(1), color = palette.ink, background = palette.surface, radius = scale(14), label(self.text, 13, false) }
     if self.timeout then UIManager:scheduleIn(self.timeout, function() UIManager:close(self) end) end
 end
-function AppSnackbar:paintTo(bb, x, y) return InputContainer.paintTo(self, self.dimen.x, self.dimen.y) end
+function AppSnackbar:paintTo(bb, x, y) return InputContainer.paintTo(self, bb, self.dimen.x, self.dimen.y) end
 
 UI.AppButton = AppButton
 UI.AppSwitch = AppSwitch
