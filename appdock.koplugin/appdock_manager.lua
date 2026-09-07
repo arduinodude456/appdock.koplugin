@@ -22,11 +22,11 @@ function AppDockManager:showDialog()
     local buttons = {}
     local dialog
 
+    -- Keep one manager surface alive while toggling items. Rebuilding and
+    -- closing a native-backed popup from inside its own gesture callback can
+    -- race KOReader's renderer on Android/eInk builds.
     local function refresh()
-        UIManager:close(dialog)
-        UIManager:nextTick(function()
-            self:showDialog()
-        end)
+        UIManager:setDirty(nil, "ui")
     end
 
     table.insert(buttons, {
