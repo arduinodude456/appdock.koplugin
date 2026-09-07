@@ -46,6 +46,7 @@ local QuickTile = InputContainer:extend{
     height = nil,
     compact = false,
     expressive = false,
+    show_switch = false,
 }
 
 local BrightnessSlider = InputContainer:extend{
@@ -178,6 +179,27 @@ function QuickTile:init()
     end
     if stack_height > available_height then buildStack(false) end
     self.layout = { title = title, subtitle = subtitle_widget and subtitle or "", line_gap = line_gap, positions = positions, stack_height = stack_height, available_height = available_height, expressive = self.expressive == true }
+    local switch_widget
+    if self.show_switch then
+        local switch_width = scale(42)
+        local switch_height = scale(22)
+        local track = FrameContainer:new{
+            width = switch_width, height = switch_height, padding = 0,
+            bordersize = scale(1), color = foreground,
+            radius = math.floor(switch_height / 2),
+            background = self.active and PALETTE.primary or PALETTE.track,
+            CenterContainer:new{
+                dimen = Geom:new{ w = switch_width, h = switch_height },
+                TextWidget:new{
+                    text = self.active and "●" or "○",
+                    face = Font:getFace("cfont", scale(16)),
+                    fgcolor = self.active and PALETTE.on_primary or PALETTE.on_variant,
+                    padding = 0,
+                },
+            },
+        }
+        switch_widget = { widget = track, x = self.width - switch_width - scale(10), y = scale(8) }
+    end
     local frame_style = Theme.getButtonFrameStyle(self.appdock, self.height, math.floor(self.height * .32))
     self[1] = FrameContainer:new{
         width = self.width,
@@ -194,6 +216,7 @@ function QuickTile:init()
                 { widget = CenterContainer:new{ dimen = Geom:new{ w = self.width, h = symbol_widget:getSize().h }, symbol_widget }, x = 0, y = positions[1] },
                 { widget = CenterContainer:new{ dimen = Geom:new{ w = self.width, h = title_widget:getSize().h }, title_widget }, x = 0, y = positions[2] },
                 subtitle_widget and { widget = CenterContainer:new{ dimen = Geom:new{ w = self.width, h = subtitle_widget:getSize().h }, subtitle_widget }, x = 0, y = positions[3] } or nil,
+                switch_widget,
             },
         },
     }
@@ -609,12 +632,14 @@ function QuickSettings:rebuild(refresh)
             title = _("Wi-Fi"), symbol = "W",
             subtitle = wifi_available and (wifi_on and _("On") or _("Off")) or _("Unavailable"),
             active = wifi_on,
+            show_switch = true,
             callback = function() self:toggleWifi() end,
         },
         night = {
             title = _("Night"), symbol = "N",
             subtitle = is_night and _("On") or _("Off"),
             active = is_night,
+            show_switch = true,
             callback = function() self:toggleNightMode() end,
         },
         refresh = {
@@ -638,6 +663,7 @@ function QuickSettings:rebuild(refresh)
             title = _("Save power"), symbol = "P",
             subtitle = app_settings.power_saving and _("On") or _("Off"),
             active = app_settings.power_saving == true,
+            show_switch = true,
             callback = function() self:togglePowerSaving() end,
         },
         wallpaper = {
@@ -665,6 +691,7 @@ function QuickSettings:rebuild(refresh)
             height = tile_height,
             compact = compact,
             expressive = expressive,
+            show_switch = tile.show_switch,
             overlap_offset = {
                 margin + col * (tile_width + gap),
                 tile_y + row * (tile_height + gap),
