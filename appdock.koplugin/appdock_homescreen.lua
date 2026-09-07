@@ -395,8 +395,10 @@ function AppDockHomeScreen:showAppSearch()
         value = self.search_query or "",
         on_cancel = function() UIManager:close(keyboard) end,
         on_submit = function(value)
+            -- Do not destroy the active input tree from inside its touch
+            -- callback. Commit the value first; the user can close the
+            -- keyboard with the device Back key after the result redraw.
             self.search_query = value or ""
-            UIManager:close(keyboard)
             self:build()
             UIManager:setDirty(self, "ui")
         end,

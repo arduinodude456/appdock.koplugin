@@ -42,34 +42,48 @@ end
 local Keyboard = InputContainer:extend{ value = "", on_submit = nil, on_cancel = nil }
 function Keyboard:init()
     self.width = math.min(Screen:getWidth() - scale(24), scale(560))
+    self.shift = true
     self.rows = {
+        { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0" },
         { "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P" },
         { "A", "S", "D", "F", "G", "H", "J", "K", "L" },
         { "Z", "X", "C", "V", "B", "N", "M", "←" },
+        { "@", ".", ",", "?", "!", ":", ";", "-", "_", "/" },
     }
     self.display = TextWidget:new{ text = self.value ~= "" and self.value or _("Search apps"), face = Font:getFace("smallinfofont", scale(15)), fgcolor = Blitbuffer.COLOR_BLACK, padding = scale(8), max_width = self.width - scale(24) }
     local content = { self.display, VerticalSpan:new{ height = scale(8) } }
     for _, letters in ipairs(self.rows) do
         local row = HorizontalGroup:new{ align = "center" }
         for _, letter in ipairs(letters) do
-            local key = Key:new{ label = letter, width = math.floor((self.width - scale(36)) / #letters), height = scale(36), callback = function() self:_press(letter) end }
+            local key = Key:new{ label = letter, width = math.floor((self.width - scale(36)) / #letters), height = scale(44), callback = function() self:_press(letter) end }
             table.insert(row, key)
             table.insert(row, VerticalSpan:new{ width = scale(3) })
         end
         table.insert(content, row)
         table.insert(content, VerticalSpan:new{ height = scale(4) })
     end
-    local space = Key:new{ label = "SPACE", width = math.floor(self.width * .44), height = scale(38), callback = function() self:_press(" ") end }
-    local clear = Key:new{ label = _("Clear"), width = math.floor(self.width * .24), height = scale(38), callback = function() self.value = ""; self:_update() end }
-    local done = Key:new{ label = _("Done"), width = math.floor(self.width * .24), height = scale(38), callback = function() if self.on_submit then self.on_submit(self.value) end end }
-    table.insert(content, HorizontalGroup:new{ align = "center", space, VerticalSpan:new{ width = scale(4) }, clear, VerticalSpan:new{ width = scale(4) }, done })
+    local shift = Key:new{ label = "⇧", width = math.floor(self.width * .16), height = scale(44), callback = function() self.shift = not self.shift; self:_update() end }
+    local space = Key:new{ label = "SPACE", width = math.floor(self.width * .42), height = scale(44), callback = function() self:_press(" ") end }
+    local back = Key:new{ label = "←", width = math.floor(self.width * .16), height = scale(44), callback = function() self:_press("←") end }
+    table.insert(content, HorizontalGroup:new{ align = "center", shift, VerticalSpan:new{ width = scale(4) }, space, VerticalSpan:new{ width = scale(4) }, back })
+    local clear = Key:new{ label = _("Clear"), width = math.floor(self.width * .35), height = scale(42), callback = function() self.value = ""; self:_update() end }
+    local done = Key:new{ label = _("Done"), width = math.floor(self.width * .55), height = scale(42), callback = function() if self.on_submit then self.on_submit(self.value) end end }
+    table.insert(content, VerticalSpan:new{ height = scale(4) })
+    table.insert(content, HorizontalGroup:new{ align = "center", clear, VerticalSpan:new{ width = scale(4) }, done })
     content = VerticalGroup:new(content)
     local height = math.min(Screen:getHeight() - scale(20), content:getSize().h + scale(28))
     self.dimen = Geom:new{ x = math.floor((Screen:getWidth() - self.width) / 2), y = math.floor((Screen:getHeight() - height) / 2), w = self.width, h = height }
     self[1] = FrameContainer:new{ width = self.width, height = height, padding = scale(12), bordersize = scale(2), color = Blitbuffer.COLOR_BLACK, radius = scale(18), background = Blitbuffer.COLOR_WHITE, content }
 end
 function Keyboard:_press(key)
-    if key == "←" then self.value = self.value:sub(1, -2) else self.value = self.value .. key end
+    if key == "←" then
+        self.value = self.value:sub(1, -2)
+    elseif key:match("^%a$") then
+        self.value = self.value .. (self.shift and key:upper() or key:lower())
+        self.shift = false
+    else
+        self.value = self.value .. key
+    end
     self:_update()
 end
 function Keyboard:_update()
