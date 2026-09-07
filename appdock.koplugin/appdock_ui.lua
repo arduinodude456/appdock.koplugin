@@ -51,6 +51,13 @@ function AppButton:paintTo(bb, x, y)
     return InputContainer.paintTo(self, bb, x, y)
 end
 function AppButton:onTap()
+    -- One cheap two-frame flash reads as motion on eInk without a full refresh.
+    if self[1] then self[1].background = palette.ink end
+    UIManager:setDirty(nil, "ui", self.dimen)
+    UIManager:nextTick(function()
+        if self[1] then self[1].background = palette.surface end
+        UIManager:setDirty(nil, "ui", self.dimen)
+    end)
     if self.callback then self.callback() end
     return true
 end
