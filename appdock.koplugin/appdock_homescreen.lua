@@ -351,6 +351,7 @@ function AppTile:paintTo(bb, x, y)
 end
 
 function AppTile:onTapSelectAppTile()
+    UIManager:setDirty(self, "fast")
     self.appdock:launchApp(self.app, self.home)
     return true
 end
@@ -395,12 +396,14 @@ function AppDockHomeScreen:showAppSearch()
         value = self.search_query or "",
         on_cancel = function() UIManager:close(keyboard) end,
         on_submit = function(value)
-            -- Do not destroy the active input tree from inside its touch
-            -- callback. Commit the value first; the user can close the
-            -- keyboard with the device Back key after the result redraw.
             self.search_query = value or ""
             self:build()
             UIManager:setDirty(self, "ui")
+            -- Close after the touch dispatch has returned, so the keyboard
+            -- is no longer destroyed from inside its own Done callback.
+            UIManager:nextTick(function()
+                if keyboard then UIManager:close(keyboard) end
+            end)
         end,
     }
     UIManager:show(keyboard)

@@ -16,6 +16,7 @@ local HorizontalSpan = require("ui/widget/horizontalspan")
 local InfoMessage = require("ui/widget/infomessage")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local Layout = require("appdock_layout")
+local Motion = require("appdock_motion")
 local Theme = require("appdock_theme")
 local OverlapGroup = require("ui/widget/overlapgroup")
 local TextWidget = require("ui/widget/textwidget")
@@ -202,6 +203,9 @@ function QuickTile:init()
                 math.floor((switch_height - knob_size) / 2),
             },
         }
+        self._switch_knob = knob
+        self._switch_width = switch_width
+        self._switch_knob_size = knob_size
         switch_widget = {
             widget = OverlapGroup:new{
                 dimen = Geom:new{ w = switch_width, h = switch_height },
@@ -242,7 +246,20 @@ function QuickTile:paintTo(bb, x, y)
 end
 
 function QuickTile:onTapQuickTile()
-    if self.callback then self.callback() end
+    if self.callback and self.show_switch then
+        local start = self.active and 1 or 0
+        local finish = self.active and 0 or 1
+        Motion.run(self, 3, 0.045, function(frame)
+            local progress = (frame - 1) / 2
+            local position = start + (finish - start) * progress
+            if self._switch_knob then
+                self._switch_knob.overlap_offset[1] = math.floor(scale(3) + position * (self._switch_width - self._switch_knob_size - scale(6)))
+            end
+        end, self.callback)
+    elseif self.callback then
+        UIManager:setDirty(self, "fast")
+        self.callback()
+    end
     return true
 end
 
