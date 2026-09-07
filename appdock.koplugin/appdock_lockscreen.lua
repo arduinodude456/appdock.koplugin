@@ -116,7 +116,7 @@ function LockScreen:onUnlockTap(event, gesture)
     local settings = self.appdock.settings.lockscreen
     if settings.method == "swipe" then return true end
     if settings.method == "pin" then
-        local InputDialog = require("ui/widget/inputdialog")
+        local InputDialog = require("appdock_ui").InputDialog
         local dialog
         dialog = InputDialog:new{
             title = _("AppDock PIN"), input = "", input_type = "number", input_hint = _("PIN"),

@@ -5,7 +5,7 @@ usable in a later split-screen host without global-layout rewrites.
 --]]--
 
 local Blitbuffer = require("ffi/blitbuffer")
-local ButtonDialog = require("ui/widget/buttondialog")
+local ButtonDialog = require("appdock_ui").ButtonDialog
 local DataStorage = require("datastorage")
 local CenterContainer = require("ui/widget/container/centercontainer")
 local Device = require("device")
@@ -16,7 +16,7 @@ local Geom = require("ui/geometry")
 local GestureRange = require("ui/gesturerange")
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local InputContainer = require("ui/widget/container/inputcontainer")
-local InputDialog = require("ui/widget/inputdialog")
+local InputDialog = require("appdock_ui").InputDialog
 local DAppLogo = require("appdock_logo")
 local Layout = require("appdock_layout")
 local Theme = require("appdock_theme")
@@ -24,7 +24,7 @@ local Help = require("appdock_help")
 local WebBrowser = require("appdock_browser")
 local FileBrowser = require("appdock_filemanager")
 local AppStore = require("appdock_appstore")
-local InfoMessage = require("ui/widget/infomessage")
+local InfoMessage = require("appdock_ui").InfoMessage
 local OverlapGroup = require("ui/widget/overlapgroup")
 local TextWidget = require("ui/widget/textwidget")
 local ScrollHtmlWidget = require("ui/widget/scrollhtmlwidget")

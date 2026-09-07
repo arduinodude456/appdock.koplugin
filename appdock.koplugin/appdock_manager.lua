@@ -2,7 +2,7 @@
 Scrollable configuration dialog for AppDock.
 --]]--
 
-local ButtonDialog = require("ui/widget/buttondialog")
+local ButtonDialog = require("appdock_ui").ButtonDialog
 local UIManager = require("ui/uimanager")
 local _ = require("gettext")
 
@@ -44,7 +44,7 @@ function AppDockManager:showDialog()
     for _, widget in ipairs(widgets) do
         table.insert(buttons, {
             {
-                text = string.format("%s: %s", stateLabel(appdock.settings.widgets[widget.id]), widget.title),
+                text = widget.title, switch = true, value = appdock.settings.widgets[widget.id],
                 callback = function()
                     appdock:toggleWidget(widget.id)
                     refresh()
@@ -65,7 +65,7 @@ function AppDockManager:showDialog()
     for _, widget in ipairs(widgets) do
         table.insert(buttons, {
             {
-                text = string.format("%s: %s", stateLabel(appdock:isStoreWidgetEnabled(widget.widget_id)), widget.title),
+                text = widget.title, switch = true, value = appdock:isStoreWidgetEnabled(widget.widget_id),
                 callback = function()
                     appdock:toggleStoreWidget(widget.widget_id)
                     refresh()
@@ -93,7 +93,7 @@ function AppDockManager:showDialog()
     for _, app in ipairs(apps) do
         table.insert(buttons, {
             {
-                text = string.format("%s: %s", stateLabel(appdock:isPinned(app.id)), app.title),
+                text = app.title, switch = true, value = appdock:isPinned(app.id),
                 callback = function()
                     appdock:togglePinned(app.id)
                     refresh()

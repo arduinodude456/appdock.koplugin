@@ -3,8 +3,8 @@ AppDock is an in-app homescreen for KOReader.
 It exposes selected KOReader plugin menu actions as configurable app tiles.
 --]]--
 
-local ButtonDialog = require("ui/widget/buttondialog")
-local InfoMessage = require("ui/widget/infomessage")
+local ButtonDialog = require("appdock_ui").ButtonDialog
+local InfoMessage = require("appdock_ui").InfoMessage
 local PluginLoader = require("pluginloader")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
