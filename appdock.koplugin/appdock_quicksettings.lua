@@ -188,17 +188,27 @@ function QuickTile:init()
             bordersize = scale(1), color = foreground,
             radius = math.floor(switch_height / 2),
             background = self.active and PALETTE.primary or PALETTE.track,
-            CenterContainer:new{
-                dimen = Geom:new{ w = switch_width, h = switch_height },
-                TextWidget:new{
-                    text = self.active and "●" or "○",
-                    face = Font:getFace("cfont", scale(16)),
-                    fgcolor = self.active and PALETTE.on_primary or PALETTE.on_variant,
-                    padding = 0,
-                },
+            emptySizedWidget(switch_width, switch_height),
+        }
+        local knob_size = math.max(scale(14), switch_height - scale(6))
+        local knob = FrameContainer:new{
+            width = knob_size, height = knob_size, padding = 0,
+            bordersize = scale(1), color = self.active and PALETTE.primary or PALETTE.on_variant,
+            radius = math.floor(knob_size / 2),
+            background = self.active and PALETTE.on_primary or PALETTE.surface,
+            emptySizedWidget(knob_size, knob_size),
+            overlap_offset = {
+                self.active and switch_width - knob_size - scale(3) or scale(3),
+                math.floor((switch_height - knob_size) / 2),
             },
         }
-        switch_widget = { widget = track, x = self.width - switch_width - scale(10), y = scale(8) }
+        switch_widget = {
+            widget = OverlapGroup:new{
+                dimen = Geom:new{ w = switch_width, h = switch_height },
+                track, knob,
+            },
+            x = self.width - switch_width - scale(10), y = scale(8),
+        }
     end
     local frame_style = Theme.getButtonFrameStyle(self.appdock, self.height, math.floor(self.height * .32))
     self[1] = FrameContainer:new{

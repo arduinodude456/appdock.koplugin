@@ -13,7 +13,7 @@ local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
 local GestureRange = require("ui/gesturerange")
 local HorizontalSpan = require("ui/widget/horizontalspan")
-local InputDialog = require("ui/widget/inputdialog")
+local AppDockKeyboard = require("appdock_keyboard")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local DAppLogo = require("appdock_logo")
 local Layout = require("appdock_layout")
@@ -390,20 +390,18 @@ function AppDockHomeScreen:_scheduleStoreWidgetRefresh()
 end
 
 function AppDockHomeScreen:showAppSearch()
-    local dialog
-    dialog = InputDialog:new{
-        title = _("Search AppDock apps"),
-        input_hint = _("App name"),
-        input = self.search_query or "",
-        buttons = {
-            {
-                { text = _("Clear"), callback = function() self.search_query = ""; UIManager:close(dialog); self:build(); UIManager:setDirty(self, "ui") end },
-                { text = _("Search"), is_enter_default = true, callback = function() self.search_query = dialog:getInputText() or ""; UIManager:close(dialog); self:build(); UIManager:setDirty(self, "ui") end },
-            },
-        },
+    local keyboard
+    keyboard = AppDockKeyboard:new{
+        value = self.search_query or "",
+        on_cancel = function() UIManager:close(keyboard) end,
+        on_submit = function(value)
+            self.search_query = value or ""
+            UIManager:close(keyboard)
+            self:build()
+            UIManager:setDirty(self, "ui")
+        end,
     }
-    UIManager:show(dialog)
-    dialog:onShowKeyboard()
+    UIManager:show(keyboard)
 end
 
 function AppDockHomeScreen:_pageInfo(apps, per_page)
