@@ -51,13 +51,10 @@ function AppButton:paintTo(bb, x, y)
     return InputContainer.paintTo(self, bb, x, y)
 end
 function AppButton:onTap()
-    -- One cheap two-frame flash reads as motion on eInk without a full refresh.
+    -- Keep feedback synchronous: the grid editor may close this popup
+    -- immediately, so no callback may touch a widget on a later tick.
     if self[1] then self[1].background = palette.ink end
     UIManager:setDirty(nil, "ui", self.dimen)
-    UIManager:nextTick(function()
-        if self[1] then self[1].background = palette.surface end
-        UIManager:setDirty(nil, "ui", self.dimen)
-    end)
     if self.callback then self.callback() end
     return true
 end
@@ -65,14 +62,16 @@ end
 local AppSwitch = InputContainer:extend{ value = false, callback = nil, width = 58, height = 32 }
 function AppSwitch:init()
     self.dimen = Geom:new{ w = self.width, h = self.height }
+    self.track = FrameContainer:new{ width = self.width, height = self.height, padding = 0, bordersize = scale(1), color = palette.ink, background = self.value and palette.ink or palette.surface, radius = self.height / 2 }
+    self.knob = FrameContainer:new{ width = scale(22), height = scale(22), padding = 0, bordersize = scale(1), color = palette.ink, background = self.value and palette.surface or palette.ink, radius = scale(11) }
+    self.visual = HorizontalGroup:new{ align = "center", self.track, VerticalSpan:new{ width = -self.width + scale(25) }, self.knob }
     self.ges_events = { tap = { GestureRange:new{ ges = "tap", range = self.dimen } } }
 end
 function AppSwitch:paintTo(bb, x, y)
     self.ges_events.tap[1].range.x, self.ges_events.tap[1].range.y = x, y
-    local track = FrameContainer:new{ width = self.width, height = self.height, padding = 0, bordersize = scale(1), color = palette.ink, background = self.value and palette.ink or palette.surface, radius = self.height / 2 }
-    local knob = FrameContainer:new{ width = scale(22), height = scale(22), padding = 0, bordersize = scale(1), color = palette.ink, background = self.value and palette.surface or palette.ink, radius = scale(11) }
-    local group = HorizontalGroup:new{ align = "center", track, VerticalSpan:new{ width = -self.width + scale(25) }, knob }
-    group:paintTo(bb, x, y + math.floor((self.height - group:getSize().h) / 2))
+    self.track.background = self.value and palette.ink or palette.surface
+    self.knob.background = self.value and palette.surface or palette.ink
+    self.visual:paintTo(bb, x, y + math.floor((self.height - self.visual:getSize().h) / 2))
 end
 function AppSwitch:onTap()
     self.value = not self.value
