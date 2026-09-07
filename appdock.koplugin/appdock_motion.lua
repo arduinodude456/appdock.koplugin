@@ -12,6 +12,7 @@ function Motion.run(target, frames, interval, draw, done)
         frame = frame + 1
         if draw then draw(frame, frames) end
         UIManager:setDirty(target, "fast")
+        if UIManager.forceRePaint then UIManager:forceRePaint() end
         if frame < frames then
             UIManager:scheduleIn(interval, tick)
         elseif done then

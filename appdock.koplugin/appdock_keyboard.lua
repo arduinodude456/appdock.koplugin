@@ -91,5 +91,8 @@ function Keyboard:_update()
     UIManager:setDirty(self, "ui")
 end
 function Keyboard:paintTo(bb, x, y) return InputContainer.paintTo(self, bb, self.dimen.x, self.dimen.y) end
-function Keyboard:onCloseWidget() if self.on_cancel then self.on_cancel() else UIManager:close(self) end; return true end
+-- UIManager has already started closing this widget when this hook runs.
+-- Never call UIManager:close() from here again: that re-enters the widget
+-- lifecycle and can leave KOReader's render mutex pointing at destroyed UI.
+function Keyboard:onCloseWidget() return true end
 return Keyboard
