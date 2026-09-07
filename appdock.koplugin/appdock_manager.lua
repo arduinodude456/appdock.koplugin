@@ -26,7 +26,7 @@ function AppDockManager:showDialog()
     -- closing a native-backed popup from inside its own gesture callback can
     -- race KOReader's renderer on Android/eInk builds.
     local function refresh()
-        UIManager:setDirty(nil, "ui")
+        UIManager:setDirty(dialog, "ui")
     end
 
     table.insert(buttons, {

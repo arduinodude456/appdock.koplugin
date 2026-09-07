@@ -8,6 +8,7 @@ local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
 local GestureRange = require("ui/gesturerange")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
+local HorizontalSpan = require("ui/widget/horizontalspan")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
@@ -54,7 +55,7 @@ function AppButton:onTap()
     -- Keep feedback synchronous: the grid editor may close this popup
     -- immediately, so no callback may touch a widget on a later tick.
     if self[1] then self[1].background = palette.ink end
-    UIManager:setDirty(nil, "ui", self.dimen)
+    UIManager:setDirty(self, "ui", self.dimen)
     if self.callback then self.callback() end
     return true
 end
@@ -64,19 +65,21 @@ function AppSwitch:init()
     self.dimen = Geom:new{ w = self.width, h = self.height }
     self.track = FrameContainer:new{ width = self.width, height = self.height, padding = 0, bordersize = scale(1), color = palette.ink, background = self.value and palette.ink or palette.surface, radius = self.height / 2 }
     self.knob = FrameContainer:new{ width = scale(22), height = scale(22), padding = 0, bordersize = scale(1), color = palette.ink, background = self.value and palette.surface or palette.ink, radius = scale(11) }
-    self.visual = HorizontalGroup:new{ align = "center", self.track, VerticalSpan:new{ width = -self.width + scale(25) }, self.knob }
+    -- Keep the switch as one stable surface. Negative-size spacer widgets are
+    -- not supported consistently by KOReader's native layout engine.
+    self.visual = self.track
     self.ges_events = { tap = { GestureRange:new{ ges = "tap", range = self.dimen } } }
 end
 function AppSwitch:paintTo(bb, x, y)
     self.ges_events.tap[1].range.x, self.ges_events.tap[1].range.y = x, y
     self.track.background = self.value and palette.ink or palette.surface
     self.knob.background = self.value and palette.surface or palette.ink
-    self.visual:paintTo(bb, x, y + math.floor((self.height - self.visual:getSize().h) / 2))
+    self.visual:paintTo(bb, x, y)
 end
 function AppSwitch:onTap()
     self.value = not self.value
     if self.callback then self.callback(self.value) end
-    UIManager:setDirty(nil, "ui", self.dimen)
+    UIManager:setDirty(self, "ui", self.dimen)
     return true
 end
 
@@ -90,7 +93,7 @@ function AppPopup:init()
         local text = item.text or ""
         local disabled = item.enabled == false
         local b = AppButton:new{ text = text, width = self.width - scale(28), height = scale(disabled and 30 or 44), active = false,
-            callback = disabled and nil or function() if item.callback then item.callback() end; UIManager:setDirty(nil, "ui") end }
+            callback = disabled and nil or function() if item.callback then item.callback() end; UIManager:setDirty(b, "ui") end }
         if disabled then b[1] = CenterContainer:new{ dimen = b.dimen, label(text, 12, true, palette.muted) } end
         if item.switch and not disabled then
             local sw = AppSwitch:new{ value = item.value, callback = function() if item.callback then item.callback() end end }
@@ -153,7 +156,7 @@ function AppInputDialog:_key(key)
     elseif key == "SPACE" then self.value = self.value .. " "
     else self.value = self.value .. key end
     self.input_box[1] = label(self.value ~= "" and self.value or self.input_hint, 14, false, self.value ~= "" and palette.ink or palette.muted)
-    UIManager:setDirty(nil, "ui", self.dimen)
+    UIManager:setDirty(self, "ui", self.dimen)
 end
 function AppInputDialog:getInputText() return self.value end
 function AppInputDialog:onShowKeyboard() return true end
