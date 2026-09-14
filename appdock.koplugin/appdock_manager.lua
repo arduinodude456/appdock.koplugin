@@ -31,8 +31,12 @@ function AppDockManager:showDialog()
     local function closeAndShowHome()
         UIManager:close(dialog)
         if self.parent_home then
-            UIManager:close(self.parent_home)
-            UIManager:nextTick(function() appdock:showHome(true) end)
+            -- Keep the existing homescreen widget alive. Closing and recreating
+            -- it from a dialog callback can race KOReader's input/mutex cleanup.
+            UIManager:nextTick(function()
+                if self.parent_home.build then self.parent_home:build() end
+                UIManager:setDirty(self.parent_home, "ui")
+            end)
         end
     end
 
