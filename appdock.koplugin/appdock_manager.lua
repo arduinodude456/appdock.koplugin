@@ -39,23 +39,37 @@ function AppDockManager:showDialog()
     local function showMoveMenu()
         local position, total = selected_app and appdock:getPinnedPosition(selected_app.id)
         if not position then return end
-        local move_dialog
-        local function move(delta)
-            appdock:movePinned(selected_app.id, delta)
-            UIManager:close(move_dialog)
-            UIManager:nextTick(function() self:showDialog() end)
-        end
-        move_dialog = ButtonDialog:new{
-            title = string.format(_("Move %s (%d/%d)"), selected_app.title, position, total),
-            buttons = {
-                { { text = _("Move up"), enabled = position > 1, callback = function() move(-1) end },
-                  { text = _("Move down"), enabled = position < total, callback = function() move(1) end } },
-                { { text = _("Move to first"), enabled = position > 1, callback = function() move(-(position - 1)) end },
-                  { text = _("Move to last"), enabled = position < total, callback = function() move(total - position) end } },
-                { { text = _("Done"), callback = function() UIManager:close(move_dialog) end } },
-            },
-        }
-        UIManager:show(move_dialog)
+        -- ButtonDialog does not support stacking another modal reliably. Close
+        -- the app menu first, then open the move menu on the next UI cycle.
+        UIManager:close(dialog)
+        UIManager:nextTick(function()
+            local move_dialog
+            local function move(delta)
+                appdock:movePinned(selected_app.id, delta)
+                UIManager:close(move_dialog)
+                UIManager:nextTick(function()
+                    self.selected_app = selected_app
+                    self:showDialog()
+                end)
+            end
+            move_dialog = ButtonDialog:new{
+                title = string.format(_("Move %s (%d/%d)"), selected_app.title, position, total),
+                buttons = {
+                    { { text = _("Move up"), enabled = position > 1, callback = function() move(-1) end },
+                      { text = _("Move down"), enabled = position < total, callback = function() move(1) end } },
+                    { { text = _("Move to first"), enabled = position > 1, callback = function() move(-(position - 1)) end },
+                      { text = _("Move to last"), enabled = position < total, callback = function() move(total - position) end } },
+                    { { text = _("Done"), callback = function()
+                        UIManager:close(move_dialog)
+                        UIManager:nextTick(function()
+                            self.selected_app = selected_app
+                            self:showDialog()
+                        end)
+                    end } },
+                },
+            }
+            UIManager:show(move_dialog)
+        end)
     end
 
     if selected_app and selected_app.id and appdock:isPinned(selected_app.id) then
