@@ -2090,7 +2090,7 @@ function DAppManager:showAccessibilityEditor(instance, context)
         title = _("Accessibility") .. "\n" .. string.format(_("Text size: %d%% · contrast: %s"), math.floor((current.text_scale or 1) * 100 + .5), current.high_contrast and _("high") or _("standard")),
         buttons = {
             { { text = "75%", callback = function() choose({ text_scale = .75 }) end }, { text = "90%", callback = function() choose({ text_scale = .9 }) end }, { text = "100%", callback = function() choose({ text_scale = 1 }) end } },
-            { { text = "115%", callback = function() choose({ text_scale = 1.15 }) end }, { text = "130%", callback = function() choose({ text_scale = 1.3 }) end } },
+            { { text = "50%", callback = function() choose({ text_scale = .5 }) end },{ text = "115%", callback = function() choose({ text_scale = 1.15 }) end }, { text = "130%", callback = function() choose({ text_scale = 1.3 }) end } },
             { { text = current.high_contrast and _("Use standard contrast") or _("Use high contrast"), callback = function() choose({ high_contrast = not current.high_contrast }) end } },
             { { text = _("Cancel"), callback = function() UIManager:close(dialog) end } },
         },
