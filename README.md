@@ -46,7 +46,7 @@
 | App-Sektion | Eine ruhige Abschnittszeile mit sichtbarer App-Anzahl trennt Widgets, Suche und Launcher-Raster klar voneinander. |
 | Navigation | Zurückhaltende runde Seitenschalter erscheinen nur bei mehr als sechs angehefteten Apps. |
 | Schnellzugriff | Ein gezeichnetes Dropdown mit Helligkeit, WLAN, Nachtmodus, Refresh und Editor öffnet sich über die Abwärtspfeil-Kachel in der Systemzeile. |
-| DApps | Zustandsbehaftete, KOReader-interne Apps mit eigenem Pane, wiederverwendbaren grafischen Logos und eigener Open-Apps-Übersicht. Die fünf Offline-DApps **Calc**, **Calendar**, **Snake**, **2048** und **Status Message** sind ab Werk aus dem vertrauenswürdigen DApps-Katalog gebündelt. |
+| DApps | Zustandsbehaftete, KOReader-interne Apps mit eigenem Pane, wiederverwendbaren grafischen Logos und eigener Open-Apps-Übersicht. |
 | Periodischer Refresh | Alle 60 Sekunden fordert AppDock einen vollständigen E-Ink-Refresh an, um Geisterbilder zu reduzieren und statische Informationen sichtbar zu aktualisieren. |
 
 Ein Antippen startet die zugewiesene Aktion. Ein Halten auf einer App-Kachel öffnet die Verwaltung. Die bestehende Plugin-App-Erkennung, das Hinzufügen und Entfernen sowie die sichere Menüausführung bleiben erhalten.

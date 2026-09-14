@@ -39,7 +39,6 @@ if not ok_lfs then lfs = require("lfs") end
 
 local Screen = Device.screen
 local ACTIVE_APPDOCK = nil
-local APPDOCK_MODULE_DIR = (debug.getinfo(1, "S").source:sub(2):match("^(.*[/\\])") or "")
 
 local DAppManager = {}
 DAppManager.__index = DAppManager
@@ -696,15 +695,6 @@ function DAppManager:_registerBuiltins()
             return self:_buildSettingsPane(instance, context)
         end,
     }
-    -- Bundle five small offline-first DApps from the trusted DApps catalog.
-    local bundled = { "calc.lua", "calendar.lua", "snake.lua", "2048.lua", "status_message.lua" }
-    for _, filename in ipairs(bundled) do
-        local ok, definition = pcall(dofile, APPDOCK_MODULE_DIR .. filename)
-        if ok and type(definition) == "table" and type(definition.id) == "string"
-                and type(definition.title) == "string" and type(definition.buildPane) == "function" then
-            self.definitions[definition.id] = definition
-        end
-    end
 end
 
 function DAppManager:_loadStoredDApps()
