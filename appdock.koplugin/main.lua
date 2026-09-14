@@ -786,7 +786,8 @@ end
 
 function AppDock:getDAppManager()
     if not self.dapp_manager then
-        local DAppManager = require("appdock_dapps")
+local DAppManager = require("appdock_dapps")
+local AppDockOrder = require("appdock_order")
         self.dapp_manager = DAppManager:new(self)
     end
     return self.dapp_manager
@@ -973,18 +974,6 @@ function AppDock:isPinned(app_id)
     return false
 end
 
-local function moveValue(list, value, delta)
-    local index
-    for position, item in ipairs(list or {}) do
-        if item == value then index = position; break end
-    end
-    if not index then return false end
-    local target = index + delta
-    if target < 1 or target > #list then return false end
-    list[index], list[target] = list[target], list[index]
-    return true
-end
-
 function AppDock:getPinnedPosition(app_id)
     for index, pinned_id in ipairs(self.settings.pinned_apps) do
         if pinned_id == app_id then return index, #self.settings.pinned_apps end
@@ -993,7 +982,7 @@ function AppDock:getPinnedPosition(app_id)
 end
 
 function AppDock:movePinned(app_id, delta)
-    if moveValue(self.settings.pinned_apps, app_id, delta) then
+    if AppDockOrder.move(self.settings.pinned_apps, app_id, delta) then
         self:_saveSettings()
         return true
     end
@@ -1064,7 +1053,7 @@ function AppDock:moveStoreWidget(widget_id, delta)
     local available = self:getStoreWidgets()
     for _, widget in ipairs(available) do known[widget.widget_id] = true end
     if not known[widget_id] then return false end
-    if moveValue(order, widget_id, delta) then
+    if AppDockOrder.move(order, widget_id, delta) then
         self.settings.widgets.store_order = order
         self:_saveSettings()
         return true
