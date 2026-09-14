@@ -357,7 +357,7 @@ function AppTile:onTapSelectAppTile()
 end
 
 function AppTile:onHoldSelectAppTile()
-    self.appdock:showManager(self.home)
+    self.appdock:showManager(self.home, self.app)
     return true
 end
 

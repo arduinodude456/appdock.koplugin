@@ -248,7 +248,7 @@ function AppDock:_loadSettings()
         self.settings.workspace.session = nil
     end
     self.settings.accessibility = type(self.settings.accessibility) == "table" and self.settings.accessibility or { text_scale = 1, high_contrast = false }
-    local allowed_text_scales = { [0.9] = true, [1] = true, [1.15] = true, [1.3] = true }
+    local allowed_text_scales = { [0.5] = true, [0.75] = true, [0.9] = true, [1] = true, [1.15] = true, [1.3] = true, [1.5] = true }
     local stored_text_scale = tonumber(self.settings.accessibility.text_scale) or 1
     self.settings.accessibility.text_scale = allowed_text_scales[stored_text_scale] and stored_text_scale or 1
     self.settings.accessibility.high_contrast = self.settings.accessibility.high_contrast == true
@@ -345,7 +345,7 @@ function AppDock:setAccessibility(changes)
     changes = type(changes) == "table" and changes or {}
     self.settings.accessibility = self.settings.accessibility or { text_scale = 1, high_contrast = false }
     if changes.text_scale ~= nil then
-        local allowed_text_scales = { [0.9] = true, [1] = true, [1.15] = true, [1.3] = true }
+        local allowed_text_scales = { [0.5] = true, [0.75] = true, [0.9] = true, [1] = true, [1.15] = true, [1.3] = true, [1.5] = true }
         local requested = tonumber(changes.text_scale)
         if not allowed_text_scales[requested] then return false end
         self.settings.accessibility.text_scale = requested
@@ -779,9 +779,9 @@ function AppDock:showHome(skip_lock)
     UIManager:show(HomeScreen:new{ appdock = self })
 end
 
-function AppDock:showManager(home)
+function AppDock:showManager(home, selected_app)
     local AppDockManager = require("appdock_manager")
-    AppDockManager:show{ appdock = self, parent_home = home }
+    AppDockManager:show{ appdock = self, parent_home = home, selected_app = selected_app }
 end
 
 function AppDock:getDAppManager()

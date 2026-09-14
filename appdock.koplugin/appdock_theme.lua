@@ -100,7 +100,8 @@ end
 
 function Theme.textSize(appdock, logical_size, minimum)
     local requested = appdock and appdock.settings and appdock.settings.accessibility and tonumber(appdock.settings.accessibility.text_scale) or 1
-    if requested ~= .9 and requested ~= 1.15 and requested ~= 1.3 then requested = 1 end
+    local allowed = { [.5] = true, [.75] = true, [.9] = true, [1] = true, [1.15] = true, [1.3] = true, [1.5] = true }
+    if not allowed[requested] then requested = 1 end
     local base = Device.screen:scaleBySize(tonumber(logical_size) or 10)
     local floor_size = Device.screen:scaleBySize(tonumber(minimum) or 7)
     return math.max(floor_size, math.floor(base * requested + .5))
@@ -108,7 +109,8 @@ end
 
 function Theme.adjustText(appdock, scaled_size, minimum)
     local requested = appdock and appdock.settings and appdock.settings.accessibility and tonumber(appdock.settings.accessibility.text_scale) or 1
-    if requested ~= .9 and requested ~= 1.15 and requested ~= 1.3 then requested = 1 end
+    local allowed = { [.5] = true, [.75] = true, [.9] = true, [1] = true, [1.15] = true, [1.3] = true, [1.5] = true }
+    if not allowed[requested] then requested = 1 end
     return math.max(tonumber(minimum) or 1, math.floor((tonumber(scaled_size) or 1) * requested + .5))
 end
 
