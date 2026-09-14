@@ -36,13 +36,14 @@
 
 ## Homescreen
 
-| Zone | Android-16-inspirierte Umsetzung in AppDock |
+| Zone | ZenOS-, SimpleUI- und Android-12-inspirierte Umsetzung in AppDock |
 |---|---|
 | Systemzeile | Uhrzeit links, optionaler Akkustand rechts, ohne schwere App-Leiste. |
 | Tagesbereich | Große Begrüßung und Datumszeile als klare visuelle Hierarchie. |
 | Widgets | Abgerundete **Device**- und **Continue reading**-Karten sowie installierbare Store-Widgets mit großzügigem Innenabstand. |
 | Apps | Einheitliches 3-Spalten-Iconraster mit großen, abgerundeten Symbolflächen und kurzen Labels. |
 | Palette | Vier Material-You-artige Presets sowie selbst erstellbare Akzentfarben; auf Graustufen bleiben feste kontrastreiche KOReader-Grautöne erhalten. |
+| App-Sektion | Eine ruhige Abschnittszeile mit sichtbarer App-Anzahl trennt Widgets, Suche und Launcher-Raster klar voneinander. |
 | Navigation | Zurückhaltende runde Seitenschalter erscheinen nur bei mehr als sechs angehefteten Apps. |
 | Schnellzugriff | Ein gezeichnetes Dropdown mit Helligkeit, WLAN, Nachtmodus, Refresh und Editor öffnet sich über die Abwärtspfeil-Kachel in der Systemzeile. |
 | DApps | Zustandsbehaftete, KOReader-interne Apps mit eigenem Pane, wiederverwendbaren grafischen Logos und eigener Open-Apps-Übersicht. |

@@ -163,6 +163,10 @@ local function greeting()
     return _("Good evening")
 end
 
+local function appSectionLabel(count)
+    return string.format(_("Apps  ·  %d"), tonumber(count) or 0)
+end
+
 local function iconFor(app)
     local symbols = {
         ["system:library"] = "B",
@@ -555,7 +559,18 @@ function AppDockHomeScreen:_buildSimpleMode(width, height)
             overlap_offset = { nav_center - scale(12), nav_y + scale(8) },
         })
     end
-    self.simple_layout = { columns = 4, rows = 3, tile_size = tile_size, app_count = #visible_apps, page_count = page_count }
+    self:_addTopSystemLine(dashboard, width, margin)
+    if grid_y > scale(58) then
+        table.insert(dashboard, TextWidget:new{
+            text = appSectionLabel(#apps),
+            face = Font:getFace("smallinfofont", Theme.adjustText(self.appdock, scale(14), scale(10))),
+            fgcolor = PALETTE.on_surface_variant,
+            bold = true,
+            padding = 0,
+            overlap_offset = { margin, margin + scale(38) },
+        })
+    end
+    self.simple_layout = { columns = 4, rows = 3, tile_size = tile_size, app_count = #visible_apps, page_count = page_count, app_section = true }
     self[1] = dashboard
 end
 
@@ -703,6 +718,15 @@ function AppDockHomeScreen:build()
     local row_gap = scale(12)
     local grid_rows = math.max(1, math.ceil(#visible_apps / 3))
     local grid_height = grid_rows * (tile_size + label_gap + label_height) + math.max(0, grid_rows - 1) * row_gap
+    table.insert(dashboard, TextWidget:new{
+        text = appSectionLabel(#apps),
+        face = Font:getFace("smallinfofont", Theme.adjustText(self.appdock, scale(14), scale(10))),
+        fgcolor = PALETTE.on_surface_variant,
+        bold = true,
+        max_width = width - 2 * margin,
+        padding = 0,
+        overlap_offset = { margin, grid_y - scale(20) },
+    })
     if expressive and #visible_apps > 0 then
         table.insert(dashboard, FrameContainer:new{
             width = math.min(width - 2 * margin, grid_width + scale(30)), height = grid_height + scale(20), padding = 0, bordersize = 0,
@@ -753,7 +777,7 @@ function AppDockHomeScreen:build()
         table.insert(dashboard, page_label)
     end
 
-    self.normal_layout = { expressive = expressive, has_header_surface = expressive, has_app_dock_surface = expressive, grid_rows = grid_rows, tile_size = tile_size }
+    self.normal_layout = { expressive = expressive, has_header_surface = expressive, has_app_dock_surface = expressive, app_section = true, grid_rows = grid_rows, tile_size = tile_size }
     self[1] = dashboard
 end
 
