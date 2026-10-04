@@ -60,6 +60,7 @@ local DEFAULT_SETTINGS = {
     widget_generator = { items = {}, next_id = 0 },
     setup_assistant = { offered_version = "", completed_version = "" },
     power_saving = false,
+    refresh_interval = 60,
     sleepscreen_enabled = false,
     layout_version = 19,
 }
@@ -143,6 +144,7 @@ function AppDock:_loadSettings()
         widget_generator = stored.widget_generator or { items = {}, next_id = 0 },
         setup_assistant = stored.setup_assistant or { offered_version = "", completed_version = "" },
         power_saving = stored.power_saving == true,
+        refresh_interval = tonumber(stored.refresh_interval) or DEFAULT_SETTINGS.refresh_interval,
         sleepscreen_enabled = stored.sleepscreen_enabled == true,
         layout_version = stored.layout_version or 1,
     }
@@ -155,6 +157,8 @@ function AppDock:_loadSettings()
     self.settings.layout.search_enabled = self.settings.layout.search_enabled == true
     self.settings.layout.split_ratio = tonumber(self.settings.layout.split_ratio) or DEFAULT_SETTINGS.layout.split_ratio
     self.settings.layout.split_ratio = math.max(.20, math.min(.80, self.settings.layout.split_ratio))
+    self.settings.refresh_interval = math.floor((tonumber(self.settings.refresh_interval) or DEFAULT_SETTINGS.refresh_interval) / 15 + .5) * 15
+    self.settings.refresh_interval = math.max(15, math.min(300, self.settings.refresh_interval))
 
     if self.settings.layout_version < 18 then
         local migrated = copyArray(DEFAULT_SETTINGS.pinned_apps)
@@ -516,6 +520,17 @@ function AppDock:setPowerSaving(enabled)
     self:_saveSettings()
     self:_scheduleScreenRefresh()
 end
+function AppDock:getRefreshInterval()
+    return tonumber(self.settings.refresh_interval) or 60
+end
+function AppDock:setRefreshInterval(seconds)
+    seconds = math.floor((tonumber(seconds) or 60) / 15 + .5) * 15
+    seconds = math.max(15, math.min(300, seconds))
+    self.settings.refresh_interval = seconds
+    self:_saveSettings()
+    self:_scheduleScreenRefresh()
+    return seconds
+end
 
 local QUICK_TILE_IDS = { wifi = true, night = true, refresh = true, edit = true, sleep = true, power_saving = true, wallpaper = true }
 
@@ -710,9 +725,9 @@ function AppDock:_scheduleScreenRefresh()
         -- own regional fast refreshes instead.
         UIManager:setDirty("all", "full")
         if UIManager.forceRePaint then UIManager:forceRePaint() end
-        UIManager:scheduleIn(self.settings.power_saving and 180 or 60, self._screen_refresh_tick)
+        UIManager:scheduleIn(math.max(self:getRefreshInterval(), self.settings.power_saving and 180 or 0), self._screen_refresh_tick)
     end
-    UIManager:scheduleIn(self.settings.power_saving and 180 or 60, self._screen_refresh_tick)
+    UIManager:scheduleIn(math.max(self:getRefreshInterval(), self.settings.power_saving and 180 or 0), self._screen_refresh_tick)
 end
 
 function AppDock:_scheduleDAppTasks()

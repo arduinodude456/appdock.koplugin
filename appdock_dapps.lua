@@ -165,6 +165,39 @@ local function emptySizedWidget(width, height)
     }
 end
 
+local RefreshIntervalDialog = InputContainer:extend{ appdock = nil, dimen = nil, track = nil, thumb = nil, value_label = nil }
+function RefreshIntervalDialog:init()
+    applyTheme(self.appdock); self.dimen = Screen:getSize(); self.min_interval, self.max_interval = 15, 300
+    self.interval = type(self.appdock.getRefreshInterval) == "function" and self.appdock:getRefreshInterval() or 60
+    self.ges_events = { TapRefreshInterval = { GestureRange:new{ ges = "tap", range = function() return self.track and self.track.dimen end } }, PanRefreshInterval = { GestureRange:new{ ges = "pan", range = function() return self.track and self.track.dimen end } }, PanReleaseRefreshInterval = { GestureRange:new{ ges = "pan_release", range = function() return self.track and self.track.dimen end } } }
+    self:rebuild()
+end
+function RefreshIntervalDialog:_formatInterval(seconds)
+    if seconds % 60 == 0 then return string.format(_("Every %d min"), seconds / 60) end
+    return string.format(_("Every %d sec"), seconds)
+end
+function RefreshIntervalDialog:_setFromGesture(_, ges_ev)
+    if not self.track or not ges_ev or not ges_ev.pos then return true end
+    local x = math.max(self.track.dimen.x, math.min(self.track.dimen.x + self.track.dimen.w, ges_ev.pos.x))
+    local ratio = (x - self.track.dimen.x) / math.max(1, self.track.dimen.w)
+    self.interval = math.floor((self.min_interval + ratio * (self.max_interval - self.min_interval)) / 15 + .5) * 15
+    self.interval = math.max(self.min_interval, math.min(self.max_interval, self.interval)); if type(self.appdock.setRefreshInterval) == "function" then self.appdock:setRefreshInterval(self.interval) end; self:rebuild(); UIManager:setDirty(self, "ui")
+    if UIManager.forceRePaint then UIManager:forceRePaint() end; return true
+end
+RefreshIntervalDialog.onTapRefreshInterval, RefreshIntervalDialog.onPanRefreshInterval, RefreshIntervalDialog.onPanReleaseRefreshInterval = RefreshIntervalDialog._setFromGesture, RefreshIntervalDialog._setFromGesture, RefreshIntervalDialog._setFromGesture
+function RefreshIntervalDialog:rebuild()
+    local width, height = self.dimen.w, self.dimen.h; local panel_w, panel_h = math.min(width - scale(24), scale(520)), math.min(height - scale(24), scale(340)); local left, top = math.floor((width - panel_w) / 2), math.floor((height - panel_h) / 2)
+    local track_x, track_y, track_w, track_h = left + scale(30), top + scale(142), panel_w - scale(60), scale(12); local ratio = (self.interval - self.min_interval) / (self.max_interval - self.min_interval)
+    self.track = FrameContainer:new{ dimen = Geom:new{ x = track_x, y = track_y, w = track_w, h = track_h }, width = track_w, height = track_h, padding = 0, bordersize = 0, radius = scale(6), background = PALETTE.track, emptySizedWidget(track_w, track_h), overlap_offset = { track_x, track_y } }
+    local thumb_size = scale(28); self.thumb = FrameContainer:new{ width = thumb_size, height = thumb_size, padding = 0, bordersize = 0, radius = scale(14), background = PALETTE.primary, emptySizedWidget(thumb_size, thumb_size), overlap_offset = { math.floor(track_x + ratio * track_w - thumb_size / 2), track_y - math.floor((thumb_size - track_h) / 2) } }
+    self.value_label = TextWidget:new{ text = self:_formatInterval(self.interval), face = Font:getFace("cfont", scale(24)), fgcolor = PALETTE.on_surface, bold = true, padding = 0, overlap_offset = { left + scale(30), top + scale(82) } }
+    local content = OverlapGroup:new{ dimen = Geom:new{ w = width, h = height }, allow_mirroring = false, FrameContainer:new{ width = width, height = height, padding = 0, bordersize = 0, background = PALETTE.background, emptySizedWidget(width, height) }, FrameContainer:new{ width = panel_w, height = panel_h, padding = scale(24), bordersize = 0, radius = scale(18), background = PALETTE.surface, emptySizedWidget(panel_w, panel_h), overlap_offset = { left, top } }, TextWidget:new{ text = _("Refresh interval"), face = Font:getFace("cfont", scale(22)), fgcolor = PALETTE.on_surface, bold = true, padding = 0, overlap_offset = { left + scale(30), top + scale(32) } }, TextWidget:new{ text = _("Move the slider to choose the periodic full redraw."), face = Font:getFace("smallinfofont", scale(13)), fgcolor = PALETTE.on_variant, padding = 0, overlap_offset = { left + scale(30), top + scale(62) } }, self.value_label, self.track, self.thumb, ActionChip:new{ title = _("Done"), symbol = "✓", width = scale(100), height = scale(40), callback = function() UIManager:close(self) end, overlap_offset = { left + panel_w - scale(130), top + panel_h - scale(58) } } }; self:clear(); self[1] = content
+end
+function RefreshIntervalDialog:paintTo(bb, x, y)
+    for _, name in ipairs({ "TapRefreshInterval", "PanRefreshInterval", "PanReleaseRefreshInterval" }) do local range = self.ges_events[name][1].range(); if range then range.x, range.y, range.w, range.h = self.track.dimen.x, self.track.dimen.y - scale(18), self.track.dimen.w, self.track.dimen.h + scale(36) end end
+    return InputContainer.paintTo(self, bb, x, y)
+end
+function RefreshIntervalDialog:onCloseWidget() UIManager:setDirty("all", "ui") end
 local LEGACY_FILE_HANDLERS = {
     night_lua = { "lua" },
     dreader = { "epub", "html", "htm", "xhtml" },
@@ -1658,6 +1691,7 @@ function DAppManager:activate(id, home)
     local host = DAppHost:new{ manager = self, dapp_id = id, dapp_ids = { id }, split = false }
     self.active_host = host
     UIManager:show(host)
+    UIManager:nextTick(function() UIManager:setDirty(host, "ui"); if UIManager.forceRePaint then UIManager:forceRePaint() end end)
 end
 
 function DAppManager:openDAppFile(id, file)
@@ -1941,6 +1975,9 @@ function DAppManager:showBluetoothSettings()
     show_items(entry.sub_item_table, _("Bluetooth · Kobo Libra Colour") .. "\n" .. _("External plugin only. Third-party MTK Bluetooth may be experimental; returning to Nickel can require a reboot."))
 end
 
+function DAppManager:showRefreshSettings()
+    UIManager:show(RefreshIntervalDialog:new{ appdock = self.appdock })
+end
 function DAppManager:showFrontlightSettings()
     UIManager:broadcastEvent(Event:new("ShowFlDialog"))
 end
@@ -2688,6 +2725,7 @@ function DAppManager:_buildSettingsPane(instance, context)
     local lockscreen_settings = self.appdock.settings.lockscreen or { enabled = false, method = "swipe" }
     local workspace_settings = self.appdock.settings.workspace or { restore_enabled = false, session = nil }
     local accessibility_settings = self.appdock.settings.accessibility or { text_scale = 1, high_contrast = false }
+    local refresh_interval = type(self.appdock.getRefreshInterval) == "function" and self.appdock:getRefreshInterval() or 60
     local rows_by_category = {
         network = {
             {
@@ -2727,6 +2765,12 @@ function DAppManager:_buildSettingsPane(instance, context)
                 subtitle = string.format(_("%d%% text · %s contrast"), math.floor((accessibility_settings.text_scale or 1) * 100 + .5), accessibility_settings.high_contrast and _("high") or _("standard")),
                 show_state = false,
                 callback = function() self:showAccessibilityEditor(instance, context) end,
+            },
+            {
+                title = _("Refresh"),
+                subtitle = string.format(_("%s · periodic full redraw"), refresh_interval % 60 == 0 and string.format(_("Every %d min"), refresh_interval / 60) or string.format(_("Every %d sec"), refresh_interval)),
+                show_state = false,
+                callback = function() self:showRefreshSettings() end,
             },
             {
                 title = _("Background image"),
@@ -2870,12 +2914,6 @@ function DAppManager:_buildSettingsPane(instance, context)
                 subtitle = workspace_settings.restore_enabled and _("Restore permitted local apps") or _("Disabled · no session is restored"),
                 enabled = workspace_settings.restore_enabled,
                 callback = function() self:showWorkspaceEditor(instance, context) end,
-            },
-            {
-                title = _("Refresh"),
-                subtitle = _("Not implemented"),
-                show_state = false,
-                callback = function() self:showSettingsNotice(_("Refresh settings are not implemented yet.")) end,
             },
         },
     }

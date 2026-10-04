@@ -432,6 +432,7 @@ manager:closeDApp("bwr_video")
 
 manager:activate("analog_clock", "home")
 assert(manager.active_id == "analog_clock" and #manager:getOpenApps() == 1, "Activating a DApp must retain it in the open-app list")
+assert(log.dirties[#log.dirties].widget == manager.active_host and log.dirties[#log.dirties].kind == "ui", "Activating a DApp must request a next-tick redraw for the new host")
 local host_chrome = manager.active_host[1]
 manager.showQuickSettingsFromHost = function(_, host) log.quick_settings_host = host end
 local host_quick_access
@@ -503,7 +504,7 @@ assert(storage_segments and storage_segments[1] and storage_segments[1].bytes >=
 assert(settings_instance.pane.settings_layout.integrity and settings_instance.pane.settings_layout.integrity.missing == 0, "Storage settings must expose a local read-only integrity status without marking valid Store records as missing")
 settings_instance.settings_category = "display"
 manager:activate("settings")
-assert(settings_instance.pane.settings_layout.category == "display" and settings_instance.pane.settings_layout.row_count == 10, "Display category must expose text and contrast controls alongside themes, launcher, wallpaper and beta settings")
+assert(settings_instance.pane.settings_layout.category == "display" and settings_instance.pane.settings_layout.row_count == 11, "Display category must expose refresh, text and contrast controls alongside themes, launcher, wallpaper and beta settings")
 assert(appdock:setAccessibility({ text_scale = 1.3, high_contrast = true }) and Theme.getPalette(appdock).high_contrast, "Accessibility settings must persist a bounded text scale and activate the high-contrast palette")
 manager:showFrontlightSettings()
 assert(log.events[#log.events] == "ShowFlDialog", "Brightness and warmth must use KOReader's native frontlight dialog")
@@ -511,7 +512,7 @@ manager:toggleColorTheme({ requestRebuild = function() log.settings_rebuilds = (
 assert(log.events[#log.events] == "ToggleNightMode" and log.settings_rebuilds == 1, "Color themes must trigger KOReader's night-mode event")
 settings_instance.settings_category = "other"
 manager:activate("settings")
-assert(settings_instance.pane.settings_layout.category == "other" and settings_instance.pane.settings_layout.row_count == 11, "Other category must include the sleep screen and setup wizard alongside the opt-in local workspace, lockscreen, control center, permissions, arrangement and startup")
+assert(settings_instance.pane.settings_layout.category == "other" and settings_instance.pane.settings_layout.row_count == 10, "Other category must include the sleep screen and setup wizard alongside the opt-in local workspace, lockscreen, control center, permissions, arrangement and startup")
 assert(settings_instance.pane.settings_layout.text_scale == 1.3 and settings_instance.pane.settings_layout.high_contrast and not settings_instance.pane.settings_layout.workspace_enabled, "Settings metadata must expose the applied local accessibility and workspace state")
 local setup_dialogs_before = #log.shown
 manager:showSetupAssistant(settings_instance, { requestRebuild = function() log.setup_rebuilds = (log.setup_rebuilds or 0) + 1 end }, false)
