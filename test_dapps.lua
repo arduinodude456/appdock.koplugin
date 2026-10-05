@@ -65,6 +65,7 @@ package.preload["appdock_logo"] = function()
     function Logo.availableKinds() return { "app_store", "palette" } end
     return Logo
 end
+package.preload["appdock_keyboard"] = function() return WidgetContainer end
 package.preload["appdock_appstore"] = function()
     return {
         new = function()
@@ -144,6 +145,8 @@ package.preload["ui/uimanager"] = function()
 end
 
 local DAppManager = dofile(plugin_dir .. "appdock_dapps.lua")
+package.preload["pluginloader"] = function() return { loadPlugins = function() return {} end } end
+local AppDockClass = dofile(plugin_dir .. "main.lua")
 local Device = require("device")
 local Theme = require("appdock_theme")
 local UIManager = require("ui/uimanager")
@@ -185,9 +188,41 @@ assert(recents_source:find("local Layout = require(\"appdock_layout\")", 1, true
 assert(quick_settings_source:find("tile_height = scale(68)", 1, true) and quick_settings_source:find("slider_spacing = scale(8)", 1, true), "Normal Quick Settings must use compact visible tile and sheet spacing")
 assert(quick_settings_source:find("Layout.FixedStack:new", 1, true), "Quick Settings tiles and notifications must keep their text inside explicit fixed bounds")
 assert(appstore_source:find("local compact_height = scale(42)", 1, true) and appstore_source:find("local list_y, card_height", 1, true) and appstore_source:find("scale(58)", 1, true), "AppStore must use compact visible controls and catalog cards")
-assert(homescreen_source:find("local label_height = scale(20)", 1, true) and homescreen_source:find("local label_gap = scale(3)", 1, true) and homescreen_source:find("local row_gap = scale(12)", 1, true), "Normal Homescreen app labels and rows must use compact visible spacing")
+assert(homescreen_source:find("local label_height = scale(20)", 1, true) and homescreen_source:find("local label_gap = scale(3)", 1, true) and homescreen_source:find("local row_gap = scale(8)", 1, true), "Normal Homescreen app labels and rows must use compact visible spacing")
 assert(appstore_source:find("Layout.FixedStack:new", 1, true) and homescreen_source:find("Layout.FixedStack:new", 1, true), "AppStore and Homescreen cards must draw text through the fixed-bounds container")
 assert(simple_mode_source:find("local column_gap, row_gap, label_height = scale(12), scale(14), scale(22)", 1, true), "Simple Mode must retain its original app-grid spacing")
+assert(homescreen_source:find("self:_pageInfo(apps, 9)", 1, true) and homescreen_source:find("local grid_width = width", 1, true), "Normal Homescreen must paginate nine apps on a screen-wide grid")
+assert(homescreen_source:find('local dock_title = actual_recent_count > 0 and _("Recently used") or _("Quick access")', 1, true) and homescreen_source:find("quick_access_count = #shortcut_apps", 1, true), "Normal Homescreen must provide a lower quick-access row from recent and pinned apps")
+local recent_catalog = {}
+for _, id in ipairs({ "system:library", "system:menu", "system:history", "plugin:reader", "system:open_apps" }) do
+    recent_catalog[id] = { id = id, title = id }
+end
+local recent_probe = setmetatable({
+    settings = { recent_apps = { "plugin:removed", "system:history" } },
+    getAppCatalog = function() return recent_catalog end,
+    isSimpleModeAppAllowed = function() return true end,
+    _saveSettings = function(self) self.saved = (self.saved or 0) + 1 end,
+}, AppDockClass)
+recent_probe:_recordRecentApp(recent_catalog["system:menu"])
+recent_probe:_recordRecentApp(recent_catalog["system:library"])
+recent_probe:_recordRecentApp(recent_catalog["plugin:reader"])
+recent_probe:_recordRecentApp(recent_catalog["system:history"])
+recent_probe:_recordRecentApp(recent_catalog["system:open_apps"])
+local recent_result = recent_probe:getRecentApps(4)
+assert(#recent_result == 4 and recent_result[1].id == "system:history" and recent_result[2].id == "plugin:reader" and recent_result[3].id == "system:library" and recent_result[4].id == "system:menu", "Recent apps must be MRU ordered, deduplicated, bounded to four, and exclude navigation entries")
+assert(recent_probe.settings.recent_apps[1] == "system:history" and recent_probe.settings.recent_apps[4] == "system:menu", "Unknown recent app ids must be pruned from persistent settings")
+recent_probe.settings.recent_apps = { "system:open_apps", "system:history" }
+local cleaned_recents = recent_probe:getRecentApps(4)
+assert(#cleaned_recents == 1 and cleaned_recents[1].id == "system:history", "Persisted navigation actions must not appear in quick access")
+local launched_dapp
+local launch_probe = setmetatable({
+    settings = { recent_apps = {} },
+    isSimpleModeAppAllowed = function() return true end,
+    _saveSettings = function() end,
+    getDAppManager = function() return { activate = function(_, id) launched_dapp = id end } end,
+}, AppDockClass)
+launch_probe:launchApp({ id = "dapp:reader", kind = "dapp", dapp_id = "reader" })
+assert(launch_probe.settings.recent_apps[1] == "dapp:reader" and launched_dapp == "reader", "Launching a DApp must record it as the most recently used quick-access app")
 local files_source = assert(io.open(plugin_dir .. "appdock_filemanager.lua", "rb")):read("*a")
 assert(files_source:find("local margin, gap = scale(12), scale(5)", 1, true) and files_source:find("local row_height = scale(54)", 1, true), "Files must use compact visible rows and gaps")
 assert(files_source:find("Layout.FixedStack:new", 1, true), "File rows must draw labels through the same fixed-bounds container")
@@ -218,6 +253,11 @@ local appdock = {
         return { background = permissions.background == true, autostart = permissions.autostart == true }
     end,
     getPinnedApps = function() return { { id = "dapp:first", title = "First App" }, { id = "dapp:second", title = "Second App" } } end,
+    getRecentApps = function(self, limit)
+        local apps = {}
+        for index = 1, math.min(limit or 4, #(self.test_recent_apps or {})) do apps[index] = self.test_recent_apps[index] end
+        return apps
+    end,
     seedDefaults = function() end,
     getStoreWidgets = function() return { { widget_id = "quote_widget", title = "Quote Widget" }, { widget_id = "weather_widget", title = "Weather Widget" } } end,
     isStoreWidgetEnabled = function() return true end,
@@ -552,8 +592,32 @@ assert(not simple_quick_settings.layout.expressive and simple_quick_settings.she
 appdock:setSimpleModeOption("homescreen", false)
 appdock:setSimpleModeOption("quick_settings", false)
 appdock:setSimpleModeOption("focus_apps", false)
+appdock.test_recent_apps = {
+    { id = "dapp:first", title = "First App" },
+    { id = "dapp:second", title = "Second App" },
+    { id = "system:library", title = "Library" },
+    { id = "system:history", title = "History" },
+}
 local expressive_home = HomeScreen:new{ appdock = appdock }
-assert(expressive_home.normal_layout and expressive_home.normal_layout.expressive and expressive_home.normal_layout.has_header_surface and expressive_home.normal_layout.has_app_dock_surface, "Normal homescreen must restore expressive Material surfaces only after Simple Mode is disabled")
+assert(expressive_home.normal_layout and expressive_home.normal_layout.expressive and expressive_home.normal_layout.has_header_surface and not expressive_home.normal_layout.has_app_dock_surface, "Normal homescreen must restore expressive header surfaces without an app-grid background surface")
+assert(expressive_home.normal_layout.grid_columns == 3 and expressive_home.normal_layout.grid_rows == 3 and expressive_home.normal_layout.page_size == 9 and expressive_home.normal_layout.grid_width == Device.screen:getSize().w, "Normal homescreen must use a full-width 3×3 app grid")
+assert(expressive_home.normal_layout.quick_access_count == 4 and expressive_home.normal_layout.recent_count == 4, "Normal homescreen must show one row of four recent shortcuts")
+assert(expressive_home.normal_layout.tile_size >= 62, "App tiles must remain comfortably sized alongside the quick-access row")
+local many_pinned_apps = {}
+for index = 1, 10 do many_pinned_apps[index] = { id = "test:grid:" .. index, title = "Grid App " .. index } end
+local original_get_pinned_apps = appdock.getPinnedApps
+appdock.getPinnedApps = function() return many_pinned_apps end
+local paged_home = HomeScreen:new{ appdock = appdock, page = 1 }
+local visible_grid_apps = 0
+for _, child in ipairs(paged_home[1]) do
+    if child.app and child.app.id and child.app.id:match("^test:grid:") then
+        visible_grid_apps = visible_grid_apps + 1
+        assert(child.overlap_offset[1] >= 0 and child.overlap_offset[1] + child.label_width <= Device.screen:getSize().w, "A full-width grid cell must remain inside the screen")
+    end
+end
+assert(paged_home.normal_layout.page_count == 2 and visible_grid_apps == 9, "A 3×3 app page must show nine apps before moving to the next page")
+assert(paged_home.normal_layout.hidden_widgets_for_fit and paged_home.normal_layout.tile_size >= 62, "Optional Store widgets must give way to keep paginated app tiles comfortably sized")
+appdock.getPinnedApps = original_get_pinned_apps
 local expressive_quick_settings = QuickSettings:new{ appdock = appdock, home = expressive_home }
 assert(expressive_quick_settings.layout.expressive and not expressive_quick_settings.layout.simple_mode and expressive_quick_settings.sheet_height >= 0, "Normal quick settings must use expressive layout only outside Simple Mode")
 

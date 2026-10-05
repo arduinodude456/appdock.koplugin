@@ -34,6 +34,7 @@ local DEFAULT_SETTINGS = {
         "system:history",
         "system:manage",
     },
+    recent_apps = {},
     widgets = {
         clock = true,
         status = true,
@@ -118,6 +119,7 @@ function AppDock:_loadSettings()
     local stored = G_reader_settings:readSetting(self.settings_key, {})
     self.settings = {
         pinned_apps = copyArray(stored.pinned_apps or DEFAULT_SETTINGS.pinned_apps),
+        recent_apps = copyArray(stored.recent_apps or DEFAULT_SETTINGS.recent_apps),
         widgets = stored.widgets or {
             clock = DEFAULT_SETTINGS.widgets.clock,
             status = DEFAULT_SETTINGS.widgets.status,
@@ -148,6 +150,16 @@ function AppDock:_loadSettings()
         sleepscreen_enabled = stored.sleepscreen_enabled == true,
         layout_version = stored.layout_version or 1,
     }
+
+    local normalized_recent, recent_seen = {}, {}
+    for _, app_id in ipairs(self.settings.recent_apps) do
+        if #normalized_recent >= 4 then break end
+        if type(app_id) == "string" and #app_id <= 160 and app_id:match("^[%w:_%-]+$") and not recent_seen[app_id] then
+            normalized_recent[#normalized_recent + 1] = app_id
+            recent_seen[app_id] = true
+        end
+    end
+    self.settings.recent_apps = normalized_recent
 
     self.settings.layout = self.settings.layout or {}
     if self.settings.launch_on_start == nil then self.settings.launch_on_start = false end
@@ -980,6 +992,48 @@ function AppDock:getPinnedApps()
     return apps
 end
 
+function AppDock:_recordRecentApp(app)
+    if type(app) ~= "table" or type(app.id) ~= "string" or app.id == "" then return false end
+    if app.id == "system:manage" or app.id == "system:open_apps" then return false end
+
+    local recent, seen = { app.id }, { [app.id] = true }
+    for _, app_id in ipairs(self.settings.recent_apps or {}) do
+        if type(app_id) == "string" and not seen[app_id] and #recent < 4 then
+            recent[#recent + 1] = app_id
+            seen[app_id] = true
+        end
+    end
+    self.settings.recent_apps = recent
+    self:_saveSettings()
+    return true
+end
+
+function AppDock:getRecentApps(limit)
+    limit = math.max(1, math.min(4, math.floor(tonumber(limit) or 4)))
+    local catalog = self:getAppCatalog()
+    local apps, valid_ids, seen = {}, {}, {}
+    for _, app_id in ipairs(self.settings.recent_apps or {}) do
+        local app = catalog[app_id]
+        if type(app_id) == "string" and app and app_id ~= "system:manage" and app_id ~= "system:open_apps" and not seen[app_id] and self:isSimpleModeAppAllowed(app) then
+            valid_ids[#valid_ids + 1] = app_id
+            seen[app_id] = true
+            if #apps < limit then apps[#apps + 1] = app end
+        end
+    end
+
+    local changed = #valid_ids ~= #(self.settings.recent_apps or {})
+    if not changed then
+        for index, app_id in ipairs(valid_ids) do
+            if self.settings.recent_apps[index] ~= app_id then changed = true; break end
+        end
+    end
+    if changed then
+        self.settings.recent_apps = valid_ids
+        self:_saveSettings()
+    end
+    return apps
+end
+
 function AppDock:isPinned(app_id)
     for _, pinned_id in ipairs(self.settings.pinned_apps) do
         if pinned_id == app_id then
@@ -1133,6 +1187,7 @@ function AppDock:launchApp(app, home)
         UIManager:show(InfoMessage:new{ text = _("This app is hidden by Simple Mode. Disable Quick find in Settings to use it again.") })
         return false
     end
+    self:_recordRecentApp(app)
     if app.kind == "dapp" then
         self:getDAppManager():activate(app.dapp_id, home)
         return
