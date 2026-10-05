@@ -17,6 +17,7 @@ local AppDockKeyboard = require("appdock_keyboard")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local DAppLogo = require("appdock_logo")
 local Layout = require("appdock_layout")
+local Motion = require("appdock_motion")
 local Theme = require("appdock_theme")
 local Wallpaper = require("appdock_wallpaper")
 local OverlapGroup = require("ui/widget/overlapgroup")
@@ -131,6 +132,16 @@ local function emptySizedWidget(width, height)
     return CenterContainer:new{
         dimen = Geom:new{ w = width, h = height },
         HorizontalSpan:new{ width = 0 },
+    }
+end
+
+local function bottomSwipeRange(dimen)
+    local band_height = scale(76)
+    return Geom:new{
+        x = dimen.x or 0,
+        y = (dimen.y or 0) + math.max(0, dimen.h - band_height),
+        w = dimen.w,
+        h = band_height,
     }
 end
 
@@ -376,6 +387,17 @@ function AppDockHomeScreen:init()
     self.page = self.page or 1
     self.appdock:seedDefaults()
 
+    if not self.appdock:isSimpleModeEnabled("homescreen") then
+        self.ges_events = {
+            SwipeHomePage = {
+                GestureRange:new{ ges = "swipe", range = self.dimen },
+            },
+            RevealRecentApps = {
+                GestureRange:new{ ges = "swipe", direction = "north", range = function() return bottomSwipeRange(self.dimen) end },
+            },
+        }
+    end
+
     if Device:hasKeys() then
         self.key_events.Close = { { Device.input.group.Back } }
     end
@@ -430,14 +452,67 @@ function AppDockHomeScreen:_pageInfo(apps, per_page)
     return visible, pages
 end
 
+function AppDockHomeScreen:_pageCount()
+    local layout = self.normal_layout or self.simple_layout or {}
+    return math.max(1, tonumber(layout.page_count) or 1)
+end
+
 function AppDockHomeScreen:_showPage(page)
-    UIManager:close(self)
-    UIManager:nextTick(function()
-        UIManager:show(AppDockHomeScreen:new{
-            appdock = self.appdock,
-            page = page,
-        })
+    local page_count = self:_pageCount()
+    page = math.max(1, math.min(page_count, tonumber(page) or self.page))
+    if page == self.page or self._page_transition then return false end
+
+    -- Draw the old and new dashboards side by side for four regional fast
+    -- refreshes. This is the same bounded-cadence approach used by the local
+    -- Geometry Dash DApp, but avoids a continuous animation on E-Ink.
+    local previous_dashboard = self[1]
+    local direction = page > self.page and 1 or -1
+    self.page = page
+    self:build()
+    local incoming_dashboard = self[1]
+    if not previous_dashboard or not incoming_dashboard then return true end
+
+    previous_dashboard.overlap_offset = { 0, 0 }
+    incoming_dashboard.overlap_offset = { direction * self.dimen.w, 0 }
+    self[1] = OverlapGroup:new{
+        dimen = Geom:new{ w = self.dimen.w, h = self.dimen.h },
+        allow_mirroring = false,
+        previous_dashboard,
+        incoming_dashboard,
+    }
+    self._page_transition = true
+    Motion.run(self, 4, 0.045, function(frame, frames)
+        local progress = frame / frames
+        previous_dashboard.overlap_offset[1] = -direction * math.floor(self.dimen.w * progress)
+        incoming_dashboard.overlap_offset[1] = direction * math.floor(self.dimen.w * (1 - progress))
+    end, function()
+        previous_dashboard.overlap_offset = nil
+        incoming_dashboard.overlap_offset = nil
+        self[1] = incoming_dashboard
+        self._page_transition = false
+        UIManager:setDirty(self, "ui")
     end)
+    return true
+end
+
+function AppDockHomeScreen:onSwipeHomePage(_, gesture_event)
+    if self.appdock:isSimpleModeEnabled("homescreen") or self._page_transition or not gesture_event then return false end
+    if gesture_event.direction == "west" then
+        return self:_showPage(self.page + 1)
+    elseif gesture_event.direction == "east" then
+        return self:_showPage(self.page - 1)
+    end
+    return false
+end
+
+function AppDockHomeScreen:onRevealRecentApps()
+    if self.appdock:isSimpleModeEnabled("homescreen") then return false end
+    local manager = self.appdock and self.appdock:getDAppManager()
+    if manager and type(manager.showRecentDrawer) == "function" then
+        manager:showRecentDrawer(self, self)
+        return true
+    end
+    return false
 end
 
 function AppDockHomeScreen:_navControl(symbol, x, y, callback)
@@ -696,11 +771,13 @@ function AppDockHomeScreen:build()
     local row_gap = scale(8)
     local tile_gap = scale(math.max(8, math.min(34, tonumber(layout.app_spacing) or 16)))
     local dock_gap = scale(8)
-    local dock_slot_width = math.floor((width - 2 * margin - 3 * dock_gap) / 4)
-    local dock_tile_size = math.max(scale(32), math.min(scale(48), math.floor(dock_slot_width)))
-    local dock_label_height = scale(18)
-    local dock_title_height = scale(16)
-    local dock_height = #shortcut_apps > 0 and (dock_title_height + scale(3) + dock_tile_size + scale(6) + dock_label_height) or 0
+    local dock_padding = scale(12)
+    local dock_inner_width = width - 2 * margin - 2 * dock_padding
+    local dock_slot_width = math.floor((dock_inner_width - 3 * dock_gap) / 4)
+    local dock_tile_size = math.max(scale(46), math.min(scale(62), math.floor(dock_slot_width)))
+    local dock_label_height = scale(22)
+    local dock_title_height = scale(20)
+    local dock_height = #shortcut_apps > 0 and (2 * dock_padding + dock_title_height + scale(5) + dock_tile_size + scale(5) + dock_label_height) or 0
     local dock_y = height - margin - dock_height
     local widget_height = scale(98)
     local widget_gap = scale(10)
@@ -837,17 +914,27 @@ function AppDockHomeScreen:build()
         table.insert(dashboard, page_label)
     end
 
+    local dock_title = actual_recent_count > 0 and actual_recent_count == #shortcut_apps and _("Recently used") or _("Quick access")
     if #shortcut_apps > 0 then
-        local dock_title = actual_recent_count > 0 and _("Recently used") or _("Quick access")
+        table.insert(dashboard, FrameContainer:new{
+            width = width - 2 * margin,
+            height = dock_height,
+            padding = 0,
+            bordersize = 0,
+            radius = math.floor(dock_height * .25),
+            background = expressive and PALETTE.surface or PALETTE.surface_variant,
+            emptySizedWidget(width - 2 * margin, dock_height),
+            overlap_offset = { margin, dock_y },
+        })
         table.insert(dashboard, TextWidget:new{
             text = dock_title,
-            face = Font:getFace("smallinfofont", Theme.adjustText(self.appdock, scale(13), scale(9))),
+            face = Font:getFace("smallinfofont", Theme.adjustText(self.appdock, scale(14), scale(10))),
             fgcolor = PALETTE.on_surface_variant,
             bold = true,
             padding = 0,
-            overlap_offset = { margin, dock_y },
+            overlap_offset = { margin + dock_padding, dock_y + dock_padding },
         })
-        local tile_y = dock_y + dock_title_height + scale(3)
+        local tile_y = dock_y + dock_padding + dock_title_height + scale(5)
         for index, app in ipairs(shortcut_apps) do
             local tone = toneFor(app, index)
             table.insert(dashboard, AppTile:new{
@@ -860,7 +947,7 @@ function AppDockHomeScreen:build()
                 shape = layout.logo_shape,
                 background = tone.background,
                 foreground = tone.foreground,
-                overlap_offset = { margin + (index - 1) * (dock_slot_width + dock_gap), tile_y },
+                overlap_offset = { margin + dock_padding + (index - 1) * (dock_slot_width + dock_gap), tile_y },
             })
         end
     end
@@ -868,7 +955,7 @@ function AppDockHomeScreen:build()
     self.normal_layout = {
         expressive = expressive,
         has_header_surface = expressive,
-        has_app_dock_surface = false,
+        has_app_dock_surface = #shortcut_apps > 0,
         app_section = true,
         grid_columns = 3,
         grid_rows = grid_rows,
@@ -878,6 +965,7 @@ function AppDockHomeScreen:build()
         page_count = page_count,
         quick_access_count = #shortcut_apps,
         recent_count = actual_recent_count,
+        quick_access_title = dock_title,
         quick_access_y = dock_y,
         hidden_widgets_for_fit = widgets_hidden_for_fit,
     }

@@ -20,6 +20,7 @@ local InputDialog = require("ui/widget/inputdialog")
 local AppDockKeyboard = require("appdock_keyboard")
 local DAppLogo = require("appdock_logo")
 local Layout = require("appdock_layout")
+local Motion = require("appdock_motion")
 local Theme = require("appdock_theme")
 local Help = require("appdock_help")
 local WebBrowser = require("appdock_browser")
@@ -64,6 +65,19 @@ local DAppRecents = InputContainer:extend{
     manager = nil,
     dimen = nil,
     covers_fullscreen = true,
+}
+
+local RecentDrawer = InputContainer:extend{
+    manager = nil,
+    source = nil,
+    launch_home = nil,
+    dismiss = nil,
+    dimen = nil,
+    sheet_layer = nil,
+    sheet_frame = nil,
+    sheet_height = nil,
+    sheet_y = nil,
+    covers_fullscreen = false,
 }
 
 local ActionChip = InputContainer:extend{
@@ -163,6 +177,16 @@ local function emptySizedWidget(width, height)
     return CenterContainer:new{
         dimen = Geom:new{ w = width, h = height },
         HorizontalSpan:new{ width = 0 },
+    }
+end
+
+local function bottomSwipeRange(dimen)
+    local band_height = scale(76)
+    return Geom:new{
+        x = dimen.x or 0,
+        y = (dimen.y or 0) + math.max(0, dimen.h - band_height),
+        w = dimen.w,
+        h = band_height,
     }
 end
 
@@ -491,6 +515,196 @@ end
 function ActionChip:onHoldDAppAction()
     if self.hold_callback then self.hold_callback() end
     return true
+end
+
+function RecentDrawer:_recentApps()
+    local appdock = self.manager and self.manager.appdock
+    if not appdock then return {} end
+    local apps = {}
+    if type(appdock.getRecentApps) == "function" then
+        local ok, recent_apps = pcall(appdock.getRecentApps, appdock, 4)
+        if ok and type(recent_apps) == "table" then apps = recent_apps end
+    end
+    if #apps > 0 or type(appdock.getPinnedApps) ~= "function" then return apps, false end
+
+    local fallback, seen = {}, {}
+    for _, app in ipairs(appdock:getPinnedApps()) do
+        if #fallback >= 4 then break end
+        if type(app) == "table" and type(app.id) == "string"
+                and app.id ~= "system:manage" and app.id ~= "system:open_apps"
+                and not seen[app.id] then
+            fallback[#fallback + 1], seen[app.id] = app, true
+        end
+    end
+    return fallback, true
+end
+
+function RecentDrawer:init()
+    applyTheme(self.manager.appdock)
+    self.dimen = Screen:getSize()
+    if Device:hasKeys() then self.key_events.Close = { { Device.input.group.Back } } end
+    self:build()
+    self.ges_events = {
+        TapOutsideRecentDrawer = { GestureRange:new{ ges = "tap", range = self.dimen } },
+        DismissRecentDrawer = { GestureRange:new{ ges = "swipe", direction = "south", range = self.dimen } },
+    }
+end
+
+function RecentDrawer:build()
+    local width, height = self.dimen.w, self.dimen.h
+    local outer_margin, inner_margin, gap = scale(12), scale(14), scale(8)
+    local sheet_width = width - 2 * outer_margin
+    local apps, using_fallback = self:_recentApps()
+    local columns = math.max(1, math.min(4, #apps))
+    local card_width = math.floor((sheet_width - 2 * inner_margin - (columns - 1) * gap) / columns)
+    local card_height = scale(82)
+    local header_height = scale(46)
+    local footer_height = scale(34)
+    self.sheet_height = header_height + card_height + footer_height + 2 * inner_margin + 2 * gap
+    self.sheet_y = height - self.sheet_height - outer_margin
+    self.sheet_x = outer_margin
+
+    self.sheet_frame = FrameContainer:new{
+        width = sheet_width, height = self.sheet_height, padding = 0, bordersize = 0,
+        radius = scale(30), background = PALETTE.surface,
+        emptySizedWidget(sheet_width, self.sheet_height),
+    }
+    local sheet = OverlapGroup:new{
+        dimen = Geom:new{ w = sheet_width, h = self.sheet_height },
+        allow_mirroring = false,
+        self.sheet_frame,
+    }
+    local handle_width = scale(42)
+    table.insert(sheet, FrameContainer:new{
+        width = handle_width, height = scale(4), padding = 0, bordersize = 0,
+        radius = scale(2), background = PALETTE.outline,
+        emptySizedWidget(handle_width, scale(4)),
+        overlap_offset = { math.floor((sheet_width - handle_width) / 2), scale(8) },
+    })
+    table.insert(sheet, TextWidget:new{
+        text = using_fallback and _("Quick access") or _("Recently used"),
+        face = Font:getFace("cfont", Theme.adjustText(self.manager.appdock, scale(20), scale(15))),
+        fgcolor = PALETTE.on_surface, bold = true, padding = 0,
+        overlap_offset = { inner_margin, scale(17) },
+    })
+    table.insert(sheet, TextWidget:new{
+        text = _("Swipe down to close"),
+        face = Font:getFace("smallinfofont", scale(10)),
+        fgcolor = PALETTE.on_variant, padding = 0,
+        overlap_offset = { sheet_width - inner_margin - scale(104), scale(24) },
+    })
+
+    local card_y = header_height + inner_margin
+    if #apps == 0 then
+        table.insert(sheet, TextWidget:new{
+            text = _("Open an app to see it here."),
+            face = Font:getFace("smallinfofont", scale(13)), fgcolor = PALETTE.on_variant,
+            padding = 0, overlap_offset = { inner_margin, card_y + math.floor(card_height / 3) },
+        })
+    else
+        for index, app in ipairs(apps) do
+            local symbol = (app.symbol or app.title or "?"):sub(1, 1):upper()
+            table.insert(sheet, ActionChip:new{
+                title = app.title or "",
+                symbol = symbol,
+                logo = app.logo,
+                width = card_width,
+                height = card_height,
+                background = index % 2 == 0 and PALETTE.secondary or PALETTE.primary,
+                foreground = index % 2 == 0 and PALETTE.on_secondary or PALETTE.on_primary,
+                callback = function() self:launch(app) end,
+                overlap_offset = { inner_margin + (index - 1) * (card_width + gap), card_y },
+            })
+        end
+    end
+    table.insert(sheet, ActionChip:new{
+        title = _("Open apps"), symbol = "□",
+        width = sheet_width - 2 * inner_margin, height = footer_height,
+        background = PALETTE.surface_variant, foreground = PALETTE.on_surface,
+        callback = function() self:showOpenApps() end,
+        overlap_offset = { inner_margin, card_y + card_height + gap },
+    })
+
+    self.sheet_layer = sheet
+    self.sheet_layer.overlap_offset = { self.sheet_x, height + outer_margin }
+    self:clear()
+    self[1] = OverlapGroup:new{
+        dimen = Geom:new{ w = width, h = height },
+        allow_mirroring = false,
+        self.sheet_layer,
+    }
+end
+
+function RecentDrawer:_animateTo(target_y, done)
+    if not self.sheet_layer then
+        if done then done() end
+        return
+    end
+    local start_y = self.sheet_layer.overlap_offset[2]
+    local refresh_region = Geom:new{
+        x = 0,
+        y = math.max(0, math.min(start_y, target_y, self.sheet_y or start_y)),
+        w = self.dimen.w,
+        h = self.dimen.h - math.max(0, math.min(start_y, target_y, self.sheet_y or start_y)),
+    }
+    Motion.run(self, 4, 0.045, function(frame, frames)
+        local progress = frame / frames
+        self.sheet_layer.overlap_offset[2] = math.floor(start_y + (target_y - start_y) * progress)
+    end, done, refresh_region)
+end
+
+function RecentDrawer:launch(app)
+    if self._closing then return end
+    self._closing = true
+    self:_animateTo(self.dimen.h + scale(12), function()
+        UIManager:close(self)
+        if self.dismiss then UIManager:close(self.dismiss) end
+        UIManager:nextTick(function()
+            self.manager.appdock:launchApp(app, self.launch_home)
+        end)
+    end)
+end
+
+function RecentDrawer:showOpenApps()
+    if self._closing then return end
+    self._closing = true
+    self:_animateTo(self.dimen.h + scale(12), function()
+        UIManager:close(self)
+        if self.dismiss then UIManager:close(self.dismiss) end
+        UIManager:nextTick(function()
+            self.manager:showRecents(self.launch_home)
+        end)
+    end)
+end
+
+function RecentDrawer:onShow()
+    self:_animateTo(self.sheet_y)
+    return true
+end
+
+function RecentDrawer:onTapOutsideRecentDrawer(_, gesture_event)
+    local position = gesture_event and gesture_event.pos
+    local sheet_x, sheet_y = self.sheet_x or 0, self.sheet_layer and self.sheet_layer.overlap_offset[2] or self.dimen.h
+    if position and (position.x < sheet_x or position.x > sheet_x + (self.sheet_frame and self.sheet_frame.width or 0)
+            or position.y < sheet_y or position.y > sheet_y + (self.sheet_height or 0)) then
+        self:onDismissRecentDrawer()
+    end
+    return true
+end
+
+function RecentDrawer:onDismissRecentDrawer()
+    if self._closing then return true end
+    self._closing = true
+    self:_animateTo(self.dimen.h + scale(12), function() UIManager:close(self) end)
+    return true
+end
+
+function RecentDrawer:onCloseWidget()
+    UIManager:setDirty("all", "ui")
+end
+
+function RecentDrawer:onClose()
+    return self:onDismissRecentDrawer()
 end
 
 function SplitDivider:init()
@@ -1876,6 +2090,15 @@ function DAppManager:showRecents(home)
     UIManager:show(DAppRecents:new{ manager = self })
 end
 
+function DAppManager:showRecentDrawer(source, launch_home, dismiss)
+    UIManager:show(RecentDrawer:new{
+        manager = self,
+        source = source,
+        launch_home = launch_home or source,
+        dismiss = dismiss,
+    })
+end
+
 function DAppManager:showHomeFromHost(host)
     UIManager:close(host)
     UIManager:nextTick(function() self.appdock:showHome(true) end)
@@ -3038,6 +3261,9 @@ function DAppHost:init()
         PanSplitHost = { GestureRange:new{ ges = "pan", range = function() return self._split_touch_range end } },
         PanReleaseSplitHost = { GestureRange:new{ ges = "pan_release", range = function() return self._split_touch_range end } },
     }
+    if not self.manager.appdock:isSimpleModeEnabled("focus_apps") then
+        self.ges_events.RevealRecentApps = { GestureRange:new{ ges = "swipe", direction = "north", range = function() return bottomSwipeRange(self.dimen) end } }
+    end
     if Device:hasKeys() then self.key_events.Close = { { Device.input.group.Back } } end
     self:rebuild()
 end
@@ -3086,6 +3312,12 @@ end
 
 function DAppHost:onPanReleaseSplitHost(arg, gesture_event)
     return self:_moveSplitFromGesture(arg, gesture_event, true)
+end
+
+function DAppHost:onRevealRecentApps()
+    if self.manager.appdock:isSimpleModeEnabled("focus_apps") then return false end
+    self.manager:showRecentDrawer(self, self)
+    return true
 end
 
 function DAppHost:rebuild(preserve_active)
@@ -3274,6 +3506,11 @@ end
 function DAppRecents:init()
     self.dimen = Screen:getSize()
     if Device:hasKeys() then self.key_events.Close = { { Device.input.group.Back } } end
+    if not self.manager.appdock:isSimpleModeEnabled("focus_apps") then
+        self.ges_events = {
+            RevealRecentApps = { GestureRange:new{ ges = "swipe", direction = "north", range = function() return bottomSwipeRange(self.dimen) end } },
+        }
+    end
     self:build()
 end
 
@@ -3375,6 +3612,12 @@ end
 function DAppRecents:onClose()
     UIManager:close(self)
     UIManager:nextTick(function() self.manager.appdock:showHome(true) end)
+    return true
+end
+
+function DAppRecents:onRevealRecentApps()
+    if self.manager.appdock:isSimpleModeEnabled("focus_apps") then return false end
+    self.manager:showRecentDrawer(self, self)
     return true
 end
 

@@ -109,6 +109,16 @@ local function emptySizedWidget(width, height)
     }
 end
 
+local function bottomSwipeRange(dimen)
+    local band_height = scale(76)
+    return Geom:new{
+        x = dimen.x or 0,
+        y = (dimen.y or 0) + math.max(0, dimen.h - band_height),
+        w = dimen.w,
+        h = band_height,
+    }
+end
+
 local function getWifiState()
     local ok, NetworkMgr = pcall(require, "ui/network/manager")
     if not ok or not NetworkMgr or type(NetworkMgr.isWifiOn) ~= "function" then
@@ -150,6 +160,88 @@ function QuickTile:init()
     local text_width = math.max(scale(12), self.width - scale(14))
     local title = Theme.fitLabel(self.title or "", text_width, title_size, 0)
     local subtitle = Theme.fitLabel(self.subtitle or "", text_width, subtitle_size, 0)
+    if self.expressive then
+        -- Material-style quick settings keep a large circular icon and the
+        -- label pair on one horizontal axis. This reads like Android's shade
+        -- at a glance while remaining high-contrast on monochrome E-Ink.
+        local icon_diameter = math.max(scale(30), math.min(scale(42), self.height - scale(28)))
+        local icon_x = scale(14)
+        local text_x = icon_x + icon_diameter + scale(11)
+        local switch_width = self.show_switch and scale(40) or 0
+        local available_text_width = math.max(scale(18), self.width - text_x - switch_width - scale(18))
+        title = Theme.fitLabel(self.title or "", available_text_width, title_size, 0)
+        subtitle = Theme.fitLabel(self.subtitle or "", available_text_width, subtitle_size, 0)
+        local icon_ink = self.active and PALETTE.primary or PALETTE.on_surface
+        local icon_background = self.active and PALETTE.on_primary or PALETTE.surface
+        local icon_widget = TextWidget:new{
+            text = self.symbol,
+            face = Font:getFace("cfont", math.min(symbol_size, math.floor(icon_diameter * .54))),
+            fgcolor = icon_ink, bold = true, padding = 0,
+        }
+        local icon_circle = FrameContainer:new{
+            width = icon_diameter, height = icon_diameter, padding = 0, bordersize = 0,
+            radius = math.floor(icon_diameter / 2), background = icon_background,
+            CenterContainer:new{
+                dimen = Geom:new{ w = icon_diameter, h = icon_diameter },
+                icon_widget,
+            },
+        }
+        local title_widget = TextWidget:new{
+            text = title, face = Font:getFace("smallinfofont", title_size), fgcolor = foreground,
+            bold = true, max_width = available_text_width, padding = 0,
+        }
+        local subtitle_widget = TextWidget:new{
+            text = subtitle, face = Font:getFace("smallinfofont", subtitle_size),
+            fgcolor = self.active and PALETTE.on_primary or PALETTE.on_variant,
+            max_width = available_text_width, padding = 0,
+        }
+        local switch_entry
+        if self.show_switch then
+            local switch_height = scale(22)
+            local track = FrameContainer:new{
+                width = switch_width, height = switch_height, padding = 0, bordersize = 0,
+                radius = math.floor(switch_height / 2),
+                background = self.active and PALETTE.on_primary or PALETTE.track,
+                emptySizedWidget(switch_width, switch_height),
+            }
+            local knob_size = math.max(scale(14), switch_height - scale(6))
+            local knob = FrameContainer:new{
+                width = knob_size, height = knob_size, padding = 0, bordersize = 0,
+                radius = math.floor(knob_size / 2),
+                background = self.active and PALETTE.primary or PALETTE.surface,
+                emptySizedWidget(knob_size, knob_size),
+                overlap_offset = {
+                    self.active and switch_width - knob_size - scale(3) or scale(3),
+                    math.floor((switch_height - knob_size) / 2),
+                },
+            }
+            self._switch_knob = knob
+            self._switch_width = switch_width
+            self._switch_knob_size = knob_size
+            switch_entry = {
+                widget = OverlapGroup:new{
+                    dimen = Geom:new{ w = switch_width, h = switch_height },
+                    track, knob,
+                },
+                x = self.width - switch_width - scale(14),
+                y = math.floor((self.height - switch_height) / 2),
+            }
+        end
+        local entries = {
+            { widget = icon_circle, x = icon_x, y = math.floor((self.height - icon_diameter) / 2) },
+            { widget = title_widget, x = text_x, y = math.floor(self.height * .27) },
+            { widget = subtitle_widget, x = text_x, y = math.floor(self.height * .54) },
+        }
+        if switch_entry then table.insert(entries, switch_entry) end
+        self.layout = { title = title, subtitle = subtitle, expressive = true, icon_diameter = icon_diameter }
+        self[1] = FrameContainer:new{
+            width = self.width, height = self.height, padding = 0, bordersize = 0,
+            radius = math.floor(self.height * .31), background = background,
+            Layout.FixedStack:new{ width = self.width, height = self.height, entries = entries },
+        }
+        self.ges_events = { TapQuickTile = { GestureRange:new{ ges = "tap", range = self.dimen } } }
+        return
+    end
     local line_gap = math.max(scale(1), math.floor(self.height * .025))
     local minimum_symbol, minimum_title, minimum_subtitle = scale(10), scale(8), scale(7)
     local symbol_widget, title_widget, subtitle_widget, positions, stack_height
@@ -323,36 +415,56 @@ function BrightnessSlider:build()
     if enabled then
         percentage = math.max(0, math.min(1, (state.current - state.min) / (state.max - state.min)))
     end
-    local track_y = self.height - scale(16)
-    local track_height = scale(12)
-    local fill_width = math.max(scale(3), math.floor(self.width * percentage))
+    local inset = scale(15)
+    local track_y = self.height - scale(19)
+    local track_height = scale(10)
+    local track_width = math.max(scale(24), self.width - 2 * inset)
+    local fill_width = math.max(scale(3), math.floor(track_width * percentage))
     local level_text = enabled and string.format("%d%%", math.floor(percentage * 100 + 0.5)) or _("Unavailable")
+    self.track_x, self.track_width = inset, track_width
 
     self[1] = OverlapGroup:new{
         dimen = Geom:new{ w = self.width, h = self.height },
         allow_mirroring = false,
+        FrameContainer:new{
+            width = self.width, height = self.height, padding = 0, bordersize = 0,
+            radius = math.floor(self.height * .34), background = PALETTE.surface,
+            emptySizedWidget(self.width, self.height),
+        },
         TextWidget:new{
             text = _("Brightness"),
-            face = Font:getFace("smallinfofont", scale(15)),
+            face = Font:getFace("smallinfofont", scale(14)),
             fgcolor = PALETTE.on_surface,
             bold = true,
-            overlap_offset = { 0, 0 },
+            overlap_offset = { inset, scale(10) },
         },
         TextWidget:new{
             text = level_text,
-            face = Font:getFace("smallinfofont", scale(14)),
+            face = Font:getFace("smallinfofont", scale(13)),
             fgcolor = PALETTE.on_variant,
-            overlap_offset = { self.width - scale(48), scale(1) },
+            overlap_offset = { self.width - inset - scale(44), scale(11) },
+        },
+        TextWidget:new{
+            text = "−",
+            face = Font:getFace("cfont", scale(16)),
+            fgcolor = PALETTE.on_variant,
+            overlap_offset = { scale(5), track_y - scale(4) },
+        },
+        TextWidget:new{
+            text = "+",
+            face = Font:getFace("cfont", scale(16)),
+            fgcolor = PALETTE.on_variant,
+            overlap_offset = { self.width - scale(14), track_y - scale(4) },
         },
         FrameContainer:new{
-            width = self.width,
+            width = track_width,
             height = track_height,
             padding = 0,
             bordersize = 0,
             radius = math.floor(track_height / 2),
             background = PALETTE.track,
-            overlap_offset = { 0, track_y },
-            emptySizedWidget(self.width, track_height),
+            overlap_offset = { inset, track_y },
+            emptySizedWidget(track_width, track_height),
         },
         FrameContainer:new{
             width = fill_width,
@@ -361,7 +473,7 @@ function BrightnessSlider:build()
             bordersize = 0,
             radius = math.floor(track_height / 2),
             background = enabled and PALETTE.primary or PALETTE.surface_variant,
-            overlap_offset = { 0, track_y },
+            overlap_offset = { inset, track_y },
             emptySizedWidget(fill_width, track_height),
         },
     }
@@ -385,7 +497,7 @@ function BrightnessSlider:_setFromGesture(arg, ges_ev)
     -- InputContainer emits handlers as (configured_args, gesture_event).
     -- The leading argument is normally nil, while the second one contains pos.
     if not self.brightness or not ges_ev or not ges_ev.pos then return true end
-    local ratio = (ges_ev.pos.x - (self.dimen.x or 0)) / self.dimen.w
+    local ratio = (ges_ev.pos.x - (self.dimen.x or 0) - (self.track_x or 0)) / math.max(1, self.track_width or self.dimen.w)
     ratio = math.max(0, math.min(1, ratio))
     local value = math.floor(self.brightness.min + ratio * (self.brightness.max - self.brightness.min) + 0.5)
     self.sheet:setBrightness(value)
@@ -412,6 +524,11 @@ function QuickSettings:init()
             GestureRange:new{ ges = "tap", range = self.dimen },
         },
     }
+    if not self.appdock:isSimpleModeEnabled("quick_settings") then
+        self.ges_events.RevealRecentApps = {
+            GestureRange:new{ ges = "swipe", direction = "north", range = function() return bottomSwipeRange(self.dimen) end },
+        }
+    end
 end
 
 function QuickSettings:_refresh(refreshtype, region, force)
@@ -481,6 +598,16 @@ function QuickSettings:openManager()
     end)
 end
 
+function QuickSettings:onRevealRecentApps()
+    if self.appdock:isSimpleModeEnabled("quick_settings") then return false end
+    local manager = self.appdock and self.appdock:getDAppManager()
+    if manager and type(manager.showRecentDrawer) == "function" then
+        manager:showRecentDrawer(self, self.home, self)
+        return true
+    end
+    return false
+end
+
 function QuickSettings:fullRefresh()
     self:rebuild(false)
     self:_refresh("full", nil, true)
@@ -541,7 +668,7 @@ function QuickSettings:rebuild(refresh)
     local slider_height = scale(58)
     local slider_spacing = scale(12)
     local sheet_bottom = scale(18)
-    local maximum_sheet_height = math.floor(self.dimen.h * 0.82)
+    local maximum_sheet_height = math.floor(self.dimen.h * 0.86)
     local notification_title_height = scale(24)
     local notification_row_height = scale(42)
     local notification_action_height = scale(34)
@@ -554,14 +681,20 @@ function QuickSettings:rebuild(refresh)
         bold = true,
         padding = 0,
     }
+    local header_subtitle = expressive and TextWidget:new{
+        text = os.date("%A, %d %B"),
+        face = Font:getFace("smallinfofont", Theme.adjustText(self.appdock, scale(11), scale(9))),
+        fgcolor = PALETTE.on_variant,
+        padding = 0,
+    } or nil
     if expressive then
         margin = scale(18)
-        gap = scale(6)
-        header_height = scale(50)
-        tile_height = scale(68)
-        slider_height = scale(52)
-        slider_spacing = scale(8)
-        sheet_bottom = scale(12)
+        gap = scale(8)
+        header_height = scale(66)
+        tile_height = scale(84)
+        slider_height = scale(72)
+        slider_spacing = scale(10)
+        sheet_bottom = scale(14)
     elseif not simple_mode then
         margin = scale(18)
         gap = scale(6)
@@ -571,7 +704,7 @@ function QuickSettings:rebuild(refresh)
         slider_spacing = scale(8)
         sheet_bottom = scale(12)
     end
-    header_height = math.max(header_height, header_title:getSize().h + scale(22))
+    header_height = math.max(header_height, header_title:getSize().h + (header_subtitle and header_subtitle:getSize().h or 0) + scale(24))
     local selected_tile_ids = type(self.appdock.getQuickSettingsTiles) == "function"
         and self.appdock:getQuickSettingsTiles()
         or { "wifi", "night", "refresh", "edit" }
@@ -586,7 +719,7 @@ function QuickSettings:rebuild(refresh)
     if compact then
         margin = scale(16)
         gap = scale(7)
-        header_height = scale(46)
+        header_height = scale(50)
         tile_height = scale(60)
         slider_height = scale(48)
         slider_spacing = scale(8)
@@ -598,7 +731,7 @@ function QuickSettings:rebuild(refresh)
         notification_count = #notification_items
         notification_height = notification_title_height + notification_count * (notification_row_height + gap) + (notification_count > 0 and notification_action_height + gap or 0)
         tile_area_height = tile_rows * tile_height + math.max(0, tile_rows - 1) * gap
-        header_height = math.max(header_height, header_title:getSize().h + scale(16))
+        header_height = math.max(header_height, header_title:getSize().h + (header_subtitle and header_subtitle:getSize().h or 0) + scale(16))
         natural_height = header_height + gap + tile_area_height + slider_spacing + slider_height + slider_spacing + notification_height + sheet_bottom
         if self.dimen.h < scale(360) then
             show_notifications = false
@@ -634,17 +767,21 @@ function QuickSettings:rebuild(refresh)
     }
     table.insert(content, self.sheet_frame)
 
-    local header_title_y = math.max(scale(3), math.floor((header_height - header_title:getSize().h) / 2))
+    local header_title_y = expressive and scale(13) or math.max(scale(3), math.floor((header_height - header_title:getSize().h) / 2))
     if expressive then
-        local pill_y = math.max(scale(3), header_title_y - scale(8))
+        local pill_y = scale(4)
         table.insert(content, FrameContainer:new{
-            width = width - 2 * margin, height = header_title:getSize().h + scale(16), padding = 0, bordersize = 0,
-            radius = math.floor((header_title:getSize().h + scale(16)) / 2), background = PALETTE.surface,
-            emptySizedWidget(width - 2 * margin, header_title:getSize().h + scale(16)), overlap_offset = { margin, pill_y },
+            width = width - 2 * margin, height = header_height - scale(8), padding = 0, bordersize = 0,
+            radius = math.floor((header_height - scale(8)) / 2), background = PALETTE.surface,
+            emptySizedWidget(width - 2 * margin, header_height - scale(8)), overlap_offset = { margin, pill_y },
         })
     end
     header_title.overlap_offset = { expressive and margin + scale(14) or margin, header_title_y }
     table.insert(content, header_title)
+    if header_subtitle then
+        header_subtitle.overlap_offset = { margin + scale(14), header_title_y + header_title:getSize().h + scale(2) }
+        table.insert(content, header_subtitle)
+    end
     local close = TextWidget:new{
         text = "×",
         face = Font:getFace("cfont", scale(24)),

@@ -23,6 +23,32 @@ function AppDockManager:showDialog()
     local dialog
     local selected_app = self.selected_app
 
+    local function attachRecentSwipe(target_dialog)
+        if not target_dialog or type(target_dialog.registerTouchZones) ~= "function"
+                or appdock:isSimpleModeEnabled("homescreen") then
+            return
+        end
+        -- Touch zones are dispatched before ButtonDialog's full-screen tap
+        -- closer, so a bottom-edge swipe can reveal the AppDock drawer without
+        -- accidentally dismissing the manager first.
+        target_dialog:registerTouchZones({
+            {
+                id = "appdock_recent_drawer",
+                ges = "swipe",
+                screen_zone = { ratio_x = 0, ratio_y = .90, ratio_w = 1, ratio_h = .10 },
+                handler = function(gesture)
+                    if not gesture or gesture.direction ~= "north" then return false end
+                    local dapp_manager = appdock:getDAppManager()
+                    if dapp_manager and type(dapp_manager.showRecentDrawer) == "function" then
+                        dapp_manager:showRecentDrawer(target_dialog, self.parent_home, target_dialog)
+                        return true
+                    end
+                    return false
+                end,
+            },
+        })
+    end
+
     local function refresh()
         UIManager:close(dialog)
         UIManager:nextTick(function() self:showDialog() end)
@@ -72,6 +98,7 @@ function AppDockManager:showDialog()
                     end } },
                 },
             }
+            attachRecentSwipe(move_dialog)
             UIManager:show(move_dialog)
         end)
     end
@@ -92,6 +119,7 @@ function AppDockManager:showDialog()
             title = _("Manage app"),
             buttons = buttons,
         }
+        attachRecentSwipe(dialog)
         UIManager:show(dialog)
         return
     end
@@ -135,6 +163,7 @@ function AppDockManager:showDialog()
         buttons = buttons,
         rows_per_page = { 5, 6, 7 },
     }
+    attachRecentSwipe(dialog)
     UIManager:show(dialog)
 end
 

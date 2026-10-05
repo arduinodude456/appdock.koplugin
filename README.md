@@ -2,7 +2,7 @@
 
 **AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.2.0 „Keyboard Plus“** verankert die AppDock-Tastatur in voller Bildschirmbreite am unteren Rand, ergänzt eine eigene Symbol- und Sonderzeichenseite und beschleunigt die Tastenaktualisierung. PIN-Eingaben bleiben numerisch und maskiert; KOReader-Dialoge außerhalb AppDocks bleiben unverändert. [Details](RELEASE_NOTES_7.2.0.md).
 
-> **E-Ink-Ansatz:** AppDock übernimmt bewusst die Formensprache und Informationsstruktur, nicht die Android-Animationen, Unschärfen oder Transparenzeffekte. Damit bleiben Aktualisierungen sparsam und die Darstellung auf monochromen Readern kontrastreich.
+> **E-Ink-Ansatz:** AppDock übernimmt bewusst Androids Formensprache, nicht dessen Daueranimationen, Unschärfen oder Transparenzeffekte. Seit den aktuellen Launcher-Übergängen gibt es ausschließlich vier kurze Fast-Refresh-Schritte für Seitenwechsel; der Recently-used-Drawer aktualisiert dabei nur seinen unteren Bildschirmbereich. Damit bleibt die Darstellung auf monochromen Readern kontrastreich und sparsam.
 
 > **3.0.1-Fix:** Der DApp-Berechtigungsdialog überschattet die Übersetzungsfunktion nicht mehr. Ein aktivierter AppDock-only Lockscreen erscheint nach KOReaders Suspend-/Resume-Zyklus, aber nicht beim normalen Schließen einer DApp. Details stehen in [`RELEASE_NOTES_3.0.1.md`](RELEASE_NOTES_3.0.1.md).
 
@@ -44,8 +44,9 @@
 | Apps | Einheitliches 3-Spalten-Iconraster mit großen, abgerundeten Symbolflächen und kurzen Labels. |
 | Palette | Vier Material-You-artige Presets sowie selbst erstellbare Akzentfarben; auf Graustufen bleiben feste kontrastreiche KOReader-Grautöne erhalten. |
 | App-Sektion | Eine ruhige Abschnittszeile mit sichtbarer App-Anzahl trennt Widgets, Suche und Launcher-Raster klar voneinander. |
-| Navigation | Zurückhaltende runde Seitenschalter erscheinen nur bei mehr als sechs angehefteten Apps. |
-| Schnellzugriff | Ein gezeichnetes Dropdown mit Helligkeit, WLAN, Nachtmodus, Refresh und Editor öffnet sich über die Abwärtspfeil-Kachel in der Systemzeile. |
+| Navigation | Seitenschalter erscheinen bei mehreren App-Seiten; zusätzlich wechselt ein horizontaler Wisch links/rechts die Homescreen-Seite mit vier kurzen Fast-Refresh-Schritten. |
+| Recently used | Große, beschriftete App-Kacheln liegen in einer abgerundeten Material-Fläche. Nach den ersten Starts zeigt sie zuletzt verwendete Apps; davor erscheint derselbe Bereich korrekt als **Quick access** mit angehefteten Apps. Ein Wisch von der unteren Bildschirmkante nach oben öffnet den Bereich als animierten Drawer auf Homescreen, DApps, Verwaltung und Kontrollzentrum. |
+| Schnellzugriff | Ein gezeichnetes Android-artiges Kontrollzentrum mit großen Icon-/Toggle-Kacheln, Datumszeile und eigener Helligkeitskarte öffnet sich über die Abwärtspfeil-Kachel in der Systemzeile. |
 | DApps | Zustandsbehaftete, KOReader-interne Apps mit eigenem Pane, wiederverwendbaren grafischen Logos und eigener Open-Apps-Übersicht. |
 | Periodischer Refresh | Alle 60 Sekunden fordert AppDock einen vollständigen E-Ink-Refresh an, um Geisterbilder zu reduzieren und statische Informationen sichtbar zu aktualisieren. |
 

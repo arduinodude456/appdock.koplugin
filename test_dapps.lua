@@ -66,6 +66,18 @@ package.preload["appdock_logo"] = function()
     return Logo
 end
 package.preload["appdock_keyboard"] = function() return WidgetContainer end
+package.preload["appdock_motion"] = function()
+    return {
+        run = function(target, frames, _, draw, done, region)
+            log.motion = log.motion or {}
+            table.insert(log.motion, { target = target, frames = frames, region = region })
+            for frame = 1, frames or 1 do
+                if draw then draw(frame, frames or 1) end
+            end
+            if done then done() end
+        end,
+    }
+end
 package.preload["appdock_appstore"] = function()
     return {
         new = function()
@@ -192,7 +204,12 @@ assert(homescreen_source:find("local label_height = scale(20)", 1, true) and hom
 assert(appstore_source:find("Layout.FixedStack:new", 1, true) and homescreen_source:find("Layout.FixedStack:new", 1, true), "AppStore and Homescreen cards must draw text through the fixed-bounds container")
 assert(simple_mode_source:find("local column_gap, row_gap, label_height = scale(12), scale(14), scale(22)", 1, true), "Simple Mode must retain its original app-grid spacing")
 assert(homescreen_source:find("self:_pageInfo(apps, 9)", 1, true) and homescreen_source:find("local grid_width = width", 1, true), "Normal Homescreen must paginate nine apps on a screen-wide grid")
-assert(homescreen_source:find('local dock_title = actual_recent_count > 0 and _("Recently used") or _("Quick access")', 1, true) and homescreen_source:find("quick_access_count = #shortcut_apps", 1, true), "Normal Homescreen must provide a lower quick-access row from recent and pinned apps")
+assert(homescreen_source:find('local dock_title = actual_recent_count > 0 and actual_recent_count == #shortcut_apps and _("Recently used") or _("Quick access")', 1, true) and homescreen_source:find("dock_padding = scale(12)", 1, true) and homescreen_source:find("has_app_dock_surface = #shortcut_apps > 0", 1, true), "Normal Homescreen must provide a larger rounded Recently used surface with an accurate Quick access fallback")
+assert(homescreen_source:find("SwipeHomePage", 1, true) and homescreen_source:find("Motion.run(self, 4, 0.045", 1, true), "Homescreen paging must handle horizontal swipes with a bounded E-Ink transition")
+assert(recents_source:find("local RecentDrawer", 1, true) and recents_source:find("function RecentDrawer:onShow", 1, true) and recents_source:find("function DAppManager:showRecentDrawer", 1, true) and recents_source:find("function DAppRecents:onRevealRecentApps", 1, true), "Recent Apps must be available through the animated global bottom drawer")
+assert(quick_settings_source:find("local header_subtitle", 1, true) and quick_settings_source:find("local icon_diameter", 1, true) and quick_settings_source:find("BrightnessSlider", 1, true), "Expressive Quick Settings must use Android-style header, toggle tiles, and a prominent brightness card")
+local manager_source = assert(io.open(plugin_dir .. "appdock_manager.lua", "rb")):read("*a")
+assert(manager_source:find("local function attachRecentSwipe", 1, true) and manager_source:find("appdock_recent_drawer", 1, true), "Manage AppDock must expose the same bottom-edge Recent Apps gesture")
 local recent_catalog = {}
 for _, id in ipairs({ "system:library", "system:menu", "system:history", "plugin:reader", "system:open_apps" }) do
     recent_catalog[id] = { id = id, title = id }
@@ -585,10 +602,12 @@ local simple_home = HomeScreen:new{ appdock = appdock }
 assert(simple_home.simple_layout and simple_home.simple_layout.columns == 4 and simple_home.simple_layout.rows == 3 and simple_home.simple_layout.app_count == 2, "Simple homescreen must contain only the visible apps in a 4×3 grid")
 assert(not simple_home.normal_layout, "Simple homescreen must not create any normal-mode expressive layout metadata")
 assert(not simple_home._widget_tick, "Simple homescreen must not schedule hidden widget refreshes")
+assert(not (simple_home.ges_events or {}).SwipeHomePage and not (simple_home.ges_events or {}).RevealRecentApps, "Simple homescreen must retain its previous gesture surface without animated paging or the Recent Apps drawer")
 local QuickSettings = dofile(plugin_dir .. "appdock_quicksettings.lua")
 local simple_quick_settings = QuickSettings:new{ appdock = appdock, home = simple_home }
 assert(simple_quick_settings.layout.simple_mode and simple_quick_settings.layout.tile_count == 3 and not simple_quick_settings.layout.show_notifications, "Simple quick settings must contain the three required tiles, brightness, and no notifications")
 assert(not simple_quick_settings.layout.expressive and simple_quick_settings.sheet_height < 400, "Simple quick settings must retain its existing compact non-expressive layout")
+assert(not simple_quick_settings.ges_events.RevealRecentApps, "Simple quick settings must not add the expressive Recent Apps drawer gesture")
 appdock:setSimpleModeOption("homescreen", false)
 appdock:setSimpleModeOption("quick_settings", false)
 appdock:setSimpleModeOption("focus_apps", false)
@@ -599,7 +618,7 @@ appdock.test_recent_apps = {
     { id = "system:history", title = "History" },
 }
 local expressive_home = HomeScreen:new{ appdock = appdock }
-assert(expressive_home.normal_layout and expressive_home.normal_layout.expressive and expressive_home.normal_layout.has_header_surface and not expressive_home.normal_layout.has_app_dock_surface, "Normal homescreen must restore expressive header surfaces without an app-grid background surface")
+assert(expressive_home.normal_layout and expressive_home.normal_layout.expressive and expressive_home.normal_layout.has_header_surface and expressive_home.normal_layout.has_app_dock_surface, "Normal homescreen must restore expressive header surfaces with a rounded Recently used dock")
 assert(expressive_home.normal_layout.grid_columns == 3 and expressive_home.normal_layout.grid_rows == 3 and expressive_home.normal_layout.page_size == 9 and expressive_home.normal_layout.grid_width == Device.screen:getSize().w, "Normal homescreen must use a full-width 3×3 app grid")
 assert(expressive_home.normal_layout.quick_access_count == 4 and expressive_home.normal_layout.recent_count == 4, "Normal homescreen must show one row of four recent shortcuts")
 assert(expressive_home.normal_layout.tile_size >= 62, "App tiles must remain comfortably sized alongside the quick-access row")
@@ -617,9 +636,21 @@ for _, child in ipairs(paged_home[1]) do
 end
 assert(paged_home.normal_layout.page_count == 2 and visible_grid_apps == 9, "A 3×3 app page must show nine apps before moving to the next page")
 assert(paged_home.normal_layout.hidden_widgets_for_fit and paged_home.normal_layout.tile_size >= 62, "Optional Store widgets must give way to keep paginated app tiles comfortably sized")
+assert(paged_home:onSwipeHomePage(nil, { direction = "west" }) and paged_home.page == 2 and not paged_home._page_transition, "Swiping west must animate to the next homescreen page and finish cleanly")
+assert(paged_home:onSwipeHomePage(nil, { direction = "east" }) and paged_home.page == 1, "Swiping east must animate back to the previous homescreen page")
 appdock.getPinnedApps = original_get_pinned_apps
+local saved_recent_apps = appdock.test_recent_apps
+appdock.test_recent_apps = {}
+local fallback_home = HomeScreen:new{ appdock = appdock }
+assert(fallback_home.normal_layout.quick_access_count == 2 and fallback_home.normal_layout.recent_count == 0 and fallback_home.normal_layout.quick_access_title == "Quick access", "Pinned fallback tiles must be labelled Quick access when no app has been used recently")
+appdock.test_recent_apps = saved_recent_apps
 local expressive_quick_settings = QuickSettings:new{ appdock = appdock, home = expressive_home }
 assert(expressive_quick_settings.layout.expressive and not expressive_quick_settings.layout.simple_mode and expressive_quick_settings.sheet_height >= 0, "Normal quick settings must use expressive layout only outside Simple Mode")
+assert(expressive_quick_settings:onRevealRecentApps(), "The bottom-edge swipe must expose Recently used above Quick Settings")
+local recent_drawer = log.shown[#log.shown]
+assert(recent_drawer.covers_fullscreen == false and recent_drawer.sheet_height > 0 and recent_drawer.sheet_layer, "Recently used must open as a bounded animated bottom drawer")
+recent_drawer:onShow()
+assert(log.motion[#log.motion].target == recent_drawer and log.motion[#log.motion].frames == 4 and log.motion[#log.motion].region and log.motion[#log.motion].region.y >= 0, "The Recent Apps drawer must animate in four fast-refresh frames limited to the lower screen region")
 
 local recents = {}
 manager:showDAppActions("analog_clock", recents)
