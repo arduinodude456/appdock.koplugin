@@ -1,10 +1,9 @@
 --[[--
 Text-free raster surface layers for AppDock.
 
-The bundled PNGs are deliberately neutral alpha overlays: the underlying
-FrameContainer keeps receiving the active Theme palette color, while the
-raster art contributes only tactile rim, grain and depth. This gives every
-built-in/custom theme a colored surface without shipping any SVG artwork.
+The bundled PNGs are real raster surfaces with transparent, shape-masked
+edges. The legacy FrameContainer remains for layout and input geometry, but
+its old flat color is never painted underneath the generated artwork.
 --]]--
 
 local CenterContainer = require("ui/widget/container/centercontainer")
@@ -22,7 +21,12 @@ local ASSETS = {
     circle = "circle_overlay.png",
     container = "container_overlay.png",
     pill = "pill_overlay.png",
-    glass = "liquid_glass_background.png",
+}
+local GLASS_ASSETS = {
+    tile = "liquid_glass_tile.png",
+    circle = "liquid_glass_circle.png",
+    container = "liquid_glass_container.png",
+    pill = "liquid_glass_pill.png",
 }
 
 local function emptySizedWidget(width, height)
@@ -32,8 +36,7 @@ local function emptySizedWidget(width, height)
     }
 end
 
-local function assetPath(kind)
-    local filename = ASSETS[kind or "container"]
+local function imagePath(filename)
     if not filename then return nil end
     local path = MODULE_DIR .. "assets/surfaces/" .. filename
     local file = io.open(path, "rb")
@@ -42,9 +45,17 @@ local function assetPath(kind)
     return path
 end
 
--- Builds an ordinary themed FrameContainer and layers one generated PNG on
--- top. The PNG has alpha and no baked-in color, so theme changes only require
--- rebuilding the normal AppDock view; no image variants are needed.
+local function assetPath(kind)
+    return imagePath(ASSETS[kind or "container"])
+end
+
+local function glassPath(kind)
+    return imagePath(GLASS_ASSETS[kind or "container"])
+end
+
+-- Builds a transparent hit/layout frame and layers shape-masked generated PNGs
+-- on top. The legacy theme fill is deliberately not painted: it must not show
+-- through or outside the liquid-glass surface.
 function Surface.build(options)
     options = options or {}
     local width = math.max(1, math.floor(tonumber(options.width) or 1))
@@ -60,15 +71,16 @@ function Surface.build(options)
             bordersize = options.bordersize or 0,
             color = options.color,
             radius = options.radius or 0,
-            background = options.background,
+            background = nil,
             emptySizedWidget(width, height),
         },
     }
 
     -- Liquid glass belongs to interactive surfaces, not the homescreen itself.
-    -- Keep the active theme color underneath the neutral transparent texture.
+    -- Each variant has transparent pixels outside its own shape, because
+    -- OverlapGroup does not clip children to a FrameContainer radius.
     if options.glass ~= false then
-        local glass_path = assetPath("glass")
+        local glass_path = glassPath(options.kind)
         local glass = glass_path and Wallpaper.buildPath(glass_path, width, height, true, true) or nil
         if glass then
             glass.overlap_offset = { 0, 0 }
