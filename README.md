@@ -1,8 +1,8 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.3.6 „Logo-Region Refresh“** animiert beim Seitenwechsel ausschließlich das 3×3-App-Grid; pro Motion-Frame werden nur die einzelnen App-Logo-Regionen schnell aktualisiert. Header, Widgets und Quick-Access-Dock bleiben statisch. [Details](RELEASE_NOTES_7.3.6.md).
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.4.0 „Colorful Calm“** verzichtet auf E-Ink auf App- und Drawer-Animationen, nutzt echte farbige Rasterlogos und bringt einen neu gestalteten Lockscreen mit KI-generiertem Paper-Cut-Hintergrund. [Details](RELEASE_NOTES_7.4.0.md).
 
-> **E-Ink-Ansatz:** AppDock übernimmt bewusst Androids Formensprache, nicht dessen Daueranimationen, Unschärfen oder Transparenzeffekte. Seit den aktuellen Launcher-Übergängen gibt es ausschließlich vier kurze Fast-Refresh-Schritte für Seitenwechsel; der Recently-used-Drawer aktualisiert dabei nur seinen unteren Bildschirmbereich. Damit bleibt die Darstellung auf monochromen Readern kontrastreich und sparsam.
+> **E-Ink-Ansatz:** AppDock übernimmt bewusst Androids Formensprache, nicht dessen Daueranimationen, Unschärfen oder Transparenzeffekte. Auf E-Ink wechseln App-Seiten und Recently-used-Drawer direkt und ohne Zwischenanimation. Damit bleibt die Darstellung auf monochromen Readern kontrastreich, sparsam und frei von unnötigem Ghosting.
 
 > **3.0.1-Fix:** Der DApp-Berechtigungsdialog überschattet die Übersetzungsfunktion nicht mehr. Ein aktivierter AppDock-only Lockscreen erscheint nach KOReaders Suspend-/Resume-Zyklus, aber nicht beim normalen Schließen einer DApp. Details stehen in [`RELEASE_NOTES_3.0.1.md`](RELEASE_NOTES_3.0.1.md).
 
@@ -44,8 +44,8 @@
 | Apps | Einheitliches 3-Spalten-Iconraster mit großen, abgerundeten Symbolflächen und kurzen Labels. |
 | Palette | Vier Material-You-artige Presets sowie selbst erstellbare Akzentfarben; auf Graustufen bleiben feste kontrastreiche KOReader-Grautöne erhalten. |
 | App-Sektion | Eine ruhige Abschnittszeile mit sichtbarer App-Anzahl trennt Widgets, Suche und Launcher-Raster klar voneinander. |
-| Navigation | Seitenschalter erscheinen bei mehreren App-Seiten; zusätzlich wechselt ein horizontaler Wisch links/rechts die Homescreen-Seite mit vier kurzen Fast-Refresh-Schritten. |
-| Recently used | Große, beschriftete App-Kacheln liegen in einer abgerundeten Material-Fläche. Nach den ersten Starts zeigt sie zuletzt verwendete Apps; davor erscheint derselbe Bereich korrekt als **Quick access** mit angehefteten Apps. Ein Wisch von der unteren Bildschirmkante nach oben öffnet den Bereich als animierten Drawer auf Homescreen, DApps, Verwaltung und Kontrollzentrum. |
+| Navigation | Seitenschalter erscheinen bei mehreren App-Seiten; zusätzlich wechselt ein horizontaler Wisch links/rechts die Homescreen-Seite direkt und ohne App-Animation. |
+| Recently used | Große, beschriftete App-Kacheln liegen in einer abgerundeten Material-Fläche. Nach den ersten Starts zeigt sie zuletzt verwendete Apps; davor erscheint derselbe Bereich korrekt als **Quick access** mit angehefteten Apps. Ein Wisch von der unteren Bildschirmkante nach oben öffnet den Bereich als statischen Drawer auf Homescreen, DApps, Verwaltung und Kontrollzentrum. |
 | Schnellzugriff | Ein gezeichnetes Android-artiges Kontrollzentrum mit großen Icon-/Toggle-Kacheln, Datumszeile und eigener Helligkeitskarte öffnet sich über die Abwärtspfeil-Kachel in der Systemzeile. |
 | DApps | Zustandsbehaftete, KOReader-interne Apps mit eigenem Pane, wiederverwendbaren grafischen Logos und eigener Open-Apps-Übersicht. |
 | Periodischer Refresh | Alle 60 Sekunden fordert AppDock einen vollständigen E-Ink-Refresh an, um Geisterbilder zu reduzieren und statische Informationen sichtbar zu aktualisieren. |
