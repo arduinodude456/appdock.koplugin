@@ -4,7 +4,7 @@
 
 # New releases regulary commited at 3:00 AM CET
 
-**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **6.0.0 “Continuity”** extends the local DApp platform with a clearer Android-/Material-oriented standard interface, registered file handoffs, opt-in workspace restoration, accessibility controls, and a read-only local integrity status. [1] [2]
+**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **7.1.0 “Keyboard Everywhere”** extends the AppDock keyboard to every AppDock-owned text input, displays Shift state directly on the key labels, and adds pressed-key feedback and a larger layout. PIN entry remains numeric and masked; KOReader dialogs outside AppDock remain unchanged. [Details](RELEASE_NOTES_7.1.0.md).
 
 > **E-Ink approach:** AppDock deliberately borrows the visual language and information structure, not Android's animations, blur, or transparency effects. This keeps updates economical and maintains contrast on monochrome readers.
 

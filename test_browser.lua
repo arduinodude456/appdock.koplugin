@@ -25,6 +25,7 @@ package.preload["ui/widget/overlapgroup"] = widgetModule
 package.preload["ui/widget/scrollhtmlwidget"] = widgetModule
 package.preload["ui/widget/textwidget"] = widgetModule
 package.preload["ui/uimanager"] = function() return { show = function() end, close = function() end } end
+package.preload["appdock_keyboard"] = function() return {} end
 package.preload["ui/widget/container/widgetcontainer"] = function() return WidgetContainer end
 package.preload["appdock_theme"] = function() return { fitLabel = function(value) return value end } end
 package.preload["gettext"] = function() return function(value) return value end end

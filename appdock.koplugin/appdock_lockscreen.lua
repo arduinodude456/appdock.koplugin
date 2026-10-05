@@ -16,6 +16,7 @@ local UIManager = require("ui/uimanager")
 local Device = require("device")
 local sha2 = require("ffi/sha2")
 local Wallpaper = require("appdock_wallpaper")
+local AppDockKeyboard = require("appdock_keyboard")
 local _ = require("gettext")
 
 local Screen = Device.screen
@@ -126,6 +127,7 @@ function LockScreen:onUnlockTap(event, gesture)
                 if settings.secret_hash and LockScreen.hash(value) == settings.secret_hash then self:_unlock() else self:_reject() end
             end } } },
         }
+        AppDockKeyboard.attach(dialog, { secure = true })
         UIManager:show(dialog); dialog:onShowKeyboard()
         return true
     end

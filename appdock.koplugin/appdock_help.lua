@@ -1,5 +1,7 @@
 -- AppDock Help: offline, searchable, bilingual reference for the integrated Help DApp.
 
+local AppDockKeyboard = require("appdock_keyboard")
+
 local Help = {}
 Help.__index = Help
 
@@ -213,6 +215,7 @@ function Help:showSearch(instance, context)
             context.requestRebuild("ui")
         end } } },
     }
+    AppDockKeyboard.attach(dialog)
     UIManager:show(dialog)
     dialog:onShowKeyboard()
 end

@@ -15,6 +15,7 @@ local GestureRange = require("ui/gesturerange")
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local InputDialog = require("ui/widget/inputdialog")
+local AppDockKeyboard = require("appdock_keyboard")
 local OverlapGroup = require("ui/widget/overlapgroup")
 local ScrollHtmlWidget = require("ui/widget/scrollhtmlwidget")
 local TextWidget = require("ui/widget/textwidget")
@@ -683,6 +684,7 @@ function Browser:showAddressDialog(instance, context, search)
             },
         },
     }
+    AppDockKeyboard.attach(dialog)
     UIManager:show(dialog)
     dialog:onShowKeyboard()
 end
@@ -702,6 +704,7 @@ function Browser:showGoogleSearchDialog(instance, context)
             end },
         } },
     }
+    AppDockKeyboard.attach(dialog)
     UIManager:show(dialog)
     dialog:onShowKeyboard()
 end
@@ -755,6 +758,7 @@ function Browser:showFormDialog(instance, context, form)
             end },
         } },
     }
+    AppDockKeyboard.attach(dialog)
     UIManager:show(dialog)
     dialog:onShowKeyboard()
 end
