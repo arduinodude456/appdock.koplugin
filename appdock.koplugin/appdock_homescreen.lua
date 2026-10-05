@@ -17,6 +17,7 @@ local AppDockKeyboard = require("appdock_keyboard")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local DAppLogo = require("appdock_logo")
 local Layout = require("appdock_layout")
+local Surface = require("appdock_surface")
 local Theme = require("appdock_theme")
 local Wallpaper = require("appdock_wallpaper")
 local OverlapGroup = require("ui/widget/overlapgroup")
@@ -211,20 +212,22 @@ function InfoCard:init()
     local title_widget = TextWidget:new{ text = title, face = Font:getFace("smallinfofont", title_size), fgcolor = self.foreground or PALETTE.on_surface_variant, bold = true, max_width = text_width, padding = 0 }
     local body_widget = TextWidget:new{ text = body, face = Font:getFace("smallinfofont", body_size), fgcolor = self.foreground or PALETTE.on_surface, max_width = text_width, padding = 0 }
     local positions = Theme.centeredStack(self.height, { title_widget, body_widget }, scale(4), scale(5))
-    self[1] = FrameContainer:new{
+    self[1] = Surface.build{
+        kind = "container",
         width = self.width,
         height = self.height,
-        padding = 0,
         bordersize = self.appdock and self.appdock.settings.beta and self.appdock.settings.beta.black_borders and scale(1) or 0,
         color = Blitbuffer.COLOR_BLACK,
         radius = math.floor(self.height * 0.30),
         background = self.background or PALETTE.surface,
-        Layout.FixedStack:new{
-            width = self.width,
-            height = self.height,
-            entries = {
-                { widget = title_widget, x = scale(18), y = positions[1] },
-                { widget = body_widget, x = scale(18), y = positions[2] },
+        children = {
+            Layout.FixedStack:new{
+                width = self.width,
+                height = self.height,
+                entries = {
+                    { widget = title_widget, x = scale(18), y = positions[1] },
+                    { widget = body_widget, x = scale(18), y = positions[2] },
+                },
             },
         },
     }
@@ -247,17 +250,19 @@ function StoreWidgetCard:init()
             max_width = self.width - scale(20),
         }
     end
-    self[1] = FrameContainer:new{
+    self[1] = Surface.build{
+        kind = "container",
         width = self.width,
         height = self.height,
-        padding = 0,
         bordersize = self.appdock and self.appdock.settings.beta and self.appdock.settings.beta.black_borders and scale(1) or 0,
         color = Blitbuffer.COLOR_BLACK,
         radius = math.floor(self.height * 0.28),
         background = self.background or PALETTE.surface,
-        CenterContainer:new{
-            dimen = self.dimen,
-            content,
+        children = {
+            CenterContainer:new{
+                dimen = self.dimen,
+                content,
+            },
         },
     }
 end
@@ -267,12 +272,15 @@ function SearchBar:init()
     local query_text = self.query ~= "" and (_("Search: ") .. self.query) or _("Search apps")
     local label_size = Theme.adjustText(self.appdock, math.max(scale(9), math.min(scale(14), math.floor(self.height * .42))), scale(9))
     local label = Theme.fitLabel("⌕  " .. query_text, self.width, label_size, scale(20))
-    self[1] = FrameContainer:new{
-        width = self.width, height = self.height, padding = 0, bordersize = 0,
+    self[1] = Surface.build{
+        kind = "pill",
+        width = self.width, height = self.height, bordersize = 0,
         radius = math.floor(self.height * 0.36), background = PALETTE.surface_variant,
-        CenterContainer:new{
-            dimen = self.dimen,
-            TextWidget:new{ text = label, face = Font:getFace("smallinfofont", label_size), fgcolor = PALETTE.on_surface_variant, max_width = self.width - scale(20), padding = 0 },
+        children = {
+            CenterContainer:new{
+                dimen = self.dimen,
+                TextWidget:new{ text = label, face = Font:getFace("smallinfofont", label_size), fgcolor = PALETTE.on_surface_variant, max_width = self.width - scale(20), padding = 0 },
+            },
         },
     }
     self.ges_events = { TapSearchApps = { GestureRange:new{ ges = "tap", range = self.dimen } } }
@@ -313,17 +321,19 @@ function AppTile:init()
     local requested_shape = Theme.getAppLogoShape(self.appdock) or self.shape
     local frame_style = Theme.getButtonFrameStyle(self.appdock, self.tile_size, math.floor(self.tile_size * 0.32))
     local has_black_border = self.appdock.settings.beta and self.appdock.settings.beta.black_borders
-    local tile = FrameContainer:new{
+    local tile = Surface.build{
+        kind = requested_shape == "circle" and "circle" or "tile",
         width = self.tile_size,
         height = self.tile_size,
-        padding = 0,
         bordersize = has_black_border and scale(1) or (frame_style.bordersize or 0),
         color = has_black_border and Blitbuffer.COLOR_BLACK or frame_style.color,
         radius = requested_shape == "circle" and math.floor(self.tile_size / 2) or (frame_style.radius or math.floor(self.tile_size * 0.32)),
         background = self.background or PALETTE.primary_container,
-        CenterContainer:new{
-            dimen = Geom:new{ w = self.tile_size, h = self.tile_size },
-            icon,
+        children = {
+            CenterContainer:new{
+                dimen = Geom:new{ w = self.tile_size, h = self.tile_size },
+                icon,
+            },
         },
     }
     local label_size = math.max(scale(8), math.min(scale(13), self.label_height - scale(6)))
@@ -679,13 +689,12 @@ function AppDockHomeScreen:build()
     local dashboard = OverlapGroup:new{
         dimen = Geom:new{ w = width, h = height },
         allow_mirroring = false,
-        FrameContainer:new{
+        Surface.build{
+            kind = "background",
             width = width,
             height = height,
-            padding = 0,
             bordersize = 0,
             background = PALETTE.background,
-            emptySizedWidget(width, height),
         },
     }
 
@@ -696,10 +705,10 @@ function AppDockHomeScreen:build()
     end
 
     if expressive then
-        table.insert(dashboard, FrameContainer:new{
-            width = width - 2 * margin, height = header_height, padding = 0, bordersize = 0,
+        table.insert(dashboard, Surface.build{
+            kind = "pill",
+            width = width - 2 * margin, height = header_height, bordersize = 0,
             radius = math.floor(header_height / 2), background = PALETTE.surface,
-            emptySizedWidget(width - 2 * margin, header_height),
             overlap_offset = { margin, header_y },
         })
     end
@@ -898,14 +907,13 @@ function AppDockHomeScreen:build()
     self._app_grid = app_grid
     local dock_title = actual_recent_count > 0 and actual_recent_count == #shortcut_apps and _("Recently used") or _("Quick access")
     if #shortcut_apps > 0 then
-        table.insert(dashboard, FrameContainer:new{
+        table.insert(dashboard, Surface.build{
+            kind = "container",
             width = width - 2 * margin,
             height = dock_height,
-            padding = 0,
             bordersize = 0,
             radius = math.floor(dock_height * .25),
             background = expressive and PALETTE.surface or PALETTE.surface_variant,
-            emptySizedWidget(width - 2 * margin, dock_height),
             overlap_offset = { margin, dock_y },
         })
         table.insert(dashboard, TextWidget:new{

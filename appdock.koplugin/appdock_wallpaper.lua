@@ -15,7 +15,7 @@ function Wallpaper.isValidPath(path)
     return suffix and ALLOWED_SUFFIXES[suffix:lower()] == true or false
 end
 
-function Wallpaper.buildPath(path, width, height, keep_original)
+function Wallpaper.buildPath(path, width, height, keep_original, stretch_to_fill)
     if not Wallpaper.isValidPath(path) then return nil end
     local file = io.open(path, "rb")
     if not file then return nil end
@@ -24,7 +24,9 @@ function Wallpaper.buildPath(path, width, height, keep_original)
         file = path,
         width = width,
         height = height,
-        scale_factor = 0,
+        -- Surface overlays are authored as flexible frames and must reach all
+        -- four edges. Existing wallpapers and logos keep their aspect ratio.
+        scale_factor = stretch_to_fill and nil or 0,
         alpha = true,
         original_in_nightmode = keep_original == true,
     })
