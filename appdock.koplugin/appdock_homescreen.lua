@@ -41,6 +41,7 @@ local AppTile = InputContainer:extend{
     home = nil,
     tile_size = nil,
     label_height = nil,
+    label_width = nil,
     background = nil,
     foreground = nil,
     symbol = nil,
@@ -280,8 +281,9 @@ end
 
 function AppTile:init()
     self.label_height = self.label_height or scale(28)
+    local label_width = math.max(self.tile_size, tonumber(self.label_width) or self.tile_size)
     self.dimen = Geom:new{
-        w = self.tile_size,
+        w = label_width,
         h = self.tile_size + scale(6) + self.label_height,
     }
 
@@ -318,21 +320,24 @@ function AppTile:init()
     if self.home and self.home.appdock and self.home.appdock.isExpressiveUiEnabled and self.home.appdock:isExpressiveUiEnabled() then
         label_size = Theme.adjustText(self.appdock, label_size, scale(8))
     end
-    local label_text = Theme.fitLabel(self.app.title or "", self.tile_size, label_size, 0)
+    local label_text = Theme.fitLabel(self.app.title or "", label_width, label_size, 0)
     self.layout = { label = label_text, label_size = label_size }
     local label = TextWidget:new{
         text = label_text,
         face = Font:getFace("smallinfofont", label_size),
         fgcolor = PALETTE.on_surface,
-        max_width = self.tile_size,
+        max_width = label_width,
         padding = 0,
     }
 
     self[1] = VerticalGroup:new{
-        tile,
+        CenterContainer:new{
+            dimen = Geom:new{ w = label_width, h = self.tile_size },
+            tile,
+        },
         VerticalSpan:new{ width = scale(6) },
         CenterContainer:new{
-            dimen = Geom:new{ w = self.tile_size, h = self.label_height },
+            dimen = Geom:new{ w = label_width, h = self.label_height },
             label,
         },
     }
@@ -604,9 +609,6 @@ function AppDockHomeScreen:build()
     greeting_text.overlap_offset = { margin, header_y + header_positions[1] }
     date_text.overlap_offset = { margin, header_y + header_positions[2] }
     local layout = self.appdock.settings.layout or {}
-    local tile_size = math.floor(math.min(width * 0.20, height * 0.13))
-    tile_size = math.max(scale(62), math.min(tile_size, scale(110)))
-    local tile_gap = scale(math.max(8, math.min(34, tonumber(layout.app_spacing) or 16)))
     local label_height = scale(20)
     local label_gap = scale(3)
     local apps = self.appdock:getPinnedApps()
@@ -618,7 +620,7 @@ function AppDockHomeScreen:build()
         end
         apps = filtered
     end
-    local visible_apps, page_count = self:_pageInfo(apps)
+    local visible_apps, page_count = self:_pageInfo(apps, 9)
 
     local dashboard = OverlapGroup:new{
         dimen = Geom:new{ w = width, h = height },
@@ -660,7 +662,75 @@ function AppDockHomeScreen:build()
         })
         card_y = header_y + header_height + scale(38) + scale(12)
     end
-    if self.appdock.settings.widgets.status then
+    local show_status_card = self.appdock.settings.widgets.status == true
+    local show_reading_card = self.appdock.settings.widgets.reading_hint == true
+    local visible_widgets = {}
+    for _, widget in ipairs(self.appdock:getStoreWidgets()) do
+        if self.appdock:isStoreWidgetEnabled(widget.widget_id) then table.insert(visible_widgets, widget) end
+    end
+
+    local recent_apps = {}
+    if type(self.appdock.getRecentApps) == "function" then
+        local ok, loaded_apps = pcall(self.appdock.getRecentApps, self.appdock, 4)
+        if ok and type(loaded_apps) == "table" then recent_apps = loaded_apps end
+    end
+    local actual_recent_count = #recent_apps
+    local shortcut_apps, seen_shortcuts = {}, {}
+    for _, app in ipairs(recent_apps) do
+        if #shortcut_apps >= 4 then break end
+        if type(app) == "table" and type(app.id) == "string" and not seen_shortcuts[app.id] then
+            shortcut_apps[#shortcut_apps + 1] = app
+            seen_shortcuts[app.id] = true
+        end
+    end
+    if #shortcut_apps < 4 then
+        for _, app in ipairs(self.appdock:getPinnedApps()) do
+            if #shortcut_apps >= 4 then break end
+            if type(app) == "table" and type(app.id) == "string" and app.id ~= "system:manage" and app.id ~= "system:open_apps" and not seen_shortcuts[app.id] then
+                shortcut_apps[#shortcut_apps + 1] = app
+                seen_shortcuts[app.id] = true
+            end
+        end
+    end
+
+    local row_gap = scale(8)
+    local tile_gap = scale(math.max(8, math.min(34, tonumber(layout.app_spacing) or 16)))
+    local dock_gap = scale(8)
+    local dock_slot_width = math.floor((width - 2 * margin - 3 * dock_gap) / 4)
+    local dock_tile_size = math.max(scale(32), math.min(scale(48), math.floor(dock_slot_width)))
+    local dock_label_height = scale(18)
+    local dock_title_height = scale(16)
+    local dock_height = #shortcut_apps > 0 and (dock_title_height + scale(3) + dock_tile_size + scale(6) + dock_label_height) or 0
+    local dock_y = height - margin - dock_height
+    local widget_height = scale(98)
+    local widget_gap = scale(10)
+    local function measuredGridY()
+        local has_cards = show_status_card or show_reading_card
+        local widget_y = card_y + (has_cards and scale(54) or 0) + (has_cards and scale(8) or 0)
+        local widget_space = #visible_widgets * widget_height + math.max(0, #visible_widgets - 1) * widget_gap
+        return widget_y + widget_space + scale(24), widget_y, widget_space
+    end
+    local function maxGridTileSize()
+        local grid_y = measuredGridY()
+        local page_nav_space = page_count > 1 and scale(34) or 0
+        local bottom = dock_y - (#shortcut_apps > 0 and scale(8) or 0) - page_nav_space
+        return math.floor((bottom - grid_y - 2 * row_gap - 3 * (label_gap + label_height)) / 3)
+    end
+    local widgets_hidden_for_fit = false
+    while maxGridTileSize() < scale(62) do
+        if #visible_widgets > 0 then
+            visible_widgets = {}
+            widgets_hidden_for_fit = true
+        elseif show_reading_card then
+            show_reading_card = false
+        elseif show_status_card then
+            show_status_card = false
+        else
+            break
+        end
+    end
+
+    if show_status_card then
         local status_body = safeBatteryText() or _("All systems ready")
         table.insert(dashboard, InfoCard:new{
             appdock = self.appdock,
@@ -674,11 +744,11 @@ function AppDockHomeScreen:build()
         })
     end
 
-    if self.appdock.settings.widgets.reading_hint then
-        local reading_x = self.appdock.settings.widgets.status
+    if show_reading_card then
+        local reading_x = show_status_card
             and margin + math.floor((width - 2 * margin - scale(10)) * 0.42) + scale(10)
             or margin
-        local reading_width = self.appdock.settings.widgets.status
+        local reading_width = show_status_card
             and width - margin - reading_x
             or width - 2 * margin
         table.insert(dashboard, InfoCard:new{
@@ -693,13 +763,7 @@ function AppDockHomeScreen:build()
         })
     end
 
-    local has_cards = self.appdock.settings.widgets.status or self.appdock.settings.widgets.reading_hint
-    local widget_y = card_y + (has_cards and scale(54) or 0) + (has_cards and scale(8) or 0)
-    local widget_height = scale(98)
-    local visible_widgets = {}
-    for _, widget in ipairs(self.appdock:getStoreWidgets()) do
-        if self.appdock:isStoreWidgetEnabled(widget.widget_id) then table.insert(visible_widgets, widget) end
-    end
+    local grid_y, widget_y, widget_space = measuredGridY()
     for index, widget in ipairs(visible_widgets) do
         table.insert(dashboard, StoreWidgetCard:new{
             widget = widget,
@@ -708,16 +772,19 @@ function AppDockHomeScreen:build()
             height = widget_height,
             background = index % 2 == 0 and PALETTE.secondary_container or PALETTE.primary_container,
             foreground = index % 2 == 0 and PALETTE.on_secondary_container or PALETTE.on_primary_container,
-            overlap_offset = { margin, widget_y + (index - 1) * (widget_height + scale(10)) },
+            overlap_offset = { margin, widget_y + (index - 1) * (widget_height + widget_gap) },
         })
     end
-    local widget_space = #visible_widgets * widget_height + math.max(0, #visible_widgets - 1) * scale(10)
-    local grid_y = widget_y + widget_space + scale(24)
-    local grid_width = tile_size * 3 + tile_gap * 2
-    local grid_x = math.floor((width - grid_width) / 2)
-    local row_gap = scale(12)
-    local grid_rows = math.max(1, math.ceil(#visible_apps / 3))
-    local grid_height = grid_rows * (tile_size + label_gap + label_height) + math.max(0, grid_rows - 1) * row_gap
+    local page_nav_space = page_count > 1 and scale(34) or 0
+    local grid_bottom = dock_y - (#shortcut_apps > 0 and scale(8) or 0) - page_nav_space
+    local available_tile_size = math.floor((grid_bottom - grid_y - 2 * row_gap - 3 * (label_gap + label_height)) / 3)
+    local preferred_tile_size = math.floor(math.min(width * 0.20, height * 0.13))
+    local tile_size = math.max(scale(36), math.min(scale(110), preferred_tile_size, math.floor(width / 3) - tile_gap, available_tile_size))
+    local grid_width = width
+    local grid_x = 0
+    local column_width = math.floor(grid_width / 3)
+    local grid_rows = 3
+    local grid_height = grid_rows * (tile_size + label_gap + label_height) + 2 * row_gap
     table.insert(dashboard, TextWidget:new{
         text = appSectionLabel(#apps),
         face = Font:getFace("smallinfofont", Theme.adjustText(self.appdock, scale(14), scale(10))),
@@ -727,14 +794,6 @@ function AppDockHomeScreen:build()
         padding = 0,
         overlap_offset = { margin, grid_y - scale(20) },
     })
-    if expressive and #visible_apps > 0 then
-        table.insert(dashboard, FrameContainer:new{
-            width = math.min(width - 2 * margin, grid_width + scale(30)), height = grid_height + scale(20), padding = 0, bordersize = 0,
-            radius = scale(28), background = PALETTE.surface,
-            emptySizedWidget(math.min(width - 2 * margin, grid_width + scale(30)), grid_height + scale(20)),
-            overlap_offset = { math.floor((width - math.min(width - 2 * margin, grid_width + scale(30))) / 2), grid_y - scale(10) },
-        })
-    end
     for index, app in ipairs(visible_apps) do
         local col = (index - 1) % 3
         local row = math.floor((index - 1) / 3)
@@ -745,18 +804,19 @@ function AppDockHomeScreen:build()
             app = app,
             tile_size = tile_size,
             label_height = label_height,
+            label_width = column_width,
             shape = layout.logo_shape,
             background = tone.background,
             foreground = tone.foreground,
             overlap_offset = {
-                grid_x + col * (tile_size + tile_gap),
+                grid_x + col * column_width,
                 grid_y + row * (tile_size + label_gap + label_height + row_gap),
             },
         })
     end
 
     if page_count > 1 then
-        local nav_y = height - scale(48)
+        local nav_y = grid_y + grid_height + scale(2)
         local nav_center = math.floor(width / 2)
         if self.page > 1 then
             table.insert(dashboard, self:_navControl("‹", nav_center - scale(64), nav_y, function()
@@ -777,7 +837,50 @@ function AppDockHomeScreen:build()
         table.insert(dashboard, page_label)
     end
 
-    self.normal_layout = { expressive = expressive, has_header_surface = expressive, has_app_dock_surface = expressive, app_section = true, grid_rows = grid_rows, tile_size = tile_size }
+    if #shortcut_apps > 0 then
+        local dock_title = actual_recent_count > 0 and _("Recently used") or _("Quick access")
+        table.insert(dashboard, TextWidget:new{
+            text = dock_title,
+            face = Font:getFace("smallinfofont", Theme.adjustText(self.appdock, scale(13), scale(9))),
+            fgcolor = PALETTE.on_surface_variant,
+            bold = true,
+            padding = 0,
+            overlap_offset = { margin, dock_y },
+        })
+        local tile_y = dock_y + dock_title_height + scale(3)
+        for index, app in ipairs(shortcut_apps) do
+            local tone = toneFor(app, index)
+            table.insert(dashboard, AppTile:new{
+                appdock = self.appdock,
+                home = self,
+                app = app,
+                tile_size = dock_tile_size,
+                label_height = dock_label_height,
+                label_width = dock_slot_width,
+                shape = layout.logo_shape,
+                background = tone.background,
+                foreground = tone.foreground,
+                overlap_offset = { margin + (index - 1) * (dock_slot_width + dock_gap), tile_y },
+            })
+        end
+    end
+
+    self.normal_layout = {
+        expressive = expressive,
+        has_header_surface = expressive,
+        has_app_dock_surface = false,
+        app_section = true,
+        grid_columns = 3,
+        grid_rows = grid_rows,
+        grid_width = grid_width,
+        tile_size = tile_size,
+        page_size = 9,
+        page_count = page_count,
+        quick_access_count = #shortcut_apps,
+        recent_count = actual_recent_count,
+        quick_access_y = dock_y,
+        hidden_widgets_for_fit = widgets_hidden_for_fit,
+    }
     self[1] = dashboard
 end
 
