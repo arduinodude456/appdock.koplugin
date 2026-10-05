@@ -22,7 +22,7 @@ local ASSETS = {
     circle = "circle_overlay.png",
     container = "container_overlay.png",
     pill = "pill_overlay.png",
-    background = "liquid_glass_background.png",
+    glass = "liquid_glass_background.png",
 }
 
 local function emptySizedWidget(width, height)
@@ -65,6 +65,16 @@ function Surface.build(options)
         },
     }
 
+    -- Liquid glass belongs to interactive surfaces, not the homescreen itself.
+    -- Keep the active theme color underneath the neutral transparent texture.
+    if options.glass ~= false then
+        local glass_path = assetPath("glass")
+        local glass = glass_path and Wallpaper.buildPath(glass_path, width, height, true, true) or nil
+        if glass then
+            glass.overlap_offset = { 0, 0 }
+            table.insert(layers, glass)
+        end
+    end
     local path = assetPath(options.kind)
     local texture = path and Wallpaper.buildPath(path, width, height, true, true) or nil
     if texture then

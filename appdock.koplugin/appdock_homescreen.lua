@@ -689,12 +689,13 @@ function AppDockHomeScreen:build()
     local dashboard = OverlapGroup:new{
         dimen = Geom:new{ w = width, h = height },
         allow_mirroring = false,
-        Surface.build{
-            kind = "background",
+        FrameContainer:new{
             width = width,
             height = height,
+            padding = 0,
             bordersize = 0,
             background = PALETTE.background,
+            emptySizedWidget(width, height),
         },
     }
 
