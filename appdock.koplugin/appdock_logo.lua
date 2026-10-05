@@ -6,7 +6,6 @@ existing procedural marks remain available if an asset cannot be loaded.
 
 local Blitbuffer = require("ffi/blitbuffer")
 local Geom = require("ui/geometry")
-local Wallpaper = require("appdock_wallpaper")
 local Widget = require("ui/widget/widget")
 
 local DAppLogo = Widget:extend{
@@ -29,6 +28,10 @@ local RASTER_LOGOS = {
     settings = "settings.png",
     web_browser = "web_browser.png",
 }
+
+-- Keep bundled PNGs for safe non-homescreen consumers, but do not construct
+-- image widgets from the critical homescreen logo path during boot.
+local ENABLE_RASTER_LOGOS = false
 
 local function rasterPath(kind)
     local filename = RASTER_LOGOS[kind]
@@ -56,12 +59,7 @@ end
 
 function DAppLogo:init()
     self.dimen = Geom:new{ w = self.size, h = self.size }
-    local path = rasterPath(self.kind)
-    if path then
-        -- Use the same guarded image loader as the working lockscreen
-        -- profile-image path. It handles missing/unsupported PNGs safely.
-        self._raster = Wallpaper.buildPath(path, self.size, self.size, true)
-    end
+    if ENABLE_RASTER_LOGOS then self._raster = rasterPath(self.kind) end
 end
 
 function DAppLogo:_paintClock(bb, x, y, size)
