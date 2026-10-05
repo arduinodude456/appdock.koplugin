@@ -17,6 +17,7 @@ local GestureRange = require("ui/gesturerange")
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local InputDialog = require("ui/widget/inputdialog")
+local AppDockKeyboard = require("appdock_keyboard")
 local DAppLogo = require("appdock_logo")
 local Layout = require("appdock_layout")
 local Theme = require("appdock_theme")
@@ -1329,6 +1330,7 @@ function DAppManager:_showPluginInputEditor(instance, context, overlay)
             },
         },
     }
+    AppDockKeyboard.attach(dialog)
     UIManager:show(dialog)
     if dialog.onShowKeyboard then dialog:onShowKeyboard() end
 end
@@ -2323,6 +2325,7 @@ function DAppManager:showWallpaperEditor(instance, context)
             end },
         } },
     }
+    AppDockKeyboard.attach(dialog)
     UIManager:show(dialog)
     dialog:onShowKeyboard()
 end
@@ -2352,6 +2355,7 @@ function DAppManager:showLockscreenSecretDialog(instance, context, method)
             end },
         } },
     }
+    AppDockKeyboard.attach(dialog, { secure = true })
     UIManager:show(dialog)
     dialog:onShowKeyboard()
 end
@@ -2373,6 +2377,7 @@ function DAppManager:showLockscreenNameDialog(instance, context)
             end },
         } },
     }
+    AppDockKeyboard.attach(dialog)
     UIManager:show(dialog)
     dialog:onShowKeyboard()
 end
@@ -2399,6 +2404,7 @@ function DAppManager:showLockscreenProfileImageDialog(instance, context)
             end },
         } },
     }
+    AppDockKeyboard.attach(dialog)
     UIManager:show(dialog)
     dialog:onShowKeyboard()
 end
@@ -2445,6 +2451,7 @@ function DAppManager:showManualAppSpacingDialog(instance, context)
             end },
         } },
     }
+    AppDockKeyboard.attach(dialog)
     UIManager:show(dialog); dialog:onShowKeyboard()
 end
 
@@ -2467,6 +2474,7 @@ function DAppManager:showPluginLogoPathDialog(instance, context, app)
             end },
         } },
     }
+    AppDockKeyboard.attach(dialog)
     UIManager:show(dialog); dialog:onShowKeyboard()
 end
 
@@ -2604,6 +2612,7 @@ function DAppManager:showCustomThemeNameDialog(instance, context)
             },
         },
     }
+    AppDockKeyboard.attach(dialog)
     UIManager:show(dialog)
     dialog:onShowKeyboard()
 end
@@ -2637,6 +2646,7 @@ function DAppManager:showCustomThemeColorDialog(instance, context, title)
             },
         },
     }
+    AppDockKeyboard.attach(dialog)
     UIManager:show(dialog)
     dialog:onShowKeyboard()
 end

@@ -20,6 +20,7 @@ local GestureRange = require("ui/gesturerange")
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local InputDialog = require("ui/widget/inputdialog")
+local AppDockKeyboard = require("appdock_keyboard")
 local InfoMessage = require("ui/widget/infomessage")
 local OverlapGroup = require("ui/widget/overlapgroup")
 local TextWidget = require("ui/widget/textwidget")
@@ -276,6 +277,7 @@ function AppStore:promptSearch(instance, context)
             },
         },
     }
+    AppDockKeyboard.attach(dialog)
     UIManager:show(dialog)
     dialog:onShowKeyboard()
 end
