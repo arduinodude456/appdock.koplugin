@@ -1163,6 +1163,7 @@ function DAppManager:_buildGeneratedWidget(instance, context, item)
     local width, height = context.dimen.w, context.dimen.h
     local margin = math.max(6, math.floor(math.min(width, height) * 0.07))
     local lines = {}
+    local battery_text = nil
     if item.text and item.text ~= "" then lines[#lines + 1] = item.text end
     if item.show_time then lines[#lines + 1] = os.date("%H:%M") end
     if item.show_date then lines[#lines + 1] = os.date("%d.%m.%Y") end
@@ -1171,9 +1172,9 @@ function DAppManager:_buildGeneratedWidget(instance, context, item)
             local powerd = Device:getPowerDevice()
             return powerd and powerd.getCapacity and powerd:getCapacity() or nil
         end)
-        if ok and type(capacity) == "number" then lines[#lines + 1] = string.format(_("Battery %d%%"), math.floor(capacity + 0.5)) end
+        if ok and type(capacity) == "number" then battery_text = string.format(_("Battery %d%%"), math.floor(capacity + 0.5)) end
     end
-    if #lines == 0 then lines[1] = _("Configure this widget in WidgetGenerator.") end
+    if #lines == 0 and not battery_text then lines[1] = _("Configure this widget in WidgetGenerator.") end
     local content = {
         FrameContainer:new{ width = width, height = height, padding = 0, bordersize = 0, radius = math.max(4, math.floor(height * 0.12)), background = PALETTE.surface_variant or PALETTE.surface, emptySizedWidget(width, height) },
         TextWidget:new{ text = item.title, face = Font:getFace("smallinfofont", math.max(10, scale(12))), bold = true, fgcolor = PALETTE.on_surface, max_width = width - 2 * margin, overlap_offset = { margin, margin } },
@@ -1182,6 +1183,15 @@ function DAppManager:_buildGeneratedWidget(instance, context, item)
     for line_index, line in ipairs(lines) do
         content[#content + 1] = TextWidget:new{ text = line, face = Font:getFace("smallinfofont", math.max(9, scale(10))), fgcolor = PALETTE.on_variant, max_width = width - 2 * margin, overlap_offset = { margin, y } }
         y = y + math.max(13, scale(15))
+    end
+    if battery_text then
+        local battery_size = math.max(scale(16), math.min(scale(24), math.floor(height * .18)))
+        content[#content + 1] = OverlapGroup:new{
+            dimen = Geom:new{ w = width - 2 * margin, h = battery_size },
+            allow_mirroring = false,
+            DAppLogo:new{ kind = "battery", size = battery_size, ink = PALETTE.on_variant },
+            TextWidget:new{ text = battery_text, face = Font:getFace("smallinfofont", math.max(9, scale(10))), fgcolor = PALETTE.on_variant, max_width = width - 2 * margin - battery_size - scale(6), overlap_offset = { battery_size + scale(6), math.floor((battery_size - math.max(9, scale(10))) / 2) } },
+        }
     end
     return OverlapGroup:new{ dimen = Geom:new{ w = width, h = height }, allow_mirroring = false, unpack(content) }
 end

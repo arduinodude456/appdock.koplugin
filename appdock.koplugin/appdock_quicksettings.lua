@@ -17,7 +17,6 @@ local InfoMessage = require("ui/widget/infomessage")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local Layout = require("appdock_layout")
 local Motion = require("appdock_motion")
-local Surface = require("appdock_surface")
 local Theme = require("appdock_theme")
 local OverlapGroup = require("ui/widget/overlapgroup")
 local TextWidget = require("ui/widget/textwidget")
@@ -235,13 +234,10 @@ function QuickTile:init()
         }
         if switch_entry then table.insert(entries, switch_entry) end
         self.layout = { title = title, subtitle = subtitle, expressive = true, icon_diameter = icon_diameter }
-        self[1] = Surface.build{
-            kind = "container",
-            width = self.width, height = self.height, bordersize = 0,
+        self[1] = FrameContainer:new{
+            width = self.width, height = self.height, padding = 0, bordersize = 0,
             radius = math.floor(self.height * .31), background = background,
-            children = {
-                Layout.FixedStack:new{ width = self.width, height = self.height, entries = entries },
-            },
+            Layout.FixedStack:new{ width = self.width, height = self.height, entries = entries },
         }
         self.ges_events = { TapQuickTile = { GestureRange:new{ ges = "tap", range = self.dimen } } }
         return
@@ -311,24 +307,22 @@ function QuickTile:init()
         }
     end
     local frame_style = Theme.getButtonFrameStyle(self.appdock, self.height, math.floor(self.height * .32))
-    self[1] = Surface.build{
-        kind = "container",
+    self[1] = FrameContainer:new{
         width = self.width,
         height = self.height,
+        padding = 0,
         bordersize = frame_style.bordersize or 0,
         color = frame_style.color,
         radius = frame_style.radius or math.floor(self.height * (self.expressive and 0.40 or 0.32)),
         background = background,
-        children = {
-            Layout.FixedStack:new{
-                width = self.width,
-                height = self.height,
-                entries = {
-                    { widget = CenterContainer:new{ dimen = Geom:new{ w = self.width, h = symbol_widget:getSize().h }, symbol_widget }, x = 0, y = positions[1] },
-                    { widget = CenterContainer:new{ dimen = Geom:new{ w = self.width, h = title_widget:getSize().h }, title_widget }, x = 0, y = positions[2] },
-                    subtitle_widget and { widget = CenterContainer:new{ dimen = Geom:new{ w = self.width, h = subtitle_widget:getSize().h }, subtitle_widget }, x = 0, y = positions[3] } or nil,
-                    switch_widget,
-                },
+        Layout.FixedStack:new{
+            width = self.width,
+            height = self.height,
+            entries = {
+                { widget = CenterContainer:new{ dimen = Geom:new{ w = self.width, h = symbol_widget:getSize().h }, symbol_widget }, x = 0, y = positions[1] },
+                { widget = CenterContainer:new{ dimen = Geom:new{ w = self.width, h = title_widget:getSize().h }, title_widget }, x = 0, y = positions[2] },
+                subtitle_widget and { widget = CenterContainer:new{ dimen = Geom:new{ w = self.width, h = subtitle_widget:getSize().h }, subtitle_widget }, x = 0, y = positions[3] } or nil,
+                switch_widget,
             },
         },
     }
@@ -377,19 +371,16 @@ function NotificationRow:init()
     local positions = Theme.centeredStack(self.height, { title_widget, message_widget }, scale(3), scale(3))
     local title_y, message_y = positions[1], positions[2]
     local unread_marker = TextWidget:new{ text = notification.read and "" or "•", face = Font:getFace("cfont", scale(18)), fgcolor = foreground, padding = 0 }
-    self[1] = Surface.build{
-        kind = "container",
-        width = self.width, height = self.height, bordersize = 0,
+    self[1] = FrameContainer:new{
+        width = self.width, height = self.height, padding = 0, bordersize = 0,
         radius = scale(11), background = background,
-        children = {
-            Layout.FixedStack:new{
-                width = self.width,
-                height = self.height,
-                entries = {
-                    { widget = title_widget, x = scale(12), y = title_y },
-                    { widget = message_widget, x = scale(12), y = message_y },
-                    { widget = unread_marker, x = self.width - scale(18), y = scale(8) },
-                },
+        Layout.FixedStack:new{
+            width = self.width,
+            height = self.height,
+            entries = {
+                { widget = title_widget, x = scale(12), y = title_y },
+                { widget = message_widget, x = scale(12), y = message_y },
+                { widget = unread_marker, x = self.width - scale(18), y = scale(8) },
             },
         },
     }
@@ -435,10 +426,10 @@ function BrightnessSlider:build()
     self[1] = OverlapGroup:new{
         dimen = Geom:new{ w = self.width, h = self.height },
         allow_mirroring = false,
-        Surface.build{
-            kind = "container",
-            width = self.width, height = self.height, bordersize = 0,
+        FrameContainer:new{
+            width = self.width, height = self.height, padding = 0, bordersize = 0,
             radius = math.floor(self.height * .34), background = PALETTE.surface,
+            emptySizedWidget(self.width, self.height),
         },
         TextWidget:new{
             text = _("Brightness"),
@@ -765,24 +756,24 @@ function QuickSettings:rebuild(refresh)
         dimen = Geom:new{ w = width, h = self.dimen.h },
         allow_mirroring = false,
     }
-    self.sheet_frame = Surface.build{
-        kind = "container",
+    self.sheet_frame = FrameContainer:new{
         width = width,
         height = self.sheet_height,
+        padding = 0,
         bordersize = 0,
         radius = expressive and scale(34) or scale(28),
         background = PALETTE.sheet,
+        emptySizedWidget(width, self.sheet_height),
     }
     table.insert(content, self.sheet_frame)
 
     local header_title_y = expressive and scale(13) or math.max(scale(3), math.floor((header_height - header_title:getSize().h) / 2))
     if expressive then
         local pill_y = scale(4)
-        table.insert(content, Surface.build{
-            kind = "pill",
-            width = width - 2 * margin, height = header_height - scale(8), bordersize = 0,
+        table.insert(content, FrameContainer:new{
+            width = width - 2 * margin, height = header_height - scale(8), padding = 0, bordersize = 0,
             radius = math.floor((header_height - scale(8)) / 2), background = PALETTE.surface,
-            overlap_offset = { margin, pill_y },
+            emptySizedWidget(width - 2 * margin, header_height - scale(8)), overlap_offset = { margin, pill_y },
         })
     end
     header_title.overlap_offset = { expressive and margin + scale(14) or margin, header_title_y }
