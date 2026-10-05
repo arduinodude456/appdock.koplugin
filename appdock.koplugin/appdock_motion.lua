@@ -16,6 +16,10 @@ function Motion.run(target, frames, interval, draw, done, region)
         if frame < frames then
             UIManager:scheduleIn(interval, tick)
         elseif done then
+            -- Clear accumulated ghosting after the last fast frame. A full
+            -- refresh here is intentional and happens only once per gesture.
+            UIManager:setDirty("all", "full")
+            if UIManager.forceRePaint then UIManager:forceRePaint() end
             done()
         end
     end

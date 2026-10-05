@@ -55,9 +55,27 @@ local function contrastInk(hex)
 end
 
 local function color(hex, grayscale)
-    if not Device.screen:isColorEnabled() then return grayscale end
     local red, green, blue = rgb(hex)
-    return Blitbuffer.ColorRGB32(red, green, blue, 0xFF)
+    return Theme.fastColor(red, green, blue, grayscale)
+end
+
+-- Fast E-Ink updates must not dither arbitrary Material colors. Quantize every
+-- color-device palette value to the six physical colors supported by the panel.
+function Theme.fastColor(red, green, blue, grayscale)
+    if not Device.screen:isColorEnabled() then
+        return ((red or 0) + (green or 0) + (blue or 0)) >= 384 and Blitbuffer.COLOR_WHITE or Blitbuffer.COLOR_BLACK
+    end
+    local candidates = {
+        { 0, 0, 0 }, { 255, 255, 255 }, { 255, 0, 0 },
+        { 0, 255, 0 }, { 0, 0, 255 }, { 255, 255, 0 },
+    }
+    local best, best_distance
+    for _, candidate in ipairs(candidates) do
+        local dr, dg, db = (red or 0) - candidate[1], (green or 0) - candidate[2], (blue or 0) - candidate[3]
+        local distance = dr * dr + dg * dg + db * db
+        if not best_distance or distance < best_distance then best, best_distance = candidate, distance end
+    end
+    return Blitbuffer.ColorRGB32(best[1], best[2], best[3], 0xFF)
 end
 
 function Theme.normalizeHex(value)

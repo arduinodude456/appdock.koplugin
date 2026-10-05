@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.3.0 „Material Motion“** ergänzt eine größere Recently-used-Leiste, globale Bottom-Edge-Gesten, animierte Homescreen-Seitenwechsel und ein stärker an Android angelehntes Kontrollzentrum. PIN-Eingaben bleiben numerisch und maskiert; KOReader-Dialoge außerhalb AppDocks bleiben unverändert. [Details](RELEASE_NOTES_7.3.0.md).
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.3.1 „E-Ink Clean Motion“** ergänzt eine größere Recently-used-Leiste, globale Bottom-Edge-Gesten, animierte Homescreen-Seitenwechsel und ein stärker an Android angelehntes Kontrollzentrum mit strikt E-Ink-sicheren Farben und Ghosting-Abschlussrefresh. [Details](RELEASE_NOTES_7.3.1.md).
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst Androids Formensprache, nicht dessen Daueranimationen, Unschärfen oder Transparenzeffekte. Seit den aktuellen Launcher-Übergängen gibt es ausschließlich vier kurze Fast-Refresh-Schritte für Seitenwechsel; der Recently-used-Drawer aktualisiert dabei nur seinen unteren Bildschirmbereich. Damit bleibt die Darstellung auf monochromen Readern kontrastreich und sparsam.
 
