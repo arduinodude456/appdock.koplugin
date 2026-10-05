@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.4.5** verwendet für Liquid-Glass-Flächen echte, formmaskierte Rastervarianten: alte Farbfüllungen bleiben unsichtbar, Oberflächen werden auf die Zielgröße gestreckt und Glass-Texturen ragen nicht mehr über abgerundete oder runde Ränder hinaus. [Details](RELEASE_NOTES_7.4.5.md).
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.4.6** verwendet für Liquid-Glass-Flächen echte, formmaskierte Rastervarianten: alte Farbfüllungen bleiben unsichtbar, Oberflächen werden auf die Zielgröße gestreckt und Glass-Texturen ragen nicht mehr über abgerundete oder runde Ränder hinaus. [Details](RELEASE_NOTES_7.4.6.md).
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst Androids Formensprache, nicht dessen Daueranimationen, Unschärfen oder Transparenzeffekte. Auf E-Ink wechseln App-Seiten und Recently-used-Drawer direkt und ohne Zwischenanimation. Damit bleibt die Darstellung auf monochromen Readern kontrastreich, sparsam und frei von unnötigem Ghosting.
 
