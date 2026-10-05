@@ -17,7 +17,6 @@ local AppDockKeyboard = require("appdock_keyboard")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local DAppLogo = require("appdock_logo")
 local Layout = require("appdock_layout")
-local Motion = require("appdock_motion")
 local Theme = require("appdock_theme")
 local Wallpaper = require("appdock_wallpaper")
 local OverlapGroup = require("ui/widget/overlapgroup")
@@ -468,65 +467,10 @@ function AppDockHomeScreen:_showPage(page)
     local page_count = self:_pageCount()
     page = math.max(1, math.min(page_count, tonumber(page) or self.page))
     if page == self.page or self._page_transition then return false end
-
-    -- Keep the whole dashboard fixed and animate only the 3x3 app-grid layer.
-    local static_dashboard = self[1]
-    local previous_grid = self._app_grid
-    local direction = page > self.page and 1 or -1
     self.page = page
     self:build()
-    local incoming_grid = self._app_grid
-    if not static_dashboard or not previous_grid or not incoming_grid then return true end
-
-    local grid_index
-    for index, child in ipairs(static_dashboard) do
-        if child == previous_grid then grid_index = index; break end
-    end
-    if not grid_index then return true end
-
-    previous_grid.overlap_offset = { 0, 0 }
-    incoming_grid.overlap_offset = { direction * self.dimen.w, 0 }
-    local grid_transition = OverlapGroup:new{
-        dimen = Geom:new{ w = self.dimen.w, h = self.dimen.h },
-        allow_mirroring = false,
-        previous_grid,
-        incoming_grid,
-    }
-    static_dashboard[grid_index] = grid_transition
-    self[1] = static_dashboard
-    self._page_transition = true
-    local function iconRegions()
-        local regions = {}
-        local function addGridRegions(grid)
-            local layer_offset = grid.overlap_offset or { 0, 0 }
-            for _, item in ipairs(grid) do
-                if item.tile_size and item.overlap_offset and item.app and item.app.id ~= "system:page_control" then
-                    table.insert(regions, Geom:new{
-                        x = layer_offset[1] + item.overlap_offset[1],
-                        y = layer_offset[2] + item.overlap_offset[2],
-                        w = item.tile_size,
-                        h = item.tile_size,
-                    })
-                end
-            end
-        end
-        addGridRegions(previous_grid)
-        addGridRegions(incoming_grid)
-        return regions
-    end
-    Motion.run(self, 8, 0.025, function(frame, frames)
-        local progress = Motion.easeInOutSine(frame / frames)
-        previous_grid.overlap_offset[1] = -direction * math.floor(self.dimen.w * progress)
-        incoming_grid.overlap_offset[1] = direction * math.floor(self.dimen.w * (1 - progress))
-    end, function()
-        previous_grid.overlap_offset = nil
-        incoming_grid.overlap_offset = nil
-        static_dashboard[grid_index] = incoming_grid
-        self._app_grid = incoming_grid
-        self[1] = static_dashboard
-        self._page_transition = false
-        UIManager:setDirty(self, "ui")
-    end, iconRegions)
+    self._page_transition = false
+    UIManager:setDirty(self, "ui")
     return true
 end
 

@@ -1,11 +1,12 @@
 --[[--
-Small, deterministic DApp logos for E-Ink displays.
-They use only KOReader's BlitBuffer rectangles, so they scale cleanly and do
-not require image assets or separate theme variants.
+Raster app logos for color e-paper, with deterministic BlitBuffer fallbacks.
+Bundled PNGs provide the rich visual treatment on color-capable devices; the
+existing procedural marks remain available if an asset cannot be loaded.
 --]]--
 
 local Blitbuffer = require("ffi/blitbuffer")
 local Geom = require("ui/geometry")
+local ImageWidget = require("ui/widget/imagewidget")
 local Widget = require("ui/widget/widget")
 
 local DAppLogo = Widget:extend{
@@ -14,6 +15,30 @@ local DAppLogo = Widget:extend{
     ink = Blitbuffer.COLOR_DARK_GRAY,
     dimen = nil,
 }
+
+local MODULE_DIR = (debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "")
+local RASTER_LOGOS = {
+    analog_clock = "analog_clock.png",
+    app_store = "app_store.png",
+    appdock = "appdock.png",
+    display = "display.png",
+    file_manager = "file_manager.png",
+    help = "help.png",
+    network = "network.png",
+    notes = "notes.png",
+    settings = "settings.png",
+    web_browser = "web_browser.png",
+}
+
+local function rasterPath(kind)
+    local filename = RASTER_LOGOS[kind]
+    if not filename then return nil end
+    local path = MODULE_DIR .. "assets/logos/" .. filename
+    local file = io.open(path, "rb")
+    if not file then return nil end
+    file:close()
+    return path
+end
 
 local function line(bb, x0, y0, x1, y1, thickness, ink)
     local dx, dy = x1 - x0, y1 - y0
@@ -31,6 +56,17 @@ end
 
 function DAppLogo:init()
     self.dimen = Geom:new{ w = self.size, h = self.size }
+    local path = rasterPath(self.kind)
+    if path then
+        local ok, image = pcall(ImageWidget.new, ImageWidget, {
+            file = path,
+            width = self.size,
+            height = self.size,
+            scale_factor = 0,
+            original_in_nightmode = true,
+        })
+        if ok then self._raster = image end
+    end
 end
 
 function DAppLogo:_paintClock(bb, x, y, size)
@@ -360,6 +396,7 @@ function DAppLogo:_paintExtended(bb, x, y, size, kind)
 end
 
 function DAppLogo:paintTo(bb, x, y)
+    if self._raster then return self._raster:paintTo(bb, x, y) end
     if self.kind == "analog_clock" then
         self:_paintClock(bb, x, y, self.size)
     elseif self.kind == "settings" then

@@ -20,7 +20,6 @@ local InputDialog = require("ui/widget/inputdialog")
 local AppDockKeyboard = require("appdock_keyboard")
 local DAppLogo = require("appdock_logo")
 local Layout = require("appdock_layout")
-local Motion = require("appdock_motion")
 local Theme = require("appdock_theme")
 local Help = require("appdock_help")
 local WebBrowser = require("appdock_browser")
@@ -640,17 +639,9 @@ function RecentDrawer:_animateTo(target_y, done)
         if done then done() end
         return
     end
-    local start_y = self.sheet_layer.overlap_offset[2]
-    local refresh_region = Geom:new{
-        x = 0,
-        y = math.max(0, math.min(start_y, target_y, self.sheet_y or start_y)),
-        w = self.dimen.w,
-        h = self.dimen.h - math.max(0, math.min(start_y, target_y, self.sheet_y or start_y)),
-    }
-    Motion.run(self, 7, 0.025, function(frame, frames)
-        local progress = Motion.easeInOutSine(frame / frames)
-        self.sheet_layer.overlap_offset[2] = math.floor(start_y + (target_y - start_y) * progress)
-    end, done, refresh_region)
+    self.sheet_layer.overlap_offset[2] = target_y
+    UIManager:setDirty(self, "ui")
+    if done then done() end
 end
 
 function RecentDrawer:launch(app)
