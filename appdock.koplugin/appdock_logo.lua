@@ -33,6 +33,9 @@ local RASTER_LOGOS = {
     calculator = "calculator.png",
     document = "document.png",
     music = "music.png",
+    dchat = "dchat.png",
+    dockupdate = "dockupdate.png",
+    minecraft = "minecraft.png",
 }
 
 local function rasterPath(kind)
@@ -217,7 +220,7 @@ local EXTENDED_KINDS = {
     "archive", "bookmark", "calendar", "camera", "chat", "cloud", "code", "calculator",
     "dictionary", "document", "download", "gallery", "location", "mail", "map", "music", "palette",
     "notes", "podcast", "reading", "rss", "search", "security", "sync", "tasks", "terminal",
-    "timer", "translate", "upload", "weather", "battery",
+    "timer", "translate", "upload", "weather", "battery", "dchat", "dockupdate", "minecraft",
 }
 
 function DAppLogo.availableKinds()
