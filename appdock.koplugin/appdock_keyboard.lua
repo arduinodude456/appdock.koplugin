@@ -18,6 +18,31 @@ local _ = require("gettext")
 local Screen = Device.screen
 local function scale(n) return Screen:scaleBySize(n) end
 
+local LOWER_TO_UPPER, UPPER_TO_LOWER = {}, {}
+for code = string.byte("a"), string.byte("z") do
+    local lower, upper = string.char(code), string.char(code - 32)
+    LOWER_TO_UPPER[lower], UPPER_TO_LOWER[upper] = upper, lower
+end
+for lower, upper in pairs({ ["ä"] = "Ä", ["ö"] = "Ö", ["ü"] = "Ü", ["ß"] = "ẞ" }) do
+    LOWER_TO_UPPER[lower], UPPER_TO_LOWER[upper] = upper, lower
+end
+
+local function casePair(label)
+    if LOWER_TO_UPPER[label] then return label, LOWER_TO_UPPER[label] end
+    if UPPER_TO_LOWER[label] then return UPPER_TO_LOWER[label], label end
+end
+
+local function removeLastUTF8Character(value)
+    local index = #value
+    if index == 0 then return value end
+    while index > 1 do
+        local byte = value:byte(index)
+        if byte < 0x80 or byte >= 0xC0 then break end
+        index = index - 1
+    end
+    return value:sub(1, index - 1)
+end
+
 local Key = InputContainer:extend{ label = "", callback = nil, width = 40, height = 38 }
 function Key:init()
     self.dimen = Geom:new{ w = self.width, h = self.height }
@@ -62,7 +87,7 @@ function Key:onTapKey()
     self.pressed = true
     UIManager:setDirty(self, "fast")
     if self.callback then self.callback() end
-    UIManager:scheduleIn(0.2, function()
+    UIManager:scheduleIn(0.12, function()
         if self._press_generation == generation then
             self.pressed = false
             UIManager:setDirty(self, "fast")
@@ -87,40 +112,60 @@ local function appendKey(row, key, gap)
 end
 
 function Keyboard:init()
-    self.width = math.min(Screen:getWidth() - scale(24), scale(640))
-    self.width = math.max(scale(280), self.width)
+    self.width = Screen:getWidth()
     self.shift = true
+    self.symbols_page = false
     self.letter_keys = {}
-    self.rows = self.numeric_only and {
+    self.numeric_rows = {
         { "1", "2", "3" },
         { "4", "5", "6" },
         { "7", "8", "9" },
         { "←", "0" },
-    } or {
+    }
+    self.alpha_rows = {
         { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0" },
         { "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P" },
         { "A", "S", "D", "F", "G", "H", "J", "K", "L" },
         { "Z", "X", "C", "V", "B", "N", "M", "←" },
         { "@", ".", ",", "?", "!", ":", ";", "-", "_", "/" },
     }
+    self.symbol_rows = {
+        { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0" },
+        { "@", "#", "$", "%", "&", "*", "-", "+", "=", "/" },
+        { "(", ")", "[", "]", "{", "}", "\\", "|", "<", ">" },
+        { "?", "!", ":", ";", "'", "\"", ",", ".", "~", "`" },
+        { "ä", "ö", "ü", "ß", "€", "£", "¥", "§", "°", "_" },
+    }
+    self.rows = self.numeric_only and self.numeric_rows or self.alpha_rows
+    self:_buildLayout()
+    if Device:hasKeys() then
+        self.key_events.Close = { { Device.input.group.Back } }
+    end
+    self:_update()
+end
 
+function Keyboard:_buildLayout()
+    self.letter_keys = {}
+    local content = {}
+    local padding = scale(12)
+    local border = scale(2)
+    local inner_width = self.width - 2 * padding - 2 * border
     local hint = self.placeholder or _("Search apps")
     self.title_widget = self.title and TextWidget:new{
         text = self.title,
         face = Font:getFace("smallinfofont", scale(15)),
         fgcolor = Blitbuffer.COLOR_BLACK,
         bold = true,
-        max_width = self.width - scale(24),
+        max_width = inner_width,
     } or nil
     self.display = TextWidget:new{
         text = self.value ~= "" and self:_displayValue() or hint,
         face = Font:getFace("smallinfofont", scale(16)),
         fgcolor = Blitbuffer.COLOR_BLACK,
         padding = scale(8),
-        max_width = self.width - scale(24),
+        max_width = inner_width,
     }
 
-    local content = {}
     if self.title_widget then
         table.insert(content, self.title_widget)
         table.insert(content, VerticalSpan:new{ height = scale(4) })
@@ -133,16 +178,18 @@ function Keyboard:init()
     for _, labels in ipairs(self.rows) do
         local row = HorizontalGroup:new{ align = "center" }
         local columns = self.numeric_only and 3 or #labels
+        local key_width = math.floor((inner_width - columns * key_gap) / columns)
         for _, label in ipairs(labels) do
             local key_label = label
+            local lower, upper = casePair(key_label)
             local key = Key:new{
                 label = key_label,
-                width = math.floor((self.width - scale(36)) / columns),
+                width = key_width,
                 height = key_height,
                 callback = function() self:_press(key_label) end,
             }
-            if key_label:match("^[A-Z]$") then
-                self.letter_keys[#self.letter_keys + 1] = { key = key, letter = key_label }
+            if lower then
+                self.letter_keys[#self.letter_keys + 1] = { key = key, lower = lower, upper = upper }
             end
             appendKey(row, key, key_gap)
         end
@@ -152,31 +199,44 @@ function Keyboard:init()
 
     if not self.numeric_only then
         self.shift_key = Key:new{
-            label = "⇧", width = math.floor(self.width * .16), height = key_height,
+            label = "⇧", width = math.floor(self.width * .13), height = key_height,
             callback = function() self.shift = not self.shift; self:_update() end,
         }
+        self.symbol_key = Key:new{
+            label = self.symbols_page and "ABC" or "?123", width = math.floor(self.width * .16), height = key_height,
+            callback = function()
+                self.symbols_page = not self.symbols_page
+                self.rows = self.symbols_page and self.symbol_rows or self.alpha_rows
+                self:_buildLayout()
+                self:_update()
+            end,
+        }
         local space = Key:new{
-            label = _("SPACE"), width = math.floor(self.width * .42), height = key_height,
+            label = _("SPACE"), width = math.floor(self.width * .40), height = key_height,
             callback = function() self:_press(" ") end,
         }
         local back = Key:new{
-            label = "←", width = math.floor(self.width * .16), height = key_height,
+            label = "←", width = math.floor(self.width * .13), height = key_height,
             callback = function() self:_press("←") end,
         }
         local controls = HorizontalGroup:new{ align = "center" }
         appendKey(controls, self.shift_key, key_gap)
+        appendKey(controls, self.symbol_key, key_gap)
         appendKey(controls, space, key_gap)
         appendKey(controls, back, key_gap)
         table.insert(content, controls)
         table.insert(content, VerticalSpan:new{ height = scale(5) })
+    else
+        self.shift_key = nil
+        self.symbol_key = nil
     end
 
     local clear = Key:new{
-        label = _("Clear"), width = math.floor(self.width * .35), height = scale(46),
+        label = _("Clear"), width = math.floor(self.width * .28), height = scale(46),
         callback = function() self.value = ""; self:_update() end,
     }
     local done = Key:new{
-        label = _("Done"), width = math.floor(self.width * .55), height = scale(46),
+        label = _("Done"), width = math.floor(self.width * .62), height = scale(46),
         callback = function() if self.on_submit then self.on_submit(self.value) end end,
     }
     local actions = HorizontalGroup:new{ align = "center" }
@@ -184,22 +244,19 @@ function Keyboard:init()
     appendKey(actions, done, key_gap)
     table.insert(content, actions)
 
-    content = VerticalGroup:new(content)
-    local height = math.min(Screen:getHeight() - scale(20), content:getSize().h + scale(28))
+    local content_group = VerticalGroup:new(content)
+    local height = math.min(Screen:getHeight(), content_group:getSize().h + 2 * padding + 2 * border)
     self.dimen = Geom:new{
-        x = math.floor((Screen:getWidth() - self.width) / 2),
-        y = math.floor((Screen:getHeight() - height) / 2),
-        w = self.width, h = height,
+        x = 0,
+        y = Screen:getHeight() - height,
+        w = self.width,
+        h = height,
     }
     self[1] = FrameContainer:new{
-        width = self.width, height = height, padding = scale(12),
-        bordersize = scale(2), color = Blitbuffer.COLOR_BLACK,
-        radius = scale(18), background = Blitbuffer.COLOR_WHITE, content,
+        width = self.width, height = height, padding = padding,
+        bordersize = border, color = Blitbuffer.COLOR_BLACK,
+        radius = scale(8), background = Blitbuffer.COLOR_WHITE, content_group,
     }
-    if Device:hasKeys() then
-        self.key_events.Close = { { Device.input.group.Back } }
-    end
-    self:_update()
 end
 
 function Keyboard:_displayValue()
@@ -209,17 +266,15 @@ end
 
 function Keyboard:_press(key)
     if key == "←" then
-        self.value = self.value:sub(1, -2)
-    elseif key:match("^[A-Z]$") then
-        if self.numeric_only then return end
-        self.value = self.value .. (self.shift and key:upper() or key:lower())
-        self.shift = false
-    elseif key:match("^[a-z]$") then
-        if self.numeric_only then return end
-        self.value = self.value .. (self.shift and key:upper() or key:lower())
-        self.shift = false
+        self.value = removeLastUTF8Character(self.value)
     else
-        self.value = self.value .. key
+        local lower, upper = casePair(key)
+        if lower and not self.numeric_only then
+            self.value = self.value .. (self.shift and upper or lower)
+            self.shift = false
+        else
+            self.value = self.value .. key
+        end
     end
     self:_update()
 end
@@ -227,10 +282,10 @@ end
 function Keyboard:_update()
     self.display:setText(self.value ~= "" and self:_displayValue() or (self.placeholder or _("Search apps")))
     for _, item in ipairs(self.letter_keys) do
-        item.key:setLabel(self.shift and item.letter or item.letter:lower())
+        item.key:setLabel(self.shift and item.upper or item.lower)
     end
     if self.shift_key then self.shift_key:setActive(self.shift) end
-    UIManager:setDirty(self, "ui")
+    UIManager:setDirty(self, "fast")
 end
 
 function Keyboard:paintTo(bb, x, y)
