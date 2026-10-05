@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **6.0.0 „Continuity“** erweitert die lokale DApp-Plattform um eine klarere Android-/Material-orientierte Standardoberfläche, registrierte Dateiübergaben, opt-in-Arbeitsbereichswiederherstellung, Zugänglichkeitssteuerung und einen rein lokalen Integritätsstatus. [1] [2]
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.1.0 „Keyboard Everywhere“** erweitert die eigene AppDock-Tastatur auf alle AppDock-Texteingaben, zeigt den Shift-Zustand direkt auf den Tasten an und ergänzt Tastendruck-Feedback sowie ein größeres Layout. PIN-Eingaben bleiben numerisch und maskiert; KOReader-Dialoge außerhalb AppDocks bleiben unverändert. [Details](RELEASE_NOTES_7.1.0.md).
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst die Formensprache und Informationsstruktur, nicht die Android-Animationen, Unschärfen oder Transparenzeffekte. Damit bleiben Aktualisierungen sparsam und die Darstellung auf monochromen Readern kontrastreich.
 
