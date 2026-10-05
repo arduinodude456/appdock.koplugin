@@ -390,7 +390,7 @@ function AppDockHomeScreen:init()
     if not self.appdock:isSimpleModeEnabled("homescreen") then
         self.ges_events = {
             SwipeHomePage = {
-                GestureRange:new{ ges = "swipe", range = self.dimen },
+                GestureRange:new{ ges = "swipe", range = function() return self:_appGridSwipeRange() end },
             },
             RevealRecentApps = {
                 GestureRange:new{ ges = "swipe", direction = "north", range = function() return bottomSwipeRange(self.dimen) end },
@@ -452,6 +452,13 @@ function AppDockHomeScreen:_pageInfo(apps, per_page)
     return visible, pages
 end
 
+function AppDockHomeScreen:_appGridSwipeRange()
+    local layout = self.normal_layout or {}
+    local top = tonumber(layout.grid_y) or scale(180)
+    local grid_height = tonumber(layout.grid_height) or scale(260)
+    return Geom:new{ x = 0, y = top, w = self.dimen.w, h = grid_height }
+end
+
 function AppDockHomeScreen:_pageCount()
     local layout = self.normal_layout or self.simple_layout or {}
     return math.max(1, tonumber(layout.page_count) or 1)
@@ -462,33 +469,42 @@ function AppDockHomeScreen:_showPage(page)
     page = math.max(1, math.min(page_count, tonumber(page) or self.page))
     if page == self.page or self._page_transition then return false end
 
-    -- Draw the old and new dashboards side by side for eight regional fast
-    -- refreshes. The eased progress keeps the first movement lively while
-    -- spending the final frames on a clean, non-jarring settle.
-    local previous_dashboard = self[1]
+    -- Keep the whole dashboard fixed and animate only the 3x3 app-grid layer.
+    local static_dashboard = self[1]
+    local previous_grid = self._app_grid
     local direction = page > self.page and 1 or -1
     self.page = page
     self:build()
-    local incoming_dashboard = self[1]
-    if not previous_dashboard or not incoming_dashboard then return true end
+    local incoming_grid = self._app_grid
+    if not static_dashboard or not previous_grid or not incoming_grid then return true end
 
-    previous_dashboard.overlap_offset = { 0, 0 }
-    incoming_dashboard.overlap_offset = { direction * self.dimen.w, 0 }
-    self[1] = OverlapGroup:new{
+    local grid_index
+    for index, child in ipairs(static_dashboard) do
+        if child == previous_grid then grid_index = index; break end
+    end
+    if not grid_index then return true end
+
+    previous_grid.overlap_offset = { 0, 0 }
+    incoming_grid.overlap_offset = { direction * self.dimen.w, 0 }
+    local grid_transition = OverlapGroup:new{
         dimen = Geom:new{ w = self.dimen.w, h = self.dimen.h },
         allow_mirroring = false,
-        previous_dashboard,
-        incoming_dashboard,
+        previous_grid,
+        incoming_grid,
     }
+    static_dashboard[grid_index] = grid_transition
+    self[1] = static_dashboard
     self._page_transition = true
     Motion.run(self, 8, 0.025, function(frame, frames)
         local progress = Motion.easeInOutSine(frame / frames)
-        previous_dashboard.overlap_offset[1] = -direction * math.floor(self.dimen.w * progress)
-        incoming_dashboard.overlap_offset[1] = direction * math.floor(self.dimen.w * (1 - progress))
+        previous_grid.overlap_offset[1] = -direction * math.floor(self.dimen.w * progress)
+        incoming_grid.overlap_offset[1] = direction * math.floor(self.dimen.w * (1 - progress))
     end, function()
-        previous_dashboard.overlap_offset = nil
-        incoming_dashboard.overlap_offset = nil
-        self[1] = incoming_dashboard
+        previous_grid.overlap_offset = nil
+        incoming_grid.overlap_offset = nil
+        static_dashboard[grid_index] = incoming_grid
+        self._app_grid = incoming_grid
+        self[1] = static_dashboard
         self._page_transition = false
         UIManager:setDirty(self, "ui")
     end)
@@ -862,7 +878,8 @@ function AppDockHomeScreen:build()
     local column_width = math.floor(grid_width / 3)
     local grid_rows = 3
     local grid_height = grid_rows * (tile_size + label_gap + label_height) + 2 * row_gap
-    table.insert(dashboard, TextWidget:new{
+    local app_grid = OverlapGroup:new{ dimen = Geom:new{ w = width, h = height }, allow_mirroring = false }
+    table.insert(app_grid, TextWidget:new{
         text = appSectionLabel(#apps),
         face = Font:getFace("smallinfofont", Theme.adjustText(self.appdock, scale(14), scale(10))),
         fgcolor = PALETTE.on_surface_variant,
@@ -875,7 +892,7 @@ function AppDockHomeScreen:build()
         local col = (index - 1) % 3
         local row = math.floor((index - 1) / 3)
         local tone = toneFor(app, index)
-        table.insert(dashboard, AppTile:new{
+        table.insert(app_grid, AppTile:new{
             appdock = self.appdock,
             home = self,
             app = app,
@@ -896,12 +913,12 @@ function AppDockHomeScreen:build()
         local nav_y = grid_y + grid_height + scale(2)
         local nav_center = math.floor(width / 2)
         if self.page > 1 then
-            table.insert(dashboard, self:_navControl("‹", nav_center - scale(64), nav_y, function()
+            table.insert(app_grid, self:_navControl("‹", nav_center - scale(64), nav_y, function()
                 self:_showPage(self.page - 1)
             end))
         end
         if self.page < page_count then
-            table.insert(dashboard, self:_navControl("›", nav_center + scale(34), nav_y, function()
+            table.insert(app_grid, self:_navControl("›", nav_center + scale(34), nav_y, function()
                 self:_showPage(self.page + 1)
             end))
         end
@@ -911,9 +928,11 @@ function AppDockHomeScreen:build()
             fgcolor = PALETTE.on_surface_variant,
             overlap_offset = { nav_center - scale(12), nav_y + scale(8) },
         }
-        table.insert(dashboard, page_label)
+        table.insert(app_grid, page_label)
     end
 
+    table.insert(dashboard, app_grid)
+    self._app_grid = app_grid
     local dock_title = actual_recent_count > 0 and actual_recent_count == #shortcut_apps and _("Recently used") or _("Quick access")
     if #shortcut_apps > 0 then
         table.insert(dashboard, FrameContainer:new{
@@ -961,6 +980,8 @@ function AppDockHomeScreen:build()
         grid_rows = grid_rows,
         grid_width = grid_width,
         tile_size = tile_size,
+        grid_y = grid_y,
+        grid_height = grid_height,
         page_size = 9,
         page_count = page_count,
         quick_access_count = #shortcut_apps,
