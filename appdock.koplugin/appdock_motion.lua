@@ -4,6 +4,16 @@
 local UIManager = require("ui/uimanager")
 local Motion = {}
 
+local function setDirty(target, refresh_type, region)
+    if type(region) == "table" and region[1] and region.x == nil then
+        for _, item in ipairs(region) do
+            UIManager:setDirty(target, refresh_type, item)
+        end
+    else
+        UIManager:setDirty(target, refresh_type, region)
+    end
+end
+
 -- A symmetric ease-in-out avoids a large first jump: the transition starts
 -- gently, crosses the middle quickly, and settles gently at the destination.
 function Motion.easeInOutSine(progress)
@@ -21,7 +31,8 @@ function Motion.run(target, frames, interval, draw, done, region)
     tick = function()
         frame = frame + 1
         if draw then draw(frame, frames) end
-        UIManager:setDirty(target, "fast", region)
+        local refresh_region = type(region) == "function" and region() or region
+        setDirty(target, "fast", refresh_region)
         if UIManager.forceRePaint then UIManager:forceRePaint() end
         if frame < frames then
             UIManager:scheduleIn(interval, tick)

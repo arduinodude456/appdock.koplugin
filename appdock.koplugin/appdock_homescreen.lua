@@ -495,6 +495,25 @@ function AppDockHomeScreen:_showPage(page)
     static_dashboard[grid_index] = grid_transition
     self[1] = static_dashboard
     self._page_transition = true
+    local function iconRegions()
+        local regions = {}
+        local function addGridRegions(grid)
+            local layer_offset = grid.overlap_offset or { 0, 0 }
+            for _, item in ipairs(grid) do
+                if item.tile_size and item.overlap_offset and item.app and item.app.id ~= "system:page_control" then
+                    table.insert(regions, Geom:new{
+                        x = layer_offset[1] + item.overlap_offset[1],
+                        y = layer_offset[2] + item.overlap_offset[2],
+                        w = item.tile_size,
+                        h = item.tile_size,
+                    })
+                end
+            end
+        end
+        addGridRegions(previous_grid)
+        addGridRegions(incoming_grid)
+        return regions
+    end
     Motion.run(self, 8, 0.025, function(frame, frames)
         local progress = Motion.easeInOutSine(frame / frames)
         previous_grid.overlap_offset[1] = -direction * math.floor(self.dimen.w * progress)
@@ -507,7 +526,7 @@ function AppDockHomeScreen:_showPage(page)
         self[1] = static_dashboard
         self._page_transition = false
         UIManager:setDirty(self, "ui")
-    end)
+    end, iconRegions)
     return true
 end
 
