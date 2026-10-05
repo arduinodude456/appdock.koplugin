@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.4.0 „Colorful Calm“** verzichtet auf E-Ink auf App- und Drawer-Animationen, nutzt echte farbige Rasterlogos und bringt einen neu gestalteten Lockscreen mit KI-generiertem Paper-Cut-Hintergrund. [Details](RELEASE_NOTES_7.4.0.md).
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.4.1** lädt die farbigen Rasterlogos über denselben abgesicherten Bildpfad wie das funktionierende Lockscreen-Profilbild; die PNG-Assets und der Lockscreen bleiben erhalten. [Details](RELEASE_NOTES_7.4.1.md).
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst Androids Formensprache, nicht dessen Daueranimationen, Unschärfen oder Transparenzeffekte. Auf E-Ink wechseln App-Seiten und Recently-used-Drawer direkt und ohne Zwischenanimation. Damit bleibt die Darstellung auf monochromen Readern kontrastreich, sparsam und frei von unnötigem Ghosting.
 

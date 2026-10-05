@@ -6,7 +6,7 @@ existing procedural marks remain available if an asset cannot be loaded.
 
 local Blitbuffer = require("ffi/blitbuffer")
 local Geom = require("ui/geometry")
-local ImageWidget = require("ui/widget/imagewidget")
+local Wallpaper = require("appdock_wallpaper")
 local Widget = require("ui/widget/widget")
 
 local DAppLogo = Widget:extend{
@@ -58,14 +58,9 @@ function DAppLogo:init()
     self.dimen = Geom:new{ w = self.size, h = self.size }
     local path = rasterPath(self.kind)
     if path then
-        local ok, image = pcall(ImageWidget.new, ImageWidget, {
-            file = path,
-            width = self.size,
-            height = self.size,
-            scale_factor = 0,
-            original_in_nightmode = true,
-        })
-        if ok then self._raster = image end
+        -- Use the same guarded image loader as the working lockscreen
+        -- profile-image path. It handles missing/unsupported PNGs safely.
+        self._raster = Wallpaper.buildPath(path, self.size, self.size, true)
     end
 end
 
