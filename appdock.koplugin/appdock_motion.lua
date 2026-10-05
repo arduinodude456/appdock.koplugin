@@ -3,9 +3,19 @@
 -- deliberately short so they never keep a stale widget alive for long.
 local UIManager = require("ui/uimanager")
 local Motion = {}
+
+-- A symmetric ease-in-out avoids a large first jump: the transition starts
+-- gently, crosses the middle quickly, and settles gently at the destination.
+function Motion.easeInOutSine(progress)
+    progress = math.max(0, math.min(1, tonumber(progress) or 0))
+    return -(math.cos(math.pi * progress) - 1) / 2
+end
+
 function Motion.run(target, frames, interval, draw, done, region)
     frames = math.max(1, math.floor(frames or 1))
-    interval = tonumber(interval) or 0.045
+    -- 30 ms keeps the short E-Ink transitions near 33 fps. The old 45 ms
+    -- default made large translations visibly step between frames.
+    interval = tonumber(interval) or 0.03
     local frame = 0
     local tick
     tick = function()

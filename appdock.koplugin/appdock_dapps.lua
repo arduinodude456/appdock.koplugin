@@ -647,8 +647,8 @@ function RecentDrawer:_animateTo(target_y, done)
         w = self.dimen.w,
         h = self.dimen.h - math.max(0, math.min(start_y, target_y, self.sheet_y or start_y)),
     }
-    Motion.run(self, 4, 0.045, function(frame, frames)
-        local progress = frame / frames
+    Motion.run(self, 7, 0.025, function(frame, frames)
+        local progress = Motion.easeInOutSine(frame / frames)
         self.sheet_layer.overlap_offset[2] = math.floor(start_y + (target_y - start_y) * progress)
     end, done, refresh_region)
 end

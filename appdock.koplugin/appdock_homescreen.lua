@@ -462,9 +462,9 @@ function AppDockHomeScreen:_showPage(page)
     page = math.max(1, math.min(page_count, tonumber(page) or self.page))
     if page == self.page or self._page_transition then return false end
 
-    -- Draw the old and new dashboards side by side for four regional fast
-    -- refreshes. This is the same bounded-cadence approach used by the local
-    -- Geometry Dash DApp, but avoids a continuous animation on E-Ink.
+    -- Draw the old and new dashboards side by side for eight regional fast
+    -- refreshes. The eased progress keeps the first movement lively while
+    -- spending the final frames on a clean, non-jarring settle.
     local previous_dashboard = self[1]
     local direction = page > self.page and 1 or -1
     self.page = page
@@ -481,8 +481,8 @@ function AppDockHomeScreen:_showPage(page)
         incoming_dashboard,
     }
     self._page_transition = true
-    Motion.run(self, 4, 0.045, function(frame, frames)
-        local progress = frame / frames
+    Motion.run(self, 8, 0.025, function(frame, frames)
+        local progress = Motion.easeInOutSine(frame / frames)
         previous_dashboard.overlap_offset[1] = -direction * math.floor(self.dimen.w * progress)
         incoming_dashboard.overlap_offset[1] = direction * math.floor(self.dimen.w * (1 - progress))
     end, function()
