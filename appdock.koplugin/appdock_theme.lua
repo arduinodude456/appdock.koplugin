@@ -56,11 +56,12 @@ end
 
 local function color(hex, grayscale)
     local red, green, blue = rgb(hex)
-    return Theme.fastColor(red, green, blue, grayscale)
+    if not Device.screen:isColorEnabled() then return grayscale end
+    return Blitbuffer.ColorRGB32(red, green, blue, 0xFF)
 end
 
--- Fast E-Ink updates must not dither arbitrary Material colors. Quantize every
--- color-device palette value to the six physical colors supported by the panel.
+-- Use this only for colors deliberately drawn during a fast-refresh animation.
+-- The static UI must continue to use `color()` above.
 function Theme.fastColor(red, green, blue, grayscale)
     if not Device.screen:isColorEnabled() then
         return ((red or 0) + (green or 0) + (blue or 0)) >= 384 and Blitbuffer.COLOR_WHITE or Blitbuffer.COLOR_BLACK

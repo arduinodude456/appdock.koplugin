@@ -139,7 +139,10 @@ local function scale(value)
 end
 
 local function color(r, g, b, grayscale)
-    return Theme.fastColor(r, g, b, grayscale)
+    if Screen:isColorEnabled() then
+        return Blitbuffer.ColorRGB32(r, g, b, 0xFF)
+    end
+    return grayscale
 end
 
 local PALETTE = {
