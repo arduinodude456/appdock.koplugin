@@ -1,4 +1,4 @@
--- AppDock AppStore (Google Play look) integration test.
+-- AppDock Store integration test.
 -- It runs the real appdock_theme, appdock_layout and appdock_appstore sources
 -- against a small KOReader stand-in that actually paints the widget tree, so
 -- layout and painter regressions fail here instead of on the device.
@@ -164,11 +164,12 @@ end
 paints, rects = 0, 0
 pane:paintTo(bb, 0, 0)
 assert(paints >= 40, "The AppStore pane must paint its full widget tree")
-assert(rects >= 60, "The Google Play mark, navigation icons and surfaces must paint real pixels")
+assert(rects >= 60, "The AppDock Store mark, navigation icons and surfaces must paint real pixels")
 
-for _, label in ipairs({ "Google Play", "All items", "For you", "Apps", "Widgets", "Designs", "Install" }) do
-    assert(has_text(label), "The Google Play layout must render the label: " .. label)
+for _, label in ipairs({ "AppDock Store", "All items", "For you", "Apps", "Widgets", "Designs", "Install" }) do
+    assert(has_text(label), "The AppDock Store layout must render the label: " .. label)
 end
+assert(not has_text("Google Play"), "The AppDock Store must not use Google Play branding")
 assert(has_text("Recommended for you"), "Without pending updates the shelf heading must be Recommended for you")
 assert(has_text("Search for apps & games"), "The Play search pill must be visible on the store home")
 assert(has_text("Open") and has_text("Uninstall"), "Installed catalog entries must expose Play-style Open and Uninstall actions")

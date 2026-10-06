@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.5.0** bringt eine gebrandete **DuckDuckGo-Suchleiste** auf die erste Homescreen-Seite und baut den **AppStore** vollständig im Look des Google Play Store neu auf. [Details](RELEASE_NOTES_7.5.0.md).
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.5.1** ergänzt die **AppDock Store**-Eigenmarke; **7.5.0** brachte die DuckDuckGo-Suchleiste und den neu gestalteten Store. [Details](RELEASE_NOTES_7.5.1.md).
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst Androids Formensprache, nicht dessen Daueranimationen, Unschärfen oder Transparenzeffekte. Auf E-Ink wechseln App-Seiten und Recently-used-Drawer direkt und ohne Zwischenanimation. Damit bleibt die Darstellung auf monochromen Readern kontrastreich, sparsam und frei von unnötigem Ghosting.
 
@@ -22,7 +22,9 @@
 
 > **6.0.0 „Continuity“:** Die normale AppDock-Oberfläche erhält stärkere Material-orientierte Oberflächen für Homescreen, Kontrollzentrum, Open Apps und DApp-Navigation. **Simple Mode bleibt absichtlich unverändert:** sein 4×3-Raster, die reduzierte Kontrollzentrale und die fokussierte Appauswahl erhalten keine zusätzlichen Karten, Statusbereiche oder Dekorationen. Arbeitsbereichswiederherstellung ist standardmäßig aus, lokal begrenzt und setzt nur ausdrücklich freigegebene DApps fort. Details stehen in [`RELEASE_NOTES_6.0.0.md`](RELEASE_NOTES_6.0.0.md).
 
-> **7.5.0 „Play Store“:** Die erste Homescreen-Seite erhält eine gebrandete **DuckDuckGo-Suchleiste**, die die bestätigte Eingabe an den JavaScript-freien **Web Browser** übergibt. Der **AppStore** übernimmt die Oberfläche des Google Play Store: vierfarbiges Play-Zeichen, Suchfeld, **Recommended for you**-Regal, Play-Listenzeilen mit Installieren-, Aktualisieren-, Öffnen- und Deinstallieren-Aktion sowie eine untere Navigationsleiste für die Kategorien **For you**, **Apps**, **Widgets** und **Designs**. Es werden weiterhin nur echte Katalogdaten gezeigt; erfundene Bewertungen oder Screenshots gibt es nicht. Details stehen in [`RELEASE_NOTES_7.5.0.md`](RELEASE_NOTES_7.5.0.md).
+> **7.5.1:** Der Store-Kopf trägt jetzt ausschließlich die AppDock-Eigenmarke **AppDock Store** und das vorhandene AppStore-Logo. Das externe Play-Zeichen und der entsprechende Schriftzug wurden entfernt. [Details](RELEASE_NOTES_7.5.1.md).
+
+> **7.5.0:** Die erste Homescreen-Seite erhielt eine gebrandete **DuckDuckGo-Suchleiste**; der AppStore wurde mit Suchfeld, Empfehlungskarten, Installationsaktionen und unterer Kategorienavigation neu gestaltet. Angezeigt werden weiterhin nur echte Katalogdaten, ohne erfundene Bewertungen oder Screenshots. Details stehen in [`RELEASE_NOTES_7.5.0.md`](RELEASE_NOTES_7.5.0.md).
 
 ## Neu in 3.0.0 „Cappuccino“
 
@@ -108,7 +110,7 @@ Starte KOReader danach vollständig neu. Unter **More tools → Plugin managemen
 | **Analog Clock** | Zeigt ein gezeichnetes Ziffernblatt, Stunden-/Minutenzeiger, Digitalzeit und Datum. | Aktualisiert zum nächsten Minutenwechsel mit einem begrenzten schnellen Refresh. |
 | **Settings** | Android-inspirierte Kategorienansicht für Netzwerk, Display und weitere AppDock-Funktionen. | Mini-Logos in einer Seitenleiste; WLAN, native Helligkeit/Wärme, Farbthemen, Layout, Über AppDock sowie klar markierte noch nicht implementierte Aktualisierung. |
 | **Files** | Zeigt die Bibliothek in einem eigenen, scrollbaren AppDock-Dateibrowser. | Große Ordner- und Dateikarten, Ordner zuerst, **Up**, **Home** und **Refresh**; `.lua`-Dateien gehen direkt an NightLua. Nach DReader-Installation gehen `.epub`, `.html`, `.htm`, `.xhtml`, `.md` und `.markdown` direkt an DReader. Andere unterstützte Dokumente öffnen weiterhin über KOReaders sicheren ReaderUI-Pfad. |
-| **AppStore** | Lädt den Katalog aus [`arduinodude456/DApps`](https://github.com/arduinodude456/DApps). | Tritt im Look des Google Play Store auf: Play-Zeichen, Suchfeld, **Recommended for you**-Regal, Play-Listenzeilen mit Installieren/Öffnen/Deinstallieren und untere Kategorienavigation. Liest nur `dapps.txt` über HTTPS, lässt den bereits geladenen Katalog lokal durchsuchen, erkennt neuere Repository-Versionen als **Update** und verlangt vor Installation, Update oder Deinstallation eine ausdrückliche Bestätigung. |
+| **AppStore** | Lädt den Katalog aus [`arduinodude456/DApps`](https://github.com/arduinodude456/DApps). | Verwendet AppDock-eigene **AppDock Store**-Marke und AppStore-Logo, Suchfeld, **Recommended for you**-Regal, Katalogzeilen mit Installieren/Öffnen/Deinstallieren und untere Kategorienavigation. Liest nur `dapps.txt` über HTTPS, lässt den bereits geladenen Katalog lokal durchsuchen, erkennt neuere Repository-Versionen als **Update** und verlangt vor Installation, Update oder Deinstallation eine ausdrückliche Bestätigung. |
 | **Web Browser** | Öffnet serverseitig bereitgestellte Webinhalte und sucht über DuckDuckGo HTML. | Startseite, Direktziele, Reload, lokale Historie und klarer Lesemodus; aktive Webinhalte bleiben deaktiviert. |
 | **Help** | Offline verfügbare Bedienhilfe für AppDock. | Erläutert Homescreen, Schnellzugriff, DApps, Splitscreen, Browser und E-Ink-Refresh; auch im Splitscreen lesbar. |
 
@@ -144,15 +146,15 @@ Der **AppStore** bezieht seine Katalogdatei aus dem öffentlichen Repository [`a
 
 Jede Karte zeigt das deklarierte DApp-Logo. Bereits installierte DApps erhalten zusätzlich den Button **Uninstall**. Das Entfernen verlangt eine Bestätigung und löscht ausschließlich die installierte DApp-Datei sowie ihre AppStore-Registry; von der DApp angelegte persönliche Dokumente oder Einstellungen werden nicht gelöscht. Eine installierte DApp läuft anschließend als Lua-Code innerhalb von KOReader. Store-DApps können optional einen begrenzten `openFile(instance, path)`-Vertrag anbieten; AppDock Files nutzt ihn ausschließlich für eindeutige Dateitypen wie NightLuas `.lua`- und DReaders `.epub`/`.html`/`.htm`/`.xhtml`-Übergabe. Deshalb darf nur ein geprüftes und vertrauenswürdiges Repository verwendet werden.
 
-### Google-Play-Oberfläche
+### AppDock Store-Oberfläche
 
-Der AppStore verwendet eine feste Play-Oberfläche statt der aktuellen Theme-Farben: weißer Hintergrund, Play-Grün für Aktionen, das vierfarbige Play-Zeichen mit **Google Play**-Schriftzug und ein rundes Suchfeld. Die obere Leiste enthält Suche, Katalog-Aktualisierung und eine grüne Katalog-Kachel, die die vertrauenswürdige Quelle und die Bestätigungspflicht erklärt.
+Der AppStore verwendet eine feste, eigenständige Oberfläche statt der aktuellen Theme-Farben: heller Hintergrund, grüne Aktionsflächen, das vorhandene AppStore-Logo mit **AppDock Store**-Schriftzug und ein rundes Suchfeld. Die obere Leiste enthält Suche, Katalog-Aktualisierung und eine grüne Katalog-Kachel, die die Quelle und die Bestätigungspflicht erklärt.
 
-| Bereich | Umsetzung im Play-Look |
+| Bereich | Store-Umsetzung |
 |---|---|
 | Suchfeld | Rundes Feld mit Lupe; zeigt die aktive Suche lokal im bereits geladenen Katalog. Darunter erscheint die Ergebniszeile mit Anzahl. |
 | **Recommended for you** | Regal mit bis zu drei Karten aus echten Katalogeinträgen. Führt ein installierter Eintrag eine neuere Katalogversion, wird dasselbe Regal zu **Updates available** und jede Karte zeigt **Update**. |
-| Listeneinträge | Getönte Logo-Kachel, fetter Titel, Typ und Version, Statuszeile (**Not installed**, **Installed**, **Update available**) und rechts eine Play-Aktion: gefülltes **Install**/**Update** oder umrandetes **Open**/**Use** mit **Uninstall** darunter. |
+| Listeneinträge | Getönte Logo-Kachel, fetter Titel, Typ und Version, Statuszeile (**Not installed**, **Installed**, **Update available**) und rechts eine passende Aktion: gefülltes **Install**/**Update** oder umrandetes **Open**/**Use** mit **Uninstall** darunter. |
 | Kategorien | Untere Navigationsleiste mit **For you**, **Apps**, **Widgets** und **Designs**; die aktive Kategorie erhält eine grüne Kapsel statt einer Tab-Linie. |
 | Leer- und Fehlerzustände | Fehlermeldungen, Ladehinweis und „keine Treffer" erscheinen als Play-Karte mit **Load catalog**, **Try again**, **Refresh** oder **Clear search**. |
 

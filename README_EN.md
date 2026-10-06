@@ -4,7 +4,7 @@
 
 # New releases regulary commited at 3:00 AM CET
 
-**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **7.5.0** adds a branded **DuckDuckGo search bar** to the first homescreen page and rebuilds the **AppStore** in the look of the Google Play Store. [Details](RELEASE_NOTES_7.5.0.md).
+**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **7.5.1** adds AppDock’s own **AppDock Store** branding; **7.5.0** introduced the DuckDuckGo search bar and redesigned catalog. [Details](RELEASE_NOTES_7.5.1.md).
 
 > **E-Ink approach:** AppDock deliberately borrows the visual language and information structure, not Android's animations, blur, or transparency effects. This keeps updates economical and maintains contrast on monochrome readers.
 
@@ -22,7 +22,9 @@
 
 > **6.0.0 “Continuity”:** The normal AppDock interface receives stronger Material-oriented surfaces for the homescreen, Control Center, Open Apps, and DApp navigation. **Simple Mode intentionally remains unchanged:** its 4×3 grid, reduced Control Center, and focused app selection receive no extra cards, status areas, or decoration. Workspace restoration is disabled by default, bounded locally, and resumes only explicitly permitted DApps. See [`RELEASE_NOTES_6.0.0.md`](RELEASE_NOTES_6.0.0.md) for details.
 
-> **7.5.0 “Play Store”:** The first homescreen page carries a branded **DuckDuckGo search bar** that hands its confirmed query to the JavaScript-free **Web Browser**. The **AppStore** adopts the Google Play Store surface: four-colour Play mark, search pill, a **Recommended for you** shelf, Play list rows with Install/Update/Open/Uninstall actions, and a bottom navigation for **For you**, **Apps**, **Widgets**, and **Designs**. It still shows only real catalog data — no invented ratings or screenshots. See [`RELEASE_NOTES_7.5.0.md`](RELEASE_NOTES_7.5.0.md) for details.
+> **7.5.1:** The store header now uses only AppDock’s own **AppDock Store** name and existing AppStore logo. External Play branding has been removed. [Details](RELEASE_NOTES_7.5.1.md).
+
+> **7.5.0:** The first homescreen page gained a branded **DuckDuckGo search bar**; the catalog was redesigned with search, recommendations, install actions, and bottom category navigation. It shows only real catalog data — no invented ratings or screenshots. See [`RELEASE_NOTES_7.5.0.md`](RELEASE_NOTES_7.5.0.md).
 
 ## UI on real hardware
 
@@ -130,7 +132,7 @@ Restart KOReader completely. Enable **AppDock Homescreen** under **More tools �
 | **Analog Clock** | Drawn dial, hour/minute hands, digital time, and date. | Updates at the next minute boundary with a scoped fast refresh. |
 | **Settings** | Android-inspired categories for network, display, storage, and other AppDock functions. | Side rail with mini logos; Wi-Fi, native brightness/warmth, themes, launcher layout, language, startup, and storage controls. |
 | **Files** | A dedicated, scrollable AppDock file browser. | Large folder/file cards; **Up**, **Home**, and **Refresh**. `.lua` files can open in NightLua; DReader handles `.epub`, `.html`, `.htm`, and `.xhtml` after installation. |
-| **AppStore** | Loads the catalog from [`arduinodude456/DApps`](https://github.com/arduinodude456/DApps). | Uses the Google Play Store look: Play mark, search pill, **Recommended for you** shelf, Play list rows with Install/Open/Uninstall, and a bottom category navigation. Fetches `dapps.txt` over HTTPS, detects updates, and requires confirmation for install, update, and uninstall. |
+| **AppStore** | Loads the catalog from [`arduinodude456/DApps`](https://github.com/arduinodude456/DApps). | Uses AppDock’s own **AppDock Store** brand and AppStore logo, a search pill, **Recommended for you** shelf, catalog rows with Install/Open/Uninstall, and bottom category navigation. Fetches `dapps.txt` over HTTPS, detects updates, and requires confirmation for install, update, and uninstall. |
 | **Web Browser** | Reads server-rendered web content and searches with DuckDuckGo HTML. | Start page, direct targets, reload, local history, and a focused reading mode; active web content stays disabled. |
 | **Help** | Offline AppDock usage guide. | Explains the homescreen, Quick Settings, DApps, Split Screen, browser, and E-Ink refresh behavior. |
 
@@ -174,9 +176,9 @@ In **Settings → Display → Color themes**, choose **Lavender**, **Ocean**, **
 
 The **AppStore** reads its catalog from [`arduinodude456/DApps`](https://github.com/arduinodude456/DApps). Each `dapps.txt` line contains a relative Lua path and can include a version, an AppDock logo, and the type `widget`, for example `quote_widget.lua | 1.0.0 | help | widget`. Only the text catalog is loaded during refresh. Code is fetched through HTTPS only after visible user confirmation, checked for Lua syntax, and written atomically into the KOReader data directory.
 
-### Google Play surface
+### AppDock Store surface
 
-The AppStore uses a fixed Play surface instead of the active theme colours: a white background, Play green for actions, the four-colour Play pinwheel next to a **Google Play** wordmark, and a rounded search pill. The top bar also carries the catalog refresh chip and a green catalog chip that explains the trusted source and the confirmation requirement.
+The AppStore uses its own fixed visual identity instead of the active theme colours: a light background, green action controls, the existing AppStore logo beside the **AppDock Store** wordmark, and a rounded search pill. The top bar also carries the catalog refresh chip and a green catalog chip that explains the source and confirmation requirement.
 
 | Area | Play implementation |
 |---|---|

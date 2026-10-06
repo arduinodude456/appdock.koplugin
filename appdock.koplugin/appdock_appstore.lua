@@ -89,10 +89,9 @@ local function emptySizedWidget(width, height)
 end
 
 --[[--
-The AppStore deliberately adopts the Google Play Store look: a fixed brand
-palette (white surfaces, Play green actions, the four-colour Play mark) that
-stays readable on grayscale E-Ink panels, a top app bar, a search pill,
-recommendation cards and Play-style list rows with a trailing install button.
+The AppStore uses its own AppDock Store branding with a familiar catalog
+layout: a fixed palette that remains readable on grayscale E-Ink, a top app
+bar, search pill, recommendation cards and clear action rows.
 --]]--
 
 local function playColor(red, green, blue, grayscale)
@@ -114,10 +113,6 @@ local PLAY = {
     on_green = playColor(255, 255, 255, Blitbuffer.COLOR_WHITE),
     green_container = playColor(226, 244, 236, Blitbuffer.COLOR_LIGHT_GRAY),
     on_green_container = playColor(0, 82, 58, Blitbuffer.COLOR_DARK_GRAY),
-    blue = playColor(0, 160, 255, Blitbuffer.COLOR_GRAY_7),
-    green_mark = playColor(0, 200, 83, Blitbuffer.COLOR_GRAY_8),
-    yellow = playColor(255, 188, 0, Blitbuffer.COLOR_GRAY),
-    red = playColor(255, 58, 68, Blitbuffer.COLOR_DARK_GRAY),
     icon_tints = {
         playColor(232, 240, 254, Blitbuffer.COLOR_LIGHT_GRAY),
         playColor(230, 246, 235, Blitbuffer.COLOR_LIGHT_GRAY),
@@ -217,28 +212,6 @@ local function fillArc(bb, center_x, center_y, radius, thickness, start_degrees,
     end
 end
 
-local PlayMark = Widget:extend{
-    size = 24,
-    dimen = nil,
-}
-
-function PlayMark:init()
-    self.dimen = Geom:new{ w = self.size, h = self.size }
-end
-
-function PlayMark:paintTo(bb, x, y)
-    local size = self.size
-    local top_x, top_y = x + size * .05, y + size * .03
-    local bottom_x, bottom_y = x + size * .05, y + size * .97
-    local left_x, left_y = x + size * .05, y + size * .50
-    local apex_x, apex_y = x + size * .98, y + size * .50
-    local center_x, center_y = x + size * .55, y + size * .50
-    fillTriangle(bb, top_x, top_y, apex_x, apex_y, center_x, center_y, PLAY.blue)
-    fillTriangle(bb, top_x, top_y, left_x, left_y, center_x, center_y, PLAY.green_mark)
-    fillTriangle(bb, left_x, left_y, bottom_x, bottom_y, center_x, center_y, PLAY.yellow)
-    fillTriangle(bb, bottom_x, bottom_y, apex_x, apex_y, center_x, center_y, PLAY.red)
-end
-
 local NavIcon = Widget:extend{
     size = 20,
     kind = "grid",
@@ -278,8 +251,8 @@ function NavIcon:paintTo(bb, x, y)
 end
 
 -- Magnifier and refresh are drawn, not typed: KOReader's font stack does not
--- guarantee a glyph for the technical symbols, and a drawn icon keeps the Play
--- look identical on every reader.
+-- guarantee a glyph for the technical symbols, and drawn icons render
+-- consistently across readers.
 local PlayGlyph = Widget:extend{
     size = 18,
     kind = "search",
@@ -1057,16 +1030,18 @@ function AppStore:buildPane(instance, context)
         },
     }
 
-    -- Google Play top app bar: four-colour mark, wordmark, search, refresh and
-    -- the catalog profile chip.
+    -- AppDock Store top bar: the plugin's own AppStore mark and wordmark,
+    -- followed by search, refresh and the catalog profile chip.
     local bar_height = scale(50)
     local mark_size = scale(26)
-    table.insert(content, PlayMark:new{
+    table.insert(content, DAppLogo:new{
+        kind = "app_store",
         size = mark_size,
+        ink = PLAY.on_surface,
         overlap_offset = { margin, math.floor((bar_height - mark_size) / 2) },
     })
     local wordmark = TextWidget:new{
-        text = _("Google Play"),
+        text = _("AppDock Store"),
         face = Font:getFace("cfont", scale(19)),
         fgcolor = PLAY.on_surface,
         bold = true,
