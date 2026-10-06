@@ -653,6 +653,18 @@ assert(settings_instance.pane.settings_layout.category == "simple" and settings_
 assert(appdock:setSimpleModeOption("homescreen", true) and appdock:setSimpleModeOption("quick_settings", true) and appdock:setSimpleModeOption("focus_apps", true), "Simple Mode switches must be independently persisted")
 local HomeScreen = dofile(plugin_dir .. "appdock_homescreen.lua")
 local simple_home = HomeScreen:new{ appdock = appdock }
+local simple_edit_button, simple_app_tile = nil, nil
+walk_tree(simple_home[1], function(node)
+    if node.title == "Edit" and type(node.onTapToggleHomeEdit) == "function" then simple_edit_button = node end
+    if node.app and node.app.id == "dapp:first" and node.onHoldSelectAppTile then simple_app_tile = node end
+end)
+assert(simple_edit_button and simple_app_tile, "Simple Mode must expose a visible Edit button and recognizable app tiles")
+local manager_count_before_hold = log.manager or 0
+assert(simple_app_tile:onHoldSelectAppTile() and simple_home.edit_mode, "Long-pressing an app must enter edit mode directly")
+assert((log.manager or 0) == manager_count_before_hold, "Long-pressing an app to edit the layout must not open a separate management dialog")
+simple_home:finishLayoutEdit()
+assert(simple_edit_button:onTapToggleHomeEdit() and simple_home.edit_mode, "Tapping the visible Edit button must enter layout editing directly")
+simple_home:finishLayoutEdit()
 assert(simple_home.simple_layout and simple_home.simple_layout.columns == 4 and simple_home.simple_layout.rows == 3 and simple_home.simple_layout.app_count == 2, "Simple homescreen must contain only the visible apps in a 4×3 grid")
 assert(not simple_home.normal_layout, "Simple homescreen must not create any normal-mode expressive layout metadata")
 assert(not simple_home._widget_tick, "Simple homescreen must not schedule hidden widget refreshes")
@@ -697,15 +709,18 @@ appdock.movePinned = function(_, app_id, delta)
 end
 local editor_home = HomeScreen:new{ appdock = appdock, page = 1 }
 editor_home:beginLayoutEdit(many_pinned_apps[1].id)
-local draggable_tile, editable_widget, scale_up, done_button = nil, nil, nil, false
+local draggable_tile, editable_widget, scale_up, done_button = nil, nil, nil, nil
 walk_tree(editor_home[1], function(node)
     if node.app and node.app.id == many_pinned_apps[1].id and node.ges_events and node.ges_events.PanMoveAppTile then draggable_tile = node end
     if node.widget and node.widget.widget_id == "quote_widget" and node.ges_events and node.ges_events.PanMoveStoreWidget then editable_widget = node end
     if type(node.onTapAdjustStoreWidget) == "function" and node.widget_id == "quote_widget" and node.delta == .25 then scale_up = node end
-    if type(node.onTapFinishHomeEdit) == "function" then done_button = true end
+    if node.title == "Done" and type(node.onTapToggleHomeEdit) == "function" then done_button = node end
 end)
 assert(editor_home.edit_mode and draggable_tile and editable_widget and scale_up and done_button, "Long-press edit mode must show the app grid, movable/resizable widgets, and a Done action")
 assert(scale_up:onTapAdjustStoreWidget() == 1.25 and appdock.settings.layout.widget_scales.quote_widget == 1.25, "Tapping a widget plus control must enlarge only that widget")
+local has_size_indicator = false
+walk_tree(editor_home[1], function(node) if node.text == "Size: 125%" then has_size_indicator = true end end)
+assert(has_size_indicator, "The widget editor must display its current size beside the scale controls")
 local weather_position = editor_home.normal_layout.widget_positions.weather_widget
 assert(editable_widget:onPanReleaseMoveStoreWidget(nil, { pos = { y = weather_position.y + weather_position.height / 2 } }) and log.moved_widget, "Dragging a Store widget to another widget row must reorder it")
 local target_x = editor_home.normal_layout.grid_x + editor_home.normal_layout.cell_width + 4
@@ -714,7 +729,7 @@ assert(draggable_tile:onPanMoveAppTile(nil, { pos = { x = target_x, y = target_y
 assert(draggable_tile:onPanReleaseMoveAppTile(nil, { pos = { x = target_x, y = target_y } }), "Releasing an app tile must complete a grid move")
 assert(many_pinned_apps[2].id == "test:grid:1", "Dropping an app in the next grid cell must persist its new homescreen position")
 assert(appdock:movePinned("test:grid:1", -1), "The layout-editor test must restore the original app ordering")
-editor_home:finishLayoutEdit()
+assert(done_button:onTapToggleHomeEdit() and not editor_home.edit_mode, "The visible Done action must end the edit mode")
 appdock.getPinnedPosition, appdock.movePinned = original_get_pinned_position, original_move_pinned
 local paged_home = HomeScreen:new{ appdock = appdock, page = 1 }
 local visible_grid_apps = 0

@@ -289,7 +289,15 @@ function StoreWidgetCard:init()
     end
     local card_children = { CenterContainer:new{ dimen = self.dimen, content } }
     if self.edit_mode then
-        local button_size, button_gap = scale(25), scale(4)
+        local button_size, button_gap = scale(32), scale(6)
+        local scale_percent = math.floor((tonumber(self.widget_scale) or 1) * 100 + .5)
+        card_children[#card_children + 1] = TextWidget:new{
+            text = string.format(_("Size: %d%%"), scale_percent),
+            face = Font:getFace("smallinfofont", scale(11)),
+            fgcolor = self.foreground or PALETTE.on_surface,
+            max_width = scale(78), padding = 0,
+            overlap_offset = { self.width - 2 * button_size - 2 * button_gap - scale(80), button_gap + scale(7) },
+        }
         card_children[#card_children + 1] = WidgetScaleButton:new{
             home = self.home, widget_id = self.widget.widget_id, delta = -.25,
             title = "−", width = button_size, height = button_size,
@@ -371,17 +379,20 @@ function HomeEditButton:init()
             fgcolor = PALETTE.on_primary_container, bold = true, padding = 0,
         } },
     }
-    self.ges_events = { TapFinishHomeEdit = { GestureRange:new{ ges = "tap", range = self.dimen } } }
+    self.ges_events = { TapToggleHomeEdit = { GestureRange:new{ ges = "tap", range = self.dimen } } }
 end
 
 function HomeEditButton:paintTo(bb, x, y)
-    local range = self.ges_events.TapFinishHomeEdit[1].range
+    local range = self.ges_events.TapToggleHomeEdit[1].range
     range.x, range.y, range.w, range.h = x, y, self.dimen.w, self.dimen.h
     return InputContainer.paintTo(self, bb, x, y)
 end
 
-function HomeEditButton:onTapFinishHomeEdit()
-    if self.home then self.home:finishLayoutEdit() end
+function HomeEditButton:onTapToggleHomeEdit()
+    if self.home then
+        if self.home.edit_mode then self.home:finishLayoutEdit()
+        else self.home:beginLayoutEdit() end
+    end
     return true
 end
 
@@ -536,12 +547,13 @@ function AppTile:init()
     local requested_shape = Theme.getAppLogoShape(self.appdock) or self.shape
     local frame_style = Theme.getButtonFrameStyle(self.appdock, self.tile_size, math.floor(self.tile_size * 0.32))
     local has_black_border = self.appdock.settings.beta and self.appdock.settings.beta.black_borders
+    local selected_for_edit = self.home and self.home.edit_mode and self.home.selected_app_id == self.app.id
     local tile = FrameContainer:new{
         width = self.tile_size,
         height = self.tile_size,
         padding = 0,
-        bordersize = has_black_border and scale(1) or (frame_style.bordersize or 0),
-        color = has_black_border and Blitbuffer.COLOR_BLACK or frame_style.color,
+        bordersize = has_black_border and scale(1) or (selected_for_edit and scale(2) or (frame_style.bordersize or 0)),
+        color = has_black_border and Blitbuffer.COLOR_BLACK or (selected_for_edit and PALETTE.primary or frame_style.color),
         radius = requested_shape == "circle" and math.floor(self.tile_size / 2) or (frame_style.radius or math.floor(self.tile_size * 0.32)),
         background = self.background or PALETTE.primary_container,
         CenterContainer:new{
@@ -610,6 +622,7 @@ end
 function AppTile:onTapSelectAppTile()
     if self.home and self.home.edit_mode then
         self.home.selected_app_id = self.app.id
+        self.home:build()
         UIManager:setDirty(self.home, "ui")
         return true
     end
@@ -619,8 +632,11 @@ function AppTile:onTapSelectAppTile()
 end
 
 function AppTile:onHoldSelectAppTile()
-    if self.home and self.home.edit_mode then return true end
-    self.appdock:showManager(self.home, self.app)
+    if self.home and self.home.edit_mode then
+        self.appdock:showManager(self.home, self.app)
+    else
+        self.home:beginLayoutEdit(self.app.id)
+    end
     return true
 end
 
@@ -1009,20 +1025,19 @@ function AppDockHomeScreen:_buildSimpleMode(width, height)
     self:_addTopSystemLine(dashboard, width, margin)
     if grid_y > scale(58) then
         table.insert(dashboard, TextWidget:new{
-            text = self.edit_mode and _("Drag apps into a grid cell") or appSectionLabel(#apps),
+            text = self.edit_mode and _("Drag apps to move · tap Done to finish") or appSectionLabel(#apps),
             face = Font:getFace("smallinfofont", Theme.adjustText(self.appdock, scale(14), scale(10))),
             fgcolor = PALETTE.on_surface_variant,
             bold = true,
             padding = 0,
+            max_width = width - 2 * margin - scale(92),
             overlap_offset = { margin, margin + scale(38) },
         })
     end
-    if self.edit_mode then
         table.insert(dashboard, HomeEditButton:new{
-            home = self, title = _("Done"), width = scale(78), height = scale(32),
-            overlap_offset = { width - margin - scale(78), scale(12) },
+            home = self, title = self.edit_mode and _("Done") or _("Edit"), width = scale(78), height = scale(32),
+            overlap_offset = { width - margin - scale(78), margin + scale(38) },
         })
-    end
     self.simple_layout = {
         columns = 4, rows = 3, grid_columns = 4, grid_rows = 3,
         tile_size = tile_size, app_count = #visible_apps, page_count = page_count,
@@ -1049,14 +1064,14 @@ function AppDockHomeScreen:build()
         face = Font:getFace("cfont", Theme.adjustText(self.appdock, scale(28), scale(18))),
         fgcolor = PALETTE.on_surface,
         bold = true,
-        max_width = width - 2 * margin - (self.edit_mode and scale(92) or 0),
+        max_width = width - 2 * margin - scale(92),
         padding = 0,
     }
     local date_text = TextWidget:new{
-        text = self.edit_mode and _("Drag apps · move and resize widgets") or os.date("%A, %d %B"),
+        text = self.edit_mode and _("Apps: drag to move · widgets: drag or resize") or os.date("%A, %d %B"),
         face = Font:getFace("smallinfofont", Theme.adjustText(self.appdock, scale(15), scale(10))),
         fgcolor = PALETTE.on_surface_variant,
-        max_width = width - 2 * margin - (self.edit_mode and scale(92) or 0),
+        max_width = width - 2 * margin - scale(92),
         padding = 0,
     }
     local header_height = math.max(scale(56), greeting_text:getSize().h + date_text:getSize().h + scale(8))
@@ -1105,12 +1120,10 @@ function AppDockHomeScreen:build()
         })
     end
     self:_addTopSystemLine(dashboard, width, margin)
-    if self.edit_mode then
-        table.insert(dashboard, HomeEditButton:new{
-            home = self, title = _("Done"), width = scale(78), height = scale(32),
-            overlap_offset = { width - margin - scale(78), header_y + scale(12) },
-        })
-    end
+    table.insert(dashboard, HomeEditButton:new{
+        home = self, title = self.edit_mode and _("Done") or _("Edit"), width = scale(78), height = scale(32),
+        overlap_offset = { width - margin - scale(78), header_y + scale(12) },
+    })
 
     table.insert(dashboard, greeting_text)
     table.insert(dashboard, date_text)
@@ -1287,7 +1300,7 @@ function AppDockHomeScreen:build()
             tile_size + label_gap + label_height + row_gap, tile_size + label_gap + label_height)
     end
     table.insert(app_grid, TextWidget:new{
-        text = appSectionLabel(#apps),
+        text = self.edit_mode and _("Drag an app to rearrange it") or appSectionLabel(#apps),
         face = Font:getFace("smallinfofont", Theme.adjustText(self.appdock, scale(14), scale(10))),
         fgcolor = PALETTE.on_surface_variant,
         bold = true,
