@@ -15,6 +15,7 @@ local Layout = require("appdock_layout")
 local Theme = require("appdock_theme")
 local Font = require("ui/font")
 local FrameContainer = require("ui/widget/container/framecontainer")
+local Widget = require("ui/widget/widget")
 local Geom = require("ui/geometry")
 local GestureRange = require("ui/gesturerange")
 local HorizontalSpan = require("ui/widget/horizontalspan")
@@ -87,70 +88,521 @@ local function emptySizedWidget(width, height)
     }
 end
 
-local StoreButton = InputContainer:extend{
+--[[--
+The AppStore deliberately adopts the Google Play Store look: a fixed brand
+palette (white surfaces, Play green actions, the four-colour Play mark) that
+stays readable on grayscale E-Ink panels, a top app bar, a search pill,
+recommendation cards and Play-style list rows with a trailing install button.
+--]]--
+
+local function playColor(red, green, blue, grayscale)
+    if Device.screen:isColorEnabled() then
+        return Blitbuffer.ColorRGB32(red, green, blue, 0xFF)
+    end
+    return grayscale
+end
+
+local PLAY = {
+    background = playColor(255, 255, 255, Blitbuffer.COLOR_WHITE),
+    surface = playColor(241, 243, 244, Blitbuffer.COLOR_LIGHT_GRAY),
+    surface_variant = playColor(232, 234, 237, Blitbuffer.COLOR_GRAY_8),
+    on_surface = playColor(32, 33, 36, Blitbuffer.COLOR_BLACK),
+    on_variant = playColor(95, 99, 104, Blitbuffer.COLOR_DARK_GRAY),
+    outline = playColor(218, 220, 224, Blitbuffer.COLOR_GRAY),
+    divider = playColor(232, 234, 237, Blitbuffer.COLOR_LIGHT_GRAY),
+    green = playColor(1, 135, 95, Blitbuffer.COLOR_BLACK),
+    on_green = playColor(255, 255, 255, Blitbuffer.COLOR_WHITE),
+    green_container = playColor(226, 244, 236, Blitbuffer.COLOR_LIGHT_GRAY),
+    on_green_container = playColor(0, 82, 58, Blitbuffer.COLOR_DARK_GRAY),
+    blue = playColor(0, 160, 255, Blitbuffer.COLOR_GRAY_7),
+    green_mark = playColor(0, 200, 83, Blitbuffer.COLOR_GRAY_8),
+    yellow = playColor(255, 188, 0, Blitbuffer.COLOR_GRAY),
+    red = playColor(255, 58, 68, Blitbuffer.COLOR_DARK_GRAY),
+    icon_tints = {
+        playColor(232, 240, 254, Blitbuffer.COLOR_LIGHT_GRAY),
+        playColor(230, 246, 235, Blitbuffer.COLOR_LIGHT_GRAY),
+        playColor(254, 243, 224, Blitbuffer.COLOR_LIGHT_GRAY),
+        playColor(252, 232, 238, Blitbuffer.COLOR_LIGHT_GRAY),
+        playColor(240, 235, 251, Blitbuffer.COLOR_LIGHT_GRAY),
+    },
+}
+
+local function kindLabel(kind)
+    if kind == "widget" then return _("Widget") end
+    if kind == "design" then return _("Design") end
+    return _("DApp")
+end
+
+local function actionStateLabel(state)
+    if state == "update" then return _("Update available") end
+    if state == "installed" then return _("Installed") end
+    return _("Not installed")
+end
+
+local function fillTriangle(bb, x1, y1, x2, y2, x3, y3, ink)
+    local first = math.floor(math.min(y1, y2, y3) + .5)
+    local last = math.floor(math.max(y1, y2, y3) + .5)
+    for row = first, last do
+        local scan = row + .5
+        local crossings = {}
+        local function edge(ax, ay, bx, by)
+            if (ay <= scan and by > scan) or (by <= scan and ay > scan) then
+                crossings[#crossings + 1] = ax + (scan - ay) / (by - ay) * (bx - ax)
+            end
+        end
+        edge(x1, y1, x2, y2)
+        edge(x2, y2, x3, y3)
+        edge(x3, y3, x1, y1)
+        if #crossings >= 2 then
+            local left, right = math.min(crossings[1], crossings[2]), math.max(crossings[1], crossings[2])
+            local start_x = math.floor(left + .5)
+            bb:paintRect(start_x, row, math.max(1, math.floor(right + .5) - start_x), 1, ink)
+        end
+    end
+end
+
+local function fillCircle(bb, center_x, center_y, radius, ink)
+    local first = math.floor(center_y - radius + .5)
+    local last = math.floor(center_y + radius + .5)
+    for row = first, last do
+        local dy = row + .5 - center_y
+        local span = radius * radius - dy * dy
+        if span > 0 then
+            local half = math.sqrt(span)
+            local start_x = math.floor(center_x - half + .5)
+            bb:paintRect(start_x, row, math.max(1, math.floor(center_x + half + .5) - start_x), 1, ink)
+        end
+    end
+end
+
+local function fillRing(bb, center_x, center_y, radius, thickness, ink)
+    local inner = math.max(0, radius - thickness)
+    local first = math.floor(center_y - radius + .5)
+    local last = math.floor(center_y + radius + .5)
+    for row = first, last do
+        local dy = row + .5 - center_y
+        local outer_span = radius * radius - dy * dy
+        if outer_span > 0 then
+            local outer_half = math.sqrt(outer_span)
+            local inner_span = inner * inner - dy * dy
+            local inner_half = inner_span > 0 and math.sqrt(inner_span) or 0
+            local left_start = math.floor(center_x - outer_half + .5)
+            local left_end = math.floor(center_x - inner_half + .5)
+            if left_end > left_start then bb:paintRect(left_start, row, left_end - left_start, 1, ink) end
+            local right_start = math.floor(center_x + inner_half + .5)
+            local right_end = math.floor(center_x + outer_half + .5)
+            if right_end > right_start then bb:paintRect(right_start, row, right_end - right_start, 1, ink) end
+        end
+    end
+end
+
+local function fillLine(bb, x1, y1, x2, y2, thickness, ink)
+    local steps = math.max(1, math.floor(math.max(math.abs(x2 - x1), math.abs(y2 - y1)) * 2))
+    local half = math.floor(thickness / 2)
+    for step = 0, steps do
+        local progress = step / steps
+        local px = x1 + (x2 - x1) * progress
+        local py = y1 + (y2 - y1) * progress
+        bb:paintRect(math.floor(px + .5) - half, math.floor(py + .5) - half, thickness, thickness, ink)
+    end
+end
+
+local function fillArc(bb, center_x, center_y, radius, thickness, start_degrees, end_degrees, ink)
+    local half = math.floor(thickness / 2)
+    for angle = start_degrees, end_degrees, 5 do
+        local radians = math.rad(angle)
+        local px = center_x + radius * math.cos(radians)
+        local py = center_y + radius * math.sin(radians)
+        bb:paintRect(math.floor(px + .5) - half, math.floor(py + .5) - half, thickness, thickness, ink)
+    end
+end
+
+local PlayMark = Widget:extend{
+    size = 24,
+    dimen = nil,
+}
+
+function PlayMark:init()
+    self.dimen = Geom:new{ w = self.size, h = self.size }
+end
+
+function PlayMark:paintTo(bb, x, y)
+    local size = self.size
+    local top_x, top_y = x + size * .05, y + size * .03
+    local bottom_x, bottom_y = x + size * .05, y + size * .97
+    local left_x, left_y = x + size * .05, y + size * .50
+    local apex_x, apex_y = x + size * .98, y + size * .50
+    local center_x, center_y = x + size * .55, y + size * .50
+    fillTriangle(bb, top_x, top_y, apex_x, apex_y, center_x, center_y, PLAY.blue)
+    fillTriangle(bb, top_x, top_y, left_x, left_y, center_x, center_y, PLAY.green_mark)
+    fillTriangle(bb, left_x, left_y, bottom_x, bottom_y, center_x, center_y, PLAY.yellow)
+    fillTriangle(bb, bottom_x, bottom_y, apex_x, apex_y, center_x, center_y, PLAY.red)
+end
+
+local NavIcon = Widget:extend{
+    size = 20,
+    kind = "grid",
+    ink = nil,
+    dimen = nil,
+}
+
+function NavIcon:init()
+    self.dimen = Geom:new{ w = self.size, h = self.size }
+end
+
+function NavIcon:paintTo(bb, x, y)
+    local size = self.size
+    local ink = self.ink or PLAY.on_variant
+    local function block(px, py, width_ratio, height_ratio)
+        bb:paintRect(
+            math.floor(x + size * px),
+            math.floor(y + size * py),
+            math.max(1, math.floor(size * width_ratio)),
+            math.max(1, math.floor(size * height_ratio)),
+            ink)
+    end
+    if self.kind == "apps" then
+        block(.10, .12, .80, .76)
+    elseif self.kind == "widgets" then
+        block(.06, .14, .88, .28)
+        block(.06, .54, .40, .32)
+        block(.54, .54, .40, .32)
+    elseif self.kind == "designs" then
+        fillCircle(bb, x + size * .5, y + size * .5, size * .40, ink)
+    else
+        block(.08, .10, .36, .32)
+        block(.56, .10, .36, .32)
+        block(.08, .58, .36, .32)
+        block(.56, .58, .36, .32)
+    end
+end
+
+-- Magnifier and refresh are drawn, not typed: KOReader's font stack does not
+-- guarantee a glyph for the technical symbols, and a drawn icon keeps the Play
+-- look identical on every reader.
+local PlayGlyph = Widget:extend{
+    size = 18,
+    kind = "search",
+    ink = nil,
+    dimen = nil,
+}
+
+function PlayGlyph:init()
+    self.dimen = Geom:new{ w = self.size, h = self.size }
+end
+
+function PlayGlyph:paintTo(bb, x, y)
+    local size = self.size
+    local ink = self.ink or PLAY.on_surface
+    local thickness = math.max(1, math.floor(size * .16))
+    if self.kind == "refresh" then
+        local center_x, center_y = x + size * .50, y + size * .52
+        fillArc(bb, center_x, center_y, size * .34, thickness, -70, 250, ink)
+        fillTriangle(bb,
+            x + size * .60, y + size * .06,
+            x + size * .99, y + size * .20,
+            x + size * .60, y + size * .42,
+            ink)
+    else
+        local center_x, center_y = x + size * .42, y + size * .42
+        fillRing(bb, center_x, center_y, size * .30, thickness, ink)
+        fillLine(bb, center_x + size * .22, center_y + size * .22, x + size * .94, y + size * .94, thickness, ink)
+    end
+end
+
+local PlayPill = InputContainer:extend{
     title = nil,
-    subtitle = nil,
-    logo = nil,
-    callback = nil,
+    glyph = nil,
     width = nil,
     height = nil,
     background = nil,
     foreground = nil,
+    bordersize = 0,
+    border_color = nil,
+    radius = nil,
+    bold = true,
+    callback = nil,
     dimen = nil,
 }
 
-function StoreButton:init()
+function PlayPill:init()
     self.dimen = Geom:new{ w = self.width, h = self.height }
-    local inset = scale(9)
-    local icon_size = self.logo and math.min(scale(30), math.max(scale(16), self.height - 2 * inset)) or 0
-    local text_x = inset + (self.logo and icon_size + scale(8) or 0)
-    local text_width = math.max(scale(18), self.width - text_x - inset)
-    local title_size = math.max(scale(9), math.min(scale(13), math.floor(self.height * .28)))
-    local subtitle_size = math.max(scale(7), math.min(scale(9), math.floor(self.height * .20)))
-    local has_subtitle = self.subtitle and self.subtitle ~= ""
-    local title = Theme.fitLabel(self.title or "", text_width, title_size, 0)
-    local subtitle = Theme.fitLabel(self.subtitle or "", text_width, subtitle_size, 0)
-    local title_widget = TextWidget:new{ text = title, face = Font:getFace("smallinfofont", title_size), fgcolor = self.foreground, bold = true, max_width = text_width, padding = 0 }
-    local subtitle_widget = has_subtitle and TextWidget:new{ text = subtitle, face = Font:getFace("smallinfofont", subtitle_size), fgcolor = self.foreground, max_width = text_width, padding = 0 } or nil
-    local items = subtitle_widget and { title_widget, subtitle_widget } or { title_widget }
-    local positions = Theme.centeredStack(self.height, items, scale(3), scale(3))
-    local title_y, subtitle_y = positions[1], positions[2]
-    self.layout = { title = title, subtitle = subtitle, title_y = title_y, subtitle_y = subtitle_y }
-    local entries = {
-        { widget = title_widget, x = text_x, y = title_y },
-    }
-    if self.logo then
-        table.insert(entries, { widget = DAppLogo:new{
-            kind = self.logo,
-            size = icon_size,
-            ink = self.foreground,
-        }, x = inset, y = math.max(0, math.floor((self.height - icon_size) / 2)) })
+    local font_size = math.max(scale(8), math.min(scale(14), math.floor(self.height * .40)))
+    local glyph_size = self.glyph and math.max(scale(10), math.min(scale(20), math.floor(self.height * .48))) or 0
+    local text_x = 0
+    if self.glyph and (self.title and self.title ~= "") then
+        text_x = scale(12) + glyph_size + scale(10)
     end
-    if has_subtitle then
-        table.insert(entries, { widget = subtitle_widget, x = text_x, y = subtitle_y })
+    local label = nil
+    if self.title and self.title ~= "" then
+        local available = text_x > 0 and (self.width - text_x - scale(12)) or self.width
+        label = Theme.fitLabel(self.title, available, font_size, scale(14))
+    end
+    local entries = {}
+    if glyph_size > 0 then
+        entries[#entries + 1] = {
+            widget = PlayGlyph:new{ kind = self.glyph, size = glyph_size, ink = self.foreground },
+            x = text_x > 0 and scale(12) or math.floor((self.width - glyph_size) / 2),
+            y = math.max(0, math.floor((self.height - glyph_size) / 2)),
+        }
+    end
+    if label then
+        local text_widget = TextWidget:new{
+            text = label,
+            face = Font:getFace("smallinfofont", font_size),
+            fgcolor = self.foreground,
+            bold = self.bold,
+            max_width = text_x > 0 and (self.width - text_x - scale(12)) or (self.width - scale(12)),
+            padding = 0,
+        }
+        entries[#entries + 1] = {
+            widget = text_widget,
+            x = text_x > 0 and text_x or math.max(0, math.floor((self.width - text_widget:getSize().w) / 2)),
+            y = math.max(0, math.floor((self.height - text_widget:getSize().h) / 2)),
+        }
     end
     self[1] = FrameContainer:new{
         width = self.width,
         height = self.height,
         padding = 0,
-        bordersize = self.frame_style and self.frame_style.bordersize or 0,
-        color = self.frame_style and self.frame_style.color or nil,
-        radius = self.frame_style and self.frame_style.radius or math.floor(self.height * 0.24),
+        bordersize = self.bordersize or 0,
+        color = self.border_color or Blitbuffer.COLOR_BLACK,
+        radius = self.radius or math.floor(self.height / 2),
         background = self.background,
-        Layout.FixedStack:new{ width = self.width, height = self.height, entries = entries },
+        Layout.FixedStack:new{
+            width = self.width,
+            height = self.height,
+            entries = entries,
+        },
     }
-    self.ges_events = {
-        TapAppStoreButton = { GestureRange:new{ ges = "tap", range = self.dimen } },
-    }
+    self.ges_events = { TapPlayPill = { GestureRange:new{ ges = "tap", range = self.dimen } } }
 end
 
-function StoreButton:paintTo(bb, x, y)
-    local range = self.ges_events.TapAppStoreButton[1].range
+function PlayPill:paintTo(bb, x, y)
+    local range = self.ges_events.TapPlayPill[1].range
     range.x, range.y, range.w, range.h = x, y, self.dimen.w, self.dimen.h
     return InputContainer.paintTo(self, bb, x, y)
 end
 
-function StoreButton:onTapAppStoreButton()
+function PlayPill:onTapPlayPill()
+    if self.callback then self.callback() end
+    return true
+end
+
+-- A Play list row: tinted app icon, title, metadata line and a state line.
+-- The trailing install/open button is a sibling widget so the two touch
+-- targets never overlap.
+local PlayRow = InputContainer:extend{
+    entry = nil,
+    state = "install",
+    logo = nil,
+    tint = nil,
+    width = nil,
+    height = nil,
+    reserve_right = 0,
+    background = nil,
+    callback = nil,
+    dimen = nil,
+}
+
+function PlayRow:init()
+    self.dimen = Geom:new{ w = self.width, h = self.height }
+    local inset = scale(10)
+    local icon_size = math.max(scale(30), math.min(scale(52), self.height - 2 * scale(11)))
+    local text_x = inset + icon_size + scale(12)
+    local text_width = math.max(scale(20), self.width - text_x - inset - (self.reserve_right or 0) - scale(6))
+    local title_size = math.max(scale(10), math.min(scale(15), math.floor(self.height * .21)))
+    local meta_size = math.max(scale(8), math.min(scale(11), math.floor(self.height * .145)))
+    local entry = self.entry or {}
+    local version = entry.version and (" · v" .. tostring(entry.version)) or ""
+    local title = TextWidget:new{
+        text = Theme.fitLabel(entry.title or "", text_width, title_size, 0),
+        face = Font:getFace("smallinfofont", title_size),
+        fgcolor = PLAY.on_surface,
+        bold = true,
+        max_width = text_width,
+        padding = 0,
+    }
+    local meta = TextWidget:new{
+        text = Theme.fitLabel(kindLabel(entry.kind) .. version, text_width, meta_size, 0),
+        face = Font:getFace("smallinfofont", meta_size),
+        fgcolor = PLAY.on_variant,
+        max_width = text_width,
+        padding = 0,
+    }
+    local state_text, state_color = actionStateLabel(self.state), PLAY.on_variant
+    if self.state == "installed" then
+        state_color = PLAY.green
+    elseif self.state == "update" then
+        state_color = PLAY.on_green_container
+    end
+    local state_widget = TextWidget:new{
+        text = Theme.fitLabel(state_text, text_width, meta_size, 0),
+        face = Font:getFace("smallinfofont", meta_size),
+        fgcolor = state_color,
+        bold = true,
+        max_width = text_width,
+        padding = 0,
+    }
+    local positions = Theme.centeredStack(self.height, { title, meta, state_widget }, scale(4), scale(6))
+    local tile = FrameContainer:new{
+        width = icon_size, height = icon_size, padding = 0, bordersize = 0,
+        radius = math.floor(icon_size * .28),
+        background = self.tint or PLAY.surface,
+        CenterContainer:new{
+            dimen = Geom:new{ w = icon_size, h = icon_size },
+            DAppLogo:new{
+                kind = self.logo or "app_store",
+                size = math.max(scale(16), math.floor(icon_size * .62)),
+                ink = PLAY.on_surface,
+            },
+        },
+    }
+    self[1] = FrameContainer:new{
+        width = self.width, height = self.height, padding = 0, bordersize = 0,
+        radius = math.floor(self.height * .22),
+        background = self.background or PLAY.background,
+        Layout.FixedStack:new{
+            width = self.width, height = self.height,
+            entries = {
+                { widget = tile, x = inset, y = math.max(0, math.floor((self.height - icon_size) / 2)) },
+                { widget = title, x = text_x, y = positions[1] },
+                { widget = meta, x = text_x, y = positions[2] },
+                { widget = state_widget, x = text_x, y = positions[3] },
+            },
+        },
+    }
+    self.ges_events = { TapPlayRow = { GestureRange:new{ ges = "tap", range = self.dimen } } }
+end
+
+function PlayRow:paintTo(bb, x, y)
+    local range = self.ges_events.TapPlayRow[1].range
+    range.x, range.y, range.w, range.h = x, y, self.dimen.w, self.dimen.h
+    return InputContainer.paintTo(self, bb, x, y)
+end
+
+function PlayRow:onTapPlayRow()
+    if self.callback then self.callback() end
+    return true
+end
+
+-- A "Recommended for you" style card with a tinted icon tile above the title.
+local PlayCard = InputContainer:extend{
+    entry = nil,
+    logo = nil,
+    tint = nil,
+    width = nil,
+    height = nil,
+    callback = nil,
+    dimen = nil,
+}
+
+function PlayCard:init()
+    self.dimen = Geom:new{ w = self.width, h = self.height }
+    local entry = self.entry or {}
+    local tile_size = math.max(scale(28), math.min(scale(56), math.floor(self.height * .54)))
+    local title_size = math.max(scale(8), math.min(scale(12), math.floor(self.height * .13)))
+    local meta_size = math.max(scale(7), math.min(scale(10), math.floor(self.height * .105)))
+    local text_width = math.max(scale(16), self.width - scale(10))
+    local version = entry.version and ("v" .. tostring(entry.version)) or ""
+    local title = TextWidget:new{
+        text = Theme.fitLabel(entry.title or "", text_width, title_size, 0),
+        face = Font:getFace("smallinfofont", title_size),
+        fgcolor = PLAY.on_surface,
+        bold = true,
+        max_width = text_width,
+        padding = 0,
+    }
+    local meta = TextWidget:new{
+        text = Theme.fitLabel(kindLabel(entry.kind) .. (version ~= "" and (" · " .. version) or ""), text_width, meta_size, 0),
+        face = Font:getFace("smallinfofont", meta_size),
+        fgcolor = PLAY.on_variant,
+        max_width = text_width,
+        padding = 0,
+    }
+    local tile = FrameContainer:new{
+        width = tile_size, height = tile_size, padding = 0, bordersize = 0,
+        radius = math.floor(tile_size * .30),
+        background = self.tint or PLAY.surface,
+        CenterContainer:new{
+            dimen = Geom:new{ w = tile_size, h = tile_size },
+            DAppLogo:new{
+                kind = self.logo or "app_store",
+                size = math.max(scale(16), math.floor(tile_size * .62)),
+                ink = PLAY.on_surface,
+            },
+        },
+    }
+    local title_y = tile_size + scale(8)
+    self[1] = FrameContainer:new{
+        width = self.width, height = self.height, padding = 0, bordersize = 0,
+        radius = math.floor(self.height * .12),
+        background = PLAY.background,
+        Layout.FixedStack:new{
+            width = self.width, height = self.height,
+            entries = {
+                { widget = tile, x = math.floor((self.width - tile_size) / 2), y = scale(4) },
+                { widget = title, x = math.max(0, math.floor((self.width - title:getSize().w) / 2)), y = title_y },
+                { widget = meta, x = math.max(0, math.floor((self.width - meta:getSize().w) / 2)), y = title_y + title_size + scale(4) },
+            },
+        },
+    }
+    self.ges_events = { TapPlayCard = { GestureRange:new{ ges = "tap", range = self.dimen } } }
+end
+
+function PlayCard:paintTo(bb, x, y)
+    local range = self.ges_events.TapPlayCard[1].range
+    range.x, range.y, range.w, range.h = x, y, self.dimen.w, self.dimen.h
+    return InputContainer.paintTo(self, bb, x, y)
+end
+
+function PlayCard:onTapPlayCard()
+    if self.callback then self.callback() end
+    return true
+end
+
+-- One tab of the Play bottom navigation (the AppStore category selector).
+local PlayNavTab = InputContainer:extend{
+    label = nil,
+    icon = "grid",
+    active = false,
+    width = nil,
+    height = nil,
+    callback = nil,
+    dimen = nil,
+}
+
+function PlayNavTab:init()
+    self.dimen = Geom:new{ w = self.width, h = self.height }
+    local icon_size = math.max(scale(12), math.min(scale(22), math.floor(self.height * .34)))
+    local label_size = math.max(scale(8), math.min(scale(11), math.floor(self.height * .19)))
+    local foreground = self.active and PLAY.green or PLAY.on_variant
+    local label = TextWidget:new{
+        text = Theme.fitLabel(self.label or "", self.width, label_size, scale(6)),
+        face = Font:getFace("smallinfofont", label_size),
+        fgcolor = foreground,
+        bold = self.active,
+        max_width = self.width - scale(6),
+        padding = 0,
+    }
+    local icon_y = math.floor(self.height * .20)
+    self[1] = Layout.FixedStack:new{
+        width = self.width, height = self.height,
+        entries = {
+            { widget = NavIcon:new{ size = icon_size, kind = self.icon, ink = foreground }, x = math.floor((self.width - icon_size) / 2), y = icon_y },
+            { widget = label, x = math.max(0, math.floor((self.width - label:getSize().w) / 2)), y = icon_y + icon_size + scale(4) },
+        },
+    }
+    self.ges_events = { TapPlayNavTab = { GestureRange:new{ ges = "tap", range = self.dimen } } }
+end
+
+function PlayNavTab:paintTo(bb, x, y)
+    local range = self.ges_events.TapPlayNavTab[1].range
+    range.x, range.y, range.w, range.h = x, y, self.dimen.w, self.dimen.h
+    return InputContainer.paintTo(self, bb, x, y)
+end
+
+function PlayNavTab:onTapPlayNavTab()
     if self.callback then self.callback() end
     return true
 end
@@ -592,141 +1044,196 @@ end
 
 function AppStore:buildPane(instance, context)
     local state = self:_ensureState(instance)
-    local palette = Theme.getPalette(context.manager.appdock)
     local width, height = context.dimen.w, context.dimen.h
-    local margin, gap = scale(12), scale(6)
-    local heading_title = TextWidget:new{ text = _("AppStore"), face = Font:getFace("cfont", scale(21)), fgcolor = palette.on_surface, bold = true, padding = 0 }
-    local heading_subtitle = TextWidget:new{ text = _("Trusted DApps, widgets, and designs from arduinodude456/DApps"), face = Font:getFace("smallinfofont", scale(10)), fgcolor = palette.on_variant, max_width = width - 2 * margin, padding = 0 }
-    local header_height = math.max(scale(46), heading_title:getSize().h + heading_subtitle:getSize().h + scale(6))
-    local header_positions = Theme.centeredStack(header_height, { heading_title, heading_subtitle }, scale(4), scale(4))
-    heading_title.overlap_offset = { margin, header_positions[1] }
-    heading_subtitle.overlap_offset = { margin, header_positions[2] }
+    local margin, gap = scale(12), scale(8)
+    local query = trim(state.query or "")
     local content = OverlapGroup:new{
         dimen = Geom:new{ w = width, h = height },
         allow_mirroring = false,
         FrameContainer:new{
             width = width, height = height, padding = 0, bordersize = 0,
-            background = palette.background,
+            background = PLAY.background,
             emptySizedWidget(width, height),
         },
-        heading_title,
-        heading_subtitle,
     }
-    local action_y = header_height + gap
-    local compact_height = scale(42)
-    local refresh_width = math.floor((width - 2 * margin - gap) * 0.44)
-    table.insert(content, StoreButton:new{
-        title = _("Refresh catalog"), subtitle = _("Read apps, widgets, designs"),
-        logo = "sync",
-        width = refresh_width, height = compact_height,
-        background = palette.primary, foreground = palette.on_primary,
-        callback = function() self:refresh(instance, context) end,
-        overlap_offset = { margin, action_y },
+
+    -- Google Play top app bar: four-colour mark, wordmark, search, refresh and
+    -- the catalog profile chip.
+    local bar_height = scale(50)
+    local mark_size = scale(26)
+    table.insert(content, PlayMark:new{
+        size = mark_size,
+        overlap_offset = { margin, math.floor((bar_height - mark_size) / 2) },
     })
-    table.insert(content, StoreButton:new{
-        title = _("Safe updates"), subtitle = _("Confirmation required"),
-        logo = "app_store",
-        width = width - 2 * margin - refresh_width - gap, height = compact_height,
-        background = palette.secondary, foreground = palette.on_secondary,
-        callback = function()
-            UIManager:show(InfoMessage:new{ text = _("Installations, updates, and removals always require an explicit confirmation.") })
-        end,
-        overlap_offset = { margin + refresh_width + gap, action_y },
-    })
-    local query = trim(state.query or "")
-    local category_labels = { all = _("All"), dapp = _("Apps"), widget = _("Widgets"), design = _("Designs") }
-    table.insert(content, StoreButton:new{
-        title = query == "" and _("Search catalog") or (_("Search: ") .. query),
-        subtitle = query == "" and _("Filter loaded apps, widgets, and designs") or _("Tap to change or clear this local filter"),
-        logo = "app_store",
-        width = width - 2 * margin, height = scale(38),
-        background = palette.surface_variant or palette.surface, foreground = palette.on_surface_variant or palette.on_surface,
+    local wordmark = TextWidget:new{
+        text = _("Google Play"),
+        face = Font:getFace("cfont", scale(19)),
+        fgcolor = PLAY.on_surface,
+        bold = true,
+        padding = 0,
+    }
+    wordmark.overlap_offset = {
+        margin + mark_size + scale(9),
+        math.max(scale(4), math.floor((bar_height - wordmark:getSize().h) / 2)),
+    }
+    table.insert(content, wordmark)
+
+    local chip_size, chip_gap = scale(34), scale(6)
+    local chip_y = math.floor((bar_height - chip_size) / 2)
+    local avatar_x = width - margin - chip_size
+    local refresh_x = avatar_x - chip_gap - chip_size
+    local search_x = refresh_x - chip_gap - chip_size
+    table.insert(content, PlayPill:new{
+        glyph = "search", width = chip_size, height = chip_size,
+        radius = math.floor(chip_size / 2),
+        background = PLAY.surface, foreground = PLAY.on_surface,
         callback = function() self:promptSearch(instance, context) end,
-        overlap_offset = { margin, action_y + compact_height + gap },
+        overlap_offset = { search_x, chip_y },
     })
-    table.insert(content, StoreButton:new{
-        title = _("Category: ") .. (category_labels[state.category] or category_labels.all),
-        subtitle = _("Tap to switch between all, apps, widgets, and designs"),
-        logo = "palette",
-        width = width - 2 * margin, height = scale(38),
-        background = palette.button or palette.primary, foreground = palette.on_button or palette.on_primary,
-        frame_style = Theme.getButtonFrameStyle(context.appdock, scale(38), math.floor(scale(38) * .24)),
-        callback = function() self:cycleCategory(instance, context) end,
-        overlap_offset = { margin, action_y + compact_height + gap + scale(38) + gap },
+    table.insert(content, PlayPill:new{
+        glyph = "refresh", width = chip_size, height = chip_size,
+        radius = math.floor(chip_size / 2),
+        background = PLAY.surface, foreground = PLAY.on_surface,
+        callback = function() self:refresh(instance, context) end,
+        overlap_offset = { refresh_x, chip_y },
+    })
+    table.insert(content, PlayPill:new{
+        title = "A", width = chip_size, height = chip_size,
+        radius = math.floor(chip_size / 2),
+        background = PLAY.green, foreground = PLAY.on_green,
+        callback = function()
+            UIManager:show(InfoMessage:new{
+                text = _("Trusted AppDock catalog") .. "\n\n" .. REPOSITORY .. "\n\n" .. _("Installations, updates, and removals always require an explicit confirmation."),
+            })
+        end,
+        overlap_offset = { avatar_x, chip_y },
     })
 
-    local list_y, card_height = action_y + compact_height + gap + scale(38) + gap + scale(38) + gap, scale(58)
-    if not state.refreshed then
-        table.insert(content, StoreButton:new{
-            title = _("Catalog ready"),
-            subtitle = _("Refresh after catalog entries are published."),
-            logo = "app_store",
-            width = width - 2 * margin, height = card_height,
-            background = palette.surface, foreground = palette.on_surface,
-            overlap_offset = { margin, list_y },
-        })
-    elseif state.error then
-        table.insert(content, StoreButton:new{
-            title = _("Catalog unavailable"), subtitle = state.error,
-            logo = "app_store",
-            width = width - 2 * margin, height = card_height,
-            background = palette.tertiary, foreground = palette.on_tertiary,
-            overlap_offset = { margin, list_y },
-        })
-    elseif not state.entries or #state.entries == 0 then
-        table.insert(content, StoreButton:new{
-            title = _("No store items listed"), subtitle = _("Add DApps, widgets, or design paths to dapps.txt."),
-            logo = "app_store",
-            width = width - 2 * margin, height = card_height,
-            background = palette.surface, foreground = palette.on_surface,
-            overlap_offset = { margin, list_y },
-        })
-    else
-        local visible_entries = AppStore.filterEntries(state.entries, query, state.category)
-        if #visible_entries == 0 then
-            table.insert(content, StoreButton:new{
-                title = _("No matching store items"), subtitle = _("Change the search or category filter."),
-                logo = "app_store",
-                width = width - 2 * margin, height = card_height,
-                background = palette.surface, foreground = palette.on_surface,
-                overlap_offset = { margin, list_y },
-            })
-            return WidgetContainer:new{ dimen = Geom:new{ w = width, h = height }, content }
+    local search_height = scale(44)
+    local search_y = bar_height + scale(2)
+    table.insert(content, PlayPill:new{
+        glyph = "search",
+        title = query == "" and _("Search for apps & games") or (_("Search: ") .. query),
+        width = width - 2 * margin, height = search_height,
+        radius = math.floor(search_height / 2),
+        background = PLAY.surface,
+        foreground = query == "" and PLAY.on_variant or PLAY.on_surface,
+        bold = false,
+        callback = function() self:promptSearch(instance, context) end,
+        overlap_offset = { margin, search_y },
+    })
+
+    local body_y = search_y + search_height + gap
+    local nav_height = scale(58)
+    local list_bottom = height - nav_height - scale(6)
+    local visible_entries = state.entries and AppStore.filterEntries(state.entries, query, state.category) or {}
+    local catalog_ready = state.refreshed and not state.error and state.entries and #state.entries > 0
+
+    if catalog_ready and #visible_entries > 0 then
+        -- "Updates available" first, otherwise a recommendation shelf. Both are
+        -- drawn from real catalog entries, never from invented ratings.
+        local featured, featured_state = {}, "install"
+        for _, entry in ipairs(visible_entries) do
+            if #featured >= 3 then break end
+            if self:_entryState(context, entry) == "update" then
+                featured[#featured + 1] = entry
+                featured_state = "update"
+            end
         end
-        local card_width = width - 2 * margin
-        local action_width = math.min(scale(82), math.max(scale(62), math.floor(card_width * 0.25)))
-        local primary_width = card_width - action_width - gap
+        if #featured == 0 then
+            for index = 1, math.min(3, #visible_entries) do featured[#featured + 1] = visible_entries[index] end
+        end
+        -- Cards with a pending update carry an extra Play button below the card,
+        -- so the shelf reserves that row before the list starts.
+        local action_row = featured_state == "update" and scale(34) or 0
+        -- The shelf is decoration on top of the real list, so a short screen
+        -- gives the space to the list instead of squeezing both.
+        local show_shelf = (list_bottom - body_y) >= (scale(180) + action_row)
+        local heading = featured_state == "update" and _("Updates available") or _("Recommended for you")
+        local heading_widget = TextWidget:new{
+            text = heading,
+            face = Font:getFace("cfont", scale(16)),
+            fgcolor = PLAY.on_surface,
+            bold = true,
+            max_width = width - 2 * margin,
+            padding = 0,
+        }
+        local card_gap = scale(8)
+        local card_width = math.floor((width - 2 * margin - 2 * card_gap) / 3)
+        local card_height = scale(98)
+        if show_shelf then
+            heading_widget.overlap_offset = { margin, body_y }
+            table.insert(content, heading_widget)
+            local card_y = body_y + scale(24)
+            for index, entry in ipairs(featured) do
+                local entry_state, definition = self:_entryState(context, entry)
+                table.insert(content, PlayCard:new{
+                    entry = entry,
+                    logo = definition and definition.logo or entry.logo or "app_store",
+                    tint = PLAY.icon_tints[(index - 1) % #PLAY.icon_tints + 1],
+                    width = card_width, height = card_height,
+                    callback = function() self:confirmInstall(instance, context, entry) end,
+                    overlap_offset = { margin + (index - 1) * (card_width + card_gap), card_y },
+                })
+                if entry_state == "update" then
+                    table.insert(content, PlayPill:new{
+                        title = _("Update"), width = math.floor(card_width * .62), height = scale(26),
+                        radius = scale(13),
+                        background = PLAY.green, foreground = PLAY.on_green,
+                        callback = function() self:confirmInstall(instance, context, entry) end,
+                        overlap_offset = { margin + (index - 1) * (card_width + card_gap) + math.floor((card_width - math.floor(card_width * .62)) / 2), card_y + card_height + scale(4) },
+                    })
+                end
+            end
+        end
+
+        local category_labels = { all = _("All items"), dapp = _("Apps"), widget = _("Widgets"), design = _("Designs") }
+        local section_y = show_shelf and (body_y + scale(24) + card_height + action_row + scale(10)) or body_y
+        local section_widget = TextWidget:new{
+            text = (query == "" and category_labels[state.category] or (_("Results for ") .. query)) .. string.format("  ·  %d", #visible_entries),
+            face = Font:getFace("cfont", scale(16)),
+            fgcolor = PLAY.on_surface,
+            bold = true,
+            max_width = width - 2 * margin,
+            padding = 0,
+        }
+        section_widget.overlap_offset = { margin, section_y }
+        table.insert(content, section_widget)
+
+        local list_y = section_y + scale(24)
+        local row_width = width - 2 * margin
+        local row_height = scale(76)
+        local row_gap = scale(6)
+        local action_width = math.min(scale(104), math.max(scale(76), math.floor(row_width * .26)))
         local cards = {}
         for index, entry in ipairs(visible_entries) do
-            local row_y = (index - 1) * (card_height + gap)
+            local row_y = (index - 1) * (row_height + row_gap)
             local action_state, definition = self:_entryState(context, entry)
-            local status = self:_showStatus(entry, action_state)
-            local background = index % 2 == 0 and palette.secondary or palette.surface
-            local foreground = index % 2 == 0 and palette.on_secondary or palette.on_surface
-            table.insert(cards, StoreButton:new{
-                title = entry.title,
-                subtitle = status,
+            table.insert(cards, PlayRow:new{
+                entry = entry,
+                state = action_state,
                 logo = definition and definition.logo or entry.logo or "app_store",
-                width = primary_width, height = card_height,
-                background = background, foreground = foreground,
-                frame_style = Theme.getButtonFrameStyle(context.appdock, card_height, math.floor(card_height * .24)),
+                tint = PLAY.icon_tints[(index - 1) % #PLAY.icon_tints + 1],
+                width = row_width, height = row_height,
+                reserve_right = action_width + gap,
+                background = PLAY.background,
                 callback = function() self:confirmInstall(instance, context, entry) end,
                 overlap_offset = { 0, row_y },
             })
             if action_state == "installed" then
-                local action_height = math.floor((card_height - gap) / 2)
-                table.insert(cards, StoreButton:new{
-                    title = entry.kind == "design" and _("Use") or _("Installed"), subtitle = "",
+                local action_height = math.floor((row_height - gap) / 2)
+                table.insert(cards, PlayPill:new{
+                    title = entry.kind == "design" and _("Use") or _("Open"),
                     width = action_width, height = action_height,
-                    background = palette.button or palette.primary, foreground = palette.on_button or palette.on_primary,
-                    frame_style = Theme.getButtonFrameStyle(context.appdock, action_height, math.floor(action_height * .24)),
+                    background = PLAY.background, foreground = PLAY.green,
+                    bordersize = scale(1), border_color = PLAY.green,
                     callback = function() self:confirmInstall(instance, context, entry) end,
-                    overlap_offset = { primary_width + gap, row_y },
+                    overlap_offset = { row_width - action_width, row_y },
                 })
-                table.insert(cards, StoreButton:new{
-                    title = _("Uninstall"), subtitle = "",
-                    width = action_width, height = card_height - action_height - gap,
-                    background = palette.tertiary, foreground = palette.on_tertiary,
+                table.insert(cards, PlayPill:new{
+                    title = _("Uninstall"),
+                    width = action_width, height = row_height - action_height - gap,
+                    background = PLAY.surface, foreground = PLAY.on_variant,
                     callback = function()
                         if entry.kind == "design" then
                             self:confirmUninstallDesign(instance, context, entry, definition)
@@ -736,36 +1243,141 @@ function AppStore:buildPane(instance, context)
                             self:confirmUninstall(instance, context, entry, definition)
                         end
                     end,
-                    overlap_offset = { primary_width + gap, row_y + action_height + gap },
+                    overlap_offset = { row_width - action_width, row_y + action_height + gap },
                 })
             else
-                table.insert(cards, StoreButton:new{
-                    title = action_state == "update" and _("Update") or _("Install"), subtitle = "",
-                    width = action_width, height = card_height,
-                    background = palette.button or palette.primary, foreground = palette.on_button or palette.on_primary,
-                    frame_style = Theme.getButtonFrameStyle(context.appdock, card_height, math.floor(card_height * .24)),
+                table.insert(cards, PlayPill:new{
+                    title = action_state == "update" and _("Update") or _("Install"),
+                    width = action_width, height = math.max(scale(28), math.floor(row_height * .46)),
+                    background = PLAY.green, foreground = PLAY.on_green,
                     callback = function() self:confirmInstall(instance, context, entry) end,
-                    overlap_offset = { primary_width + gap, row_y },
+                    overlap_offset = { row_width - action_width, row_y + math.floor((row_height - math.max(scale(28), math.floor(row_height * .46))) / 2) },
                 })
             end
         end
-        local list_height = math.max(scale(40), height - list_y - margin)
-        local content_height = math.max(list_height, #visible_entries * (card_height + gap) - gap)
+        local list_height = math.max(scale(40), list_bottom - list_y)
+        local content_height = math.max(list_height, #visible_entries * (row_height + row_gap) - row_gap)
         local list_content = OverlapGroup:new{
-            dimen = Geom:new{ w = card_width, h = content_height },
+            dimen = Geom:new{ w = row_width, h = content_height },
             allow_mirroring = false,
             unpack(cards),
         }
         table.insert(content, ScrollableContainer:new{
-            dimen = Geom:new{ w = card_width, h = list_height },
+            dimen = Geom:new{ w = row_width, h = list_height },
             -- ScrollableContainer marks its show_parent dirty after every
             -- offset change. Without this, the framebuffer changes but an
-            -- E-Ink device may not repaint the moved cards/scrollbar.
+            -- E-Ink device may not repaint the moved rows/scrollbar.
             show_parent = context.host,
             list_content,
             overlap_offset = { margin, list_y },
         })
+    else
+        local title, body, action_title, action
+        if not state.refreshed then
+            title = _("Load the Play catalog")
+            body = _("Read the trusted catalog from ") .. REPOSITORY .. _(" to browse DApps, widgets, and designs.")
+            action_title, action = _("Load catalog"), function() self:refresh(instance, context) end
+        elseif state.error then
+            title = _("Catalog unavailable")
+            body = tostring(state.error)
+            action_title, action = _("Try again"), function() self:refresh(instance, context) end
+        elseif not state.entries or #state.entries == 0 then
+            title = _("No store items listed")
+            body = _("Add DApp, widget, or design paths to dapps.txt in the catalog repository.")
+        elseif #visible_entries == 0 then
+            title = _("No matching apps")
+            body = query ~= "" and (_("Nothing matches “") .. query .. _("” in this category.")) or _("Change the search or the selected category.")
+            action_title, action = _("Clear search"), function() state.query = ""; context.requestRebuild("ui") end
+        else
+            title = _("Nothing to show")
+            body = _("Refresh the catalog to see the latest entries.")
+            action_title, action = _("Refresh"), function() self:refresh(instance, context) end
+        end
+        local card_height = scale(120)
+        local card_title = TextWidget:new{
+            text = title,
+            face = Font:getFace("cfont", scale(16)),
+            fgcolor = PLAY.on_surface,
+            bold = true,
+            max_width = width - 2 * margin - 2 * scale(16),
+            padding = 0,
+        }
+        local card_body = TextWidget:new{
+            text = Theme.fitLabel(body, width - 2 * margin - 2 * scale(16), scale(11), 0),
+            face = Font:getFace("smallinfofont", scale(11)),
+            fgcolor = PLAY.on_variant,
+            max_width = width - 2 * margin - 2 * scale(16),
+            padding = 0,
+        }
+        table.insert(content, FrameContainer:new{
+            width = width - 2 * margin, height = card_height, padding = 0, bordersize = 0,
+            radius = scale(14), background = PLAY.surface,
+            Layout.FixedStack:new{
+                width = width - 2 * margin, height = card_height,
+                entries = {
+                    { widget = card_title, x = scale(16), y = scale(16) },
+                    { widget = card_body, x = scale(16), y = scale(44) },
+                },
+            },
+            overlap_offset = { margin, body_y },
+        })
+        if action then
+            table.insert(content, PlayPill:new{
+                title = action_title, width = math.min(scale(180), width - 2 * margin), height = scale(38),
+                background = PLAY.green, foreground = PLAY.on_green,
+                callback = action,
+                overlap_offset = { margin, body_y + card_height - scale(52) },
+            })
+        end
     end
+
+    -- Play bottom navigation, used as the category selector.
+    local nav_y = height - nav_height
+    table.insert(content, FrameContainer:new{
+        width = width, height = nav_height, padding = 0, bordersize = 0,
+        background = PLAY.background,
+        emptySizedWidget(width, nav_height),
+        overlap_offset = { 0, nav_y },
+    })
+    table.insert(content, FrameContainer:new{
+        width = width, height = scale(1), padding = 0, bordersize = 0,
+        background = PLAY.divider,
+        emptySizedWidget(width, scale(1)),
+        overlap_offset = { 0, nav_y },
+    })
+    local tabs = {
+        { id = "all", label = _("For you"), icon = "grid" },
+        { id = "dapp", label = _("Apps"), icon = "apps" },
+        { id = "widget", label = _("Widgets"), icon = "widgets" },
+        { id = "design", label = _("Designs"), icon = "designs" },
+    }
+    local tab_width = math.floor(width / #tabs)
+    for index, tab in ipairs(tabs) do
+        local active = state.category == tab.id
+        local tab_x = (index - 1) * tab_width
+        if active then
+            local pill_height = nav_height - scale(14)
+            table.insert(content, FrameContainer:new{
+                width = tab_width - scale(18), height = pill_height, padding = 0, bordersize = 0,
+                radius = math.floor(pill_height * .34),
+                background = PLAY.green_container,
+                emptySizedWidget(tab_width - scale(18), pill_height),
+                overlap_offset = { tab_x + scale(9), nav_y + scale(7) },
+            })
+        end
+        table.insert(content, PlayNavTab:new{
+            label = tab.label,
+            icon = tab.icon,
+            active = active,
+            width = tab_width, height = nav_height,
+            callback = function()
+                state.category = tab.id
+                context.requestRebuild("ui")
+            end,
+            overlap_offset = { tab_x, nav_y },
+        })
+    end
+
     return WidgetContainer:new{
         dimen = Geom:new{ w = width, h = height },
         content,

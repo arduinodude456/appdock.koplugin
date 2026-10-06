@@ -47,7 +47,7 @@ local DEFAULT_SETTINGS = {
     design = { active_id = nil, installed = {} },
     plugin_logos = {},
     store = { installed = {} },
-    layout = { app_spacing = 16, logo_shape = "rounded", search_enabled = false, split_ratio = .5 },
+    layout = { app_spacing = 16, logo_shape = "rounded", search_enabled = false, ddg_search = true, split_ratio = .5 },
     launch_on_start = false,
     notifications = { items = {}, next_id = 0 },
     wallpaper = { enabled = false, path = "" },
@@ -167,6 +167,8 @@ function AppDock:_loadSettings()
     self.settings.layout.app_spacing = math.max(8, math.min(34, self.settings.layout.app_spacing))
     self.settings.layout.logo_shape = self.settings.layout.logo_shape == "circle" and "circle" or "rounded"
     self.settings.layout.search_enabled = self.settings.layout.search_enabled == true
+    -- The DuckDuckGo bar is opt-out: it stays visible unless it was disabled.
+    self.settings.layout.ddg_search = self.settings.layout.ddg_search ~= false
     self.settings.layout.split_ratio = tonumber(self.settings.layout.split_ratio) or DEFAULT_SETTINGS.layout.split_ratio
     self.settings.layout.split_ratio = math.max(.20, math.min(.80, self.settings.layout.split_ratio))
     self.settings.refresh_interval = math.floor((tonumber(self.settings.refresh_interval) or DEFAULT_SETTINGS.refresh_interval) / 15 + .5) * 15
@@ -381,6 +383,9 @@ function AppDock:setLauncherLayout(changes)
     end
     if changes.search_enabled ~= nil then
         self.settings.layout.search_enabled = not not changes.search_enabled
+    end
+    if changes.ddg_search ~= nil then
+        self.settings.layout.ddg_search = not not changes.ddg_search
     end
     self:_saveSettings()
 end

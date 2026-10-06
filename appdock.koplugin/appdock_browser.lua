@@ -738,7 +738,34 @@ function Browser:goHome(instance, context)
     state.forms = {}
     state.page_css = BROWSER_CSS
     state.google_query = nil
+    state.loading_query = nil
     context.requestRebuild("ui")
+end
+
+-- The AppDock homescreen search bar prepares a query before the browser host is
+-- shown. beginQuery clears the previous page so the pane can paint a loading
+-- state; runPendingSearch performs the blocking fetch afterwards.
+function Browser:beginQuery(instance, query)
+    local state = self:_ensureState(instance)
+    clearImages(state)
+    state.url = nil
+    state.html = nil
+    state.error = nil
+    state.forms = {}
+    state.page_css = BROWSER_CSS
+    state.google_query = nil
+    state.title = _("Web Browser")
+    state.is_home = true
+    state.loading_query = type(query) == "string" and query or nil
+end
+
+function Browser:runPendingSearch(instance, context)
+    local state = self:_ensureState(instance)
+    local query = state.loading_query
+    state.loading_query = nil
+    if not query then return false end
+    self:search(instance, context, query)
+    return true
 end
 
 function Browser:showFormDialog(instance, context, form)
@@ -769,6 +796,7 @@ end
 
 function Browser:navigate(instance, context, target, add_history)
     local state = self:_ensureState(instance)
+    state.loading_query = nil
     local socket_url = require("socket.url")
     local url
     local has_explicit_scheme = type(target) == "string" and target:match("^[%a][%w+.-]*:")
@@ -915,6 +943,29 @@ function Browser:buildPane(instance, context)
             max_width = width - 2 * margin,
             overlap_offset = { margin, toolbar_height + scale(18) },
         })
+    elseif state.loading_query then
+        table.insert(content, TextWidget:new{
+            text = _("Searching DuckDuckGo"),
+            face = Font:getFace("cfont", scale(20)),
+            fgcolor = PALETTE.on_surface,
+            bold = true,
+            max_width = width - 2 * margin,
+            overlap_offset = { margin, toolbar_height + scale(16) },
+        })
+        table.insert(content, TextWidget:new{
+            text = Theme.fitLabel(state.loading_query, width - 2 * margin, scale(14), 0),
+            face = Font:getFace("smallinfofont", scale(14)),
+            fgcolor = PALETTE.on_variant,
+            max_width = width - 2 * margin,
+            overlap_offset = { margin, toolbar_height + scale(46) },
+        })
+        table.insert(content, TextWidget:new{
+            text = _("Fetching readable HTML results over HTTPS. No JavaScript, no tracking scripts."),
+            face = Font:getFace("smallinfofont", scale(12)),
+            fgcolor = PALETTE.on_variant,
+            max_width = width - 2 * margin,
+            overlap_offset = { margin, toolbar_height + scale(70) },
+        })
     else
         local quick_width = math.floor((width - 2 * margin - gap) / 2)
         local quick_height = scale(62)
@@ -933,10 +984,10 @@ function Browser:buildPane(instance, context)
             overlap_offset = { margin, toolbar_height + scale(48) },
         })
         local destinations = {
+            { title = _("DuckDuckGo"), callback = function() self:showAddressDialog(instance, context, true) end },
             { title = _("Google"), callback = function() self:showGoogleSearchDialog(instance, context) end },
             { title = _("Wikipedia"), callback = function() self:navigate(instance, context, "https://en.wikipedia.org/wiki/Main_Page", true) end },
             { title = _("Project Gutenberg"), callback = function() self:navigate(instance, context, "https://www.gutenberg.org/", true) end },
-            { title = _("KOReader"), callback = function() self:navigate(instance, context, "https://koreader.rocks/", true) end },
         }
         for index, destination in ipairs(destinations) do
             local column = (index - 1) % 2

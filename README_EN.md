@@ -4,7 +4,7 @@
 
 # New releases regulary commited at 3:00 AM CET
 
-**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **7.4.10** mirrors each keystroke live into the owning AppDock field and applies the same dialog-free keyboard flow to dChat input dialogs routed through the Beta plugin host. [Details](RELEASE_NOTES_7.4.10.md).
+**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **7.5.0** adds a branded **DuckDuckGo search bar** to the first homescreen page and rebuilds the **AppStore** in the look of the Google Play Store. [Details](RELEASE_NOTES_7.5.0.md).
 
 > **E-Ink approach:** AppDock deliberately borrows the visual language and information structure, not Android's animations, blur, or transparency effects. This keeps updates economical and maintains contrast on monochrome readers.
 
@@ -21,6 +21,8 @@
 > **4.1.1 “Bueno”:** The plugin host renders standard plugin menus, confirmations, and information messages opened from a hosted action as AppDock overlays. Input dialogs first show an AppDock shell and hand text editing through an AppDock-created editor back to the original plugin object. Complex standalone plugin windows are deliberately not globally rewritten. See [`RELEASE_NOTES_4.1.1.md`](RELEASE_NOTES_4.1.1.md).
 
 > **6.0.0 “Continuity”:** The normal AppDock interface receives stronger Material-oriented surfaces for the homescreen, Control Center, Open Apps, and DApp navigation. **Simple Mode intentionally remains unchanged:** its 4×3 grid, reduced Control Center, and focused app selection receive no extra cards, status areas, or decoration. Workspace restoration is disabled by default, bounded locally, and resumes only explicitly permitted DApps. See [`RELEASE_NOTES_6.0.0.md`](RELEASE_NOTES_6.0.0.md) for details.
+
+> **7.5.0 “Play Store”:** The first homescreen page carries a branded **DuckDuckGo search bar** that hands its confirmed query to the JavaScript-free **Web Browser**. The **AppStore** adopts the Google Play Store surface: four-colour Play mark, search pill, a **Recommended for you** shelf, Play list rows with Install/Update/Open/Uninstall actions, and a bottom navigation for **For you**, **Apps**, **Widgets**, and **Designs**. It still shows only real catalog data — no invented ratings or screenshots. See [`RELEASE_NOTES_7.5.0.md`](RELEASE_NOTES_7.5.0.md) for details.
 
 ## UI on real hardware
 
@@ -128,7 +130,7 @@ Restart KOReader completely. Enable **AppDock Homescreen** under **More tools �
 | **Analog Clock** | Drawn dial, hour/minute hands, digital time, and date. | Updates at the next minute boundary with a scoped fast refresh. |
 | **Settings** | Android-inspired categories for network, display, storage, and other AppDock functions. | Side rail with mini logos; Wi-Fi, native brightness/warmth, themes, launcher layout, language, startup, and storage controls. |
 | **Files** | A dedicated, scrollable AppDock file browser. | Large folder/file cards; **Up**, **Home**, and **Refresh**. `.lua` files can open in NightLua; DReader handles `.epub`, `.html`, `.htm`, and `.xhtml` after installation. |
-| **AppStore** | Loads the catalog from [`arduinodude456/DApps`](https://github.com/arduinodude456/DApps). | Fetches `dapps.txt` over HTTPS, displays DApp and widget logos, detects updates, and requires confirmation for install, update, and uninstall. |
+| **AppStore** | Loads the catalog from [`arduinodude456/DApps`](https://github.com/arduinodude456/DApps). | Uses the Google Play Store look: Play mark, search pill, **Recommended for you** shelf, Play list rows with Install/Open/Uninstall, and a bottom category navigation. Fetches `dapps.txt` over HTTPS, detects updates, and requires confirmation for install, update, and uninstall. |
 | **Web Browser** | Reads server-rendered web content and searches with DuckDuckGo HTML. | Start page, direct targets, reload, local history, and a focused reading mode; active web content stays disabled. |
 | **Help** | Offline AppDock usage guide. | Explains the homescreen, Quick Settings, DApps, Split Screen, browser, and E-Ink refresh behavior. |
 
@@ -172,11 +174,25 @@ In **Settings → Display → Color themes**, choose **Lavender**, **Ocean**, **
 
 The **AppStore** reads its catalog from [`arduinodude456/DApps`](https://github.com/arduinodude456/DApps). Each `dapps.txt` line contains a relative Lua path and can include a version, an AppDock logo, and the type `widget`, for example `quote_widget.lua | 1.0.0 | help | widget`. Only the text catalog is loaded during refresh. Code is fetched through HTTPS only after visible user confirmation, checked for Lua syntax, and written atomically into the KOReader data directory.
 
+### Google Play surface
+
+The AppStore uses a fixed Play surface instead of the active theme colours: a white background, Play green for actions, the four-colour Play pinwheel next to a **Google Play** wordmark, and a rounded search pill. The top bar also carries the catalog refresh chip and a green catalog chip that explains the trusted source and the confirmation requirement.
+
+| Area | Play implementation |
+|---|---|
+| Search pill | Rounded field with a magnifier; searches the already loaded catalog locally and reports the result count below. |
+| **Recommended for you** | A shelf of up to three cards built from real catalog entries. When installed entries have newer catalog versions, the shelf becomes **Updates available** and each card shows **Update**. |
+| List rows | Tinted logo tile, bold title, kind and version, a state line (**Not installed**, **Installed**, **Update available**) and a trailing Play action: filled **Install**/**Update**, or outlined **Open**/**Use** with **Uninstall** below. |
+| Categories | Bottom navigation with **For you**, **Apps**, **Widgets**, and **Designs**; the active tab receives a green container pill instead of a tab underline. |
+| Empty and error states | Failures, the loading hint, and "no results" render as a Play card offering **Load catalog**, **Try again**, **Refresh**, or **Clear search**. |
+
+On monochrome readers every surface keeps a fixed grayscale role so the Play layout stays contrast-rich. Invented ratings, reviews, and screenshots are never shown: all visible values come from `dapps.txt` or from local installation state.
+
 > **Security note:** The catalog rejects absolute paths, duplicate entries, and paths containing `..`. A Store DApp runs as Lua code inside KOReader after installation. Use only a repository you trust.
 
 ## Web Browser and Quick Settings
 
-The **Web Browser** DApp is a restrained JavaScript-free browser for readable server-rendered pages. It supports HTTP/HTTPS, redirects, DuckDuckGo HTML, relative links, and a small local history. It intentionally does not support JavaScript, forms, JavaScript-based logins, videos, WebSockets, downloads, or non-HTTP(S) links.
+The **Web Browser** DApp is a restrained JavaScript-free browser for readable server-rendered pages. It supports HTTP/HTTPS, redirects, DuckDuckGo HTML, relative links, and a small local history. It intentionally does not support JavaScript, forms, JavaScript-based logins, videos, WebSockets, downloads, or non-HTTP(S) links. The homescreen DuckDuckGo bar hands its confirmed query to exactly this DApp. To acknowledge the tap immediately, the browser first paints a local loading state that names the query and the **DuckDuckGo** source; the HTTPS request follows in the next UI tick. A failed request replaces that state with the DApp's regular error message.
 
 The small down-arrow tile in the system row opens a drawn Quick Settings interface. The brightness slider uses a fast regional E-Ink refresh, while the normal KOReader UI is also marked for redraw. Brightness changes never trigger a full refresh; AppDock's separate periodic 60-second refresh handles that role.
 

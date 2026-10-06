@@ -24,6 +24,7 @@ local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
+local Widget = require("ui/widget/widget")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local _ = require("gettext")
 
@@ -74,6 +75,20 @@ local SearchBar = InputContainer:extend{
     query = "",
 }
 
+local SearchGlyph = Widget:extend{
+    size = 16,
+    ink = nil,
+    dimen = nil,
+}
+
+local DuckDuckGoBar = InputContainer:extend{
+    appdock = nil,
+    home = nil,
+    width = nil,
+    height = nil,
+    query = "",
+}
+
 local function scale(value)
     return Screen:scaleBySize(value)
 end
@@ -100,6 +115,11 @@ local PALETTE = {
     on_surface = color(31, 29, 36, Blitbuffer.COLOR_BLACK),
     on_surface_variant = color(76, 73, 84, Blitbuffer.COLOR_DARK_GRAY),
     outline = color(121, 117, 128, Blitbuffer.COLOR_GRAY),
+    -- DuckDuckGo's own brand accent. It deliberately survives every AppDock
+    -- theme so the search bar keeps its recognizable identity; on monochrome
+    -- panels it becomes a solid black badge with a white magnifier.
+    duckduckgo = color(222, 88, 51, Blitbuffer.COLOR_BLACK),
+    on_duckduckgo = color(255, 255, 255, Blitbuffer.COLOR_WHITE),
 }
 
 local APP_TONES = {
@@ -289,6 +309,106 @@ function SearchBar:onTapSearchApps()
     return true
 end
 
+function SearchGlyph:init()
+    self.dimen = Geom:new{ w = self.size, h = self.size }
+end
+
+function SearchGlyph:paintTo(bb, x, y)
+    local size = self.size
+    local ink = self.ink or PALETTE.on_duckduckgo
+    local thickness = math.max(1, math.floor(size * .15))
+    local radius = size * .30
+    local center_x, center_y = x + size * .38, y + size * .38
+    local steps = math.max(16, math.floor(size * 4))
+    for step = 0, steps - 1 do
+        local angle = math.pi * 2 * step / steps
+        bb:paintRect(
+            math.floor(center_x + math.cos(angle) * radius),
+            math.floor(center_y + math.sin(angle) * radius),
+            thickness, thickness, ink)
+    end
+    local handle_x, handle_y = center_x + radius * .70, center_y + radius * .70
+    local handle_steps = math.max(3, math.floor(size * .34))
+    for step = 0, handle_steps do
+        bb:paintRect(math.floor(handle_x + step * .72), math.floor(handle_y + step * .72), thickness, thickness, ink)
+    end
+end
+
+function DuckDuckGoBar:init()
+    self.dimen = Geom:new{ w = self.width, h = self.height }
+    local padding = math.max(scale(5), math.floor(self.height * .15))
+    local badge_size = math.max(scale(18), self.height - 2 * padding)
+    local text_x = padding + badge_size + scale(10)
+    local text_width = math.max(scale(20), self.width - text_x - padding - scale(4))
+    local title_size = Theme.adjustText(self.appdock, math.max(scale(10), math.min(scale(13), math.floor(self.height * .29))), scale(9))
+    local subtitle_size = Theme.adjustText(self.appdock, math.max(scale(8), math.min(scale(10), math.floor(self.height * .22))), scale(8))
+    local query = type(self.query) == "string" and self.query or ""
+    local title = TextWidget:new{
+        text = Theme.fitLabel("DuckDuckGo", text_width, title_size, 0),
+        face = Font:getFace("smallinfofont", title_size),
+        fgcolor = PALETTE.on_surface,
+        bold = true,
+        max_width = text_width,
+        padding = 0,
+    }
+    local subtitle = TextWidget:new{
+        text = Theme.fitLabel(query ~= "" and query or _("Search the web privately"), text_width, subtitle_size, 0),
+        face = Font:getFace("smallinfofont", subtitle_size),
+        fgcolor = query ~= "" and PALETTE.on_surface_variant or PALETTE.outline,
+        max_width = text_width,
+        padding = 0,
+    }
+    local positions = Theme.centeredStack(self.height, { title, subtitle }, scale(5), scale(4))
+    local glyph_size = math.floor(badge_size * .62)
+    local badge = FrameContainer:new{
+        width = badge_size, height = badge_size, padding = 0, bordersize = 0,
+        radius = math.floor(badge_size * .34),
+        background = PALETTE.duckduckgo,
+        Layout.FixedStack:new{
+            width = badge_size, height = badge_size,
+            entries = {
+                {
+                    widget = SearchGlyph:new{ size = glyph_size, ink = PALETTE.on_duckduckgo },
+                    x = math.floor((badge_size - glyph_size) / 2),
+                    y = math.floor((badge_size - glyph_size) / 2),
+                },
+            },
+        },
+    }
+    self[1] = FrameContainer:new{
+        width = self.width,
+        height = self.height,
+        padding = 0,
+        bordersize = scale(1),
+        color = PALETTE.outline,
+        radius = math.floor(self.height * .5),
+        background = PALETTE.surface,
+        Layout.FixedStack:new{
+            width = self.width,
+            height = self.height,
+            entries = {
+                { widget = badge, x = padding, y = padding },
+                { widget = title, x = text_x, y = positions[1] },
+                { widget = subtitle, x = text_x, y = positions[2] },
+            },
+        },
+    }
+    self.ges_events = {
+        TapDuckDuckGoSearch = { GestureRange:new{ ges = "tap", range = self.dimen } },
+    }
+end
+
+function DuckDuckGoBar:paintTo(bb, x, y)
+    local range = self.ges_events.TapDuckDuckGoSearch[1].range
+    range.x, range.y, range.w, range.h = x, y, self.dimen.w, self.dimen.h
+    return InputContainer.paintTo(self, bb, x, y)
+end
+
+function DuckDuckGoBar:onTapDuckDuckGoSearch()
+    self.home:showWebSearch()
+    return true
+end
+
 function AppTile:init()
     self.label_height = self.label_height or scale(28)
     local label_width = math.max(self.tile_size, tonumber(self.label_width) or self.tile_size)
@@ -444,6 +564,42 @@ function AppDockHomeScreen:showAppSearch()
         end,
     }
     UIManager:show(keyboard)
+end
+
+-- The DuckDuckGo bar hands the typed query to AppDock's JavaScript-free Web
+-- Browser DApp, which already renders html.duckduckgo.com results.
+function AppDockHomeScreen:showWebSearch()
+    local keyboard
+    keyboard = AppDockKeyboard:new{
+        title = _("DuckDuckGo"),
+        placeholder = _("Search the web privately"),
+        value = self.web_query or "",
+        on_cancel = function() UIManager:close(keyboard) end,
+        on_submit = function(value)
+            local query = (value or ""):gsub("^%s+", ""):gsub("%s+$", "")
+            UIManager:nextTick(function()
+                if keyboard then UIManager:close(keyboard) end
+                self:runWebSearch(query)
+            end)
+        end,
+    }
+    UIManager:show(keyboard)
+end
+
+function AppDockHomeScreen:runWebSearch(query)
+    query = type(query) == "string" and query:gsub("^%s+", ""):gsub("%s+$", "") or ""
+    if query == "" then return false end
+    self.web_query = query
+    local manager = self.appdock and self.appdock:getDAppManager()
+    if not manager then return false end
+    if type(manager.openWebSearch) == "function" then
+        return manager:openWebSearch(query, self) and true or false
+    end
+    if type(manager.activate) == "function" then
+        manager:activate("web_browser", self)
+        return true
+    end
+    return false
 end
 
 function AppDockHomeScreen:_pageInfo(apps, per_page)
@@ -715,13 +871,24 @@ function AppDockHomeScreen:build()
     table.insert(dashboard, greeting_text)
     table.insert(dashboard, date_text)
 
-    local card_y = header_y + header_height + scale(8)
+    local block_y = header_y + header_height + scale(5)
+    -- The DuckDuckGo bar belongs to the first homescreen page only: swiping to
+    -- the next app page keeps the grid uncluttered.
+    if self.page == 1 and layout.ddg_search ~= false then
+        local bar_height = scale(46)
+        table.insert(dashboard, DuckDuckGoBar:new{
+            appdock = self.appdock, home = self, width = width - 2 * margin, height = bar_height,
+            query = self.web_query or "", overlap_offset = { margin, block_y },
+        })
+        block_y = block_y + bar_height + scale(8)
+    end
+    local card_y = block_y
     if layout.search_enabled then
         table.insert(dashboard, SearchBar:new{
             appdock = self.appdock, home = self, width = width - 2 * margin, height = scale(38),
-            query = self.search_query or "", overlap_offset = { margin, header_y + header_height + scale(5) },
+            query = self.search_query or "", overlap_offset = { margin, block_y },
         })
-        card_y = header_y + header_height + scale(38) + scale(12)
+        card_y = block_y + scale(38) + scale(12)
     end
     local show_status_card = self.appdock.settings.widgets.status == true
     local show_reading_card = self.appdock.settings.widgets.reading_hint == true

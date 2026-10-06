@@ -1923,6 +1923,25 @@ function DAppManager:openDAppFile(id, file)
     return true
 end
 
+-- Runs a DuckDuckGo search from the AppDock homescreen search bar. The browser
+-- pane is shown with a local loading state first; the blocking HTTPS request
+-- follows in the next UI tick so the tap is acknowledged immediately on E-Ink.
+function DAppManager:openWebSearch(query, home)
+    query = type(query) == "string" and query:gsub("^%s+", ""):gsub("%s+$", "") or ""
+    if query == "" then return false end
+    local instance = self:_instanceFor("web_browser")
+    if not instance then return false end
+    if type(self.browser.beginQuery) == "function" then self.browser:beginQuery(instance, query) end
+    self:activate("web_browser", home)
+    UIManager:nextTick(function()
+        if self.active_id ~= "web_browser" or not self.active_host then return end
+        if type(self.browser.runPendingSearch) ~= "function" then return end
+        local context = self:_newContext(self.active_host, instance)
+        self.browser:runPendingSearch(instance, context)
+    end)
+    return true
+end
+
 function DAppManager:showDAppActions(id, recents)
     local instance = self.instances[id]
     if not instance then return end
@@ -2519,11 +2538,12 @@ function DAppManager:showLauncherLayout(instance, context)
         context.requestRebuild("ui")
     end
     dialog = ButtonDialog:new{
-        title = _("Launcher layout") .. "\n" .. string.format(_("Spacing: %d · Shape: %s · Search: %s"), layout.app_spacing, layout.logo_shape == "circle" and _("Circle") or _("Rounded Box"), layout.search_enabled and _("On") or _("Off")),
+        title = _("Launcher layout") .. "\n" .. string.format(_("Spacing: %d · Shape: %s · Search: %s · DuckDuckGo: %s"), layout.app_spacing, layout.logo_shape == "circle" and _("Circle") or _("Rounded Box"), layout.search_enabled and _("On") or _("Off"), layout.ddg_search ~= false and _("On") or _("Off")),
         buttons = {
             { { text = _("Compact spacing"), callback = function() choose({ app_spacing = 10 }) end }, { text = _("Comfortable spacing"), callback = function() choose({ app_spacing = 16 }) end } },
             { { text = _("Wide spacing"), callback = function() choose({ app_spacing = 24 }) end }, { text = layout.logo_shape == "circle" and _("Use rounded boxes") or _("Use circles"), callback = function() choose({ logo_shape = layout.logo_shape == "circle" and "rounded" or "circle" }) end } },
             { { text = layout.search_enabled and _("Disable app search") or _("Enable app search"), callback = function() choose({ search_enabled = not layout.search_enabled }) end } },
+            { { text = layout.ddg_search ~= false and _("Hide DuckDuckGo bar") or _("Show DuckDuckGo bar"), callback = function() choose({ ddg_search = layout.ddg_search == false }) end } },
             { { text = _("Set spacing manually (Beta)"), callback = function() UIManager:close(dialog); self:showManualAppSpacingDialog(instance, context) end } },
             { { text = _("Cancel"), callback = function() UIManager:close(dialog) end } },
         },

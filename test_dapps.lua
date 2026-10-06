@@ -35,6 +35,19 @@ local HorizontalSpan = WidgetContainer:extend({})
 local VerticalSpan = WidgetContainer:extend({})
 
 local log = { shown = {}, closed = {}, dirties = {}, scheduled = {}, events = {} }
+-- Walks a widget tree the way the renderer does: children live either in the
+-- container itself or, for Layout.FixedStack, in its entries list.
+local function walk_tree(widget, visit, depth)
+    depth = depth or 0
+    if depth > 12 or type(widget) ~= "table" then return end
+    visit(widget)
+    for _, child in ipairs(widget) do walk_tree(child, visit, depth + 1) end
+    if type(widget.entries) == "table" then
+        for _, entry in ipairs(widget.entries) do
+            if type(entry) == "table" and entry.widget then walk_tree(entry.widget, visit, depth + 1) end
+        end
+    end
+end
 local wifi_on = false
 _G.G_reader_settings = { isTrue = function() return false end, readSetting = function(_, key) return key == "language" and "en" or nil end }
 
@@ -106,6 +119,13 @@ package.preload["appdock_browser"] = function()
             return {
                 buildPane = function(_, instance, context)
                     return WidgetContainer:new{ dimen = { w = context.dimen.w, h = context.dimen.h } }
+                end,
+                beginQuery = function(_, instance, query)
+                    log.browser_query = query
+                end,
+                runPendingSearch = function()
+                    log.browser_pending_runs = (log.browser_pending_runs or 0) + 1
+                    return true
                 end,
             }
         end,
@@ -187,11 +207,11 @@ local quick_settings_source = assert(io.open(plugin_dir .. "appdock_quicksetting
 assert(quick_settings_source:find("local function buildStack", 1, true) and quick_settings_source:find("Theme.centeredStack(self.height, stack", 1, true) and quick_settings_source:find("local tile_y = header_height + gap", 1, true), "Quick Settings must measure tile text and reserve a header gap before tiles")
 assert(quick_settings_source:find("symbol_widget = TextWidget:new", 1, true) and quick_settings_source:find("padding = 0", 1, true) and quick_settings_source:find("while stack_height > available_height", 1, true), "Quick Settings tiles must use unpadded measured glyph boxes and shrink before overflowing fixed controls")
 local appstore_source = assert(io.open(plugin_dir .. "appdock_appstore.lua", "rb")):read("*a")
-assert(appstore_source:find("local header_height = math.max", 1, true) and appstore_source:find("local list_y, card_height = action_y", 1, true), "AppStore rows must begin after their measured header and control rows")
+assert(appstore_source:find("local bar_height = scale(50)", 1, true) and appstore_source:find("local search_y = bar_height + scale(2)", 1, true), "AppStore must open with the Google Play app bar and its search pill")
 assert(appstore_source:find("padding = 0", 1, true), "AppStore fixed-height labels must not inherit TextWidget vertical padding")
 local homescreen_source = assert(io.open(plugin_dir .. "appdock_homescreen.lua", "rb")):read("*a")
 local simple_mode_source = homescreen_source:match("function AppDockHomeScreen:_buildSimpleMode.-\nend") or ""
-assert(homescreen_source:find("local header_positions = Theme.centeredStack", 1, true) and homescreen_source:find("local card_y = header_y + header_height", 1, true), "Normal Homescreen cards must begin after measured greeting lines")
+assert(homescreen_source:find("local header_positions = Theme.centeredStack", 1, true) and homescreen_source:find("local block_y = header_y + header_height + scale(5)", 1, true) and homescreen_source:find("local card_y = block_y", 1, true), "Normal Homescreen cards must begin after the measured greeting lines and the search block")
 assert(not simple_mode_source:find("Theme.centeredStack", 1, true) and not simple_mode_source:find("has_header_surface", 1, true), "Simple Mode must retain its independent reduced layout path")
 assert(recents_source:find('title = "", symbol = "⌂", width = scale(72), height = scale(44)', 1, true), "Compact Open Apps navigation must not place a text label beneath its Home button")
 assert(recents_source:find("local margin, gap = scale(10), scale(4)", 1, true) and recents_source:find("math.min(scale(50)", 1, true), "Settings must use visibly compact row and category spacing")
@@ -199,13 +219,17 @@ assert(recents_source:find("local card_height = expressive and scale(64) or scal
 assert(recents_source:find("local Layout = require(\"appdock_layout\")", 1, true) and recents_source:find("Layout.FixedStack:new", 1, true), "DApp settings and action controls must use fixed-bounds foreground drawing")
 assert(quick_settings_source:find("tile_height = scale(68)", 1, true) and quick_settings_source:find("slider_spacing = scale(8)", 1, true), "Normal Quick Settings must use compact visible tile and sheet spacing")
 assert(quick_settings_source:find("Layout.FixedStack:new", 1, true), "Quick Settings tiles and notifications must keep their text inside explicit fixed bounds")
-assert(appstore_source:find("local compact_height = scale(42)", 1, true) and appstore_source:find("local list_y, card_height", 1, true) and appstore_source:find("scale(58)", 1, true), "AppStore must use compact visible controls and catalog cards")
+assert(appstore_source:find("local row_height = scale(76)", 1, true) and appstore_source:find("local nav_height = scale(58)", 1, true), "AppStore must use compact Google Play list rows and a Play bottom navigation bar")
 assert(homescreen_source:find("local label_height = scale(20)", 1, true) and homescreen_source:find("local label_gap = scale(3)", 1, true) and homescreen_source:find("local row_gap = scale(8)", 1, true), "Normal Homescreen app labels and rows must use compact visible spacing")
 assert(appstore_source:find("Layout.FixedStack:new", 1, true) and homescreen_source:find("Layout.FixedStack:new", 1, true), "AppStore and Homescreen cards must draw text through the fixed-bounds container")
 assert(simple_mode_source:find("local column_gap, row_gap, label_height = scale(12), scale(14), scale(22)", 1, true), "Simple Mode must retain its original app-grid spacing")
 assert(homescreen_source:find("self:_pageInfo(apps, 9)", 1, true) and homescreen_source:find("local grid_width = width", 1, true), "Normal Homescreen must paginate nine apps on a screen-wide grid")
 assert(homescreen_source:find('local dock_title = actual_recent_count > 0 and actual_recent_count == #shortcut_apps and _("Recently used") or _("Quick access")', 1, true) and homescreen_source:find("dock_padding = scale(12)", 1, true) and homescreen_source:find("has_app_dock_surface = #shortcut_apps > 0", 1, true), "Normal Homescreen must provide a larger rounded Recently used surface with an accurate Quick access fallback")
-assert(homescreen_source:find("SwipeHomePage", 1, true) and homescreen_source:find("Motion.run(self, 4, 0.045", 1, true), "Homescreen paging must handle horizontal swipes with a bounded E-Ink transition")
+assert(homescreen_source:find("SwipeHomePage", 1, true) and homescreen_source:find("self:_showPage(self.page + 1)", 1, true) and not homescreen_source:find("Motion.run", 1, true), "Homescreen paging must switch app pages instantly, without animation")
+assert(homescreen_source:find("local DuckDuckGoBar = InputContainer:extend", 1, true) and homescreen_source:find("duckduckgo = color(222, 88, 51", 1, true) and homescreen_source:find("self.page == 1 and layout.ddg_search ~= false", 1, true) and homescreen_source:find("function AppDockHomeScreen:runWebSearch", 1, true), "The first Homescreen page must offer the branded DuckDuckGo search bar")
+assert(appstore_source:find("local PlayMark = Widget:extend", 1, true) and appstore_source:find("local function fillTriangle", 1, true) and appstore_source:find("local PlayNavTab = InputContainer:extend", 1, true), "AppStore must draw the Google Play mark, Play navigation and its brand surfaces")
+local browser_source = assert(io.open(plugin_dir .. "appdock_browser.lua", "rb")):read("*a")
+assert(browser_source:find("function Browser:beginQuery", 1, true) and browser_source:find("function Browser:runPendingSearch", 1, true) and browser_source:find("state.loading_query = type(query) == \"string\"", 1, true), "The Web Browser must expose the pending DuckDuckGo query used by the Homescreen search bar")
 assert(recents_source:find("local RecentDrawer", 1, true) and recents_source:find("function RecentDrawer:onShow", 1, true) and recents_source:find("function DAppManager:showRecentDrawer", 1, true) and recents_source:find("function DAppRecents:onRevealRecentApps", 1, true), "Recent Apps must be available through the animated global bottom drawer")
 assert(quick_settings_source:find("local header_subtitle", 1, true) and quick_settings_source:find("local icon_diameter", 1, true) and quick_settings_source:find("BrightnessSlider", 1, true), "Expressive Quick Settings must use Android-style header, toggle tiles, and a prominent brightness card")
 local manager_source = assert(io.open(plugin_dir .. "appdock_manager.lua", "rb")):read("*a")
@@ -479,13 +503,21 @@ package.preload["bit"] = function()
     function Bit.lshift(a, n) return a * 2 ^ n end
     return Bit
 end
-local bwr_store_file = "/home/ubuntu/dapps-store-repo/bwr_video.lua"
-local bwr_installed, bwr_id = manager:loadStoreDApp(bwr_store_file, "bwr_video.lua")
-assert(bwr_installed and bwr_id == "bwr_video" and manager.definitions.bwr_video, "BWR Video must load through the actual Store DApp registration path")
-manager:activate("bwr_video")
-local bwr_instance = manager.instances.bwr_video
-assert(bwr_instance and bwr_instance.pane and bwr_instance.pane.dimen, "BWR Video must build through the actual AppDock host without a Player field")
-manager:closeDApp("bwr_video")
+-- The BWR Video Store DApp is an optional local fixture: the regression only
+-- runs where the published catalog file has been checked out.
+local bwr_store_file = os.getenv("APPDOCK_BWR_FIXTURE") or "/home/ubuntu/dapps-store-repo/bwr_video.lua"
+local bwr_fixture = io.open(bwr_store_file, "rb")
+if bwr_fixture then
+    bwr_fixture:close()
+    local bwr_installed, bwr_id = manager:loadStoreDApp(bwr_store_file, "bwr_video.lua")
+    assert(bwr_installed and bwr_id == "bwr_video" and manager.definitions.bwr_video, "BWR Video must load through the actual Store DApp registration path")
+    manager:activate("bwr_video")
+    local bwr_instance = manager.instances.bwr_video
+    assert(bwr_instance and bwr_instance.pane and bwr_instance.pane.dimen, "BWR Video must build through the actual AppDock host without a Player field")
+    manager:closeDApp("bwr_video")
+else
+    print("AppDock DApp test: skipped the optional BWR Video fixture at " .. bwr_store_file)
+end
 
 manager:activate("analog_clock", "home")
 assert(manager.active_id == "analog_clock" and #manager:getOpenApps() == 1, "Activating a DApp must retain it in the open-app list")
@@ -628,12 +660,13 @@ local original_get_pinned_apps = appdock.getPinnedApps
 appdock.getPinnedApps = function() return many_pinned_apps end
 local paged_home = HomeScreen:new{ appdock = appdock, page = 1 }
 local visible_grid_apps = 0
-for _, child in ipairs(paged_home[1]) do
-    if child.app and child.app.id and child.app.id:match("^test:grid:") then
+walk_tree(paged_home[1], function(child)
+    if child.app and type(child.app.id) == "string" and child.app.id:match("^test:grid:") then
         visible_grid_apps = visible_grid_apps + 1
-        assert(child.overlap_offset[1] >= 0 and child.overlap_offset[1] + child.label_width <= Device.screen:getSize().w, "A full-width grid cell must remain inside the screen")
+        local offset = child.overlap_offset
+        assert(offset and offset[1] >= 0 and offset[1] + (child.label_width or 0) <= Device.screen:getSize().w, "A full-width grid cell must remain inside the screen")
     end
-end
+end)
 assert(paged_home.normal_layout.page_count == 2 and visible_grid_apps == 9, "A 3×3 app page must show nine apps before moving to the next page")
 assert(paged_home.normal_layout.hidden_widgets_for_fit and paged_home.normal_layout.tile_size >= 62, "Optional Store widgets must give way to keep paginated app tiles comfortably sized")
 assert(paged_home:onSwipeHomePage(nil, { direction = "west" }) and paged_home.page == 2 and not paged_home._page_transition, "Swiping west must animate to the next homescreen page and finish cleanly")
@@ -644,13 +677,49 @@ appdock.test_recent_apps = {}
 local fallback_home = HomeScreen:new{ appdock = appdock }
 assert(fallback_home.normal_layout.quick_access_count == 2 and fallback_home.normal_layout.recent_count == 0 and fallback_home.normal_layout.quick_access_title == "Quick access", "Pinned fallback tiles must be labelled Quick access when no app has been used recently")
 appdock.test_recent_apps = saved_recent_apps
+-- DuckDuckGo search bar on the first homescreen page -------------------------
+local function find_widget_text(widget, needle)
+    local found = false
+    walk_tree(widget, function(node)
+        if node.text == needle then found = true end
+    end)
+    return found
+end
+local function find_ddg_bars(widget)
+    local bars = {}
+    walk_tree(widget, function(node)
+        if type(node.onTapDuckDuckGoSearch) == "function" and node.ges_events and node.ges_events.TapDuckDuckGoSearch then
+            bars[#bars + 1] = node
+        end
+    end)
+    return bars
+end
+local ddg_home = HomeScreen:new{ appdock = appdock, page = 1 }
+local ddg_bars = find_ddg_bars(ddg_home[1])
+assert(#ddg_bars == 1 and find_widget_text(ddg_bars[1], "DuckDuckGo"), "The first homescreen page must show the branded DuckDuckGo search bar")
+local ddg_bar = ddg_bars[1]
+local shown_before_ddg = #log.shown
+assert(ddg_bar:onTapDuckDuckGoSearch() and #log.shown == shown_before_ddg + 1, "Tapping the DuckDuckGo bar must open the AppDock keyboard")
+assert(ddg_home:runWebSearch("   koreader ducks   ") and log.browser_query == "koreader ducks", "The DuckDuckGo bar must hand the trimmed query to the Web Browser")
+assert(manager.active_id == "web_browser" and log.browser_pending_runs == 1, "A DuckDuckGo search must open the Web Browser and run the pending query")
+manager:closeDApp("web_browser")
+local ddg_original_pins = appdock.getPinnedApps
+appdock.getPinnedApps = function() return many_pinned_apps end
+local page_two_home = HomeScreen:new{ appdock = appdock, page = 2 }
+assert(#find_ddg_bars(page_two_home[1]) == 0, "The DuckDuckGo bar belongs to the first homescreen page only")
+appdock.getPinnedApps = ddg_original_pins
 local expressive_quick_settings = QuickSettings:new{ appdock = appdock, home = expressive_home }
 assert(expressive_quick_settings.layout.expressive and not expressive_quick_settings.layout.simple_mode and expressive_quick_settings.sheet_height >= 0, "Normal quick settings must use expressive layout only outside Simple Mode")
 assert(expressive_quick_settings:onRevealRecentApps(), "The bottom-edge swipe must expose Recently used above Quick Settings")
 local recent_drawer = log.shown[#log.shown]
 assert(recent_drawer.covers_fullscreen == false and recent_drawer.sheet_height > 0 and recent_drawer.sheet_layer, "Recently used must open as a bounded animated bottom drawer")
 recent_drawer:onShow()
-assert(log.motion[#log.motion].target == recent_drawer and log.motion[#log.motion].frames == 4 and log.motion[#log.motion].region and log.motion[#log.motion].region.y >= 0, "The Recent Apps drawer must animate in four fast-refresh frames limited to the lower screen region")
+local drawer_motions = 0
+for _, motion in ipairs(log.motion or {}) do
+    if motion.target == recent_drawer then drawer_motions = drawer_motions + 1 end
+end
+assert(recent_drawer.sheet_layer.overlap_offset[2] == recent_drawer.sheet_y and recent_drawer.sheet_y > 0 and recent_drawer.sheet_y < recent_drawer.dimen.h, "The Recently used drawer must settle at its bounded sheet position in the lower screen area")
+assert(drawer_motions == 0, "The Recently used drawer must switch instantly instead of animating on E-Ink")
 
 local recents = {}
 manager:showDAppActions("analog_clock", recents)
