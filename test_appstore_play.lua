@@ -84,7 +84,10 @@ package.preload["ui/widget/widget"] = function() return Widget end
 package.preload["ui/widget/container/centercontainer"] = function() return CenterContainer end
 package.preload["ui/widget/container/framecontainer"] = function() return WidgetContainer end
 package.preload["ui/widget/container/inputcontainer"] = function() return InputContainer end
-package.preload["ui/widget/container/scrollablecontainer"] = function() return WidgetContainer end
+package.preload["ui/widget/container/scrollablecontainer"] = function()
+    WidgetContainer.getScrollbarWidth = function() return 8 end
+    return WidgetContainer
+end
 package.preload["ui/widget/container/widgetcontainer"] = function() return WidgetContainer end
 package.preload["ui/widget/horizontalspan"] = function() return Widget end
 package.preload["ui/widget/inputdialog"] = function() return Widget end
@@ -262,6 +265,11 @@ pane = store:buildPane(context.instance, context)
 assert(#find_control(pane, "TapPlayCard") > 0, "The recommendation shelf must expose tappable cards")
 assert(#find_control(pane, "TapPlayRow") >= #entries, "Every visible catalog entry must render a Play list row")
 assert(#find_control(pane, "TapPlayNavTab") == 4, "The Play bottom navigation must render all four category tabs")
+local scrollers = walk(pane, function(node, found)
+    if node.show_parent == context.host and node.dimen then found[#found + 1] = node end
+end)
+local first_row = find_control(pane, "TapPlayRow")[1]
+assert(#scrollers > 0 and first_row and scrollers[1].dimen.w == first_row.width + 8, "The AppStore scroller must reserve its scrollbar outside the row/action width")
 local search_pills = find_by_label(pane, "Search for apps & games")
 assert(#search_pills > 0, "The Play search pill must open the catalog search dialog")
 local glyphs = walk(pane, function(node, found)

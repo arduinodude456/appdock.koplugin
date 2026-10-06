@@ -149,7 +149,10 @@ package.preload["ui/widget/container/inputcontainer"] = function() return InputC
 package.preload["ui/widget/container/centercontainer"] = function() return CenterContainer end
 package.preload["ui/widget/container/framecontainer"] = function() return FrameContainer end
 package.preload["ui/widget/overlapgroup"] = function() return OverlapGroup end
-package.preload["ui/widget/container/scrollablecontainer"] = function() return WidgetContainer end
+package.preload["ui/widget/container/scrollablecontainer"] = function()
+    WidgetContainer.getScrollbarWidth = function() return 8 end
+    return WidgetContainer
+end
 package.preload["ui/widget/verticalgroup"] = function() return VerticalGroup end
 package.preload["ui/widget/horizontalspan"] = function() return HorizontalSpan end
 package.preload["ui/widget/verticalspan"] = function() return VerticalSpan end
@@ -229,7 +232,7 @@ assert(homescreen_source:find("SwipeHomePage", 1, true) and homescreen_source:fi
 assert(homescreen_source:find("local DuckDuckGoBar = InputContainer:extend", 1, true) and homescreen_source:find("duckduckgo = color(222, 88, 51", 1, true) and homescreen_source:find("self.page == 1 and layout.ddg_search ~= false", 1, true) and homescreen_source:find("function AppDockHomeScreen:runWebSearch", 1, true), "The first Homescreen page must offer the branded DuckDuckGo search bar")
 assert(appstore_source:find('kind = "app_store"', 1, true) and appstore_source:find('text = _("AppDock Store")', 1, true) and appstore_source:find("local PlayNavTab = InputContainer:extend", 1, true), "AppStore must use the AppDock logo and wordmark with its category navigation")
 local browser_source = assert(io.open(plugin_dir .. "appdock_browser.lua", "rb")):read("*a")
-assert(browser_source:find("function Browser:beginQuery", 1, true) and browser_source:find("function Browser:runPendingSearch", 1, true) and browser_source:find("state.loading_query = type(query) == \"string\"", 1, true), "The Web Browser must expose the pending DuckDuckGo query used by the Homescreen search bar")
+assert(browser_source:find("function Browser:beginQuery", 1, true) and browser_source:find("function Browser:runPendingSearch", 1, true) and browser_source:find("state.loading_query = type(query) == \"string\"", 1, true) and browser_source:find('UIManager:setDirty("all", "full")', 1, true) and browser_source:find("UIManager:nextTick(fullRefresh)", 1, true), "The Web Browser must run the pending DuckDuckGo query and request a queued full refresh")
 assert(recents_source:find("local RecentDrawer", 1, true) and recents_source:find("function RecentDrawer:onShow", 1, true) and recents_source:find("function DAppManager:showRecentDrawer", 1, true) and recents_source:find("function DAppRecents:onRevealRecentApps", 1, true), "Recent Apps must be available through the animated global bottom drawer")
 assert(quick_settings_source:find("local header_subtitle", 1, true) and quick_settings_source:find("local icon_diameter", 1, true) and quick_settings_source:find("BrightnessSlider", 1, true), "Expressive Quick Settings must use Android-style header, toggle tiles, and a prominent brightness card")
 local manager_source = assert(io.open(plugin_dir .. "appdock_manager.lua", "rb")):read("*a")

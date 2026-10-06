@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.5.1** ergänzt die **AppDock Store**-Eigenmarke; **7.5.0** brachte die DuckDuckGo-Suchleiste und den neu gestalteten Store. [Details](RELEASE_NOTES_7.5.1.md).
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.5.2** behebt angeschnittene Store-Zeilen beim Scrollen und löst nach der DuckDuckGo-Suche eine vollständige Bildschirmaktualisierung aus. **7.5.1** ergänzte die **AppDock Store**-Eigenmarke; **7.5.0** brachte Suchleiste und Store-Redesign. [Details](RELEASE_NOTES_7.5.2.md).
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst Androids Formensprache, nicht dessen Daueranimationen, Unschärfen oder Transparenzeffekte. Auf E-Ink wechseln App-Seiten und Recently-used-Drawer direkt und ohne Zwischenanimation. Damit bleibt die Darstellung auf monochromen Readern kontrastreich, sparsam und frei von unnötigem Ghosting.
 
@@ -21,6 +21,8 @@
 > **4.1.1 „Bueno“:** Der Plugin-Host stellt Standard-Pluginmenüs, Bestätigungen und Infomeldungen, die aus einer gehosteten Aktion heraus geöffnet werden, als AppDock-Overlay dar. Eingabedialoge zeigen zunächst eine AppDock-Hülle und übergeben die Texteingabe an einen AppDock-erzeugten Editor zurück an das originale Pluginobjekt. Komplexe eigenständige Pluginfenster werden bewusst nicht global umgeschrieben. Details stehen in [`RELEASE_NOTES_4.1.1.md`](RELEASE_NOTES_4.1.1.md).
 
 > **6.0.0 „Continuity“:** Die normale AppDock-Oberfläche erhält stärkere Material-orientierte Oberflächen für Homescreen, Kontrollzentrum, Open Apps und DApp-Navigation. **Simple Mode bleibt absichtlich unverändert:** sein 4×3-Raster, die reduzierte Kontrollzentrale und die fokussierte Appauswahl erhalten keine zusätzlichen Karten, Statusbereiche oder Dekorationen. Arbeitsbereichswiederherstellung ist standardmäßig aus, lokal begrenzt und setzt nur ausdrücklich freigegebene DApps fort. Details stehen in [`RELEASE_NOTES_6.0.0.md`](RELEASE_NOTES_6.0.0.md).
+
+> **7.5.2:** Der Store reserviert Platz für die Scrollbar, damit App-Zeilen und Aktionen nicht darunter abgeschnitten werden. Nach der DuckDuckGo-Suche wird der Bildschirm vollständig aktualisiert. [Details](RELEASE_NOTES_7.5.2.md).
 
 > **7.5.1:** Der Store-Kopf trägt jetzt ausschließlich die AppDock-Eigenmarke **AppDock Store** und das vorhandene AppStore-Logo. Das externe Play-Zeichen und der entsprechende Schriftzug wurden entfernt. [Details](RELEASE_NOTES_7.5.1.md).
 

@@ -1238,7 +1238,10 @@ function AppStore:buildPane(instance, context)
             unpack(cards),
         }
         table.insert(content, ScrollableContainer:new{
-            dimen = Geom:new{ w = row_width, h = list_height },
+            -- ScrollableContainer paints its scrollbar inside its own width.
+            -- Reserve that strip outside the actual row width so the trailing
+            -- app actions never sit beneath the scrollbar while scrolling.
+            dimen = Geom:new{ w = row_width + ScrollableContainer:getScrollbarWidth(), h = list_height },
             -- ScrollableContainer marks its show_parent dirty after every
             -- offset change. Without this, the framebuffer changes but an
             -- E-Ink device may not repaint the moved rows/scrollbar.

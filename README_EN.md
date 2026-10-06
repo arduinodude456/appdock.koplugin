@@ -4,7 +4,7 @@
 
 # New releases regulary commited at 3:00 AM CET
 
-**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **7.5.1** adds AppDock’s own **AppDock Store** branding; **7.5.0** introduced the DuckDuckGo search bar and redesigned catalog. [Details](RELEASE_NOTES_7.5.1.md).
+**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **7.5.2** fixes clipped App Store rows while scrolling and requests a full screen refresh after DuckDuckGo searches. **7.5.1** added AppDock’s own **AppDock Store** branding; **7.5.0** introduced the search bar and redesigned catalog. [Details](RELEASE_NOTES_7.5.2.md).
 
 > **E-Ink approach:** AppDock deliberately borrows the visual language and information structure, not Android's animations, blur, or transparency effects. This keeps updates economical and maintains contrast on monochrome readers.
 
@@ -21,6 +21,8 @@
 > **4.1.1 “Bueno”:** The plugin host renders standard plugin menus, confirmations, and information messages opened from a hosted action as AppDock overlays. Input dialogs first show an AppDock shell and hand text editing through an AppDock-created editor back to the original plugin object. Complex standalone plugin windows are deliberately not globally rewritten. See [`RELEASE_NOTES_4.1.1.md`](RELEASE_NOTES_4.1.1.md).
 
 > **6.0.0 “Continuity”:** The normal AppDock interface receives stronger Material-oriented surfaces for the homescreen, Control Center, Open Apps, and DApp navigation. **Simple Mode intentionally remains unchanged:** its 4×3 grid, reduced Control Center, and focused app selection receive no extra cards, status areas, or decoration. Workspace restoration is disabled by default, bounded locally, and resumes only explicitly permitted DApps. See [`RELEASE_NOTES_6.0.0.md`](RELEASE_NOTES_6.0.0.md) for details.
+
+> **7.5.2:** The store reserves space for its scrollbar so app rows and actions remain visible while scrolling. DuckDuckGo searches now trigger a full screen refresh. [Details](RELEASE_NOTES_7.5.2.md).
 
 > **7.5.1:** The store header now uses only AppDock’s own **AppDock Store** name and existing AppStore logo. External Play branding has been removed. [Details](RELEASE_NOTES_7.5.1.md).
 

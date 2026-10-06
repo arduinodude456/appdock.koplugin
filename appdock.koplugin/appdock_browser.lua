@@ -765,6 +765,14 @@ function Browser:runPendingSearch(instance, context)
     state.loading_query = nil
     if not query then return false end
     self:search(instance, context, query)
+    -- The browser pane is rebuilt after this blocking request. Queue a full
+    -- waveform after that rebuild so the freshly loaded DuckDuckGo page does
+    -- not retain ghosting from the loading view on E-Ink.
+    local function fullRefresh()
+        UIManager:setDirty("all", "full")
+        if UIManager.forceRePaint then UIManager:forceRePaint() end
+    end
+    if UIManager.nextTick then UIManager:nextTick(fullRefresh) else fullRefresh() end
     return true
 end
 
