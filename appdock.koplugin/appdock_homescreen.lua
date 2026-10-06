@@ -58,13 +58,33 @@ local InfoCard = WidgetContainer:extend{
     foreground = nil,
 }
 
-local StoreWidgetCard = WidgetContainer:extend{
+local StoreWidgetCard = InputContainer:extend{
     widget = nil,
     appdock = nil,
+    home = nil,
     width = nil,
     height = nil,
     background = nil,
     foreground = nil,
+    edit_mode = false,
+    widget_scale = 1,
+    widget_position = nil,
+}
+
+local WidgetScaleButton = InputContainer:extend{
+    home = nil,
+    widget_id = nil,
+    delta = nil,
+    title = nil,
+    width = nil,
+    height = nil,
+}
+
+local HomeEditButton = InputContainer:extend{
+    home = nil,
+    width = nil,
+    height = nil,
+    title = nil,
 }
 
 local SearchBar = InputContainer:extend{
@@ -267,6 +287,24 @@ function StoreWidgetCard:init()
             max_width = self.width - scale(20),
         }
     end
+    local card_children = { CenterContainer:new{ dimen = self.dimen, content } }
+    if self.edit_mode then
+        local button_size, button_gap = scale(25), scale(4)
+        card_children[#card_children + 1] = WidgetScaleButton:new{
+            home = self.home, widget_id = self.widget.widget_id, delta = -.25,
+            title = "−", width = button_size, height = button_size,
+            overlap_offset = { self.width - 2 * button_size - 2 * button_gap, button_gap },
+        }
+        card_children[#card_children + 1] = WidgetScaleButton:new{
+            home = self.home, widget_id = self.widget.widget_id, delta = .25,
+            title = "+", width = button_size, height = button_size,
+            overlap_offset = { self.width - button_size - button_gap, button_gap },
+        }
+        self.ges_events = {
+            PanMoveStoreWidget = { GestureRange:new{ ges = "pan", range = self.dimen } },
+            PanReleaseMoveStoreWidget = { GestureRange:new{ ges = "pan_release", range = self.dimen } },
+        }
+    end
     self[1] = FrameContainer:new{
         width = self.width,
         height = self.height,
@@ -275,11 +313,76 @@ function StoreWidgetCard:init()
         color = Blitbuffer.COLOR_BLACK,
         radius = math.floor(self.height * 0.28),
         background = self.background or PALETTE.surface,
-        CenterContainer:new{
-            dimen = self.dimen,
-            content,
-        },
+        OverlapGroup:new{ dimen = self.dimen, allow_mirroring = false, unpack(card_children) },
     }
+end
+
+function StoreWidgetCard:paintTo(bb, x, y)
+    if self.ges_events then
+        for _, name in ipairs({ "PanMoveStoreWidget", "PanReleaseMoveStoreWidget" }) do
+            local range = self.ges_events[name][1].range
+            range.x, range.y, range.w, range.h = x, y, self.dimen.w, self.dimen.h
+        end
+    end
+    return InputContainer.paintTo(self, bb, x, y)
+end
+
+function StoreWidgetCard:onPanMoveStoreWidget()
+    return self.edit_mode == true
+end
+
+function StoreWidgetCard:onPanReleaseMoveStoreWidget(_, gesture_event)
+    local pos = gesture_event and gesture_event.pos
+    if not self.edit_mode or not pos or not self.home then return false end
+    return self.home:moveStoreWidgetToPoint(self.widget.widget_id, pos.y)
+end
+
+function WidgetScaleButton:init()
+    self.dimen = Geom:new{ w = self.width, h = self.height }
+    self[1] = FrameContainer:new{
+        width = self.width, height = self.height, padding = 0, bordersize = 0,
+        radius = math.floor(self.height / 2),
+        background = self.delta < 0 and PALETTE.surface_variant or PALETTE.primary_container,
+        CenterContainer:new{ dimen = self.dimen, TextWidget:new{
+            text = self.title, face = Font:getFace("cfont", scale(15)),
+            fgcolor = PALETTE.on_surface, bold = true, padding = 0,
+        } },
+    }
+    self.ges_events = { TapAdjustStoreWidget = { GestureRange:new{ ges = "tap", range = self.dimen } } }
+end
+
+function WidgetScaleButton:paintTo(bb, x, y)
+    local range = self.ges_events.TapAdjustStoreWidget[1].range
+    range.x, range.y, range.w, range.h = x, y, self.dimen.w, self.dimen.h
+    return InputContainer.paintTo(self, bb, x, y)
+end
+
+function WidgetScaleButton:onTapAdjustStoreWidget()
+    return self.home and self.home:adjustStoreWidgetScale(self.widget_id, self.delta) or false
+end
+
+function HomeEditButton:init()
+    self.dimen = Geom:new{ w = self.width, h = self.height }
+    self[1] = FrameContainer:new{
+        width = self.width, height = self.height, padding = scale(4), bordersize = 0,
+        radius = math.floor(self.height / 2), background = PALETTE.primary_container,
+        CenterContainer:new{ dimen = self.dimen, TextWidget:new{
+            text = self.title or _("Done"), face = Font:getFace("smallinfofont", scale(12)),
+            fgcolor = PALETTE.on_primary_container, bold = true, padding = 0,
+        } },
+    }
+    self.ges_events = { TapFinishHomeEdit = { GestureRange:new{ ges = "tap", range = self.dimen } } }
+end
+
+function HomeEditButton:paintTo(bb, x, y)
+    local range = self.ges_events.TapFinishHomeEdit[1].range
+    range.x, range.y, range.w, range.h = x, y, self.dimen.w, self.dimen.h
+    return InputContainer.paintTo(self, bb, x, y)
+end
+
+function HomeEditButton:onTapFinishHomeEdit()
+    if self.home then self.home:finishLayoutEdit() end
+    return true
 end
 
 function SearchBar:init()
@@ -479,25 +582,63 @@ function AppTile:init()
             GestureRange:new{ ges = "hold", range = self.dimen },
         },
     }
+    if self.home and self.home.edit_mode then
+        self.ges_events.PanMoveAppTile = { GestureRange:new{ ges = "pan", range = self.dimen } }
+        self.ges_events.PanReleaseMoveAppTile = { GestureRange:new{ ges = "pan_release", range = self.dimen } }
+    end
 end
 
 function AppTile:paintTo(bb, x, y)
+    local drag_pos = self.home and self.home.edit_mode and self.home.drag_app_id == self.app.id and self.home.drag_pos
+    if drag_pos then
+        x = math.floor(drag_pos.x - self.dimen.w / 2)
+        y = math.floor(drag_pos.y - self.dimen.h / 2)
+    end
     local range = self.ges_events.TapSelectAppTile[1].range
     range.x, range.y, range.w, range.h = x, y, self.dimen.w, self.dimen.h
     local hold_range = self.ges_events.HoldSelectAppTile[1].range
     hold_range.x, hold_range.y, hold_range.w, hold_range.h = x, y, self.dimen.w, self.dimen.h
+    if self.ges_events.PanMoveAppTile then
+        for _, name in ipairs({ "PanMoveAppTile", "PanReleaseMoveAppTile" }) do
+            local pan_range = self.ges_events[name][1].range
+            pan_range.x, pan_range.y, pan_range.w, pan_range.h = x, y, self.dimen.w, self.dimen.h
+        end
+    end
     return InputContainer.paintTo(self, bb, x, y)
 end
 
 function AppTile:onTapSelectAppTile()
+    if self.home and self.home.edit_mode then
+        self.home.selected_app_id = self.app.id
+        UIManager:setDirty(self.home, "ui")
+        return true
+    end
     UIManager:setDirty(self, "fast")
     self.appdock:launchApp(self.app, self.home)
     return true
 end
 
 function AppTile:onHoldSelectAppTile()
+    if self.home and self.home.edit_mode then return true end
     self.appdock:showManager(self.home, self.app)
     return true
+end
+
+function AppTile:onPanMoveAppTile(_, gesture_event)
+    if not self.home or not self.home.edit_mode or not gesture_event or not gesture_event.pos then return false end
+    self.home.drag_app_id = self.app.id
+    self.home.drag_pos = gesture_event.pos
+    UIManager:setDirty(self.home, "fast")
+    return true
+end
+
+function AppTile:onPanReleaseMoveAppTile(_, gesture_event)
+    if not self.home or not self.home.edit_mode then return false end
+    local pos = gesture_event and gesture_event.pos or self.home.drag_pos
+    local moved = self.home:moveAppToPoint(self.app.id, pos)
+    self.home.drag_app_id, self.home.drag_pos = nil, nil
+    UIManager:setDirty(self.home, "ui")
+    return moved or true
 end
 
 function AppDockHomeScreen:init()
@@ -637,6 +778,65 @@ function AppDockHomeScreen:_showPage(page)
     return true
 end
 
+function AppDockHomeScreen:beginLayoutEdit(selected_app_id)
+    self.edit_mode = true
+    self.selected_app_id = selected_app_id
+    self.drag_app_id, self.drag_pos = nil, nil
+    self:build()
+    UIManager:setDirty(self, "ui")
+    return true
+end
+
+function AppDockHomeScreen:finishLayoutEdit()
+    self.edit_mode = false
+    self.drag_app_id, self.drag_pos, self.selected_app_id = nil, nil, nil
+    self:build()
+    UIManager:setDirty(self, "ui")
+    return true
+end
+
+function AppDockHomeScreen:moveAppToPoint(app_id, pos)
+    local layout = self.normal_layout or self.simple_layout
+    if not self.edit_mode or not layout or not pos then return false end
+    local position, total = self.appdock:getPinnedPosition(app_id)
+    if not position then return false end
+    local columns = math.max(1, tonumber(layout.grid_columns or layout.columns) or 3)
+    local rows = math.max(1, tonumber(layout.grid_rows or layout.rows) or 3)
+    local page_size = tonumber(layout.page_size) or columns * rows
+    local cell_width = tonumber(layout.cell_width) or (layout.grid_width or self.dimen.w) / columns
+    local grid_x, grid_y = tonumber(layout.grid_x) or 0, tonumber(layout.grid_y) or 0
+    local row_pitch = tonumber(layout.row_pitch) or math.max(1, (layout.grid_height or self.dimen.h) / rows)
+    local col = math.max(0, math.min(columns - 1, math.floor((pos.x - grid_x) / math.max(1, cell_width))))
+    local row = math.max(0, math.min(rows - 1, math.floor((pos.y - grid_y) / math.max(1, row_pitch))))
+    local target = math.max(1, math.min(total, (self.page - 1) * page_size + row * columns + col + 1))
+    local moved = self.appdock:movePinned(app_id, target - position)
+    if moved then self:build(); UIManager:setDirty(self, "ui") end
+    return moved
+end
+
+function AppDockHomeScreen:adjustStoreWidgetScale(widget_id, delta)
+    if not self.appdock or type(self.appdock.adjustStoreWidgetScale) ~= "function" then return false end
+    local result = self.appdock:adjustStoreWidgetScale(widget_id, delta)
+    if result then self:build(); UIManager:setDirty(self, "ui") end
+    return result
+end
+
+function AppDockHomeScreen:moveStoreWidgetToPoint(widget_id, y)
+    local positions = self.normal_layout and self.normal_layout.widget_positions or {}
+    local target_id, nearest = nil, nil
+    for _, item in pairs(positions) do
+        local distance = math.abs(y - (item.y + item.height / 2))
+        if not nearest or distance < nearest then target_id, nearest = item.widget_id, distance end
+    end
+    if not target_id or target_id == widget_id then return false end
+    local current_position = self.appdock:getStoreWidgetPosition(widget_id)
+    local target_position = self.appdock:getStoreWidgetPosition(target_id)
+    if not current_position or not target_position then return false end
+    local moved = self.appdock:moveStoreWidget(widget_id, target_position - current_position)
+    if moved then self:build(); UIManager:setDirty(self, "ui") end
+    return moved
+end
+
 function AppDockHomeScreen:onSwipeHomePage(_, gesture_event)
     if self.appdock:isSimpleModeEnabled("homescreen") or self._page_transition or not gesture_event then return false end
     if gesture_event.direction == "west" then
@@ -730,6 +930,26 @@ function AppDockHomeScreen:_addTopSystemLine(dashboard, width, margin)
     })
 end
 
+local function addEditGridCells(container, columns, rows, x, y, cell_width, row_pitch, cell_height)
+    for row = 0, rows - 1 do
+        for col = 0, columns - 1 do
+            local cell_width_inner = math.max(scale(12), cell_width - scale(5))
+            local cell_height_inner = math.max(scale(12), cell_height - scale(4))
+            table.insert(container, FrameContainer:new{
+                width = cell_width_inner,
+                height = cell_height_inner,
+                padding = 0,
+                bordersize = scale(1),
+                color = PALETTE.outline,
+                radius = scale(8),
+                background = PALETTE.surface,
+                emptySizedWidget(cell_width_inner, cell_height_inner),
+                overlap_offset = { x + col * cell_width + scale(2), y + row * row_pitch },
+            })
+        end
+    end
+end
+
 function AppDockHomeScreen:_buildSimpleMode(width, height)
     local margin = scale(16)
     local column_gap, row_gap, label_height = scale(12), scale(14), scale(22)
@@ -751,6 +971,11 @@ function AppDockHomeScreen:_buildSimpleMode(width, height)
             emptySizedWidget(width, height),
         },
     }
+    local cell_width = tile_size + column_gap
+    local row_pitch = tile_size + label_height + row_gap
+    if self.edit_mode then
+        addEditGridCells(dashboard, 4, 3, grid_x, grid_y, cell_width, row_pitch, tile_size + label_height)
+    end
     for index, app in ipairs(visible_apps) do
         local col = (index - 1) % 4
         local row = math.floor((index - 1) / 4)
@@ -784,7 +1009,7 @@ function AppDockHomeScreen:_buildSimpleMode(width, height)
     self:_addTopSystemLine(dashboard, width, margin)
     if grid_y > scale(58) then
         table.insert(dashboard, TextWidget:new{
-            text = appSectionLabel(#apps),
+            text = self.edit_mode and _("Drag apps into a grid cell") or appSectionLabel(#apps),
             face = Font:getFace("smallinfofont", Theme.adjustText(self.appdock, scale(14), scale(10))),
             fgcolor = PALETTE.on_surface_variant,
             bold = true,
@@ -792,7 +1017,20 @@ function AppDockHomeScreen:_buildSimpleMode(width, height)
             overlap_offset = { margin, margin + scale(38) },
         })
     end
-    self.simple_layout = { columns = 4, rows = 3, tile_size = tile_size, app_count = #visible_apps, page_count = page_count, app_section = true }
+    if self.edit_mode then
+        table.insert(dashboard, HomeEditButton:new{
+            home = self, title = _("Done"), width = scale(78), height = scale(32),
+            overlap_offset = { width - margin - scale(78), scale(12) },
+        })
+    end
+    self.simple_layout = {
+        columns = 4, rows = 3, grid_columns = 4, grid_rows = 3,
+        tile_size = tile_size, app_count = #visible_apps, page_count = page_count,
+        page_size = 12, grid_x = grid_x, grid_y = grid_y,
+        grid_width = 4 * tile_size + 3 * column_gap,
+        grid_height = grid_height, cell_width = cell_width, row_pitch = row_pitch,
+        app_section = true,
+    }
     self[1] = dashboard
 end
 
@@ -807,18 +1045,18 @@ function AppDockHomeScreen:build()
     local top_line_height = scale(30)
     local header_y = top_line_height + scale(14)
     local greeting_text = TextWidget:new{
-        text = greeting(),
+        text = self.edit_mode and _("Edit homescreen") or greeting(),
         face = Font:getFace("cfont", Theme.adjustText(self.appdock, scale(28), scale(18))),
         fgcolor = PALETTE.on_surface,
         bold = true,
-        max_width = width - 2 * margin,
+        max_width = width - 2 * margin - (self.edit_mode and scale(92) or 0),
         padding = 0,
     }
     local date_text = TextWidget:new{
-        text = os.date("%A, %d %B"),
+        text = self.edit_mode and _("Drag apps · move and resize widgets") or os.date("%A, %d %B"),
         face = Font:getFace("smallinfofont", Theme.adjustText(self.appdock, scale(15), scale(10))),
         fgcolor = PALETTE.on_surface_variant,
-        max_width = width - 2 * margin,
+        max_width = width - 2 * margin - (self.edit_mode and scale(92) or 0),
         padding = 0,
     }
     local header_height = math.max(scale(56), greeting_text:getSize().h + date_text:getSize().h + scale(8))
@@ -867,6 +1105,12 @@ function AppDockHomeScreen:build()
         })
     end
     self:_addTopSystemLine(dashboard, width, margin)
+    if self.edit_mode then
+        table.insert(dashboard, HomeEditButton:new{
+            home = self, title = _("Done"), width = scale(78), height = scale(32),
+            overlap_offset = { width - margin - scale(78), header_y + scale(12) },
+        })
+    end
 
     table.insert(dashboard, greeting_text)
     table.insert(dashboard, date_text)
@@ -932,12 +1176,24 @@ function AppDockHomeScreen:build()
     local dock_title_height = scale(20)
     local dock_height = #shortcut_apps > 0 and (2 * dock_padding + dock_title_height + scale(5) + dock_tile_size + scale(5) + dock_label_height) or 0
     local dock_y = height - margin - dock_height
-    local widget_height = scale(98)
     local widget_gap = scale(10)
+    local widget_metrics = {}
+    local widget_scales = layout.widget_scales or {}
+    for _, widget in ipairs(visible_widgets) do
+        local factor = math.max(.75, math.min(1.5, tonumber(widget_scales[widget.widget_id]) or 1))
+        widget_metrics[widget.widget_id] = {
+            factor = factor,
+            width = math.floor((width - 2 * margin) * math.min(1, factor)),
+            height = scale(98 * factor),
+        }
+    end
     local function measuredGridY()
         local has_cards = show_status_card or show_reading_card
         local widget_y = card_y + (has_cards and scale(54) or 0) + (has_cards and scale(8) or 0)
-        local widget_space = #visible_widgets * widget_height + math.max(0, #visible_widgets - 1) * widget_gap
+        local widget_space = math.max(0, #visible_widgets - 1) * widget_gap
+        for _, widget in ipairs(visible_widgets) do
+            widget_space = widget_space + (widget_metrics[widget.widget_id] and widget_metrics[widget.widget_id].height or scale(98))
+        end
         return widget_y + widget_space + scale(24), widget_y, widget_space
     end
     local function maxGridTileSize()
@@ -947,7 +1203,7 @@ function AppDockHomeScreen:build()
         return math.floor((bottom - grid_y - 2 * row_gap - 3 * (label_gap + label_height)) / 3)
     end
     local widgets_hidden_for_fit = false
-    while maxGridTileSize() < scale(62) do
+    while not self.edit_mode and maxGridTileSize() < scale(62) do
         if #visible_widgets > 0 then
             visible_widgets = {}
             widgets_hidden_for_fit = true
@@ -994,16 +1250,26 @@ function AppDockHomeScreen:build()
     end
 
     local grid_y, widget_y, widget_space = measuredGridY()
+    local widget_positions = {}
+    local widget_cursor_y = widget_y
     for index, widget in ipairs(visible_widgets) do
+        local metrics = widget_metrics[widget.widget_id] or { width = width - 2 * margin, height = scale(98), factor = 1 }
+        local widget_x = margin + math.floor((width - 2 * margin - metrics.width) / 2)
+        widget_positions[widget.widget_id] = { widget_id = widget.widget_id, y = widget_cursor_y, height = metrics.height, index = index }
         table.insert(dashboard, StoreWidgetCard:new{
             widget = widget,
             appdock = self.appdock,
-            width = width - 2 * margin,
-            height = widget_height,
+            home = self,
+            edit_mode = self.edit_mode,
+            widget_scale = metrics.factor,
+            widget_position = index,
+            width = metrics.width,
+            height = metrics.height,
             background = index % 2 == 0 and PALETTE.secondary_container or PALETTE.primary_container,
             foreground = index % 2 == 0 and PALETTE.on_secondary_container or PALETTE.on_primary_container,
-            overlap_offset = { margin, widget_y + (index - 1) * (widget_height + widget_gap) },
+            overlap_offset = { widget_x, widget_cursor_y },
         })
+        widget_cursor_y = widget_cursor_y + metrics.height + widget_gap
     end
     local page_nav_space = page_count > 1 and scale(34) or 0
     local grid_bottom = dock_y - (#shortcut_apps > 0 and scale(8) or 0) - page_nav_space
@@ -1016,6 +1282,10 @@ function AppDockHomeScreen:build()
     local grid_rows = 3
     local grid_height = grid_rows * (tile_size + label_gap + label_height) + 2 * row_gap
     local app_grid = OverlapGroup:new{ dimen = Geom:new{ w = width, h = height }, allow_mirroring = false }
+    if self.edit_mode then
+        addEditGridCells(app_grid, 3, 3, grid_x, grid_y, column_width,
+            tile_size + label_gap + label_height + row_gap, tile_size + label_gap + label_height)
+    end
     table.insert(app_grid, TextWidget:new{
         text = appSectionLabel(#apps),
         face = Font:getFace("smallinfofont", Theme.adjustText(self.appdock, scale(14), scale(10))),
@@ -1116,6 +1386,11 @@ function AppDockHomeScreen:build()
         grid_columns = 3,
         grid_rows = grid_rows,
         grid_width = grid_width,
+        grid_x = grid_x,
+        cell_width = column_width,
+        row_pitch = tile_size + label_gap + label_height + row_gap,
+        page_size = 9,
+        widget_positions = widget_positions,
         tile_size = tile_size,
         grid_y = grid_y,
         grid_height = grid_height,

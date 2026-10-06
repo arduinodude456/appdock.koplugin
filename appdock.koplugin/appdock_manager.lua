@@ -105,6 +105,14 @@ function AppDockManager:showDialog()
 
     if selected_app and selected_app.id and appdock:isPinned(selected_app.id) then
         table.insert(buttons, { { text = string.format(_("Selected app: %s"), selected_app.title), enabled = false } })
+        table.insert(buttons, { { text = _("Edit homescreen"), callback = function()
+            UIManager:close(dialog)
+            UIManager:nextTick(function()
+                if self.parent_home and type(self.parent_home.beginLayoutEdit) == "function" then
+                    self.parent_home:beginLayoutEdit(selected_app.id)
+                end
+            end)
+        end } })
         table.insert(buttons, { { text = _("Move app"), callback = showMoveMenu } })
         table.insert(buttons, { { text = _("Remove from homescreen"), callback = function()
             appdock:togglePinned(selected_app.id)

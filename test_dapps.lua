@@ -304,6 +304,15 @@ local appdock = {
     end,
     seedDefaults = function() end,
     getStoreWidgets = function() return { { widget_id = "quote_widget", title = "Quote Widget" }, { widget_id = "weather_widget", title = "Weather Widget" } } end,
+    getStoreWidgetPosition = function(_, widget_id) return widget_id == "quote_widget" and 1 or 2, 2 end,
+    adjustStoreWidgetScale = function(self, widget_id, delta)
+        self.settings.layout.widget_scales = self.settings.layout.widget_scales or {}
+        local current = tonumber(self.settings.layout.widget_scales[widget_id]) or 1
+        local next_scale = math.max(.75, math.min(1.5, current + delta))
+        if next_scale == 1 then self.settings.layout.widget_scales[widget_id] = nil else self.settings.layout.widget_scales[widget_id] = next_scale end
+        self:_saveSettings()
+        return next_scale
+    end,
     isStoreWidgetEnabled = function() return true end,
     isSimpleModeEnabled = function(self, option) return self.settings.simple_mode[option] == true end,
     isExpressiveUiEnabled = function(self)
@@ -484,6 +493,8 @@ assert(widget_installed and widget_id == "quote_widget" and manager.widget_defin
 assert(appdock.settings.store.installed.quote_widget.kind == "widget" and appdock.settings.store.installed.quote_widget.version == "1.0.0", "Store widgets must persist their type and version")
 local widgets = manager:getStoreWidgets()
 assert(#widgets == 1 and widgets[1].widget_id == "quote_widget" and widgets[1].definition.buildWidget, "Installed Store widgets must be exposed to the homescreen")
+assert(appdock:adjustStoreWidgetScale("quote_widget", .25) == 1.25 and appdock.settings.layout.widget_scales.quote_widget == 1.25, "Homescreen editing must persist an individual Store widget size")
+assert(appdock:adjustStoreWidgetScale("quote_widget", -.25) == 1 and appdock.settings.layout.widget_scales.quote_widget == nil, "Widget size controls must support stepping back to the default size")
 appdock.settings.widgets.store = {}
 local widget_removed = assert(manager:uninstallStoreWidget("quote_widget"))
 assert(widget_removed and not manager.widget_definitions.quote_widget and not appdock.settings.store.installed.quote_widget and not io.open(widget_fixture, "rb"), "Widget uninstall must remove registry, metadata, and Lua file")
@@ -660,7 +671,43 @@ assert(expressive_home.normal_layout.tile_size >= 62, "App tiles must remain com
 local many_pinned_apps = {}
 for index = 1, 10 do many_pinned_apps[index] = { id = "test:grid:" .. index, title = "Grid App " .. index } end
 local original_get_pinned_apps = appdock.getPinnedApps
+local original_get_pinned_position, original_move_pinned = appdock.getPinnedPosition, appdock.movePinned
 appdock.getPinnedApps = function() return many_pinned_apps end
+appdock.getPinnedPosition = function(_, app_id)
+    for index, app in ipairs(many_pinned_apps) do if app.id == app_id then return index, #many_pinned_apps end end
+    return nil, #many_pinned_apps
+end
+appdock.movePinned = function(_, app_id, delta)
+    local position
+    for index, app in ipairs(many_pinned_apps) do if app.id == app_id then position = index; break end end
+    if not position then return false end
+    local target = math.max(1, math.min(#many_pinned_apps, position + delta))
+    if target == position then return false end
+    local app = table.remove(many_pinned_apps, position)
+    table.insert(many_pinned_apps, target, app)
+    return true
+end
+local editor_home = HomeScreen:new{ appdock = appdock, page = 1 }
+editor_home:beginLayoutEdit(many_pinned_apps[1].id)
+local draggable_tile, editable_widget, scale_up, done_button = nil, nil, nil, false
+walk_tree(editor_home[1], function(node)
+    if node.app and node.app.id == many_pinned_apps[1].id and node.ges_events and node.ges_events.PanMoveAppTile then draggable_tile = node end
+    if node.widget and node.widget.widget_id == "quote_widget" and node.ges_events and node.ges_events.PanMoveStoreWidget then editable_widget = node end
+    if type(node.onTapAdjustStoreWidget) == "function" and node.widget_id == "quote_widget" and node.delta == .25 then scale_up = node end
+    if type(node.onTapFinishHomeEdit) == "function" then done_button = true end
+end)
+assert(editor_home.edit_mode and draggable_tile and editable_widget and scale_up and done_button, "Long-press edit mode must show the app grid, movable/resizable widgets, and a Done action")
+assert(scale_up:onTapAdjustStoreWidget() == 1.25 and appdock.settings.layout.widget_scales.quote_widget == 1.25, "Tapping a widget plus control must enlarge only that widget")
+local weather_position = editor_home.normal_layout.widget_positions.weather_widget
+assert(editable_widget:onPanReleaseMoveStoreWidget(nil, { pos = { y = weather_position.y + weather_position.height / 2 } }) and log.moved_widget, "Dragging a Store widget to another widget row must reorder it")
+local target_x = editor_home.normal_layout.grid_x + editor_home.normal_layout.cell_width + 4
+local target_y = editor_home.normal_layout.grid_y + 4
+assert(draggable_tile:onPanMoveAppTile(nil, { pos = { x = target_x, y = target_y } }), "App tiles must begin dragging in edit mode")
+assert(draggable_tile:onPanReleaseMoveAppTile(nil, { pos = { x = target_x, y = target_y } }), "Releasing an app tile must complete a grid move")
+assert(many_pinned_apps[2].id == "test:grid:1", "Dropping an app in the next grid cell must persist its new homescreen position")
+assert(appdock:movePinned("test:grid:1", -1), "The layout-editor test must restore the original app ordering")
+editor_home:finishLayoutEdit()
+appdock.getPinnedPosition, appdock.movePinned = original_get_pinned_position, original_move_pinned
 local paged_home = HomeScreen:new{ appdock = appdock, page = 1 }
 local visible_grid_apps = 0
 walk_tree(paged_home[1], function(child)

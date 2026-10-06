@@ -4,7 +4,7 @@
 
 # New releases regulary commited at 3:00 AM CET
 
-**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **7.5.2** fixes clipped App Store rows while scrolling and requests a full screen refresh after DuckDuckGo searches. **7.5.1** added AppDock’s own **AppDock Store** branding; **7.5.0** introduced the search bar and redesigned catalog. [Details](RELEASE_NOTES_7.5.2.md).
+**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **7.6.0** adds a visual layout editor for repositioning pinned apps and moving or individually resizing Store widgets. Long-press a pinned app, choose **“Edit homescreen,”** then select **“Done”** to finish. [Details](RELEASE_NOTES_7.6.0.md).
 
 > **E-Ink approach:** AppDock deliberately borrows the visual language and information structure, not Android's animations, blur, or transparency effects. This keeps updates economical and maintains contrast on monochrome readers.
 

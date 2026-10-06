@@ -47,7 +47,7 @@ local DEFAULT_SETTINGS = {
     design = { active_id = nil, installed = {} },
     plugin_logos = {},
     store = { installed = {} },
-    layout = { app_spacing = 16, logo_shape = "rounded", search_enabled = false, ddg_search = true, split_ratio = .5 },
+    layout = { app_spacing = 16, logo_shape = "rounded", search_enabled = false, ddg_search = true, split_ratio = .5, widget_scales = {} },
     launch_on_start = false,
     notifications = { items = {}, next_id = 0 },
     wallpaper = { enabled = false, path = "" },
@@ -63,7 +63,7 @@ local DEFAULT_SETTINGS = {
     power_saving = false,
     refresh_interval = 60,
     sleepscreen_enabled = false,
-    layout_version = 19,
+    layout_version = 20,
 }
 
 local function copyArray(source)
@@ -171,6 +171,14 @@ function AppDock:_loadSettings()
     self.settings.layout.ddg_search = self.settings.layout.ddg_search ~= false
     self.settings.layout.split_ratio = tonumber(self.settings.layout.split_ratio) or DEFAULT_SETTINGS.layout.split_ratio
     self.settings.layout.split_ratio = math.max(.20, math.min(.80, self.settings.layout.split_ratio))
+    local widget_scales = {}
+    for widget_id, factor in pairs(type(self.settings.layout.widget_scales) == "table" and self.settings.layout.widget_scales or {}) do
+        factor = tonumber(factor)
+        if type(widget_id) == "string" and #widget_id <= 120 and widget_id:match("^[%w:_%-]+$") and factor and factor >= .75 and factor <= 1.5 then
+            widget_scales[widget_id] = math.floor(factor * 4 + .5) / 4
+        end
+    end
+    self.settings.layout.widget_scales = widget_scales
     self.settings.refresh_interval = math.floor((tonumber(self.settings.refresh_interval) or DEFAULT_SETTINGS.refresh_interval) / 15 + .5) * 15
     self.settings.refresh_interval = math.max(15, math.min(300, self.settings.refresh_interval))
 
@@ -388,6 +396,23 @@ function AppDock:setLauncherLayout(changes)
         self.settings.layout.ddg_search = not not changes.ddg_search
     end
     self:_saveSettings()
+end
+
+function AppDock:adjustStoreWidgetScale(widget_id, delta)
+    if type(widget_id) ~= "string" or #widget_id > 120 or not widget_id:match("^[%w:_%-]+$") then return false end
+    local known = false
+    for _, widget in ipairs(self:getStoreWidgets()) do
+        if widget.widget_id == widget_id then known = true; break end
+    end
+    if not known then return false end
+    local scales = self.settings.layout.widget_scales or {}
+    local current = tonumber(scales[widget_id]) or 1
+    local next_scale = math.max(.75, math.min(1.5, current + (tonumber(delta) or 0)))
+    next_scale = math.floor(next_scale * 4 + .5) / 4
+    if next_scale == 1 then scales[widget_id] = nil else scales[widget_id] = next_scale end
+    self.settings.layout.widget_scales = scales
+    self:_saveSettings()
+    return next_scale
 end
 
 function AppDock:setWallpaper(path, enabled)
