@@ -423,7 +423,14 @@ end
 function AppDockHomeScreen:showAppSearch()
     local keyboard
     keyboard = AppDockKeyboard:new{
+        title = _("Search AppDock apps"),
+        placeholder = _("App name"),
         value = self.search_query or "",
+        on_change = function(value)
+            self.search_query = value or ""
+            self:build()
+            UIManager:setDirty(self, "ui")
+        end,
         on_cancel = function() UIManager:close(keyboard) end,
         on_submit = function(value)
             self.search_query = value or ""

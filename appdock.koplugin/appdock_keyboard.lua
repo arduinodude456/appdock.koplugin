@@ -100,6 +100,7 @@ local Keyboard = InputContainer:extend{
     value = "",
     on_submit = nil,
     on_cancel = nil,
+    on_change = nil,
     title = nil,
     placeholder = nil,
     numeric_only = false,
@@ -285,6 +286,7 @@ function Keyboard:_update()
         item.key:setLabel(self.shift and item.upper or item.lower)
     end
     if self.shift_key then self.shift_key:setActive(self.shift) end
+    if self.on_change then self.on_change(self.value) end
     UIManager:setDirty(self, "fast")
 end
 
@@ -301,9 +303,15 @@ function Keyboard:onClose()
     return true
 end
 
--- Replace only this AppDock-owned InputDialog's soft-keyboard callback. The
--- dialog remains in place, so its existing validation and action buttons stay
--- authoritative; Done copies the custom keyboard's value back to its input.
+function Keyboard.open(options)
+    local keyboard = Keyboard:new(options or {})
+    UIManager:show(keyboard)
+    return keyboard
+end
+
+-- The native dialog is only a compatibility object now. It is closed before
+-- the AppDock keyboard is shown, so the typed value can be mirrored directly
+-- into the owning surface without a second KOReader input field.
 function Keyboard.attach(dialog, options)
     options = options or {}
     if type(dialog) ~= "table" or type(dialog.getInputText) ~= "function" or type(dialog.setInputText) ~= "function" then
@@ -314,6 +322,15 @@ function Keyboard.attach(dialog, options)
     if type(input_widget) ~= "table" then return false end
 
     local active_keyboard
+    local function findButtonCallback(kind)
+        for _, row in ipairs(dialog.buttons or {}) do
+            for _, button in ipairs(row or {}) do
+                local text = tostring(button.text or ""):lower()
+                if kind == "submit" and button.is_enter_default then return button.callback end
+                if kind == "cancel" and (text == _("Cancel"):lower() or text == _("Abbrechen"):lower()) then return button.callback end
+            end
+        end
+    end
     local function closeKeyboard()
         local keyboard = active_keyboard
         active_keyboard = nil
@@ -321,6 +338,7 @@ function Keyboard.attach(dialog, options)
     end
     local function showKeyboard()
         if active_keyboard then return true end
+        UIManager:close(dialog)
         local keyboard
         keyboard = Keyboard:new{
             value = dialog:getInputText() or "",
@@ -328,10 +346,21 @@ function Keyboard.attach(dialog, options)
             placeholder = options.placeholder or dialog.input_hint,
             numeric_only = options.numeric_only or dialog.input_type == "number",
             secure = options.secure or false,
-            on_cancel = closeKeyboard,
+            on_change = function(value)
+                dialog:setInputText(value)
+                if options.on_change then options.on_change(value) end
+            end,
+            on_cancel = function()
+                local callback = findButtonCallback("cancel")
+                closeKeyboard()
+                if callback then callback() end
+            end,
             on_submit = function(value)
                 dialog:setInputText(value)
+                if options.on_change then options.on_change(value) end
                 closeKeyboard()
+                local callback = findButtonCallback("submit")
+                if callback then callback() end
             end,
         }
         active_keyboard = keyboard

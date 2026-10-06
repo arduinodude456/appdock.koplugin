@@ -97,14 +97,16 @@ assert(not keyboard.symbols_page and keyboard.symbol_key.label == "?123", "Keybo
 local dialog = { title = "AppDock PIN", input_hint = "PIN", input_type = "number", text = "", _input_widget = {} }
 function dialog:getInputText() return self.text end
 function dialog:setInputText(value) self.text = value end
-assert(Keyboard.attach(dialog, { secure = true }), "AppDock dialog accepts the keyboard adapter")
+local live_value
+assert(Keyboard.attach(dialog, { secure = true, on_change = function(value) live_value = value end }), "AppDock dialog accepts the keyboard adapter")
 assert(dialog._input_widget.onTapTextBox(), "Tapping the dialog field opens the AppDock keyboard")
 local numeric_keyboard = ui.shown
 assert(numeric_keyboard.numeric_only and numeric_keyboard.secure, "Number dialogs use the numeric layout and secure display")
 assert(numeric_keyboard.width == 900 and numeric_keyboard.dimen.x == 0 and numeric_keyboard.dimen.y + numeric_keyboard.dimen.h == 1200, "Numeric keyboard also spans the full width at the bottom")
+assert(ui.closed == dialog, "The KOReader input dialog is closed before the AppDock keyboard is shown")
 numeric_keyboard:_press("1")
 numeric_keyboard:_press("2")
-assert(numeric_keyboard.display.text == "••", "Secure values are masked")
+assert(numeric_keyboard.display.text == "••" and live_value == "12" and dialog.text == "12", "Secure values and the target field update live")
 numeric_keyboard.on_submit(numeric_keyboard.value)
 assert(dialog.text == "12" and ui.closed == numeric_keyboard, "Done returns the value to the original dialog")
 
