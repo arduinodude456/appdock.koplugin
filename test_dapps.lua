@@ -182,6 +182,14 @@ end
 local DAppManager = dofile(plugin_dir .. "appdock_dapps.lua")
 package.preload["pluginloader"] = function() return { loadPlugins = function() return {} end } end
 local AppDockClass = dofile(plugin_dir .. "main.lua")
+local pinned_save_count = 0
+local pinned_order_test = {
+    settings = { pinned_apps = { "dapp:first", "dapp:second", "dapp:third" } },
+    _saveSettings = function() pinned_save_count = pinned_save_count + 1 end,
+}
+assert(AppDockClass.movePinned(pinned_order_test, "dapp:third", -2), "The real AppDock:movePinned method must reorder pinned apps without a nil AppDockOrder error")
+assert(pinned_order_test.settings.pinned_apps[1] == "dapp:third" and pinned_save_count == 1, "Moving a pinned app must persist the updated order exactly once")
+assert(not AppDockClass.movePinned(pinned_order_test, "dapp:third", -1), "Moving an app beyond the first position must safely return false")
 local Device = require("device")
 local Theme = require("appdock_theme")
 local UIManager = require("ui/uimanager")

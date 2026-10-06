@@ -9,6 +9,7 @@ local PluginLoader = require("pluginloader")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local _ = require("gettext")
+local AppDockOrder = require("appdock_order")
 
 local AppDock = WidgetContainer:extend{
     name = "appdock",
@@ -844,7 +845,6 @@ end
 function AppDock:getDAppManager()
     if not self.dapp_manager then
 local DAppManager = require("appdock_dapps")
-local AppDockOrder = require("appdock_order")
         self.dapp_manager = DAppManager:new(self)
     end
     return self.dapp_manager
