@@ -4,7 +4,7 @@
 
 # New releases regulary commited at 3:00 AM CET
 
-**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **7.8.0** brings it closer to an Android launcher with a compact status row, DuckDuckGo search pill, bottom icon dock, and two-column Store widgets that visibly resize and reflow in edit mode. [Details](RELEASE_NOTES_7.8.0.md).
+**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **7.8.1** refines its Quick Settings dropdown with meaningful icons, a visible grab handle, a working close control, and a more precise brightness slider. [Details](RELEASE_NOTES_7.8.1.md).
 
 > **E-Ink approach:** AppDock deliberately borrows the visual language and information structure, not Android's animations, blur, or transparency effects. This keeps updates economical and maintains contrast on monochrome readers.
 
@@ -91,7 +91,7 @@ The following **unaltered original photographs** document earlier practical test
 | Dock | Recently used apps appear without labels in a rounded icon pill. A custom drawn grid-and-search glyph opens **All apps**. |
 | Editing | The visible **Edit** button or a long press on an app opens the homescreen editor. Drag apps in the grid and resize or reorder Store widgets. |
 | Navigation | Page controls appear when more than nine apps are pinned. |
-| Quick Settings | A drawn drop-down contains brightness, Wi-Fi, night mode, refresh, and the AppDock editor. |
+| Quick Settings | A high-contrast outlined Android-inspired shade with a grab handle, semantic icon/toggle tiles, a touchable brightness slider, and a working close control. |
 | DApps | Stateful internal KOReader apps with their own pane, reusable drawn logos, and an Open Apps overview. |
 | Periodic refresh | Every 60 seconds, AppDock requests a full E-Ink refresh to reduce ghosting and refresh static status information. |
 

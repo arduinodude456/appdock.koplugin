@@ -7,6 +7,7 @@ are composed from native widget primitives and refresh their own regions.
 local Blitbuffer = require("ffi/blitbuffer")
 local CenterContainer = require("ui/widget/container/centercontainer")
 local Device = require("device")
+local DAppLogo = require("appdock_logo")
 local Event = require("ui/event")
 local Font = require("ui/font")
 local FrameContainer = require("ui/widget/container/framecontainer")
@@ -40,6 +41,7 @@ local QuickTile = InputContainer:extend{
     appdock = nil,
     title = nil,
     symbol = nil,
+    icon_kind = nil,
     subtitle = nil,
     active = false,
     callback = nil,
@@ -64,6 +66,11 @@ local NotificationRow = InputContainer:extend{
     height = nil,
 }
 
+local QuickCloseButton = InputContainer:extend{
+    sheet = nil,
+    size = nil,
+}
+
 local function scale(value)
     return Screen:scaleBySize(value)
 end
@@ -85,6 +92,7 @@ local PALETTE = {
     on_secondary = color(59, 54, 79, Blitbuffer.COLOR_DARK_GRAY),
     on_surface = color(31, 29, 36, Blitbuffer.COLOR_BLACK),
     on_variant = color(76, 73, 84, Blitbuffer.COLOR_DARK_GRAY),
+    outline = color(126, 123, 132, Blitbuffer.COLOR_GRAY),
     track = color(198, 196, 205, Blitbuffer.COLOR_GRAY),
 }
 
@@ -99,6 +107,7 @@ local function applyTheme(appdock)
     PALETTE.on_secondary = palette.on_secondary
     PALETTE.on_surface = palette.on_surface
     PALETTE.on_variant = palette.on_variant
+    PALETTE.outline = palette.outline
     PALETTE.track = palette.track
 end
 
@@ -171,9 +180,13 @@ function QuickTile:init()
         local available_text_width = math.max(scale(18), self.width - text_x - switch_width - scale(18))
         title = Theme.fitLabel(self.title or "", available_text_width, title_size, 0)
         subtitle = Theme.fitLabel(self.subtitle or "", available_text_width, subtitle_size, 0)
-        local icon_ink = self.active and PALETTE.primary or PALETTE.on_surface
-        local icon_background = self.active and PALETTE.on_primary or PALETTE.surface
-        local icon_widget = TextWidget:new{
+        local icon_ink = PALETTE.on_surface
+        local icon_background = PALETTE.surface
+        local icon_widget = self.icon_kind and DAppLogo:new{
+            kind = self.icon_kind,
+            size = math.min(scale(30), math.floor(icon_diameter * .68)),
+            ink = icon_ink,
+        } or TextWidget:new{
             text = self.symbol,
             face = Font:getFace("cfont", math.min(symbol_size, math.floor(icon_diameter * .54))),
             fgcolor = icon_ink, bold = true, padding = 0,
@@ -233,7 +246,7 @@ function QuickTile:init()
             { widget = subtitle_widget, x = text_x, y = math.floor(self.height * .54) },
         }
         if switch_entry then table.insert(entries, switch_entry) end
-        self.layout = { title = title, subtitle = subtitle, expressive = true, icon_diameter = icon_diameter }
+        self.layout = { title = title, subtitle = subtitle, expressive = true, icon_diameter = icon_diameter, icon_kind = self.icon_kind }
         self[1] = FrameContainer:new{
             width = self.width, height = self.height, padding = 0, bordersize = 0,
             radius = math.floor(self.height * .31), background = background,
@@ -246,7 +259,8 @@ function QuickTile:init()
     local minimum_symbol, minimum_title, minimum_subtitle = scale(10), scale(8), scale(7)
     local symbol_widget, title_widget, subtitle_widget, positions, stack_height
     local function buildStack(include_subtitle)
-        symbol_widget = TextWidget:new{ text = self.symbol, face = Font:getFace("cfont", symbol_size), fgcolor = foreground, bold = true, padding = 0 }
+        symbol_widget = self.icon_kind and DAppLogo:new{ kind = self.icon_kind, size = symbol_size, ink = foreground }
+            or TextWidget:new{ text = self.symbol, face = Font:getFace("cfont", symbol_size), fgcolor = foreground, bold = true, padding = 0 }
         title_widget = TextWidget:new{ text = title, face = Font:getFace("smallinfofont", title_size), fgcolor = foreground, bold = true, max_width = text_width, padding = 0 }
         subtitle_widget = include_subtitle and TextWidget:new{ text = subtitle, face = Font:getFace("smallinfofont", subtitle_size), fgcolor = self.active and PALETTE.on_primary or PALETTE.on_variant, max_width = text_width, padding = 0 } or nil
         local stack = subtitle_widget and { symbol_widget, title_widget, subtitle_widget } or { symbol_widget, title_widget }
@@ -271,7 +285,7 @@ function QuickTile:init()
         attempts = attempts + 1
     end
     if stack_height > available_height then buildStack(false) end
-    self.layout = { title = title, subtitle = subtitle_widget and subtitle or "", line_gap = line_gap, positions = positions, stack_height = stack_height, available_height = available_height, expressive = self.expressive == true }
+    self.layout = { title = title, subtitle = subtitle_widget and subtitle or "", line_gap = line_gap, positions = positions, stack_height = stack_height, available_height = available_height, expressive = self.expressive == true, icon_kind = self.icon_kind }
     local switch_widget
     if self.show_switch then
         local switch_width = scale(42)
@@ -355,6 +369,32 @@ function QuickTile:onTapQuickTile()
     return true
 end
 
+function QuickCloseButton:init()
+    self.dimen = Geom:new{ w = self.size, h = self.size }
+    local glyph = TextWidget:new{
+        text = "×",
+        face = Font:getFace("cfont", scale(23)),
+        fgcolor = PALETTE.on_surface,
+        padding = 0,
+    }
+    self[1] = FrameContainer:new{
+        width = self.size, height = self.size, padding = 0, bordersize = 0,
+        radius = math.floor(self.size / 2), background = PALETTE.surface_variant,
+        CenterContainer:new{ dimen = self.dimen, glyph },
+    }
+    self.ges_events = { TapCloseQuickSettings = { GestureRange:new{ ges = "tap", range = self.dimen } } }
+end
+
+function QuickCloseButton:paintTo(bb, x, y)
+    local range = self.ges_events.TapCloseQuickSettings[1].range
+    range.x, range.y, range.w, range.h = x, y, self.dimen.w, self.dimen.h
+    return InputContainer.paintTo(self, bb, x, y)
+end
+
+function QuickCloseButton:onTapCloseQuickSettings()
+    return self.sheet:onClose()
+end
+
 function NotificationRow:init()
     self.dimen = Geom:new{ w = self.width, h = self.height }
     local notification = self.notification or {}
@@ -417,11 +457,15 @@ function BrightnessSlider:build()
     end
     local inset = scale(15)
     local track_y = self.height - scale(19)
-    local track_height = scale(10)
+    local track_height = scale(7)
+    local thumb_size = scale(15)
     local track_width = math.max(scale(24), self.width - 2 * inset)
     local fill_width = math.max(scale(3), math.floor(track_width * percentage))
     local level_text = enabled and string.format("%d%%", math.floor(percentage * 100 + 0.5)) or _("Unavailable")
     self.track_x, self.track_width = inset, track_width
+    local thumb_x = math.max(inset - math.floor(thumb_size / 2), math.min(inset + track_width - math.floor(thumb_size / 2), inset + math.floor(track_width * percentage) - math.floor(thumb_size / 2)))
+    local thumb_y = track_y - math.floor((thumb_size - track_height) / 2)
+    local label_x = inset + scale(23)
 
     self[1] = OverlapGroup:new{
         dimen = Geom:new{ w = self.width, h = self.height },
@@ -431,30 +475,20 @@ function BrightnessSlider:build()
             radius = math.floor(self.height * .34), background = PALETTE.surface,
             emptySizedWidget(self.width, self.height),
         },
+        DAppLogo:new{
+            kind = "display", size = scale(18), ink = PALETTE.on_surface,
+            overlap_offset = { inset, scale(8) },
+        },
         TextWidget:new{
-            text = _("Brightness"),
-            face = Font:getFace("smallinfofont", scale(14)),
-            fgcolor = PALETTE.on_surface,
-            bold = true,
-            overlap_offset = { inset, scale(10) },
+            text = _("Brightness"), face = Font:getFace("smallinfofont", scale(14)),
+            fgcolor = PALETTE.on_surface, bold = true, padding = 0,
+            overlap_offset = { label_x, scale(10) },
         },
         TextWidget:new{
             text = level_text,
             face = Font:getFace("smallinfofont", scale(13)),
             fgcolor = PALETTE.on_variant,
             overlap_offset = { self.width - inset - scale(44), scale(11) },
-        },
-        TextWidget:new{
-            text = "−",
-            face = Font:getFace("cfont", scale(16)),
-            fgcolor = PALETTE.on_variant,
-            overlap_offset = { scale(5), track_y - scale(4) },
-        },
-        TextWidget:new{
-            text = "+",
-            face = Font:getFace("cfont", scale(16)),
-            fgcolor = PALETTE.on_variant,
-            overlap_offset = { self.width - scale(14), track_y - scale(4) },
         },
         FrameContainer:new{
             width = track_width,
@@ -476,7 +510,16 @@ function BrightnessSlider:build()
             overlap_offset = { inset, track_y },
             emptySizedWidget(fill_width, track_height),
         },
+        FrameContainer:new{
+            width = thumb_size, height = thumb_size, padding = 0,
+            bordersize = scale(1), color = PALETTE.sheet,
+            radius = math.floor(thumb_size / 2),
+            background = enabled and PALETTE.on_primary or PALETTE.on_variant,
+            overlap_offset = { thumb_x, thumb_y },
+            emptySizedWidget(thumb_size, thumb_size),
+        },
     }
+    self._thumb_x, self._thumb_y = thumb_x, thumb_y
 end
 
 function BrightnessSlider:setBrightness(state)
@@ -485,6 +528,7 @@ function BrightnessSlider:setBrightness(state)
 end
 
 function BrightnessSlider:paintTo(bb, x, y)
+    self.dimen.x, self.dimen.y = x, y
     local gestures = { "TapBrightness", "PanBrightness", "PanReleaseBrightness" }
     for _, name in ipairs(gestures) do
         local range = self.ges_events[name][1].range
@@ -760,7 +804,8 @@ function QuickSettings:rebuild(refresh)
         width = width,
         height = self.sheet_height,
         padding = 0,
-        bordersize = 0,
+        bordersize = scale(1),
+        color = PALETTE.outline,
         radius = expressive and scale(34) or scale(28),
         background = PALETTE.sheet,
         emptySizedWidget(width, self.sheet_height),
@@ -775,6 +820,13 @@ function QuickSettings:rebuild(refresh)
             radius = math.floor((header_height - scale(8)) / 2), background = PALETTE.surface,
             emptySizedWidget(width - 2 * margin, header_height - scale(8)), overlap_offset = { margin, pill_y },
         })
+        local handle_width, handle_height = scale(36), scale(4)
+        table.insert(content, FrameContainer:new{
+            width = handle_width, height = handle_height, padding = 0, bordersize = 0,
+            radius = math.floor(handle_height / 2), background = PALETTE.outline,
+            emptySizedWidget(handle_width, handle_height),
+            overlap_offset = { math.floor((width - handle_width) / 2), scale(6) },
+        })
     end
     header_title.overlap_offset = { expressive and margin + scale(14) or margin, header_title_y }
     table.insert(content, header_title)
@@ -782,56 +834,56 @@ function QuickSettings:rebuild(refresh)
         header_subtitle.overlap_offset = { margin + scale(14), header_title_y + header_title:getSize().h + scale(2) }
         table.insert(content, header_subtitle)
     end
-    local close = TextWidget:new{
-        text = "×",
-        face = Font:getFace("cfont", scale(24)),
-        fgcolor = PALETTE.on_variant,
+    local close_size = scale(36)
+    local close = QuickCloseButton:new{ sheet = self, size = close_size }
+    close.overlap_offset = {
+        width - margin - close_size - (expressive and scale(8) or 0),
+        math.max(scale(2), math.floor((header_height - close_size) / 2)),
     }
-    close.overlap_offset = { width - margin - close:getSize().w - (expressive and scale(12) or 0), math.max(scale(2), math.floor((header_height - close:getSize().h) / 2)) }
     table.insert(content, close)
 
     local tile_y = header_height + gap
     local tile_definitions = {
         wifi = {
-            title = _("Wi-Fi"), symbol = "W",
+            title = _("Wi-Fi"), symbol = "W", icon_kind = "network",
             subtitle = wifi_available and (wifi_on and _("On") or _("Off")) or _("Unavailable"),
             active = wifi_on,
             show_switch = true,
             callback = function() self:toggleWifi() end,
         },
         night = {
-            title = _("Night"), symbol = "N",
+            title = _("Night"), symbol = "N", icon_kind = "display",
             subtitle = is_night and _("On") or _("Off"),
             active = is_night,
             show_switch = true,
             callback = function() self:toggleNightMode() end,
         },
         refresh = {
-            title = _("Refresh"), symbol = "R",
+            title = _("Refresh"), symbol = "R", icon_kind = "sync",
             subtitle = _("Redraw"),
             active = false,
             callback = function() self:fullRefresh() end,
         },
         edit = {
-            title = _("Edit"), symbol = "E",
+            title = _("Edit"), symbol = "E", icon_kind = "settings",
             subtitle = _("Apps"),
             active = false,
             callback = function() self:openManager() end,
         },
         sleep = {
-            title = _("Sleep"), symbol = "Z",
+            title = _("Sleep"), symbol = "Z", icon_kind = "timer",
             subtitle = _("Screen off"), active = false,
             callback = function() self:enterSleep() end,
         },
         power_saving = {
-            title = _("Save power"), symbol = "P",
+            title = _("Save power"), symbol = "P", icon_kind = "battery",
             subtitle = app_settings.power_saving and _("On") or _("Off"),
             active = app_settings.power_saving == true,
             show_switch = true,
             callback = function() self:togglePowerSaving() end,
         },
         wallpaper = {
-            title = _("Background"), symbol = "B",
+            title = _("Background"), symbol = "B", icon_kind = "gallery",
             subtitle = wallpaper_settings.enabled and _("On") or _("Off"),
             active = wallpaper_settings.enabled == true,
             callback = function() self:toggleWallpaper() end,
@@ -841,13 +893,16 @@ function QuickSettings:rebuild(refresh)
     for _, tile_id in ipairs(selected_tile_ids) do
         if tile_definitions[tile_id] then tiles[#tiles + 1] = tile_definitions[tile_id] end
     end
+    local tile_icon_count = 0
     for index, tile in ipairs(tiles) do
+        if tile.icon_kind then tile_icon_count = tile_icon_count + 1 end
         local col = (index - 1) % 2
         local row = math.floor((index - 1) / 2)
         table.insert(content, QuickTile:new{
             appdock = self.appdock,
             title = tile.title,
             symbol = tile.symbol,
+            icon_kind = tile.icon_kind,
             subtitle = tile.subtitle,
             active = tile.active,
             callback = tile.callback,
@@ -910,6 +965,10 @@ function QuickSettings:rebuild(refresh)
         simple_mode = simple_mode,
         expressive = expressive,
         tile_count = #tiles,
+        tile_icon_count = tile_icon_count,
+        has_close_button = type(close.onTapCloseQuickSettings) == "function",
+        has_grab_handle = expressive,
+        slider_has_thumb = self.slider._thumb_x ~= nil,
         show_notifications = show_notifications,
         compact = compact,
         tile_y = tile_y,

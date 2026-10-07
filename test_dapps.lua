@@ -75,6 +75,7 @@ package.preload["appdock_theme"] = function()
 end
 package.preload["appdock_logo"] = function()
     local Logo = Widget:extend({})
+    function Logo:init() self.dimen = { w = self.size or 0, h = self.size or 0 } end
     function Logo.availableKinds() return { "app_store", "palette" } end
     return Logo
 end
@@ -216,7 +217,7 @@ local open_apps_title_count = select(2, recents_source:gsub('text = _%("Open app
 assert(open_apps_title_count == 1 and recents_source:find("local y = header_height + gap", 1, true), "Open Apps must draw one measured header and begin cards below it")
 local quick_settings_source = assert(io.open(plugin_dir .. "appdock_quicksettings.lua", "rb")):read("*a")
 assert(quick_settings_source:find("local function buildStack", 1, true) and quick_settings_source:find("Theme.centeredStack(self.height, stack", 1, true) and quick_settings_source:find("local tile_y = header_height + gap", 1, true), "Quick Settings must measure tile text and reserve a header gap before tiles")
-assert(quick_settings_source:find("symbol_widget = TextWidget:new", 1, true) and quick_settings_source:find("padding = 0", 1, true) and quick_settings_source:find("while stack_height > available_height", 1, true), "Quick Settings tiles must use unpadded measured glyph boxes and shrink before overflowing fixed controls")
+assert(quick_settings_source:find("symbol_widget = self.icon_kind and DAppLogo:new", 1, true) and quick_settings_source:find("padding = 0", 1, true) and quick_settings_source:find("while stack_height > available_height", 1, true), "Quick Settings tiles must use semantic icons, measured glyph boxes, and shrink before overflowing fixed controls")
 local appstore_source = assert(io.open(plugin_dir .. "appdock_appstore.lua", "rb")):read("*a")
 assert(appstore_source:find("local bar_height = scale(50)", 1, true) and appstore_source:find("local search_y = bar_height + scale(2)", 1, true), "AppStore must open with the Google Play app bar and its search pill")
 assert(appstore_source:find("padding = 0", 1, true), "AppStore fixed-height labels must not inherit TextWidget vertical padding")
@@ -230,6 +231,8 @@ assert(recents_source:find("local card_height = expressive and scale(64) or scal
 assert(recents_source:find("local Layout = require(\"appdock_layout\")", 1, true) and recents_source:find("Layout.FixedStack:new", 1, true), "DApp settings and action controls must use fixed-bounds foreground drawing")
 assert(quick_settings_source:find("tile_height = scale(68)", 1, true) and quick_settings_source:find("slider_spacing = scale(8)", 1, true), "Normal Quick Settings must use compact visible tile and sheet spacing")
 assert(quick_settings_source:find("Layout.FixedStack:new", 1, true), "Quick Settings tiles and notifications must keep their text inside explicit fixed bounds")
+assert(quick_settings_source:find("local QuickCloseButton = InputContainer:extend", 1, true) and quick_settings_source:find("function QuickCloseButton:onTapCloseQuickSettings", 1, true), "Quick Settings must provide a visible, working close control")
+assert(quick_settings_source:find("local thumb_size = scale(15)", 1, true) and quick_settings_source:find("self.dimen.x, self.dimen.y = x, y", 1, true), "The brightness slider must draw a thumb and map absolute touch coordinates correctly")
 assert(appstore_source:find("local row_height = scale(76)", 1, true) and appstore_source:find("local nav_height = scale(58)", 1, true), "AppStore must use compact Google Play list rows and a Play bottom navigation bar")
 assert(homescreen_source:find("local label_height = scale(20)", 1, true) and homescreen_source:find("local label_gap = scale(3)", 1, true) and homescreen_source:find("local row_gap = scale(8)", 1, true), "Normal Homescreen app labels and rows must use compact visible spacing")
 assert(appstore_source:find("Layout.FixedStack:new", 1, true) and homescreen_source:find("Layout.FixedStack:new", 1, true), "AppStore and Homescreen cards must draw text through the fixed-bounds container")
@@ -243,6 +246,7 @@ local browser_source = assert(io.open(plugin_dir .. "appdock_browser.lua", "rb")
 assert(browser_source:find("function Browser:beginQuery", 1, true) and browser_source:find("function Browser:runPendingSearch", 1, true) and browser_source:find("state.loading_query = type(query) == \"string\"", 1, true) and browser_source:find('UIManager:setDirty("all", "full")', 1, true) and browser_source:find("UIManager:nextTick(fullRefresh)", 1, true), "The Web Browser must run the pending DuckDuckGo query and request a queued full refresh")
 assert(recents_source:find("local RecentDrawer", 1, true) and recents_source:find("function RecentDrawer:onShow", 1, true) and recents_source:find("function DAppManager:showRecentDrawer", 1, true) and recents_source:find("function DAppRecents:onRevealRecentApps", 1, true), "Recent Apps must be available through the animated global bottom drawer")
 assert(quick_settings_source:find("local header_subtitle", 1, true) and quick_settings_source:find("local icon_diameter", 1, true) and quick_settings_source:find("BrightnessSlider", 1, true), "Expressive Quick Settings must use Android-style header, toggle tiles, and a prominent brightness card")
+assert(quick_settings_source:find('icon_kind = "network"', 1, true) and quick_settings_source:find('icon_kind = "sync"', 1, true) and quick_settings_source:find('kind = self.icon_kind', 1, true), "Quick Settings must use meaningful drawn icons instead of letter placeholders")
 local manager_source = assert(io.open(plugin_dir .. "appdock_manager.lua", "rb")):read("*a")
 assert(manager_source:find("local function attachRecentSwipe", 1, true) and manager_source:find("appdock_recent_drawer", 1, true), "Manage AppDock must expose the same bottom-edge Recent Apps gesture")
 local recent_catalog = {}
@@ -671,8 +675,9 @@ assert(not simple_home._widget_tick, "Simple homescreen must not schedule hidden
 assert(not (simple_home.ges_events or {}).SwipeHomePage and not (simple_home.ges_events or {}).RevealRecentApps, "Simple homescreen must retain its previous gesture surface without animated paging or the Recent Apps drawer")
 local QuickSettings = dofile(plugin_dir .. "appdock_quicksettings.lua")
 local simple_quick_settings = QuickSettings:new{ appdock = appdock, home = simple_home }
-assert(simple_quick_settings.layout.simple_mode and simple_quick_settings.layout.tile_count == 3 and not simple_quick_settings.layout.show_notifications, "Simple quick settings must contain the three required tiles, brightness, and no notifications")
+assert(simple_quick_settings.layout.simple_mode and simple_quick_settings.layout.tile_count == 3 and simple_quick_settings.layout.tile_icon_count == 3 and not simple_quick_settings.layout.show_notifications, "Simple quick settings must contain three icon tiles, brightness, and no notifications")
 assert(not simple_quick_settings.layout.expressive and simple_quick_settings.sheet_height < 400, "Simple quick settings must retain its existing compact non-expressive layout")
+assert(simple_quick_settings.layout.has_close_button and not simple_quick_settings.layout.has_grab_handle and simple_quick_settings.layout.slider_has_thumb, "Simple Quick Settings must retain a close action and a visible brightness thumb without expressive extras")
 assert(not simple_quick_settings.ges_events.RevealRecentApps, "Simple quick settings must not add the expressive Recent Apps drawer gesture")
 appdock:setSimpleModeOption("homescreen", false)
 appdock:setSimpleModeOption("quick_settings", false)
@@ -796,6 +801,20 @@ assert(#find_ddg_bars(page_two_home[1]) == 0, "The DuckDuckGo bar belongs to the
 appdock.getPinnedApps = ddg_original_pins
 local expressive_quick_settings = QuickSettings:new{ appdock = appdock, home = expressive_home }
 assert(expressive_quick_settings.layout.expressive and not expressive_quick_settings.layout.simple_mode and expressive_quick_settings.sheet_height >= 0, "Normal quick settings must use expressive layout only outside Simple Mode")
+assert(expressive_quick_settings.layout.tile_icon_count == expressive_quick_settings.layout.tile_count and expressive_quick_settings.layout.has_close_button and expressive_quick_settings.layout.has_grab_handle and expressive_quick_settings.layout.slider_has_thumb, "Expressive Quick Settings must show semantic icons, a grab handle, a working close action, and a thumb slider")
+local expressive_close_button, expressive_icon_tiles = nil, 0
+walk_tree(expressive_quick_settings[1], function(node)
+    if type(node.onTapCloseQuickSettings) == "function" then expressive_close_button = node end
+    if node.icon_kind then expressive_icon_tiles = expressive_icon_tiles + 1 end
+end)
+assert(expressive_close_button and expressive_icon_tiles == expressive_quick_settings.layout.tile_count, "Every normal Quick Settings tile must render its semantic icon, with an actionable close control")
+local brightness_test = QuickSettings:new{ appdock = appdock, home = expressive_home }
+brightness_test._brightnessState = function() return { min = 0, max = 100, current = 50 } end
+brightness_test.setBrightness = function(self, value) self.test_brightness = value end
+brightness_test:rebuild(false)
+brightness_test.slider:paintTo(nil, 100, 300)
+brightness_test.slider:onTapBrightness(nil, { pos = { x = 100 + brightness_test.slider.track_x + brightness_test.slider.track_width } })
+assert(brightness_test.test_brightness == 100, "Brightness taps at the right edge must map to maximum intensity after screen positioning")
 assert(expressive_quick_settings:onRevealRecentApps(), "The bottom-edge swipe must expose Recently used above Quick Settings")
 local recent_drawer = log.shown[#log.shown]
 assert(recent_drawer.covers_fullscreen == false and recent_drawer.sheet_height > 0 and recent_drawer.sheet_layer, "Recently used must open as a bounded animated bottom drawer")
@@ -806,6 +825,7 @@ for _, motion in ipairs(log.motion or {}) do
 end
 assert(recent_drawer.sheet_layer.overlap_offset[2] == recent_drawer.sheet_y and recent_drawer.sheet_y > 0 and recent_drawer.sheet_y < recent_drawer.dimen.h, "The Recently used drawer must settle at its bounded sheet position in the lower screen area")
 assert(drawer_motions == 0, "The Recently used drawer must switch instantly instead of animating on E-Ink")
+assert(expressive_close_button:onTapCloseQuickSettings(), "Tapping the visible close control must dismiss Quick Settings")
 
 local recents = {}
 manager:showDAppActions("analog_clock", recents)

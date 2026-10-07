@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.8.0** gestaltet ihn näher an einem Android-Launcher: mit kompakter Statuszeile, DuckDuckGo-Suchleiste, unterem Icon-Dock und zweispaltigen Store-Widgets, die sich im Editmodus sichtbar vergrößern und per Raster neu anordnen lassen. [Details](RELEASE_NOTES_7.8.0.md).
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.8.1** ergänzt den Android-inspirierten Homescreen um ein klareres Schnelleinstellungen-Dropdown: mit aussagekräftigen Symbolen, sichtbarem Griff, funktionierendem Schließen und präziserem Helligkeitsregler. [Details](RELEASE_NOTES_7.8.1.md).
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst Androids Formensprache, nicht dessen Daueranimationen, Unschärfen oder Transparenzeffekte. Auf E-Ink wechseln App-Seiten und Recently-used-Drawer direkt und ohne Zwischenanimation. Damit bleibt die Darstellung auf monochromen Readern kontrastreich, sparsam und frei von unnötigem Ghosting.
 
@@ -54,7 +54,7 @@
 | Navigation | Seitenschalter erscheinen bei mehreren App-Seiten; zusätzlich wechselt ein horizontaler Wisch links/rechts die Homescreen-Seite direkt und ohne App-Animation. |
 | Dock | Zuletzt verwendete Apps erscheinen beschriftungsfrei in einer abgerundeten Icon-Pill. Ein gezeichnetes Raster-/Suchsymbol öffnet **Alle Apps**. Auf E-Ink bleibt die Fläche kontrastreich und animationsfrei. |
 | Bearbeitung | Der sichtbare **Edit**-Knopf und langer Druck auf eine App starten den Homescreen-Editor. Apps lassen sich im Raster ziehen; Store-Widgets können verkleinert, vergrößert und neu angeordnet werden. |
-| Schnellzugriff | Ein gezeichnetes Android-artiges Kontrollzentrum mit großen Icon-/Toggle-Kacheln, Datumszeile und eigener Helligkeitskarte öffnet sich über die Abwärtspfeil-Kachel in der Systemzeile. |
+| Schnellzugriff | Ein kontrastreich umrandetes Android-artiges Kontrollzentrum mit Griff, aussagekräftigen Symbol-/Toggle-Kacheln, echtem Helligkeitsslider und direktem Schließen öffnet sich über die Abwärtspfeil-Kachel in der Systemzeile. |
 | DApps | Zustandsbehaftete, KOReader-interne Apps mit eigenem Pane, wiederverwendbaren grafischen Logos und eigener Open-Apps-Übersicht. |
 | Periodischer Refresh | Alle 60 Sekunden fordert AppDock einen vollständigen E-Ink-Refresh an, um Geisterbilder zu reduzieren und statische Informationen sichtbar zu aktualisieren. |
 
