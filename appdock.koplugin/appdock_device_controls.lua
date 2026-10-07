@@ -56,27 +56,30 @@ local function setBrightness(delta)
     return state
 end
 
-local BrightnessIndicator = WidgetContainer:extend{ percentage = 0, current = 0, maximum = 100, dimen = nil }
+local BrightnessIndicator = FrameContainer:extend{ percentage = 0, current = 0, maximum = 100, dimen = nil }
 function BrightnessIndicator:init()
     local width, height = scale(82), scale(154)
     self.dimen = Geom:new{ w = width, h = height }
     local ratio = math.max(0, math.min(1, self.percentage / 100))
     local bar_h, bar_w = scale(84), scale(10)
     local filled_h = math.max(scale(2), math.floor(bar_h * ratio))
-    local children = {
-        FrameContainer:new{ width = width, height = height, padding = scale(10), bordersize = scale(1), color = Blitbuffer.COLOR_DARK_GRAY, radius = scale(16), background = Blitbuffer.COLOR_WHITE,
-            VerticalGroup:new{
-                TextWidget:new{ text = "☼", face = Font:getFace("cfont", scale(24)), fgcolor = Blitbuffer.COLOR_BLACK, padding = 0 },
-                VerticalSpan:new{ width = scale(7) },
-                FrameContainer:new{ width = bar_w, height = bar_h, padding = 0, bordersize = scale(1), color = Blitbuffer.COLOR_DARK_GRAY, radius = scale(5), background = Blitbuffer.COLOR_LIGHT_GRAY,
-                    FrameContainer:new{ width = bar_w, height = filled_h, padding = 0, bordersize = 0, radius = scale(5), background = Blitbuffer.COLOR_BLACK, overlap_offset = { 0, bar_h - filled_h } },
-                },
-                VerticalSpan:new{ width = scale(7) },
-                TextWidget:new{ text = string.format("%d%%", math.floor(self.percentage + .5)), face = Font:getFace("smallinfofont", scale(11)), fgcolor = Blitbuffer.COLOR_BLACK, padding = 0 },
-            },
+    self.width, self.height = width, height
+    self.padding = scale(10)
+    self.bordersize = scale(1)
+    self.color = Blitbuffer.COLOR_DARK_GRAY
+    self.radius = scale(16)
+    self.background = Blitbuffer.COLOR_WHITE
+    -- Keep the overlay tree non-empty and shallow: FrameContainer paints this
+    -- direct child without a CenterContainer/empty WidgetContainer wrapper.
+    self[1] = VerticalGroup:new{
+        TextWidget:new{ text = "☼", face = Font:getFace("cfont", scale(24)), fgcolor = Blitbuffer.COLOR_BLACK, padding = 0 },
+        VerticalSpan:new{ width = scale(7) },
+        FrameContainer:new{ width = bar_w, height = bar_h, padding = 0, bordersize = scale(1), color = Blitbuffer.COLOR_DARK_GRAY, radius = scale(5), background = Blitbuffer.COLOR_LIGHT_GRAY,
+            FrameContainer:new{ width = bar_w, height = filled_h, padding = 0, bordersize = 0, radius = scale(5), background = Blitbuffer.COLOR_BLACK, overlap_offset = { 0, bar_h - filled_h } },
         },
+        VerticalSpan:new{ width = scale(7) },
+        TextWidget:new{ text = string.format("%d%%", math.floor(self.percentage + .5)), face = Font:getFace("smallinfofont", scale(11)), fgcolor = Blitbuffer.COLOR_BLACK, padding = 0 },
     }
-    self[1] = CenterContainer:new{ dimen = self.dimen, children[1] }
 end
 
 local HappyReaderScreen = InputContainer:extend{ frame = 1, dimen = nil, _tick = nil }
