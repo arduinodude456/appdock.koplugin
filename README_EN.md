@@ -4,7 +4,7 @@
 
 # New releases regulary commited at 3:00 AM CET
 
-**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **7.7.0** makes homescreen editing easier to discover: a visible **Edit** button and long-press open the editor directly, while widget size controls show their current scale and are easier to tap. [Details](RELEASE_NOTES_7.7.0.md).
+**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **7.8.0** brings it closer to an Android launcher with a compact status row, DuckDuckGo search pill, bottom icon dock, and two-column Store widgets that visibly resize and reflow in edit mode. [Details](RELEASE_NOTES_7.8.0.md).
 
 > **E-Ink approach:** AppDock deliberately borrows the visual language and information structure, not Android's animations, blur, or transparency effects. This keeps updates economical and maintains contrast on monochrome readers.
 
@@ -30,13 +30,13 @@
 
 ## UI on real hardware
 
-The following **unaltered original photographs** show AppDock during practical testing on a Tolino device. They have not been cropped, brightened, retouched, recompressed, or edited in any other way. They intentionally provide an honest impression of the current UI on real E-Ink hardware, including ambient light, camera perspective, and visible layout limitations.
+The following **unaltered original photographs** document earlier practical testing on a Tolino device. They have not been cropped, brightened, retouched, recompressed, or edited in any other way. They show the homescreen before the 7.8.0 redesign and are retained as historical hardware references, not as previews of the current layout.
 
 ### Homescreen and Quick Settings
 
 ![AppDock homescreen with status row, quote widget, and app grid](docs/ui-photos/IMG_20260825_172553291.jpg)
 
-*AppDock homescreen with greeting, battery status, quote widget, and six pinned apps.*
+*Earlier AppDock homescreen with greeting, battery status, quote widget, and six pinned apps.*
 
 ![AppDock Quick Settings in the dark theme](docs/ui-photos/IMG_20260825_172614888.jpg)
 
@@ -80,19 +80,22 @@ The following **unaltered original photographs** show AppDock during practical t
 
 ## Homescreen
 
-| Area | Android-16-inspired AppDock implementation |
+| Area | Android-inspired AppDock implementation |
 |---|---|
-| System row | Time on the left and optional battery status on the right, without a heavy app bar. |
-| Day area | A large greeting and date line create a clear visual hierarchy. |
-| Widgets | Rounded **Device** and **Continue reading** cards plus installable Store Widgets with generous padding. |
+| System row | Time on the left, optional battery percentage on the right, and direct access to Quick Settings. |
+| Search | A wide, single-line DuckDuckGo search pill sits below the status row on the **first** page and hands searches to the Web Browser. |
+| Glance cards | **Device** and **Continue reading** appear as calm, rounded cards side by side. They temporarily yield space while arranging Store widgets. |
+| Store widgets | One widget can fill the row; multiple widgets use two columns. Enlarged widgets can span the full row while the others reflow below. |
 | Apps | A consistent three-column icon grid with large rounded icon surfaces and concise labels. |
 | Palette | Four Material-You-like presets and custom accent colors. On grayscale devices, fixed high-contrast KOReader gray roles are used. |
-| Navigation | Discreet round page controls appear only when more than six apps are pinned. |
+| Dock | Recently used apps appear without labels in a rounded icon pill. A custom drawn grid-and-search glyph opens **All apps**. |
+| Editing | The visible **Edit** button or a long press on an app opens the homescreen editor. Drag apps in the grid and resize or reorder Store widgets. |
+| Navigation | Page controls appear when more than nine apps are pinned. |
 | Quick Settings | A drawn drop-down contains brightness, Wi-Fi, night mode, refresh, and the AppDock editor. |
 | DApps | Stateful internal KOReader apps with their own pane, reusable drawn logos, and an Open Apps overview. |
 | Periodic refresh | Every 60 seconds, AppDock requests a full E-Ink refresh to reduce ghosting and refresh static status information. |
 
-Tap an app tile to start its assigned action. Hold an app tile to open management. Existing plugin discovery, adding and removing apps, and safe menu execution are retained.
+Tap an app tile to start its assigned action. Long-press an app to enter homescreen edit mode; while editing, long-press opens management for that app. Existing plugin discovery, adding and removing apps, and safe menu execution are retained.
 
 ## Installation
 
@@ -122,8 +125,8 @@ Restart KOReader completely. Enable **AppDock Homescreen** under **More tools â†
 |---|---|
 | Folder name | Ends exactly in `.koplugin`. |
 | Plugin contents | Contains the listed core files directly inside the folder. |
-| Start view | Greeting, date, widget cards, and a three-column app grid are visible. |
-| Hold on a tile | Opens **Manage AppDock**. |
+| Start view | Status row, DuckDuckGo search pill, cards/widgets, three-column app grid, and icon dock are visible. |
+| Edit mode | Tap **Edit** or long-press an app; tap **Done** to finish. |
 
 ## DApps and Open Apps
 

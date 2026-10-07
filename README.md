@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.7.0** macht die Homescreen-Bearbeitung einfacher: Ein sichtbarer **Edit**-Knopf und langer Druck auf eine App starten den Modus direkt; Widget-Größenregler zeigen den Maßstab und sind leichter zu treffen. [Details](RELEASE_NOTES_7.7.0.md).
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.8.0** gestaltet ihn näher an einem Android-Launcher: mit kompakter Statuszeile, DuckDuckGo-Suchleiste, unterem Icon-Dock und zweispaltigen Store-Widgets, die sich im Editmodus sichtbar vergrößern und per Raster neu anordnen lassen. [Details](RELEASE_NOTES_7.8.0.md).
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst Androids Formensprache, nicht dessen Daueranimationen, Unschärfen oder Transparenzeffekte. Auf E-Ink wechseln App-Seiten und Recently-used-Drawer direkt und ohne Zwischenanimation. Damit bleibt die Darstellung auf monochromen Readern kontrastreich, sparsam und frei von unnötigem Ghosting.
 
@@ -42,22 +42,23 @@
 
 ## Homescreen
 
-| Zone | ZenOS-, SimpleUI- und Android-12-inspirierte Umsetzung in AppDock |
+| Zone | Android-inspirierte Umsetzung in AppDock |
 |---|---|
-| Systemzeile | Uhrzeit links, optionaler Akkustand rechts, ohne schwere App-Leiste. |
-| Tagesbereich | Große Begrüßung und Datumszeile als klare visuelle Hierarchie. |
-| DuckDuckGo-Suche | Auf der **ersten** Seite liegt unter der Datumszeile eine gebrandete Suchleiste in DuckDuckGo-Orange. Sie zeigt die aktuelle Suchanfrage, öffnet die AppDock-Tastatur und übergibt den Text an den Web Browser, der die Ergebnisse über `html.duckduckgo.com` lädt. Ein Wisch auf die nächste App-Seite lässt die Leiste bewusst verschwinden. |
-| Widgets | Abgerundete **Device**- und **Continue reading**-Karten sowie installierbare Store-Widgets mit großzügigem Innenabstand. |
+| Systemzeile | Uhrzeit links, optionaler Akkustand rechts und direkter Zugang zu den Schnelleinstellungen. |
+| DuckDuckGo-Suche | Eine breite, einzeilige Such-Pill liegt direkt unter der Statuszeile auf der **ersten** Seite. Sie zeigt die aktuelle Suchanfrage, öffnet die AppDock-Tastatur und übergibt den Text an den Web Browser, der die Ergebnisse über `html.duckduckgo.com` lädt. |
+| Blickfang-Karten | **Device** und **Continue reading** erscheinen als ruhige, abgerundete Karten nebeneinander. Sie werden während der Bearbeitung vorübergehend ausgeblendet, damit Store-Widgets Platz haben. |
+| Store-Widgets | Ein einzelnes Widget kann die Zeile füllen; mehrere Widgets ordnen sich zweispaltig an. Wird eines vergrößert, kann es die ganze Zeile einnehmen und die übrigen Widgets fließen darunter weiter. |
 | Apps | Einheitliches 3-Spalten-Iconraster mit großen, abgerundeten Symbolflächen und kurzen Labels. |
 | Palette | Vier Material-You-artige Presets sowie selbst erstellbare Akzentfarben; auf Graustufen bleiben feste kontrastreiche KOReader-Grautöne erhalten. |
 | App-Sektion | Eine ruhige Abschnittszeile mit sichtbarer App-Anzahl trennt Widgets, Suche und Launcher-Raster klar voneinander. |
 | Navigation | Seitenschalter erscheinen bei mehreren App-Seiten; zusätzlich wechselt ein horizontaler Wisch links/rechts die Homescreen-Seite direkt und ohne App-Animation. |
-| Recently used | Große, beschriftete App-Kacheln liegen in einer abgerundeten Material-Fläche. Nach den ersten Starts zeigt sie zuletzt verwendete Apps; davor erscheint derselbe Bereich korrekt als **Quick access** mit angehefteten Apps. Ein Wisch von der unteren Bildschirmkante nach oben öffnet den Bereich als statischen Drawer auf Homescreen, DApps, Verwaltung und Kontrollzentrum. |
+| Dock | Zuletzt verwendete Apps erscheinen beschriftungsfrei in einer abgerundeten Icon-Pill. Ein gezeichnetes Raster-/Suchsymbol öffnet **Alle Apps**. Auf E-Ink bleibt die Fläche kontrastreich und animationsfrei. |
+| Bearbeitung | Der sichtbare **Edit**-Knopf und langer Druck auf eine App starten den Homescreen-Editor. Apps lassen sich im Raster ziehen; Store-Widgets können verkleinert, vergrößert und neu angeordnet werden. |
 | Schnellzugriff | Ein gezeichnetes Android-artiges Kontrollzentrum mit großen Icon-/Toggle-Kacheln, Datumszeile und eigener Helligkeitskarte öffnet sich über die Abwärtspfeil-Kachel in der Systemzeile. |
 | DApps | Zustandsbehaftete, KOReader-interne Apps mit eigenem Pane, wiederverwendbaren grafischen Logos und eigener Open-Apps-Übersicht. |
 | Periodischer Refresh | Alle 60 Sekunden fordert AppDock einen vollständigen E-Ink-Refresh an, um Geisterbilder zu reduzieren und statische Informationen sichtbar zu aktualisieren. |
 
-Ein Antippen startet die zugewiesene Aktion. Ein Halten auf einer App-Kachel öffnet die Verwaltung. Die bestehende Plugin-App-Erkennung, das Hinzufügen und Entfernen sowie die sichere Menüausführung bleiben erhalten.
+Ein Antippen startet die zugewiesene Aktion. Langes Drücken auf eine App startet den Homescreen-Editmodus; während der Bearbeitung öffnet langes Drücken die Verwaltung dieser App. Plugin-Erkennung, Hinzufügen und Entfernen sowie sichere Menüausführung bleiben erhalten.
 
 ## Neu in 6.0.0 „Continuity“
 
@@ -100,8 +101,8 @@ Starte KOReader danach vollständig neu. Unter **More tools → Plugin managemen
 |---|---|
 | Ordnername | Endet exakt auf `.koplugin`. |
 | Plugininhalt | Enthält `_meta.lua`, `main.lua`, `appdock_homescreen.lua`, `appdock_manager.lua`, `appdock_quicksettings.lua`, `appdock_wallpaper.lua`, `appdock_lockscreen.lua`, `appdock_dapps.lua`, `appdock_filemanager.lua`, `appdock_appstore.lua`, `appdock_theme.lua`, `appdock_logo.lua` und `appdock_browser.lua` direkt im Ordner. |
-| Startansicht | Begrüßung, Datum, Widgetkarten und ein 3-Spalten-App-Raster werden angezeigt. |
-| Langdruck auf Kachel | Öffnet **Manage AppDock**. |
+| Startansicht | Statuszeile, DuckDuckGo-Suchleiste, Karten/Widgets, 3-Spalten-App-Raster und Icon-Dock werden angezeigt. |
+| Bearbeitung | **Edit** antippen oder eine App lange drücken; **Done** beendet die Bearbeitung. |
 
 ## DApps und offene Apps
 

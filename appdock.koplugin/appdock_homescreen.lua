@@ -1,8 +1,8 @@
 --[[--
-AppDock's Material-You-inspired E-Ink homescreen.
-It adopts Android 16 / Material 3 Expressive principles that work without
-motion: calm surfaces, coherent theme colors, pronounced shapes, glanceable
-cards and a regular three-column icon grid.
+AppDock's Android-inspired E-Ink launcher.
+It adopts a compact status row, a single-line search pill, glanceable widgets,
+a labeled app grid and a fixed icon-only dock, with high-contrast surfaces that
+remain legible and inexpensive to refresh on E-Ink screens.
 --]]--
 
 local Blitbuffer = require("ffi/blitbuffer")
@@ -46,6 +46,8 @@ local AppTile = InputContainer:extend{
     background = nil,
     foreground = nil,
     symbol = nil,
+    hide_label = false,
+    is_dock_item = false,
     shape = "rounded",
 }
 
@@ -97,6 +99,12 @@ local SearchBar = InputContainer:extend{
 
 local SearchGlyph = Widget:extend{
     size = 16,
+    ink = nil,
+    dimen = nil,
+}
+
+local AppDrawerGlyph = Widget:extend{
+    size = 32,
     ink = nil,
     dimen = nil,
 }
@@ -207,13 +215,6 @@ local function currentBookText(appdock)
     return _("Choose a book from your library")
 end
 
-local function greeting()
-    local hour = tonumber(os.date("%H")) or 12
-    if hour < 11 then return _("Good morning") end
-    if hour < 18 then return _("Good afternoon") end
-    return _("Good evening")
-end
-
 local function appSectionLabel(count)
     return string.format(_("Apps  ·  %d"), tonumber(count) or 0)
 end
@@ -243,21 +244,21 @@ end
 
 function InfoCard:init()
     self.dimen = Geom:new{ w = self.width, h = self.height }
-    local title_size = Theme.adjustText(self.appdock, math.max(scale(8), math.min(scale(13), math.floor(self.height * .25))), scale(8))
-    local body_size = Theme.adjustText(self.appdock, math.max(scale(9), math.min(scale(16), math.floor(self.height * .30))), scale(9))
+    local title_size = Theme.adjustText(self.appdock, math.max(scale(12), math.min(scale(16), math.floor(self.height * .22))), scale(10))
+    local body_size = Theme.adjustText(self.appdock, math.max(scale(14), math.min(scale(20), math.floor(self.height * .32))), scale(11))
     local text_width = math.max(scale(12), self.width - 2 * scale(18))
     local title = Theme.fitLabel(self.title or "", text_width, title_size, 0)
     local body = Theme.fitLabel(self.body or "", text_width, body_size, 0)
-    local title_widget = TextWidget:new{ text = title, face = Font:getFace("smallinfofont", title_size), fgcolor = self.foreground or PALETTE.on_surface_variant, bold = true, max_width = text_width, padding = 0 }
-    local body_widget = TextWidget:new{ text = body, face = Font:getFace("smallinfofont", body_size), fgcolor = self.foreground or PALETTE.on_surface, max_width = text_width, padding = 0 }
+    local title_widget = TextWidget:new{ text = title, face = Font:getFace("smallinfofont", title_size), fgcolor = PALETTE.on_surface_variant, bold = true, max_width = text_width, padding = 0 }
+    local body_widget = TextWidget:new{ text = body, face = Font:getFace("smallinfofont", body_size), fgcolor = PALETTE.on_surface, max_width = text_width, padding = 0 }
     local positions = Theme.centeredStack(self.height, { title_widget, body_widget }, scale(4), scale(5))
     self[1] = FrameContainer:new{
         width = self.width,
         height = self.height,
         padding = 0,
-        bordersize = self.appdock and self.appdock.settings.beta and self.appdock.settings.beta.black_borders and scale(1) or 0,
-        color = Blitbuffer.COLOR_BLACK,
-        radius = math.floor(self.height * 0.30),
+        bordersize = scale(1),
+        color = self.appdock and self.appdock.settings.beta and self.appdock.settings.beta.black_borders and Blitbuffer.COLOR_BLACK or PALETTE.outline,
+        radius = math.floor(self.height * 0.34),
         background = self.background or PALETTE.surface,
         Layout.FixedStack:new{
             width = self.width,
@@ -317,9 +318,9 @@ function StoreWidgetCard:init()
         width = self.width,
         height = self.height,
         padding = 0,
-        bordersize = self.appdock and self.appdock.settings.beta and self.appdock.settings.beta.black_borders and scale(1) or 0,
-        color = Blitbuffer.COLOR_BLACK,
-        radius = math.floor(self.height * 0.28),
+        bordersize = scale(1),
+        color = self.appdock.settings.beta and self.appdock.settings.beta.black_borders and Blitbuffer.COLOR_BLACK or PALETTE.outline,
+        radius = math.floor(self.height * 0.30),
         background = self.background or PALETTE.surface,
         OverlapGroup:new{ dimen = self.dimen, allow_mirroring = false, unpack(card_children) },
     }
@@ -342,7 +343,7 @@ end
 function StoreWidgetCard:onPanReleaseMoveStoreWidget(_, gesture_event)
     local pos = gesture_event and gesture_event.pos
     if not self.edit_mode or not pos or not self.home then return false end
-    return self.home:moveStoreWidgetToPoint(self.widget.widget_id, pos.y)
+    return self.home:moveStoreWidgetToPoint(self.widget.widget_id, pos.x, pos.y)
 end
 
 function WidgetScaleButton:init()
@@ -450,33 +451,24 @@ end
 
 function DuckDuckGoBar:init()
     self.dimen = Geom:new{ w = self.width, h = self.height }
-    local padding = math.max(scale(5), math.floor(self.height * .15))
-    local badge_size = math.max(scale(18), self.height - 2 * padding)
-    local text_x = padding + badge_size + scale(10)
-    local text_width = math.max(scale(20), self.width - text_x - padding - scale(4))
-    local title_size = Theme.adjustText(self.appdock, math.max(scale(10), math.min(scale(13), math.floor(self.height * .29))), scale(9))
-    local subtitle_size = Theme.adjustText(self.appdock, math.max(scale(8), math.min(scale(10), math.floor(self.height * .22))), scale(8))
+    local padding = math.max(scale(7), math.floor(self.height * .16))
+    local badge_size = math.max(scale(24), self.height - 2 * padding)
+    local text_x = padding + badge_size + scale(12)
+    local trailing_size = scale(20)
+    local text_width = math.max(scale(20), self.width - text_x - padding - trailing_size - scale(14))
+    local title_size = Theme.adjustText(self.appdock, math.max(scale(12), math.min(scale(17), math.floor(self.height * .34))), scale(10))
     local query = type(self.query) == "string" and self.query or ""
-    local title = TextWidget:new{
-        text = Theme.fitLabel("DuckDuckGo", text_width, title_size, 0),
+    local prompt = TextWidget:new{
+        text = Theme.fitLabel(query ~= "" and query or _("Search with DuckDuckGo"), text_width, title_size, 0),
         face = Font:getFace("smallinfofont", title_size),
-        fgcolor = PALETTE.on_surface,
-        bold = true,
+        fgcolor = query ~= "" and PALETTE.on_surface or PALETTE.on_surface_variant,
         max_width = text_width,
         padding = 0,
     }
-    local subtitle = TextWidget:new{
-        text = Theme.fitLabel(query ~= "" and query or _("Search the web privately"), text_width, subtitle_size, 0),
-        face = Font:getFace("smallinfofont", subtitle_size),
-        fgcolor = query ~= "" and PALETTE.on_surface_variant or PALETTE.outline,
-        max_width = text_width,
-        padding = 0,
-    }
-    local positions = Theme.centeredStack(self.height, { title, subtitle }, scale(5), scale(4))
     local glyph_size = math.floor(badge_size * .62)
     local badge = FrameContainer:new{
         width = badge_size, height = badge_size, padding = 0, bordersize = 0,
-        radius = math.floor(badge_size * .34),
+        radius = math.floor(badge_size / 2),
         background = PALETTE.duckduckgo,
         Layout.FixedStack:new{
             width = badge_size, height = badge_size,
@@ -489,21 +481,24 @@ function DuckDuckGoBar:init()
             },
         },
     }
+    local trailing = SearchGlyph:new{ size = trailing_size, ink = PALETTE.on_surface_variant }
+    local prompt_y = math.floor((self.height - prompt:getSize().h) / 2)
+    local trailing_y = math.floor((self.height - trailing_size) / 2)
     self[1] = FrameContainer:new{
         width = self.width,
         height = self.height,
         padding = 0,
         bordersize = scale(1),
         color = PALETTE.outline,
-        radius = math.floor(self.height * .5),
+        radius = math.floor(self.height / 2),
         background = PALETTE.surface,
         Layout.FixedStack:new{
             width = self.width,
             height = self.height,
             entries = {
-                { widget = badge, x = padding, y = padding },
-                { widget = title, x = text_x, y = positions[1] },
-                { widget = subtitle, x = text_x, y = positions[2] },
+                { widget = badge, x = padding, y = math.floor((self.height - badge_size) / 2) },
+                { widget = prompt, x = text_x, y = prompt_y },
+                { widget = trailing, x = self.width - padding - trailing_size, y = trailing_y },
             },
         },
     }
@@ -528,17 +523,29 @@ function AppTile:init()
     local label_width = math.max(self.tile_size, tonumber(self.label_width) or self.tile_size)
     self.dimen = Geom:new{
         w = label_width,
-        h = self.tile_size + scale(6) + self.label_height,
+        h = self.tile_size + (self.hide_label and 0 or scale(6) + self.label_height),
     }
 
     local icon_size = math.floor(self.tile_size * 0.52)
     local is_plugin = type(self.app.id) == "string" and self.app.id:match("^plugin:") ~= nil
-    local icon = is_plugin and self.app.custom_logo_path and Wallpaper.buildPath(self.app.custom_logo_path, icon_size, icon_size, true) or nil
-    if not icon then icon = self.app.logo and DAppLogo:new{
-        kind = self.app.logo,
+    local builtin_logos = {
+        ["system:library"] = "file_manager",
+        ["system:menu"] = "settings",
+        ["system:history"] = "analog_clock",
+        ["system:open_apps"] = "app_store",
+        ["system:manage"] = "app_store",
+    }
+    local logo_kind = self.app.logo or builtin_logos[self.app.id]
+    local icon = self.symbol == "app_drawer" and AppDrawerGlyph:new{
+        size = icon_size, ink = self.foreground or PALETTE.on_primary_container,
+    } or nil
+    if not icon then icon = is_plugin and self.app.custom_logo_path and Wallpaper.buildPath(self.app.custom_logo_path, icon_size, icon_size, true) or nil end
+    if not icon and logo_kind then icon = DAppLogo:new{
+        kind = logo_kind,
         size = icon_size,
         ink = self.foreground or PALETTE.on_primary_container,
-    } or TextWidget:new{
+    } end
+    if not icon then icon = TextWidget:new{
         text = self.symbol or iconFor(self.app),
         face = Font:getFace("cfont", math.floor(self.tile_size * 0.40)),
         fgcolor = self.foreground or PALETTE.on_primary_container,
@@ -575,17 +582,21 @@ function AppTile:init()
         padding = 0,
     }
 
-    self[1] = VerticalGroup:new{
-        CenterContainer:new{
-            dimen = Geom:new{ w = label_width, h = self.tile_size },
-            tile,
-        },
-        VerticalSpan:new{ width = scale(6) },
-        CenterContainer:new{
-            dimen = Geom:new{ w = label_width, h = self.label_height },
-            label,
-        },
-    }
+    if self.hide_label then
+        self[1] = CenterContainer:new{ dimen = self.dimen, tile }
+    else
+        self[1] = VerticalGroup:new{
+            CenterContainer:new{
+                dimen = Geom:new{ w = label_width, h = self.tile_size },
+                tile,
+            },
+            VerticalSpan:new{ width = scale(6) },
+            CenterContainer:new{
+                dimen = Geom:new{ w = label_width, h = self.label_height },
+                label,
+            },
+        }
+    end
     self.ges_events = {
         TapSelectAppTile = {
             GestureRange:new{ ges = "tap", range = self.dimen },
@@ -594,7 +605,7 @@ function AppTile:init()
             GestureRange:new{ ges = "hold", range = self.dimen },
         },
     }
-    if self.home and self.home.edit_mode then
+    if self.home and self.home.edit_mode and not self.is_dock_item then
         self.ges_events.PanMoveAppTile = { GestureRange:new{ ges = "pan", range = self.dimen } }
         self.ges_events.PanReleaseMoveAppTile = { GestureRange:new{ ges = "pan_release", range = self.dimen } }
     end
@@ -621,6 +632,7 @@ end
 
 function AppTile:onTapSelectAppTile()
     if self.home and self.home.edit_mode then
+        if self.is_dock_item then return true end
         self.home.selected_app_id = self.app.id
         self.home:build()
         UIManager:setDirty(self.home, "ui")
@@ -632,6 +644,7 @@ function AppTile:onTapSelectAppTile()
 end
 
 function AppTile:onHoldSelectAppTile()
+    if self.is_dock_item then return true end
     if self.home and self.home.edit_mode then
         self.appdock:showManager(self.home, self.app)
     else
@@ -837,11 +850,15 @@ function AppDockHomeScreen:adjustStoreWidgetScale(widget_id, delta)
     return result
 end
 
-function AppDockHomeScreen:moveStoreWidgetToPoint(widget_id, y)
+function AppDockHomeScreen:moveStoreWidgetToPoint(widget_id, x, y)
+    if y == nil then y, x = x, nil end
     local positions = self.normal_layout and self.normal_layout.widget_positions or {}
     local target_id, nearest = nil, nil
     for _, item in pairs(positions) do
-        local distance = math.abs(y - (item.y + item.height / 2))
+        local center_x = item.x and item.x + (item.width or 0) / 2
+        local center_y = item.y + item.height / 2
+        local distance = x and center_x and math.sqrt((x - center_x) ^ 2 + (y - center_y) ^ 2)
+            or math.abs(y - center_y)
         if not nearest or distance < nearest then target_id, nearest = item.widget_id, distance end
     end
     if not target_id or target_id == widget_id then return false end
@@ -907,19 +924,20 @@ function AppDockHomeScreen:_addTopSystemLine(dashboard, width, margin)
     local left = TextWidget:new{
         text = self.appdock.settings.widgets.clock and os.date("%H:%M") or "",
         face = Font:getFace("smallinfofont", scale(14)),
-        fgcolor = PALETTE.on_surface_variant,
+        fgcolor = PALETTE.on_surface,
         overlap_offset = { margin, scale(10) },
     }
     table.insert(dashboard, left)
 
     local right_text = self.appdock.settings.widgets.status and safeBatteryText() or nil
+    if right_text then right_text = right_text:match("(%d+%%)") or right_text end
     local quick_size = scale(28)
     local quick_x = width - margin - quick_size
     if right_text then
         local right = TextWidget:new{
             text = right_text,
             face = Font:getFace("smallinfofont", scale(13)),
-            fgcolor = PALETTE.on_surface_variant,
+            fgcolor = PALETTE.on_surface,
         }
         quick_x = width - margin - right:getSize().w - scale(10) - quick_size
         right.overlap_offset = { width - margin - right:getSize().w, scale(11) }
@@ -1058,26 +1076,8 @@ function AppDockHomeScreen:build()
     local expressive = type(self.appdock.isExpressiveUiEnabled) == "function" and self.appdock:isExpressiveUiEnabled()
     local margin = scale(22)
     local top_line_height = scale(30)
-    local header_y = top_line_height + scale(14)
-    local greeting_text = TextWidget:new{
-        text = self.edit_mode and _("Edit homescreen") or greeting(),
-        face = Font:getFace("cfont", Theme.adjustText(self.appdock, scale(28), scale(18))),
-        fgcolor = PALETTE.on_surface,
-        bold = true,
-        max_width = width - 2 * margin - scale(92),
-        padding = 0,
-    }
-    local date_text = TextWidget:new{
-        text = self.edit_mode and _("Apps: drag to move · widgets: drag or resize") or os.date("%A, %d %B"),
-        face = Font:getFace("smallinfofont", Theme.adjustText(self.appdock, scale(15), scale(10))),
-        fgcolor = PALETTE.on_surface_variant,
-        max_width = width - 2 * margin - scale(92),
-        padding = 0,
-    }
-    local header_height = math.max(scale(56), greeting_text:getSize().h + date_text:getSize().h + scale(8))
-    local header_positions = Theme.centeredStack(header_height, { greeting_text, date_text }, scale(4), scale(6))
-    greeting_text.overlap_offset = { margin, header_y + header_positions[1] }
-    date_text.overlap_offset = { margin, header_y + header_positions[2] }
+    local search_y = top_line_height + scale(22)
+    local ddg_search_height = scale(54)
     local layout = self.appdock.settings.layout or {}
     local label_height = scale(20)
     local label_gap = scale(3)
@@ -1090,7 +1090,8 @@ function AppDockHomeScreen:build()
         end
         apps = filtered
     end
-    local visible_apps, page_count = self:_pageInfo(apps, 9)
+    local page_size = 9
+    local visible_apps, page_count = self:_pageInfo(apps, page_size)
 
     local dashboard = OverlapGroup:new{
         dimen = Geom:new{ w = width, h = height },
@@ -1111,28 +1112,12 @@ function AppDockHomeScreen:build()
         table.insert(dashboard, wallpaper)
     end
 
-    if expressive then
-        table.insert(dashboard, FrameContainer:new{
-            width = width - 2 * margin, height = header_height, padding = 0, bordersize = 0,
-            radius = math.floor(header_height / 2), background = PALETTE.surface,
-            emptySizedWidget(width - 2 * margin, header_height),
-            overlap_offset = { margin, header_y },
-        })
-    end
     self:_addTopSystemLine(dashboard, width, margin)
-    table.insert(dashboard, HomeEditButton:new{
-        home = self, title = self.edit_mode and _("Done") or _("Edit"), width = scale(78), height = scale(32),
-        overlap_offset = { width - margin - scale(78), header_y + scale(12) },
-    })
-
-    table.insert(dashboard, greeting_text)
-    table.insert(dashboard, date_text)
-
-    local block_y = header_y + header_height + scale(5)
+    local block_y = search_y
     -- The DuckDuckGo bar belongs to the first homescreen page only: swiping to
     -- the next app page keeps the grid uncluttered.
     if self.page == 1 and layout.ddg_search ~= false then
-        local bar_height = scale(46)
+        local bar_height = ddg_search_height
         table.insert(dashboard, DuckDuckGoBar:new{
             appdock = self.appdock, home = self, width = width - 2 * margin, height = bar_height,
             query = self.web_query or "", overlap_offset = { margin, block_y },
@@ -1147,8 +1132,8 @@ function AppDockHomeScreen:build()
         })
         card_y = block_y + scale(38) + scale(12)
     end
-    local show_status_card = self.appdock.settings.widgets.status == true
-    local show_reading_card = self.appdock.settings.widgets.reading_hint == true
+    local show_status_card = not self.edit_mode and self.appdock.settings.widgets.status == true
+    local show_reading_card = not self.edit_mode and self.appdock.settings.widgets.reading_hint == true
     local visible_widgets = {}
     for _, widget in ipairs(self.appdock:getStoreWidgets()) do
         if self.appdock:isStoreWidgetEnabled(widget.widget_id) then table.insert(visible_widgets, widget) end
@@ -1178,41 +1163,88 @@ function AppDockHomeScreen:build()
         end
     end
 
+    local dock_apps = {}
+    for _, app in ipairs(shortcut_apps) do dock_apps[#dock_apps + 1] = app end
+    local all_apps_app
+    if type(self.appdock.getSystemApps) == "function" then
+        local ok, system_apps = pcall(self.appdock.getSystemApps, self.appdock)
+        if ok and type(system_apps) == "table" then
+            for _, app in ipairs(system_apps) do
+                if app.id == "system:manage" then all_apps_app = app; break end
+            end
+        end
+    end
+    if not all_apps_app then
+        all_apps_app = {
+            id = "system:manage", title = _("All apps"),
+            callback = function(home) self.appdock:showManager(home) end,
+        }
+    end
+    dock_apps[#dock_apps + 1] = all_apps_app
+
     local row_gap = scale(8)
     local tile_gap = scale(math.max(8, math.min(34, tonumber(layout.app_spacing) or 16)))
-    local dock_gap = scale(8)
-    local dock_padding = scale(12)
+    local dock_gap = scale(10)
+    local dock_padding = scale(10)
     local dock_inner_width = width - 2 * margin - 2 * dock_padding
-    local dock_slot_width = math.floor((dock_inner_width - 3 * dock_gap) / 4)
-    local dock_tile_size = math.max(scale(46), math.min(scale(62), math.floor(dock_slot_width)))
-    local dock_label_height = scale(22)
-    local dock_title_height = scale(20)
-    local dock_height = #shortcut_apps > 0 and (2 * dock_padding + dock_title_height + scale(5) + dock_tile_size + scale(5) + dock_label_height) or 0
+    local dock_slot_width = math.floor((dock_inner_width - math.max(0, #dock_apps - 1) * dock_gap) / math.max(1, #dock_apps))
+    local dock_tile_size = math.max(scale(42), math.min(scale(64), math.floor(dock_slot_width)))
+    local dock_height = 2 * dock_padding + dock_tile_size
     local dock_y = height - margin - dock_height
+    local info_card_height = scale(78)
     local widget_gap = scale(10)
+    local widget_columns = #visible_widgets > 1 and 2 or 1
+    local widget_cell_width = math.floor((width - 2 * margin - (widget_columns - 1) * widget_gap) / widget_columns)
     local widget_metrics = {}
+    local widget_slots = {}
     local widget_scales = layout.widget_scales or {}
+    local next_widget_row, next_widget_col = 0, 0
     for _, widget in ipairs(visible_widgets) do
         local factor = math.max(.75, math.min(1.5, tonumber(widget_scales[widget.widget_id]) or 1))
+        local span = widget_columns == 2 and factor > 1 and 2 or 1
+        if span == 2 and next_widget_col > 0 then
+            next_widget_row, next_widget_col = next_widget_row + 1, 0
+        end
+        local slot_index = #widget_slots + 1
+        widget_slots[slot_index] = { row = next_widget_row, col = next_widget_col, span = span }
         widget_metrics[widget.widget_id] = {
             factor = factor,
-            width = math.floor((width - 2 * margin) * math.min(1, factor)),
-            height = scale(98 * factor),
+            width = math.floor((span == 2 and width - 2 * margin or widget_cell_width) * math.min(1, factor)),
+            height = scale(112 * factor),
         }
+        if span == 2 then
+            next_widget_row, next_widget_col = next_widget_row + 1, 0
+        else
+            next_widget_col = next_widget_col + 1
+            if next_widget_col >= widget_columns then next_widget_row, next_widget_col = next_widget_row + 1, 0 end
+        end
+    end
+    local function measureWidgetRows()
+        local row_count = 0
+        local row_heights = {}
+        for index, widget in ipairs(visible_widgets) do
+            local row = widget_slots[index] and widget_slots[index].row or math.floor((index - 1) / widget_columns)
+            row_count = math.max(row_count, row + 1)
+            local metrics = widget_metrics[widget.widget_id] or { height = scale(112) }
+            row_heights[row] = math.max(row_heights[row] or 0, metrics.height)
+        end
+        local total = 0
+        for row = 0, row_count - 1 do
+            total = total + (row_heights[row] or scale(112))
+            if row < row_count - 1 then total = total + widget_gap end
+        end
+        return total, row_heights, row_count
     end
     local function measuredGridY()
         local has_cards = show_status_card or show_reading_card
-        local widget_y = card_y + (has_cards and scale(54) or 0) + (has_cards and scale(8) or 0)
-        local widget_space = math.max(0, #visible_widgets - 1) * widget_gap
-        for _, widget in ipairs(visible_widgets) do
-            widget_space = widget_space + (widget_metrics[widget.widget_id] and widget_metrics[widget.widget_id].height or scale(98))
-        end
+        local widget_y = card_y + (has_cards and info_card_height or 0) + (has_cards and scale(10) or 0)
+        local widget_space = measureWidgetRows()
         return widget_y + widget_space + scale(24), widget_y, widget_space
     end
     local function maxGridTileSize()
         local grid_y = measuredGridY()
         local page_nav_space = page_count > 1 and scale(34) or 0
-        local bottom = dock_y - (#shortcut_apps > 0 and scale(8) or 0) - page_nav_space
+        local bottom = dock_y - (#dock_apps > 0 and scale(8) or 0) - page_nav_space
         return math.floor((bottom - grid_y - 2 * row_gap - 3 * (label_gap + label_height)) / 3)
     end
     local widgets_hidden_for_fit = false
@@ -1234,11 +1266,11 @@ function AppDockHomeScreen:build()
         table.insert(dashboard, InfoCard:new{
             appdock = self.appdock,
             width = math.floor((width - 2 * margin - scale(10)) * 0.42),
-            height = scale(54),
+            height = info_card_height,
             title = _("Device"),
             body = status_body,
-            background = PALETTE.secondary_container,
-            foreground = PALETTE.on_secondary_container,
+            background = PALETTE.surface,
+            foreground = PALETTE.on_surface,
             overlap_offset = { margin, card_y },
         })
     end
@@ -1253,22 +1285,35 @@ function AppDockHomeScreen:build()
         table.insert(dashboard, InfoCard:new{
             appdock = self.appdock,
             width = reading_width,
-            height = scale(54),
+            height = info_card_height,
             title = _("Continue reading"),
             body = currentBookText(self.appdock),
-            background = PALETTE.primary_container,
-            foreground = PALETTE.on_primary_container,
+            background = PALETTE.surface_variant,
+            foreground = PALETTE.on_surface,
             overlap_offset = { reading_x, card_y },
         })
     end
 
     local grid_y, widget_y, widget_space = measuredGridY()
+    local _measured_widget_space, widget_row_heights, widget_row_count = measureWidgetRows()
     local widget_positions = {}
+    local widget_row_offsets = {}
     local widget_cursor_y = widget_y
+    for row = 0, widget_row_count - 1 do
+        widget_row_offsets[row] = widget_cursor_y
+        widget_cursor_y = widget_cursor_y + (widget_row_heights[row] or scale(112)) + widget_gap
+    end
     for index, widget in ipairs(visible_widgets) do
-        local metrics = widget_metrics[widget.widget_id] or { width = width - 2 * margin, height = scale(98), factor = 1 }
-        local widget_x = margin + math.floor((width - 2 * margin - metrics.width) / 2)
-        widget_positions[widget.widget_id] = { widget_id = widget.widget_id, y = widget_cursor_y, height = metrics.height, index = index }
+        local metrics = widget_metrics[widget.widget_id] or { width = widget_cell_width, height = scale(112), factor = 1 }
+        local slot = widget_slots[index] or { row = math.floor((index - 1) / widget_columns), col = (index - 1) % widget_columns, span = 1 }
+        local slot_width = slot.span == 2 and width - 2 * margin or widget_cell_width
+        local slot_x = margin + slot.col * (widget_cell_width + widget_gap)
+        local widget_x = slot_x + math.floor((slot_width - metrics.width) / 2)
+        local widget_y_pos = widget_row_offsets[slot.row] or widget_y
+        widget_positions[widget.widget_id] = {
+            widget_id = widget.widget_id, x = widget_x, y = widget_y_pos,
+            width = metrics.width, height = metrics.height, index = index, row = slot.row, column = slot.col, span = slot.span,
+        }
         table.insert(dashboard, StoreWidgetCard:new{
             widget = widget,
             appdock = self.appdock,
@@ -1278,14 +1323,13 @@ function AppDockHomeScreen:build()
             widget_position = index,
             width = metrics.width,
             height = metrics.height,
-            background = index % 2 == 0 and PALETTE.secondary_container or PALETTE.primary_container,
-            foreground = index % 2 == 0 and PALETTE.on_secondary_container or PALETTE.on_primary_container,
-            overlap_offset = { widget_x, widget_cursor_y },
+            background = PALETTE.surface,
+            foreground = PALETTE.on_surface,
+            overlap_offset = { widget_x, widget_y_pos },
         })
-        widget_cursor_y = widget_cursor_y + metrics.height + widget_gap
     end
     local page_nav_space = page_count > 1 and scale(34) or 0
-    local grid_bottom = dock_y - (#shortcut_apps > 0 and scale(8) or 0) - page_nav_space
+    local grid_bottom = dock_y - (#dock_apps > 0 and scale(8) or 0) - page_nav_space
     local available_tile_size = math.floor((grid_bottom - grid_y - 2 * row_gap - 3 * (label_gap + label_height)) / 3)
     local preferred_tile_size = math.floor(math.min(width * 0.20, height * 0.13))
     local tile_size = math.max(scale(36), math.min(scale(110), preferred_tile_size, math.floor(width / 3) - tile_gap, available_tile_size))
@@ -1300,13 +1344,17 @@ function AppDockHomeScreen:build()
             tile_size + label_gap + label_height + row_gap, tile_size + label_gap + label_height)
     end
     table.insert(app_grid, TextWidget:new{
-        text = self.edit_mode and _("Drag an app to rearrange it") or appSectionLabel(#apps),
+        text = self.edit_mode and _("Drag apps · Store widgets use − / +") or appSectionLabel(#apps),
         face = Font:getFace("smallinfofont", Theme.adjustText(self.appdock, scale(14), scale(10))),
         fgcolor = PALETTE.on_surface_variant,
         bold = true,
-        max_width = width - 2 * margin,
+        max_width = width - 2 * margin - scale(92),
         padding = 0,
         overlap_offset = { margin, grid_y - scale(20) },
+    })
+    table.insert(app_grid, HomeEditButton:new{
+        home = self, title = self.edit_mode and _("Done") or _("Edit"), width = scale(78), height = scale(30),
+        overlap_offset = { width - margin - scale(78), grid_y - scale(32) },
     })
     for index, app in ipairs(visible_apps) do
         local col = (index - 1) % 3
@@ -1354,47 +1402,54 @@ function AppDockHomeScreen:build()
     table.insert(dashboard, app_grid)
     self._app_grid = app_grid
     local dock_title = actual_recent_count > 0 and actual_recent_count == #shortcut_apps and _("Recently used") or _("Quick access")
-    if #shortcut_apps > 0 then
+    if #dock_apps > 0 then
         table.insert(dashboard, FrameContainer:new{
             width = width - 2 * margin,
             height = dock_height,
             padding = 0,
-            bordersize = 0,
-            radius = math.floor(dock_height * .25),
-            background = expressive and PALETTE.surface or PALETTE.surface_variant,
+            bordersize = scale(1),
+            color = PALETTE.outline,
+            radius = math.floor(dock_height / 2),
+            background = PALETTE.surface,
             emptySizedWidget(width - 2 * margin, dock_height),
             overlap_offset = { margin, dock_y },
         })
-        table.insert(dashboard, TextWidget:new{
-            text = dock_title,
-            face = Font:getFace("smallinfofont", Theme.adjustText(self.appdock, scale(14), scale(10))),
-            fgcolor = PALETTE.on_surface_variant,
-            bold = true,
-            padding = 0,
-            overlap_offset = { margin + dock_padding, dock_y + dock_padding },
-        })
-        local tile_y = dock_y + dock_padding + dock_title_height + scale(5)
-        for index, app in ipairs(shortcut_apps) do
+        local tile_y = dock_y + dock_padding
+        for index, app in ipairs(dock_apps) do
+            local is_all_apps = app.id == "system:manage"
+            if is_all_apps and #shortcut_apps > 0 then
+                local separator_x = margin + dock_padding + (index - 1) * (dock_slot_width + dock_gap) - math.floor(dock_gap / 2)
+                table.insert(dashboard, FrameContainer:new{
+                    width = scale(1), height = scale(34), padding = 0, bordersize = 0,
+                    background = PALETTE.outline, emptySizedWidget(scale(1), scale(34)),
+                    overlap_offset = { separator_x, dock_y + math.floor((dock_height - scale(34)) / 2) },
+                })
+            end
             local tone = toneFor(app, index)
+            local slot_x = margin + dock_padding + (index - 1) * (dock_slot_width + dock_gap)
             table.insert(dashboard, AppTile:new{
                 appdock = self.appdock,
                 home = self,
                 app = app,
                 tile_size = dock_tile_size,
-                label_height = dock_label_height,
+                label_height = 0,
                 label_width = dock_slot_width,
+                hide_label = true,
+                is_dock_item = true,
+                symbol = is_all_apps and "app_drawer" or nil,
                 shape = layout.logo_shape,
                 background = tone.background,
                 foreground = tone.foreground,
-                overlap_offset = { margin + dock_padding + (index - 1) * (dock_slot_width + dock_gap), tile_y },
+                overlap_offset = { slot_x, tile_y },
             })
         end
     end
 
     self.normal_layout = {
         expressive = expressive,
-        has_header_surface = expressive,
-        has_app_dock_surface = #shortcut_apps > 0,
+        has_header_surface = false,
+        has_search_pill = self.page == 1 and layout.ddg_search ~= false,
+        has_app_dock_surface = #dock_apps > 0,
         app_section = true,
         grid_columns = 3,
         grid_rows = grid_rows,
@@ -1402,7 +1457,6 @@ function AppDockHomeScreen:build()
         grid_x = grid_x,
         cell_width = column_width,
         row_pitch = tile_size + label_gap + label_height + row_gap,
-        page_size = 9,
         widget_positions = widget_positions,
         tile_size = tile_size,
         grid_y = grid_y,
@@ -1410,6 +1464,10 @@ function AppDockHomeScreen:build()
         page_size = 9,
         page_count = page_count,
         quick_access_count = #shortcut_apps,
+        dock_item_count = #dock_apps,
+        widget_columns = widget_columns,
+        widget_grid_height = _measured_widget_space,
+        glance_cards_hidden_for_edit = self.edit_mode and (self.appdock.settings.widgets.status == true or self.appdock.settings.widgets.reading_hint == true),
         recent_count = actual_recent_count,
         quick_access_title = dock_title,
         quick_access_y = dock_y,
@@ -1422,6 +1480,25 @@ function AppDockHomeScreen:onClose()
     if self._widget_tick then UIManager:unschedule(self._widget_tick); self._widget_tick = nil end
     UIManager:close(self)
     return true
+end
+
+function AppDrawerGlyph:init()
+    self.dimen = Geom:new{ w = self.size, h = self.size }
+    self.lens = SearchGlyph:new{ size = math.max(7, math.floor(self.size * .40)), ink = self.ink or PALETTE.on_primary_container }
+end
+
+function AppDrawerGlyph:paintTo(bb, x, y)
+    local size = self.size
+    local ink = self.ink or PALETTE.on_primary_container
+    local cell = math.max(2, math.floor(size * .25))
+    local gap = math.max(2, math.floor(size * .12))
+    local origin = math.floor((size - 2 * cell - gap) / 2)
+    for row = 0, 1 do
+        for col = 0, 1 do
+            bb:paintRect(x + origin + col * (cell + gap), y + origin + row * (cell + gap), cell, cell, ink)
+        end
+    end
+    self.lens:paintTo(bb, x + size - self.lens.size, y + size - self.lens.size)
 end
 
 return AppDockHomeScreen

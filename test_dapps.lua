@@ -222,7 +222,7 @@ assert(appstore_source:find("local bar_height = scale(50)", 1, true) and appstor
 assert(appstore_source:find("padding = 0", 1, true), "AppStore fixed-height labels must not inherit TextWidget vertical padding")
 local homescreen_source = assert(io.open(plugin_dir .. "appdock_homescreen.lua", "rb")):read("*a")
 local simple_mode_source = homescreen_source:match("function AppDockHomeScreen:_buildSimpleMode.-\nend") or ""
-assert(homescreen_source:find("local header_positions = Theme.centeredStack", 1, true) and homescreen_source:find("local block_y = header_y + header_height + scale(5)", 1, true) and homescreen_source:find("local card_y = block_y", 1, true), "Normal Homescreen cards must begin after the measured greeting lines and the search block")
+assert(homescreen_source:find("local search_y = top_line_height + scale(22)", 1, true) and homescreen_source:find("local block_y = search_y", 1, true) and homescreen_source:find("local card_y = block_y", 1, true), "Normal Homescreen must place one wide search pill directly under the status row before glance widgets")
 assert(not simple_mode_source:find("Theme.centeredStack", 1, true) and not simple_mode_source:find("has_header_surface", 1, true), "Simple Mode must retain its independent reduced layout path")
 assert(recents_source:find('title = "", symbol = "⌂", width = scale(72), height = scale(44)', 1, true), "Compact Open Apps navigation must not place a text label beneath its Home button")
 assert(recents_source:find("local margin, gap = scale(10), scale(4)", 1, true) and recents_source:find("math.min(scale(50)", 1, true), "Settings must use visibly compact row and category spacing")
@@ -234,8 +234,8 @@ assert(appstore_source:find("local row_height = scale(76)", 1, true) and appstor
 assert(homescreen_source:find("local label_height = scale(20)", 1, true) and homescreen_source:find("local label_gap = scale(3)", 1, true) and homescreen_source:find("local row_gap = scale(8)", 1, true), "Normal Homescreen app labels and rows must use compact visible spacing")
 assert(appstore_source:find("Layout.FixedStack:new", 1, true) and homescreen_source:find("Layout.FixedStack:new", 1, true), "AppStore and Homescreen cards must draw text through the fixed-bounds container")
 assert(simple_mode_source:find("local column_gap, row_gap, label_height = scale(12), scale(14), scale(22)", 1, true), "Simple Mode must retain its original app-grid spacing")
-assert(homescreen_source:find("self:_pageInfo(apps, 9)", 1, true) and homescreen_source:find("local grid_width = width", 1, true), "Normal Homescreen must paginate nine apps on a screen-wide grid")
-assert(homescreen_source:find('local dock_title = actual_recent_count > 0 and actual_recent_count == #shortcut_apps and _("Recently used") or _("Quick access")', 1, true) and homescreen_source:find("dock_padding = scale(12)", 1, true) and homescreen_source:find("has_app_dock_surface = #shortcut_apps > 0", 1, true), "Normal Homescreen must provide a larger rounded Recently used surface with an accurate Quick access fallback")
+assert(homescreen_source:find("local page_size = 9", 1, true) and homescreen_source:find("local grid_width = width", 1, true), "Normal Homescreen must paginate nine apps on a screen-wide grid")
+assert(homescreen_source:find('local dock_title = actual_recent_count > 0 and actual_recent_count == #shortcut_apps and _("Recently used") or _("Quick access")', 1, true) and homescreen_source:find("dock_padding = scale(10)", 1, true) and homescreen_source:find("has_app_dock_surface = #dock_apps > 0", 1, true), "Normal Homescreen must provide a compact rounded icon dock with an All apps action")
 assert(homescreen_source:find("SwipeHomePage", 1, true) and homescreen_source:find("self:_showPage(self.page + 1)", 1, true) and not homescreen_source:find("Motion.run", 1, true), "Homescreen paging must switch app pages instantly, without animation")
 assert(homescreen_source:find("local DuckDuckGoBar = InputContainer:extend", 1, true) and homescreen_source:find("duckduckgo = color(222, 88, 51", 1, true) and homescreen_source:find("self.page == 1 and layout.ddg_search ~= false", 1, true) and homescreen_source:find("function AppDockHomeScreen:runWebSearch", 1, true), "The first Homescreen page must offer the branded DuckDuckGo search bar")
 assert(appstore_source:find('kind = "app_store"', 1, true) and appstore_source:find('text = _("AppDock Store")', 1, true) and appstore_source:find("local PlayNavTab = InputContainer:extend", 1, true), "AppStore must use the AppDock logo and wordmark with its category navigation")
@@ -684,9 +684,15 @@ appdock.test_recent_apps = {
     { id = "system:history", title = "History" },
 }
 local expressive_home = HomeScreen:new{ appdock = appdock }
-assert(expressive_home.normal_layout and expressive_home.normal_layout.expressive and expressive_home.normal_layout.has_header_surface and expressive_home.normal_layout.has_app_dock_surface, "Normal homescreen must restore expressive header surfaces with a rounded Recently used dock")
+assert(expressive_home.normal_layout and expressive_home.normal_layout.expressive and not expressive_home.normal_layout.has_header_surface and expressive_home.normal_layout.has_search_pill and expressive_home.normal_layout.has_app_dock_surface, "Normal homescreen must use a search-led Android layout with a rounded icon dock")
 assert(expressive_home.normal_layout.grid_columns == 3 and expressive_home.normal_layout.grid_rows == 3 and expressive_home.normal_layout.page_size == 9 and expressive_home.normal_layout.grid_width == Device.screen:getSize().w, "Normal homescreen must use a full-width 3×3 app grid")
 assert(expressive_home.normal_layout.quick_access_count == 4 and expressive_home.normal_layout.recent_count == 4, "Normal homescreen must show one row of four recent shortcuts")
+assert(expressive_home.normal_layout.dock_item_count == 5, "The bottom dock must contain recent shortcuts and a fixed All apps action")
+local drawer_dock_icon
+walk_tree(expressive_home[1], function(node)
+    if node.is_dock_item and node.symbol == "app_drawer" and node.hide_label then drawer_dock_icon = node end
+end)
+assert(drawer_dock_icon and drawer_dock_icon.dimen.h == drawer_dock_icon.tile_size, "The All apps action must use a compact icon-only launcher glyph in the dock")
 assert(expressive_home.normal_layout.tile_size >= 62, "App tiles must remain comfortably sized alongside the quick-access row")
 local many_pinned_apps = {}
 for index = 1, 10 do many_pinned_apps[index] = { id = "test:grid:" .. index, title = "Grid App " .. index } end
@@ -717,12 +723,19 @@ walk_tree(editor_home[1], function(node)
     if node.title == "Done" and type(node.onTapToggleHomeEdit) == "function" then done_button = node end
 end)
 assert(editor_home.edit_mode and draggable_tile and editable_widget and scale_up and done_button, "Long-press edit mode must show the app grid, movable/resizable widgets, and a Done action")
+assert(editor_home.normal_layout.widget_columns == 2, "Multiple Store widgets must use an Android-like two-column card grid")
+assert(editor_home.normal_layout.glance_cards_hidden_for_edit == (appdock.settings.widgets.status == true or appdock.settings.widgets.reading_hint == true), "Non-editable glance cards must temporarily yield space while arranging Store widgets")
+local initial_quote_position = editor_home.normal_layout.widget_positions.quote_widget
+local initial_weather_position = editor_home.normal_layout.widget_positions.weather_widget
+assert(initial_quote_position and initial_weather_position and initial_quote_position.y == initial_weather_position.y and initial_quote_position.x ~= initial_weather_position.x, "Widgets at their default size must share a balanced two-column row")
 assert(scale_up:onTapAdjustStoreWidget() == 1.25 and appdock.settings.layout.widget_scales.quote_widget == 1.25, "Tapping a widget plus control must enlarge only that widget")
 local has_size_indicator = false
 walk_tree(editor_home[1], function(node) if node.text == "Size: 125%" then has_size_indicator = true end end)
 assert(has_size_indicator, "The widget editor must display its current size beside the scale controls")
+local quote_position = editor_home.normal_layout.widget_positions.quote_widget
 local weather_position = editor_home.normal_layout.widget_positions.weather_widget
-assert(editable_widget:onPanReleaseMoveStoreWidget(nil, { pos = { y = weather_position.y + weather_position.height / 2 } }) and log.moved_widget, "Dragging a Store widget to another widget row must reorder it")
+assert(quote_position and weather_position and quote_position.span == 2 and quote_position.width > weather_position.width and weather_position.y > quote_position.y, "Enlarging a widget must let it span the row while other widgets reflow below")
+assert(editable_widget:onPanReleaseMoveStoreWidget(nil, { pos = { x = weather_position.x + weather_position.width / 2, y = weather_position.y + weather_position.height / 2 } }) and log.moved_widget, "Dragging a Store widget to another grid cell must reorder it")
 local target_x = editor_home.normal_layout.grid_x + editor_home.normal_layout.cell_width + 4
 local target_y = editor_home.normal_layout.grid_y + 4
 assert(draggable_tile:onPanMoveAppTile(nil, { pos = { x = target_x, y = target_y } }), "App tiles must begin dragging in edit mode")
@@ -741,7 +754,7 @@ walk_tree(paged_home[1], function(child)
     end
 end)
 assert(paged_home.normal_layout.page_count == 2 and visible_grid_apps == 9, "A 3×3 app page must show nine apps before moving to the next page")
-assert(paged_home.normal_layout.hidden_widgets_for_fit and paged_home.normal_layout.tile_size >= 62, "Optional Store widgets must give way to keep paginated app tiles comfortably sized")
+assert(paged_home.normal_layout.tile_size >= 62 and (paged_home.normal_layout.hidden_widgets_for_fit or paged_home.normal_layout.widget_columns == 2), "Optional Store widgets must reflow or yield space to keep paginated app tiles comfortably sized")
 assert(paged_home:onSwipeHomePage(nil, { direction = "west" }) and paged_home.page == 2 and not paged_home._page_transition, "Swiping west must animate to the next homescreen page and finish cleanly")
 assert(paged_home:onSwipeHomePage(nil, { direction = "east" }) and paged_home.page == 1, "Swiping east must animate back to the previous homescreen page")
 appdock.getPinnedApps = original_get_pinned_apps
@@ -769,7 +782,7 @@ local function find_ddg_bars(widget)
 end
 local ddg_home = HomeScreen:new{ appdock = appdock, page = 1 }
 local ddg_bars = find_ddg_bars(ddg_home[1])
-assert(#ddg_bars == 1 and find_widget_text(ddg_bars[1], "DuckDuckGo"), "The first homescreen page must show the branded DuckDuckGo search bar")
+assert(#ddg_bars == 1 and find_widget_text(ddg_bars[1], "Search with DuckDuckGo"), "The first homescreen page must show a single-line DuckDuckGo search pill")
 local ddg_bar = ddg_bars[1]
 local shown_before_ddg = #log.shown
 assert(ddg_bar:onTapDuckDuckGoSearch() and #log.shown == shown_before_ddg + 1, "Tapping the DuckDuckGo bar must open the AppDock keyboard")
