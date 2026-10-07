@@ -56,6 +56,22 @@ local function setBrightness(delta)
     state.current = value
     return state
 end
+local function turnFrontlightOff()
+    local state = brightnessState()
+    if not state then return nil end
+    local ok = pcall(function()
+        if state.current > state.min then state.powerd:toggleFrontlight() end
+        if state.powerd.updateResumeFrontlightState then state.powerd:updateResumeFrontlightState() end
+    end)
+    return ok and state or nil
+end
+local function restoreFrontlight(state)
+    if not state then return end
+    pcall(function()
+        if state.current > state.min then state.powerd:setIntensity(state.current) end
+        if state.powerd.updateResumeFrontlightState then state.powerd:updateResumeFrontlightState() end
+    end)
+end
 
 local BrightnessIndicator = FrameContainer:extend{ percentage = 0, current = 0, maximum = 100, dimen = nil }
 function BrightnessIndicator:init()
@@ -130,6 +146,7 @@ function HappyReaderScreen:onShow()
 end
 function HappyReaderScreen:onCloseWidget()
     if self._tick then UIManager:unschedule(self._tick); self._tick = nil end
+    restoreFrontlight(self._saved_frontlight)
     UIManager:setDirty("all", "full")
 end
 
@@ -154,7 +171,11 @@ function Controls.showPowerMenu()
 end
 function Controls.showScreensaver()
     for _, path in ipairs(FRAME_PATHS) do if not fileExists(path) then return false end end
-    UIManager:show(HappyReaderScreen:new{})
+    local screensaver = HappyReaderScreen:new{}
+    -- Turn the frontlight off for the e-ink animation and restore the user's
+    -- previous intensity when the screensaver closes.
+    screensaver._saved_frontlight = turnFrontlightOff()
+    UIManager:show(screensaver)
     return true
 end
 function Controls.brightnessState() return brightnessState() end

@@ -4,7 +4,7 @@
 
 # New releases regulary commited at 3:00 AM CET
 
-**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **7.8.9** reduces the memory usage of the animated screensaver and fixes the KOReader `not enough storage` error. [Details](RELEASE_NOTES_7.8.9.md).
+**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **7.8.10** adds 10-step brightness control and 0% frontlight while the screensaver is active. [Details](RELEASE_NOTES_7.8.10.md).
 
 > **E-Ink approach:** AppDock deliberately borrows the visual language and information structure, not Android's animations, blur, or transparency effects. This keeps updates economical and maintains contrast on monochrome readers.
 

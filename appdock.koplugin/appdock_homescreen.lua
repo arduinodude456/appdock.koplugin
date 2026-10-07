@@ -734,7 +734,7 @@ function AppDockHomeScreen:_pageKey(direction)
     -- A fresh key-down starts a new press/hold gesture. The repeat handler
     -- below turns a real hardware hold into the power/screensaver action.
     self._page_hold_shown[direction] = false
-    local delta = direction == "up" and 1 or -1
+    local delta = direction == "up" and 10 or -10
     local state = DeviceControls.setBrightness(delta)
     if state then self:_showBrightnessIndicator(state) end
     return true
