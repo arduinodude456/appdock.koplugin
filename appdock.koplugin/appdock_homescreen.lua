@@ -703,13 +703,29 @@ function AppDockHomeScreen:_showBrightnessIndicator(state)
     self._brightness_notice = state
     self._brightness_notice_generation = (self._brightness_notice_generation or 0) + 1
     local generation = self._brightness_notice_generation
-    self:build()
-    UIManager:setDirty(self, "ui")
+    -- Do not replace the homescreen tree while KOReader is still dispatching
+    -- the physical-key event. On some readers that races the framebuffer
+    -- repaint and leaves its temporary framebuffer object unset.
+    UIManager:nextTick(function()
+        if self._brightness_notice_generation ~= generation then return end
+        local ok = pcall(function()
+            self:build()
+            UIManager:setDirty(self, "ui")
+        end)
+        if not ok then
+            self._brightness_notice = nil
+        end
+    end)
     UIManager:scheduleIn(1.35, function()
         if self._brightness_notice_generation == generation then
             self._brightness_notice = nil
-            self:build()
-            UIManager:setDirty(self, "ui")
+            UIManager:nextTick(function()
+                local ok = pcall(function()
+                    self:build()
+                    UIManager:setDirty(self, "ui")
+                end)
+                if not ok then self._brightness_notice = nil end
+            end)
         end
     end)
 end
