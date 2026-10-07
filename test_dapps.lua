@@ -280,8 +280,8 @@ local launch_probe = setmetatable({
 launch_probe:launchApp({ id = "dapp:reader", kind = "dapp", dapp_id = "reader" })
 assert(launch_probe.settings.recent_apps[1] == "dapp:reader" and launched_dapp == "reader", "Launching a DApp must record it as the most recently used quick-access app")
 local files_source = assert(io.open(plugin_dir .. "appdock_filemanager.lua", "rb")):read("*a")
-assert(files_source:find("local margin, gap = scale(12), scale(5)", 1, true) and files_source:find("local row_height = scale(54)", 1, true), "Files must use compact visible rows and gaps")
-assert(files_source:find("Layout.FixedStack:new", 1, true), "File rows must draw labels through the same fixed-bounds container")
+assert(files_source:find("local margin, gap = scale(12), scale(8)", 1, true) and files_source:find("local search_h = scale(40)", 1, true), "Files must use compact Google Files spacing and a prominent search pill")
+assert(files_source:find("Layout.FixedStack:new", 1, true) and files_source:find("function FileBrowser:openEntry", 1, true), "File rows and tiles must draw through fixed bounds and preserve safe open dispatch")
 local sleepscreen_source = assert(io.open(plugin_dir .. "appdock_sleepscreen.lua", "rb")):read("*a")
 assert(sleepscreen_source:find("function Sleep.show", 1, true) and sleepscreen_source:find("function Sleep.close", 1, true) and sleepscreen_source:find("Sleeping", 1, true), "The optional Sleep screen must provide a minimal full-screen show/close widget")
 local design_definition = Theme.normalizeDesignDefinition({
@@ -478,6 +478,9 @@ end
 local FileBrowser = dofile(os.getenv("APPDOCK_FILEMANAGER_PATH") or (plugin_dir .. "appdock_filemanager.lua"))
 local markdown_entries = assert(FileBrowser:new():_readEntries("/books"))
 assert(#markdown_entries == 1 and markdown_entries[1].is_markup, "The AppDock Filebrowser must identify supported Markdown suffixes as MarkUP files")
+local filemanager_source = assert(io.open(plugin_dir .. "appdock_filemanager.lua", "rb")):read("*a")
+assert(filemanager_source:find("local SearchPill = InputContainer:extend", 1, true) and filemanager_source:find("local CategoryCard = InputContainer:extend", 1, true) and filemanager_source:find("local FileTile = InputContainer:extend", 1, true), "Files must provide Google Files-style search, category and tile widgets")
+assert(filemanager_source:find("google_files_style = true", 1, true) and filemanager_source:find("has_recent = #recent > 0", 1, true) and filemanager_source:find("has_categories = true", 1, true) and filemanager_source:find("two_column = true", 1, true), "Files must expose a two-column Google Files dashboard with recent files, categories and storage")
 local markup_open = {}
 local markup_manager = {
     openDAppFile = function(_, id, path)
