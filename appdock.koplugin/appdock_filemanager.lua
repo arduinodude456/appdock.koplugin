@@ -33,6 +33,8 @@ if not ok_lfs then lfs = require("lfs") end
 local Screen = Device.screen
 local FileBrowser = {}
 FileBrowser.__index = FileBrowser
+local STORAGE_ROOT = "/mnt/onboard"
+local STANDARD_FOLDERS = { "Downloads", "Documents", "Images", "Videos", "Audio" }
 
 local function scale(value) return Screen:scaleBySize(value) end
 local function color(r, g, b, grayscale)
@@ -213,8 +215,22 @@ end
 function FileRow:onTapFileRow() if self.callback then self.callback() end return true end
 
 function FileBrowser:new() return setmetatable({}, self) end
+function FileBrowser:_ensureStandardFolders()
+    -- These are only empty directory entries. Files are never moved or copied
+    -- by the virtual sorter; users remain in control of their storage.
+    pcall(function()
+        local attributes = lfs.attributes(STORAGE_ROOT)
+        if not attributes and lfs.mkdir then lfs.mkdir(STORAGE_ROOT) end
+        for _, folder in ipairs(STANDARD_FOLDERS) do
+            local path = STORAGE_ROOT .. "/" .. folder
+            if not lfs.attributes(path) and lfs.mkdir then lfs.mkdir(path) end
+        end
+    end)
+end
 function FileBrowser:_ensureState(instance)
-    instance.file_browser = instance.file_browser or { path = FileManagerUtil.getHomeFolder(), error = nil, entries = nil, home_mode = true, query = "", category = nil, recent_files = {} }
+    self:_ensureStandardFolders()
+    instance.file_browser = instance.file_browser or { path = STORAGE_ROOT, error = nil, entries = nil, home_mode = true, sort_mode = false, query = "", category = nil, recent_files = {} }
+    instance.file_browser.sort_mode = instance.file_browser.sort_mode == true
     return instance.file_browser
 end
 function FileBrowser:_readEntries(path)
@@ -239,16 +255,61 @@ function FileBrowser:_readEntries(path)
     sortEntries(entries)
     return entries
 end
+function FileBrowser:_readSortedEntries(root, limit)
+    local entries, visited = {}, {}
+    limit = limit or 500
+    local function visit(path)
+        if #entries >= limit or visited[path] then return end
+        visited[path] = true
+        local ok, iterator, directory_object = pcall(lfs.dir, path)
+        if not ok or not iterator then return end
+        for name in iterator, directory_object do
+            if #entries >= limit then break end
+            if name ~= "." and name ~= ".." then
+                local fullpath = path == "/" and ("/" .. name) or (path .. "/" .. name)
+                local attributes_ok, attributes = pcall(lfs.attributes, fullpath)
+                if attributes_ok and attributes then
+                    if attributes.mode == "directory" then
+                        visit(fullpath)
+                    elseif attributes.mode == "file" then
+                        local entry = self:_readEntries(path)
+                        -- Read the single file's metadata without changing the
+                        -- visible filesystem; this also keeps handler flags in
+                        -- one place for the normal and virtual views.
+                        local found
+                        for _, candidate in ipairs(entry or {}) do if candidate.path == fullpath then found = candidate; break end end
+                        if found then
+                            found.name = basename(fullpath)
+                            found.sort_category = categoryFor(found)
+                            found.virtual_path = fullpath
+                            table.insert(entries, found)
+                        end
+                    end
+                end
+            end
+        end
+    end
+    visit(root)
+    table.sort(entries, function(a, b) return (a.sort_category or ""):lower() .. a.name:lower() < (b.sort_category or ""):lower() .. b.name:lower() end)
+    return entries
+end
 function FileBrowser:refresh(instance, context)
     local state = self:_ensureState(instance)
-    state.entries, state.error = self:_readEntries(state.path)
+    if state.sort_mode then state.entries, state.error = self:_readSortedEntries(STORAGE_ROOT), nil
+    else state.entries, state.error = self:_readEntries(state.path) end
     context.requestRebuild("ui")
 end
 function FileBrowser:enterDirectory(instance, context, path)
-    local state = self:_ensureState(instance); state.path, state.home_mode, state.category, state.query = path, false, nil, ""; self:refresh(instance, context)
+    local state = self:_ensureState(instance); state.path, state.home_mode, state.sort_mode, state.category, state.query = path, false, false, nil, ""; self:refresh(instance, context)
 end
 function FileBrowser:showHome(instance, context)
-    local state = self:_ensureState(instance); state.path, state.home_mode, state.category, state.query = FileManagerUtil.getHomeFolder(), true, nil, ""; self:refresh(instance, context)
+    local state = self:_ensureState(instance); state.path, state.home_mode, state.sort_mode, state.category, state.query = STORAGE_ROOT, true, false, nil, ""; self:refresh(instance, context)
+end
+function FileBrowser:openInternalStorage(instance, context)
+    local state = self:_ensureState(instance); state.path, state.home_mode, state.sort_mode, state.category, state.query = STORAGE_ROOT, false, false, nil, ""; self:refresh(instance, context)
+end
+function FileBrowser:sortMyFiles(instance, context)
+    local state = self:_ensureState(instance); state.path, state.home_mode, state.sort_mode, state.category, state.query = STORAGE_ROOT, false, true, nil, ""; self:refresh(instance, context)
 end
 function FileBrowser:showSearch(instance, context)
     local state = self:_ensureState(instance)
@@ -262,7 +323,7 @@ function FileBrowser:showSearch(instance, context)
     UIManager:show(dialog)
 end
 function FileBrowser:setCategory(instance, context, category)
-    local state = self:_ensureState(instance); state.home_mode, state.category, state.query = false, category, ""; context.requestRebuild("ui")
+    local state = self:_ensureState(instance); state.home_mode, state.sort_mode, state.category, state.query = false, false, category, ""; context.requestRebuild("ui")
 end
 function FileBrowser:_handlers(context, path)
     return context.manager and context.manager.getFileHandlers and context.manager:getFileHandlers(path) or {}
@@ -304,7 +365,7 @@ function FileBrowser:openEntry(instance, context, entry)
 end
 local function matches(entry, query, category)
     if query and query ~= "" then local hay = (entry.name .. " " .. entry.path):lower(); if not hay:find(query:lower(), 1, true) then return false end end
-    return not category or categoryFor(entry) == category
+    return not category or (entry.sort_category or categoryFor(entry)) == category
 end
 function FileBrowser:_fileSubtitle(context, entry)
     if entry.is_dir then return _("Folder") end
@@ -347,7 +408,10 @@ end
 function FileBrowser:buildPane(instance, context)
     applyTheme(context.manager and context.manager.appdock)
     local state = self:_ensureState(instance)
-    if not state.entries and not state.error then state.entries, state.error = self:_readEntries(state.path) end
+    if not state.entries and not state.error then
+        if state.sort_mode then state.entries, state.error = self:_readSortedEntries(STORAGE_ROOT), nil
+        else state.entries, state.error = self:_readEntries(state.path) end
+    end
     local pane = WidgetContainer:new{ dimen = Geom:new{ w = context.dimen.w, h = context.dimen.h } }
     local width, height = context.dimen.w, context.dimen.h
     local margin, gap = scale(12), scale(8)
@@ -369,7 +433,7 @@ function FileBrowser:buildPane(instance, context)
     local recent = state.recent_files or {}
     if #recent == 0 then for _, entry in ipairs(state.entries) do if not entry.is_dir then table.insert(recent, entry); if #recent >= 4 then break end end end end
     local browse_entries = self:_filteredEntries(state)
-    local category_label = state.category and (_("Category") .. " · " .. state.category) or _("All files")
+    local category_label = state.sort_mode and _("Sorted files") or (state.category and (_("Category") .. " · " .. state.category) or _("All files"))
     if state.home_mode then
         table.insert(root, TextWidget:new{ text = _("Files"), face = Font:getFace("cfont", scale(18)), fgcolor = PALETTE.on_surface, bold = true, padding = 0, overlap_offset = { margin, content_y } })
         table.insert(root, TextWidget:new{ text = _("Recently used"), face = Font:getFace("smallinfofont", scale(11)), fgcolor = PALETTE.on_surface, bold = true, padding = 0, overlap_offset = { margin, content_y + scale(28) } })
@@ -386,13 +450,13 @@ function FileBrowser:buildPane(instance, context)
         end
         local storage_y = cat_y + scale(22) + 3 * (card_h + card_gap) + scale(10)
         table.insert(root, TextWidget:new{ text = _("All storage"), face = Font:getFace("smallinfofont", scale(11)), fgcolor = PALETTE.on_surface, bold = true, padding = 0, overlap_offset = { margin, storage_y } })
-        table.insert(root, ActionPill:new{ title = _("Internal storage"), symbol = "▥", width = card_w, height = browse_button_h, background = PALETTE.surface, callback = function() self:showHome(instance, context) end, overlap_offset = { margin, storage_y + scale(20) } })
-        table.insert(root, ActionPill:new{ title = _("Browse files"), symbol = "☷", width = card_w, height = browse_button_h, background = PALETTE.primary, foreground = PALETTE.on_primary, callback = function() state.home_mode = false; context.requestRebuild("ui") end, overlap_offset = { margin + card_w + card_gap, storage_y + scale(20) } })
+        table.insert(root, ActionPill:new{ title = _("Internal storage"), symbol = "▥", width = card_w, height = browse_button_h, background = PALETTE.surface, callback = function() self:openInternalStorage(instance, context) end, overlap_offset = { margin, storage_y + scale(20) } })
+        table.insert(root, ActionPill:new{ title = _("Sort my files"), symbol = "↕", width = card_w, height = browse_button_h, background = PALETTE.primary, foreground = PALETTE.on_primary, callback = function() self:sortMyFiles(instance, context) end, overlap_offset = { margin + card_w + card_gap, storage_y + scale(20) } })
     end
     -- The right side is the Google Files-style recent/browse surface.
     table.insert(root, FrameContainer:new{ width = side_w, height = content_h, padding = 0, bordersize = 0, radius = scale(15), background = PALETTE.surface, emptySizedWidget(side_w, content_h), overlap_offset = { side_x, content_y } })
     table.insert(root, TextWidget:new{ text = state.home_mode and _("Recently used") or category_label, face = Font:getFace("cfont", scale(16)), fgcolor = PALETTE.on_surface, bold = true, padding = 0, overlap_offset = { side_x + scale(12), content_y + scale(12) } })
-    table.insert(root, ActionPill:new{ title = state.home_mode and _("Browse") or _("Home"), symbol = state.home_mode and "☷" or "⌂", width = scale(76), height = browse_button_h, background = PALETTE.surface_alt, callback = function() if state.home_mode then state.home_mode = false; context.requestRebuild("ui") else self:showHome(instance, context) end end, overlap_offset = { side_x + side_w - scale(88), content_y + scale(8) } })
+    table.insert(root, ActionPill:new{ title = state.home_mode and _("Browse") or _("Home"), symbol = state.home_mode and "☷" or "⌂", width = scale(76), height = browse_button_h, background = PALETTE.surface_alt, callback = function() if state.home_mode then self:openInternalStorage(instance, context) else self:showHome(instance, context) end end, overlap_offset = { side_x + side_w - scale(88), content_y + scale(8) } })
     local right_y = content_y + scale(54)
     if state.home_mode then
         local right_entries = {}
@@ -409,7 +473,7 @@ function FileBrowser:buildPane(instance, context)
         root[#root].overlap_offset = { side_x + scale(10), right_y }
     end
     pane[1] = root
-    pane.file_layout = { google_files_style = true, home_mode = state.home_mode, has_search = true, has_recent = #recent > 0, has_categories = true, has_storage = true, category = state.category, query = state.query, two_column = true, recent_count = #recent }
+    pane.file_layout = { google_files_style = true, home_mode = state.home_mode, sort_mode = state.sort_mode, storage_root = STORAGE_ROOT, standard_folders = STANDARD_FOLDERS, has_search = true, has_recent = #recent > 0, has_categories = true, has_storage = true, category = state.category, query = state.query, two_column = true, recent_count = #recent, non_destructive_sort = true }
     return pane
 end
 return FileBrowser
