@@ -120,7 +120,10 @@ end
 function Controls.pageKeyGroups()
     if not Device:hasKeys() or not Device.input or not Device.input.group then return nil, nil end
     local group = Device.input.group
-    return group.PageUp or group.PageBackward or group.PagePrevious, group.PageDown or group.PageForward or group.PageNext
+    -- KOReader's canonical groups are PgBack/PgFwd (RPgBack/LPgBack and
+    -- RPgFwd/LPgFwd). Keep the longer aliases for older device adapters.
+    return group.PgBack or group.PageUp or group.PageBackward or group.PagePrevious,
+        group.PgFwd or group.PageDown or group.PageForward or group.PageNext
 end
 function Controls.showPowerMenu()
     local dialog

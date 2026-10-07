@@ -22,6 +22,7 @@ local function baseClass(prototype)
 end
 
 local paints, rects, texts = 0, 0, {}
+local closed = {}
 
 local Widget = baseClass({})
 function Widget:getSize()
@@ -97,8 +98,8 @@ package.preload["ui/widget/confirmbox"] = function() return Widget end
 package.preload["ui/widget/infomessage"] = function() return Widget end
 package.preload["ui/uimanager"] = function()
     return {
-        show = function(widget) shown[#shown + 1] = widget end,
-        close = function() end,
+        show = function(_, widget) shown[#shown + 1] = widget end,
+        close = function(first, second) closed[#closed + 1] = second or first end,
         nextTick = function() end,
         setDirty = function() end,
     }
@@ -133,6 +134,7 @@ local installed = {
 }
 local appdock = {
     settings = { layout = {} },
+    uninstallStoreDApp = function(self, id) self.uninstalled_id = id; return true end,
     getStoreDesignBySource = function() return nil, nil end,
     getStoreDAppBySource = function(_, path)
         local record = installed[path]
@@ -252,6 +254,11 @@ assert(#install_pills > 0 and #find_control(pane, "TapPlayPill") > 0, "Catalog r
 local before = #shown
 install_pills[1]:onTapPlayPill()
 assert(#shown == before + 1, "Tapping Install must open the explicit confirmation step")
+store:confirmUninstall(context.instance, context, entries[1], { id = "reader" })
+local uninstall_dialog = shown[#shown]
+assert(uninstall_dialog and uninstall_dialog.ok_callback, "Installed DApps must expose an uninstall confirmation")
+uninstall_dialog.ok_callback()
+assert(appdock.uninstalled_id == "reader" and closed[#closed] == uninstall_dialog, "DApp uninstall must close the confirmation dialog before removing the DApp")
 
 pane = store:buildPane(context.instance, context)
 local widget_tabs = find_by_label(pane, "Widgets")

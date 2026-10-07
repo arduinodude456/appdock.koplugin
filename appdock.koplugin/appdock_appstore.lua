@@ -975,10 +975,12 @@ function AppStore:confirmUninstallWidget(instance, context, entry, definition)
 end
 
 function AppStore:confirmUninstall(instance, context, entry, definition)
-    local dialog = ConfirmBox:new{
+    local dialog
+    dialog = ConfirmBox:new{
         text = _("Remove this DApp from AppDock?\n\n") .. entry.title .. _("\n\nIts installed Lua file and AppStore registration will be removed. Any saved documents created by the DApp are kept."),
         ok_text = _("Uninstall"),
         ok_callback = function()
+            UIManager:close(dialog)
             local ok, err = context.manager:uninstallStoreDApp(definition.id)
             if ok then
                 UIManager:show(InfoMessage:new{ text = _("Removed ") .. entry.title .. _(" from AppDock.") })
