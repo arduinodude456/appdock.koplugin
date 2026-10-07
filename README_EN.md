@@ -4,7 +4,7 @@
 
 # New releases regulary commited at 3:00 AM CET
 
-**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **7.8.6** fixes a framebuffer race when pressing page keys and prevents `framebuffer.lua: attempt to index a nil value`. [Details](RELEASE_NOTES_7.8.6.md).
+**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **7.8.7** stabilizes the brightness indicator with a direct non-empty KOReader container and removes the fragile framebuffer paint path. [Details](RELEASE_NOTES_7.8.7.md).
 
 > **E-Ink approach:** AppDock deliberately borrows the visual language and information structure, not Android's animations, blur, or transparency effects. This keeps updates economical and maintains contrast on monochrome readers.
 
