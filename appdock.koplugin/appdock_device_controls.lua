@@ -8,6 +8,7 @@ local Font = require("ui/font")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
 local GestureRange = require("ui/gesturerange")
+local HorizontalSpan = require("ui/widget/horizontalspan")
 local ImageWidget = require("ui/widget/imagewidget")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local TextWidget = require("ui/widget/textwidget")
@@ -75,7 +76,11 @@ function BrightnessIndicator:init()
         TextWidget:new{ text = "☼", face = Font:getFace("cfont", scale(24)), fgcolor = Blitbuffer.COLOR_BLACK, padding = 0 },
         VerticalSpan:new{ width = scale(7) },
         FrameContainer:new{ width = bar_w, height = bar_h, padding = 0, bordersize = scale(1), color = Blitbuffer.COLOR_DARK_GRAY, radius = scale(5), background = Blitbuffer.COLOR_LIGHT_GRAY,
-            FrameContainer:new{ width = bar_w, height = filled_h, padding = 0, bordersize = 0, radius = scale(5), background = Blitbuffer.COLOR_BLACK, overlap_offset = { 0, bar_h - filled_h } },
+            FrameContainer:new{ width = bar_w, height = filled_h, padding = 0, bordersize = 0, radius = scale(5), background = Blitbuffer.COLOR_BLACK, overlap_offset = { 0, bar_h - filled_h },
+                -- FrameContainer:getSize() requires a real child. The span
+                -- also keeps the fill rectangle non-empty on all KOReader versions.
+                HorizontalSpan:new{ width = 0 },
+            },
         },
         VerticalSpan:new{ width = scale(7) },
         TextWidget:new{ text = string.format("%d%%", math.floor(self.percentage + .5)), face = Font:getFace("smallinfofont", scale(11)), fgcolor = Blitbuffer.COLOR_BLACK, padding = 0 },
