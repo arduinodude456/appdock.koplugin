@@ -4,7 +4,7 @@
 
 # New releases regulary commited at 3:00 AM CET
 
-**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **7.8.1** refines its Quick Settings dropdown with meaningful icons, a visible grab handle, a working close control, and a more precise brightness slider. [Details](RELEASE_NOTES_7.8.1.md).
+**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **7.8.2** redesigns the Settings app in an Android-inspired style with search, categories, grouped preferences, switches, and a display preview. [Details](RELEASE_NOTES_7.8.2.md).
 
 > **E-Ink approach:** AppDock deliberately borrows the visual language and information structure, not Android's animations, blur, or transparency effects. This keeps updates economical and maintains contrast on monochrome readers.
 
