@@ -102,7 +102,15 @@ function HappyReaderScreen:init()
 end
 function HappyReaderScreen:rebuild()
     local width, height = self.dimen.w, self.dimen.h
-    local image = fileExists(FRAME_PATHS[self.frame]) and ImageWidget:new{ file = FRAME_PATHS[self.frame], width = math.floor(width * .72), height = math.floor(height * .72), scale_factor = 0 } or TextWidget:new{ text = _("Have a nice reading break"), face = Font:getFace("cfont", scale(20)), fgcolor = Blitbuffer.COLOR_BLACK }
+    local image = fileExists(FRAME_PATHS[self.frame]) and ImageWidget:new{
+        file = FRAME_PATHS[self.frame],
+        width = math.floor(width * .72),
+        height = math.floor(height * .72),
+        -- Render at the target size instead of decoding a full-size source.
+        scale_factor = nil,
+        -- Frames are animated and should not accumulate in ImageWidget's cache.
+        file_do_cache = false,
+    } or TextWidget:new{ text = _("Have a nice reading break"), face = Font:getFace("cfont", scale(20)), fgcolor = Blitbuffer.COLOR_BLACK }
     self:clear()
     self[1] = FrameContainer:new{ width = width, height = height, padding = 0, bordersize = 0, background = Blitbuffer.COLOR_WHITE, CenterContainer:new{ dimen = self.dimen, image } }
 end
