@@ -694,7 +694,7 @@ function AppDockHomeScreen:init()
         if page_up then self.key_events.BrightnessUp = { { page_up } } end
         if page_down then self.key_events.BrightnessDown = { { page_down } } end
     end
-    self._page_key_count = { up = 0, down = 0 }
+    self._page_hold_shown = { up = false, down = false }
     self:build()
     self:_scheduleStoreWidgetRefresh()
 end
@@ -714,24 +714,31 @@ function AppDockHomeScreen:_showBrightnessIndicator(state)
     end)
 end
 function AppDockHomeScreen:_pageKey(direction)
-    self._page_key_count = self._page_key_count or { up = 0, down = 0 }
-    self._page_key_count[direction] = self._page_key_count[direction] + 1
-    if self._page_key_count[direction] >= 2 then
-        self._page_key_count[direction] = 0
-        if direction == "up" then
-            DeviceControls.showPowerMenu()
-        else
-            DeviceControls.showScreensaver()
-        end
-        return true
-    end
+    self._page_hold_shown = self._page_hold_shown or { up = false, down = false }
+    -- A fresh key-down starts a new press/hold gesture. The repeat handler
+    -- below turns a real hardware hold into the power/screensaver action.
+    self._page_hold_shown[direction] = false
     local delta = direction == "up" and 1 or -1
     local state = DeviceControls.setBrightness(delta)
     if state then self:_showBrightnessIndicator(state) end
-    UIManager:scheduleIn(.9, function()
-        if self._page_key_count then self._page_key_count[direction] = 0 end
-    end)
     return true
+end
+function AppDockHomeScreen:_pageKeyRepeat(direction)
+    self._page_hold_shown = self._page_hold_shown or { up = false, down = false }
+    if self._page_hold_shown[direction] then return true end
+    self._page_hold_shown[direction] = true
+    if direction == "up" then
+        DeviceControls.showPowerMenu()
+    else
+        DeviceControls.showScreensaver()
+    end
+    return true
+end
+function AppDockHomeScreen:onKeyRepeat(key)
+    local page_up, page_down = DeviceControls.pageKeyGroups()
+    if page_up and key and key.match and key:match({ page_up }) then return self:_pageKeyRepeat("up") end
+    if page_down and key and key.match and key:match({ page_down }) then return self:_pageKeyRepeat("down") end
+    return InputContainer.onKeyRepeat(self, key)
 end
 function AppDockHomeScreen:onBrightnessUp()
     return self:_pageKey("up")
