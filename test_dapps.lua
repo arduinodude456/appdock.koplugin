@@ -577,6 +577,16 @@ assert(manager.active_id == "settings" and #manager:getOpenApps() == 2, "Setting
 local settings_instance = manager.instances.settings
 assert(settings_instance.pane and settings_instance.pane.dimen, "Settings must build a pane within its assigned context")
 assert(settings_instance.pane.settings_layout.category == "network" and settings_instance.pane.settings_layout.row_count == 1, "Bluetooth must stay hidden on unsupported hardware")
+do
+    local settings_search, android_category, android_row = false, false, false
+    walk_tree(settings_instance.pane, function(node)
+        settings_search = settings_search or node.settings_search == true
+        android_category = android_category or (node.layout and node.layout.android_category == true)
+        android_row = android_row or (node.layout and node.layout.android_row == true)
+    end)
+    assert(settings_instance.pane.settings_layout.android_style and settings_instance.pane.settings_layout.has_search and settings_instance.pane.settings_layout.uses_scroll, "Settings must expose the Android-style searchable and scrollable layout metadata")
+    assert(settings_search and android_category and android_row, "Settings must render a search pill, icon categories, and Android-style preference rows")
+end
 manager:toggleWifiFromSettings({ requestRebuild = function() log.wifi_rebuilds = (log.wifi_rebuilds or 0) + 1 end })
 assert(wifi_on and log.wifi_rebuilds == 1, "Wi-Fi settings action must toggle the native network state")
 local bluetooth_actions = 0
@@ -620,6 +630,14 @@ assert(settings_instance.pane.settings_layout.integrity and settings_instance.pa
 settings_instance.settings_category = "display"
 manager:activate("settings")
 assert(settings_instance.pane.settings_layout.category == "display" and settings_instance.pane.settings_layout.row_count == 11, "Display category must expose refresh, text and contrast controls alongside themes, launcher, wallpaper and beta settings")
+do
+    local appearance_preview, display_toggle = false, false
+    walk_tree(settings_instance.pane, function(node)
+        appearance_preview = appearance_preview or node.settings_appearance_preview == true
+        display_toggle = display_toggle or (node.layout and node.layout.android_row == true and node.layout.is_toggle == true)
+    end)
+    assert(settings_instance.pane.settings_layout.has_appearance_preview and appearance_preview and display_toggle, "Display must show the Light/Dark appearance preview and native-style switches")
+end
 assert(appdock:setAccessibility({ text_scale = 1.3, high_contrast = true }) and Theme.getPalette(appdock).high_contrast, "Accessibility settings must persist a bounded text scale and activate the high-contrast palette")
 manager:showFrontlightSettings()
 assert(log.events[#log.events] == "ShowFlDialog", "Brightness and warmth must use KOReader's native frontlight dialog")
