@@ -14,6 +14,7 @@ local Geom = require("ui/geometry")
 local GestureRange = require("ui/gesturerange")
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local AppDockKeyboard = require("appdock_keyboard")
+local DeviceControls = require("appdock_device_controls")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local DAppLogo = require("appdock_logo")
 local Layout = require("appdock_layout")
@@ -689,9 +690,60 @@ function AppDockHomeScreen:init()
 
     if Device:hasKeys() then
         self.key_events.Close = { { Device.input.group.Back } }
+        local page_up, page_down = DeviceControls.pageKeyGroups()
+        if page_up then self.key_events.BrightnessUp = { { page_up } } end
+        if page_down then self.key_events.BrightnessDown = { { page_down } } end
     end
+    self._page_key_count = { up = 0, down = 0 }
     self:build()
     self:_scheduleStoreWidgetRefresh()
+end
+
+function AppDockHomeScreen:_showBrightnessIndicator(state)
+    self._brightness_notice = state
+    self._brightness_notice_generation = (self._brightness_notice_generation or 0) + 1
+    local generation = self._brightness_notice_generation
+    self:build()
+    UIManager:setDirty(self, "ui")
+    UIManager:scheduleIn(1.35, function()
+        if self._brightness_notice_generation == generation then
+            self._brightness_notice = nil
+            self:build()
+            UIManager:setDirty(self, "ui")
+        end
+    end)
+end
+function AppDockHomeScreen:_pageKey(direction)
+    self._page_key_count = self._page_key_count or { up = 0, down = 0 }
+    self._page_key_count[direction] = self._page_key_count[direction] + 1
+    if self._page_key_count[direction] >= 2 then
+        self._page_key_count[direction] = 0
+        if direction == "up" then
+            DeviceControls.showPowerMenu()
+        else
+            DeviceControls.showScreensaver()
+        end
+        return true
+    end
+    local delta = direction == "up" and 1 or -1
+    local state = DeviceControls.setBrightness(delta)
+    if state then self:_showBrightnessIndicator(state) end
+    UIManager:scheduleIn(.9, function()
+        if self._page_key_count then self._page_key_count[direction] = 0 end
+    end)
+    return true
+end
+function AppDockHomeScreen:onBrightnessUp()
+    return self:_pageKey("up")
+end
+function AppDockHomeScreen:onBrightnessDown()
+    return self:_pageKey("down")
+end
+function AppDockHomeScreen:_appendBrightnessIndicator(dashboard)
+    if self._brightness_notice then
+        local indicator = DeviceControls.buildIndicator(self._brightness_notice)
+        if indicator then table.insert(dashboard, indicator) end
+    end
 end
 
 function AppDockHomeScreen:_scheduleStoreWidgetRefresh()
@@ -1064,6 +1116,7 @@ function AppDockHomeScreen:_buildSimpleMode(width, height)
         grid_height = grid_height, cell_width = cell_width, row_pitch = row_pitch,
         app_section = true,
     }
+    self:_appendBrightnessIndicator(dashboard)
     self[1] = dashboard
 end
 
@@ -1473,6 +1526,7 @@ function AppDockHomeScreen:build()
         quick_access_y = dock_y,
         hidden_widgets_for_fit = widgets_hidden_for_fit,
     }
+    self:_appendBrightnessIndicator(dashboard)
     self[1] = dashboard
 end
 
