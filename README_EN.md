@@ -4,7 +4,7 @@
 
 # New releases regulary commited at 3:00 AM CET
 
-**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **7.8.4** adds Google Files-inspired file actions plus hardware-key brightness control, a power menu, and an animated e-reader screensaver. [Details](RELEASE_NOTES_7.8.4.md).
+**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **7.8.5** fixes KOReader page-key detection, real long-press handling for the power menu and screensaver, and DApp uninstall in the AppStore. [Details](RELEASE_NOTES_7.8.5.md).
 
 > **E-Ink approach:** AppDock deliberately borrows the visual language and information structure, not Android's animations, blur, or transparency effects. This keeps updates economical and maintains contrast on monochrome readers.
 
