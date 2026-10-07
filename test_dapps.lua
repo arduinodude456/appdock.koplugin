@@ -483,6 +483,9 @@ assert(filemanager_source:find("local SearchPill = InputContainer:extend", 1, tr
 assert(filemanager_source:find("google_files_style = true", 1, true) and filemanager_source:find("has_recent = #recent > 0", 1, true) and filemanager_source:find("has_categories = true", 1, true) and filemanager_source:find("two_column = true", 1, true), "Files must expose a two-column Google Files dashboard with recent files, categories and storage")
 assert(filemanager_source:find('local STORAGE_ROOT = "/mnt/onboard"', 1, true) and filemanager_source:find('"Downloads", "Documents", "Images", "Videos", "Audio"', 1, true), "Files must define the Kobo internal storage root and standard folders")
 assert(filemanager_source:find("function FileBrowser:sortMyFiles", 1, true) and filemanager_source:find("function FileBrowser:openInternalStorage", 1, true) and filemanager_source:find("non_destructive_sort = true", 1, true), "Files must provide non-destructive sorting and an explicit Internal Storage action")
+assert(filemanager_source:find("AppDockKeyboard:new", 1, true) and not filemanager_source:find("InputDialog:new", 1, true), "Files search must use the AppDock keyboard instead of KOReader input dialogs")
+assert(filemanager_source:find("ges = \"hold\"", 1, true) and filemanager_source:find("function FileBrowser:showEntryActions", 1, true), "Files must offer long-press actions")
+assert(filemanager_source:find("Rename", 1, true) and filemanager_source:find("Open with ...", 1, true) and filemanager_source:find("Delete", 1, true) and filemanager_source:find("Move", 1, true) and filemanager_source:find("Copy", 1, true), "Files long-press actions must include rename, open with, delete, move and copy")
 local markup_open = {}
 local markup_manager = {
     openDAppFile = function(_, id, path)

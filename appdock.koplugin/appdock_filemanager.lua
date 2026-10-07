@@ -5,12 +5,15 @@ browse grid. Opening files still uses only KOReader's safe reader path or the
 explicit AppDock DApp handlers.
 --]]--
 local Blitbuffer = require("ffi/blitbuffer")
+local ButtonDialog = require("ui/widget/buttondialog")
+local ConfirmBox = require("ui/widget/confirmbox")
 local CenterContainer = require("ui/widget/container/centercontainer")
 local Device = require("device")
 local DocumentRegistry = require("document/documentregistry")
 local Layout = require("appdock_layout")
 local Theme = require("appdock_theme")
 local FileManagerUtil = require("apps/filemanager/filemanagerutil")
+local AppDockKeyboard = require("appdock_keyboard")
 local Font = require("ui/font")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
@@ -18,7 +21,6 @@ local GestureRange = require("ui/gesturerange")
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local InfoMessage = require("ui/widget/infomessage")
-local InputDialog = require("ui/widget/inputdialog")
 local OverlapGroup = require("ui/widget/overlapgroup")
 local ScrollableContainer = require("ui/widget/container/scrollablecontainer")
 local TextWidget = require("ui/widget/textwidget")
@@ -167,7 +169,7 @@ function CategoryCard:paintTo(bb, x, y)
 end
 function CategoryCard:onTapFileCategory() if self.callback then self.callback() end return true end
 
-local FileTile = InputContainer:extend{ entry = nil, callback = nil, width = nil, height = nil, dimen = nil, recent = false }
+local FileTile = InputContainer:extend{ entry = nil, callback = nil, hold_callback = nil, width = nil, height = nil, dimen = nil, recent = false }
 function FileTile:init()
     self.dimen = Geom:new{ w = self.width, h = self.height }
     local entry = self.entry or {}
@@ -183,15 +185,16 @@ function FileTile:init()
             { widget = detail, x = scale(7), y = self.height - detail_size - scale(6) },
         } } }
     self.layout = { google_files_tile = true, name = entry.name, recent = self.recent }
-    self.ges_events = { TapFileTile = { GestureRange:new{ ges = "tap", range = self.dimen } } }
+    self.ges_events = { TapFileTile = { GestureRange:new{ ges = "tap", range = self.dimen } }, HoldFileTile = { GestureRange:new{ ges = "hold", range = self.dimen } } }
 end
 function FileTile:paintTo(bb, x, y)
-    local range = self.ges_events.TapFileTile[1].range; range.x, range.y, range.w, range.h = x, y, self.dimen.w, self.dimen.h
+    for _, event in pairs(self.ges_events) do local range = event[1].range; range.x, range.y, range.w, range.h = x, y, self.dimen.w, self.dimen.h end
     return InputContainer.paintTo(self, bb, x, y)
 end
 function FileTile:onTapFileTile() if self.callback then self.callback() end return true end
+function FileTile:onHoldFileTile() if self.hold_callback then self.hold_callback() end return true end
 
-local FileRow = InputContainer:extend{ title = nil, subtitle = nil, symbol = nil, callback = nil, width = nil, height = nil, background = nil, foreground = nil, dimen = nil }
+local FileRow = InputContainer:extend{ title = nil, subtitle = nil, symbol = nil, callback = nil, hold_callback = nil, width = nil, height = nil, background = nil, foreground = nil, dimen = nil }
 function FileRow:init()
     self.dimen = Geom:new{ w = self.width, h = self.height }
     local title_size = math.max(scale(9), math.floor(self.height * .28))
@@ -206,13 +209,14 @@ function FileRow:init()
             { widget = subtitle, x = scale(42), y = self.height - subtitle_size - scale(8) },
         } } }
     self.layout = { google_files_row = true, title = self.title, subtitle = self.subtitle }
-    self.ges_events = { TapFileRow = { GestureRange:new{ ges = "tap", range = self.dimen } } }
+    self.ges_events = { TapFileRow = { GestureRange:new{ ges = "tap", range = self.dimen } }, HoldFileRow = { GestureRange:new{ ges = "hold", range = self.dimen } } }
 end
 function FileRow:paintTo(bb, x, y)
-    local range = self.ges_events.TapFileRow[1].range; range.x, range.y, range.w, range.h = x, y, self.dimen.w, self.dimen.h
+    for _, event in pairs(self.ges_events) do local range = event[1].range; range.x, range.y, range.w, range.h = x, y, self.dimen.w, self.dimen.h end
     return InputContainer.paintTo(self, bb, x, y)
 end
 function FileRow:onTapFileRow() if self.callback then self.callback() end return true end
+function FileRow:onHoldFileRow() if self.hold_callback then self.hold_callback() end return true end
 
 function FileBrowser:new() return setmetatable({}, self) end
 function FileBrowser:_ensureStandardFolders()
@@ -313,14 +317,23 @@ function FileBrowser:sortMyFiles(instance, context)
 end
 function FileBrowser:showSearch(instance, context)
     local state = self:_ensureState(instance)
-    local dialog
-    dialog = InputDialog:new{ title = _("Search files"), input = state.query or "", input_hint = _("Name or extension"), buttons = {
-        { { text = _("Cancel"), callback = function() UIManager:close(dialog) end },
-          { text = _("Search"), is_enter_default = true, callback = function()
-              state.query = (dialog:getInputText() or ""):gsub("^%s+", ""):gsub("%s+$", ""); state.home_mode = false; UIManager:close(dialog); context.requestRebuild("ui")
-          end } },
-    } }
-    UIManager:show(dialog)
+    local keyboard
+    keyboard = AppDockKeyboard:new{
+        title = _("Search files"),
+        placeholder = _("Name or extension"),
+        value = state.query or "",
+        on_change = function(value)
+            state.query, state.home_mode = value or "", false
+            context.requestRebuild("ui")
+        end,
+        on_cancel = function() UIManager:close(keyboard) end,
+        on_submit = function(value)
+            state.query, state.home_mode = value or "", false
+            context.requestRebuild("ui")
+            UIManager:nextTick(function() UIManager:close(keyboard) end)
+        end,
+    }
+    UIManager:show(keyboard)
 end
 function FileBrowser:setCategory(instance, context, category)
     local state = self:_ensureState(instance); state.home_mode, state.sort_mode, state.category, state.query = false, false, category, ""; context.requestRebuild("ui")
@@ -346,6 +359,116 @@ function FileBrowser:openMarkUPFile(instance, context, path)
     local ok, err = manager:openDAppFile("markup", path)
     if not ok then UIManager:show(InfoMessage:new{ text = _("Install MarkUP from AppStore first.\n\n") .. tostring(err or "") }) end
 end
+local function validStoragePath(path)
+    return type(path) == "string" and (path == STORAGE_ROOT or path:sub(1, #STORAGE_ROOT + 1) == STORAGE_ROOT .. "/") and not path:find("..", 1, true)
+end
+local function copyPath(source, target)
+    local attributes = lfs.attributes(source)
+    if not attributes then return false, _("Source does not exist.") end
+    if lfs.attributes(target) then return false, _("A file or folder with this name already exists.") end
+    if attributes.mode == "directory" then
+        if not lfs.mkdir(target) then return false, _("The folder could not be created.") end
+        local ok, iterator, directory_object = pcall(lfs.dir, source)
+        if not ok or not iterator then return false, _("The folder could not be read.") end
+        for name in iterator, directory_object do
+            if name ~= "." and name ~= ".." then
+                local child_ok, child_err = copyPath(source .. "/" .. name, target .. "/" .. name)
+                if not child_ok then return false, child_err end
+            end
+        end
+        return true
+    end
+    local input = io.open(source, "rb")
+    if not input then return false, _("The file could not be read.") end
+    local output = io.open(target, "wb")
+    if not output then input:close(); return false, _("The destination could not be written.") end
+    local body = input:read("*a"); input:close()
+    local ok = output:write(body); output:close()
+    return ok ~= nil, ok and nil or _("The file could not be written.")
+end
+local function removePath(path)
+    local attributes = lfs.attributes(path)
+    if not attributes then return false, _("The item no longer exists.") end
+    if attributes.mode == "directory" then
+        local ok, iterator, directory_object = pcall(lfs.dir, path)
+        if not ok or not iterator then return false, _("The folder could not be read.") end
+        for name in iterator, directory_object do
+            if name ~= "." and name ~= ".." then
+                local child_ok, child_err = removePath(path .. "/" .. name)
+                if not child_ok then return false, child_err end
+            end
+        end
+        return lfs.rmdir(path) == true, _("The folder could not be deleted.")
+    end
+    return os.remove(path) ~= nil, _("The file could not be deleted.")
+end
+function FileBrowser:_afterFileAction(instance, context, ok, err)
+    if ok then
+        UIManager:show(InfoMessage:new{ text = _("Files updated.") })
+        local state = self:_ensureState(instance); state.entries, state.error = nil, nil
+        self:refresh(instance, context)
+    else UIManager:show(InfoMessage:new{ text = err or _("The file action failed.") }) end
+end
+function FileBrowser:showRename(instance, context, entry)
+    local keyboard
+    keyboard = AppDockKeyboard:new{
+        title = _("Rename"), placeholder = _("New name"), value = entry.name,
+        on_cancel = function() UIManager:close(keyboard) end,
+        on_submit = function(value)
+            value = (value or ""):gsub("^%s+", ""):gsub("%s+$", "")
+            if value ~= "" and not value:find("/", 1, true) and not value:find("..", 1, true) then
+                local ok, err = os.rename(entry.path, parentPath(entry.path) .. "/" .. value)
+                if not ok then UIManager:show(InfoMessage:new{ text = _("Rename failed.") .. " " .. tostring(err or "") }) end
+                local state = self:_ensureState(instance); state.entries, state.error = nil, nil; context.requestRebuild("ui")
+            else UIManager:show(InfoMessage:new{ text = _("Please enter a valid file name.") }) end
+            UIManager:nextTick(function() UIManager:close(keyboard) end)
+        end,
+    }
+    UIManager:show(keyboard)
+end
+function FileBrowser:copyOrMove(instance, context, entry, destination, move)
+    if not validStoragePath(destination) then return self:_afterFileAction(instance, context, false, _("Invalid destination.")) end
+    local target = destination .. "/" .. basename(entry.path)
+    if target == entry.path then return self:_afterFileAction(instance, context, false, _("The source and destination are identical.")) end
+    local ok, err = copyPath(entry.path, target)
+    if ok and move then ok, err = removePath(entry.path) end
+    self:_afterFileAction(instance, context, ok, err)
+end
+function FileBrowser:showDestinationMenu(instance, context, entry, move)
+    local dialog
+    local buttons = {}
+    for _, folder in ipairs({ "Internal storage", "Downloads", "Documents", "Images", "Videos", "Audio" }) do
+        local destination = folder == "Internal storage" and STORAGE_ROOT or STORAGE_ROOT .. "/" .. folder
+        buttons[#buttons + 1] = { { text = folder, callback = function() UIManager:close(dialog); self:copyOrMove(instance, context, entry, destination, move) end } }
+    end
+    dialog = ButtonDialog:new{ title = move and _("Move to") or _("Copy to"), buttons = buttons, rows_per_page = { 5, 6, 7 } }
+    UIManager:show(dialog)
+end
+function FileBrowser:showEntryActions(instance, context, entry)
+    local dialog
+    local function closeThen(callback) return function() UIManager:close(dialog); UIManager:nextTick(callback) end end
+    local buttons = {
+        { { text = entry.is_dir and _("Open folder") or _("Open"), callback = closeThen(function() self:openEntry(instance, context, entry) end) } },
+        { { text = _("Rename"), callback = closeThen(function() self:showRename(instance, context, entry) end) } },
+        { { text = _("Move"), callback = closeThen(function() self:showDestinationMenu(instance, context, entry, true) end) }, { text = _("Copy"), callback = closeThen(function() self:showDestinationMenu(instance, context, entry, false) end) } },
+    }
+    local handlers = not entry.is_dir and self:_handlers(context, entry.path) or {}
+    if #handlers > 0 and context.manager and context.manager.showFileHandlerChoices then
+        table.insert(buttons, 2, { { text = _("Open with ..."), callback = closeThen(function() context.manager:showFileHandlerChoices(entry.path, handlers) end) } })
+    end
+    table.insert(buttons, { { text = _("Delete"), callback = function()
+        UIManager:close(dialog)
+        UIManager:nextTick(function()
+            local confirm = ConfirmBox:new{ text = _("Delete this item permanently?") .. "\n\n" .. entry.path, ok_text = _("Delete"), ok_callback = function()
+                local ok, err = removePath(entry.path); self:_afterFileAction(instance, context, ok, err)
+            end }
+            UIManager:show(confirm)
+        end)
+    end } })
+    dialog = ButtonDialog:new{ title = entry.name, buttons = buttons, rows_per_page = { 5, 6, 7 } }
+    UIManager:show(dialog)
+end
+
 function FileBrowser:openFile(instance, context, path, supported)
     if not supported then UIManager:show(InfoMessage:new{ text = _("KOReader has no reader engine for this file type.") }); return end
     local state = self:_ensureState(instance)
@@ -399,7 +522,7 @@ function FileBrowser:_buildBrowseList(instance, context, state, entries, width, 
         table.insert(list, FileRow:new{ title = state.query ~= "" and _("No matching files") or _("This folder is empty"), subtitle = state.path, symbol = "⌕", width = width, height = scale(58), background = PALETTE.surface })
     else
         for _, entry in ipairs(entries) do
-            table.insert(list, FileRow:new{ title = entry.name, subtitle = self:_fileSubtitle(context, entry), symbol = iconFor(entry), width = width, height = scale(54), background = entry.is_dir and PALETTE.primary or PALETTE.surface, foreground = entry.is_dir and PALETTE.on_primary or PALETTE.on_surface, callback = function() self:openEntry(instance, context, entry) end })
+            table.insert(list, FileRow:new{ title = entry.name, subtitle = self:_fileSubtitle(context, entry), symbol = iconFor(entry), width = width, height = scale(54), background = entry.is_dir and PALETTE.primary or PALETTE.surface, foreground = entry.is_dir and PALETTE.on_primary or PALETTE.on_surface, callback = function() self:openEntry(instance, context, entry) end, hold_callback = function() self:showEntryActions(instance, context, entry) end })
             table.insert(list, VerticalSpan:new{ width = scale(5) })
         end
     end
@@ -439,7 +562,7 @@ function FileBrowser:buildPane(instance, context)
         table.insert(root, TextWidget:new{ text = _("Recently used"), face = Font:getFace("smallinfofont", scale(11)), fgcolor = PALETTE.on_surface, bold = true, padding = 0, overlap_offset = { margin, content_y + scale(28) } })
         local recent_w, recent_h, recent_gap = math.max(scale(52), math.floor((home_width - scale(26)) / 3)), scale(105), scale(6)
         local recent_limit = math.min(3, #recent)
-        for i = 1, recent_limit do table.insert(root, FileTile:new{ entry = recent[i], recent = true, width = recent_w, height = recent_h, callback = function() self:openEntry(instance, context, recent[i]) end, overlap_offset = { margin + (i - 1) * (recent_w + recent_gap), content_y + scale(48) } }) end
+        for i = 1, recent_limit do table.insert(root, FileTile:new{ entry = recent[i], recent = true, width = recent_w, height = recent_h, callback = function() self:openEntry(instance, context, recent[i]) end, hold_callback = function() self:showEntryActions(instance, context, recent[i]) end, overlap_offset = { margin + (i - 1) * (recent_w + recent_gap), content_y + scale(48) } }) end
         if recent_limit == 0 then table.insert(root, TextWidget:new{ text = _("Your recent files will appear here"), face = Font:getFace("smallinfofont", scale(9)), fgcolor = PALETTE.on_variant, padding = 0, overlap_offset = { margin, content_y + scale(72) } }) end
         local cat_y = content_y + scale(166)
         table.insert(root, TextWidget:new{ text = _("Categories"), face = Font:getFace("smallinfofont", scale(11)), fgcolor = PALETTE.on_surface, bold = true, padding = 0, overlap_offset = { margin, cat_y } })
@@ -466,7 +589,7 @@ function FileBrowser:buildPane(instance, context)
         for i, entry in ipairs(right_entries) do
             local col, row = (i - 1) % 3, math.floor((i - 1) / 3)
             if row * (tile_h + tile_gap) + tile_h > content_h - scale(60) then break end
-            table.insert(root, FileTile:new{ entry = entry, recent = true, width = tile_w, height = tile_h, callback = function() self:openEntry(instance, context, entry) end, overlap_offset = { side_x + scale(10) + col * (tile_w + tile_gap), right_y + row * (tile_h + tile_gap) } })
+            table.insert(root, FileTile:new{ entry = entry, recent = true, width = tile_w, height = tile_h, callback = function() self:openEntry(instance, context, entry) end, hold_callback = function() self:showEntryActions(instance, context, entry) end, overlap_offset = { side_x + scale(10) + col * (tile_w + tile_gap), right_y + row * (tile_h + tile_gap) } })
         end
     else
         table.insert(root, self:_buildBrowseList(instance, context, state, browse_entries, side_w - scale(20), content_h - scale(65)))
