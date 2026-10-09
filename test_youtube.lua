@@ -272,6 +272,9 @@ local script = helpers.buildBootstrapCommand(
     data_dir .. "/appdock/tools", data_dir .. "/setup-work", x64_plan, true, true)
 assert(script:find("SHA2%-256SUMS") and script:find("sha256sum") and script:find("md5sum"),
     "The installer must verify upstream checksums")
+assert(script:find("Downloading the yt-dlp SHA-256 manifest", 1, true)
+    and script:find("Calculating yt-dlp SHA-256", 1, true),
+    "The setup status must distinguish fetching the checksum manifest from hashing the binary")
 assert(script:find("yt%-dlp_linux") and script:find("ffmpeg%-release%-amd64%-static"),
     "The generated installer must use the selected upstream assets")
 assert(script:find("%$tools/yt%-dlp") and script:find("%$tools/ffmpeg"),
@@ -283,6 +286,18 @@ bootstrap_script_file:write(script)
 bootstrap_script_file:close()
 assert(os.execute("sh -n " .. bootstrap_script_path) == 0, "The generated installer script must be valid POSIX shell")
 os.remove(bootstrap_script_path)
+local armv7_script = helpers.buildBootstrapCommand(
+    data_dir .. "/appdock/tools", data_dir .. "/setup-armv7", armv7_plan, true, false)
+assert(armv7_script:find('unzip -q "$tmp/yt-dlp.pkg" -d "$tmp/yt-dlp-runtime"', 1, true),
+    "ARMv7 setup must extract the complete zip archive, including its internal runtime files")
+assert(armv7_script:find('exec "$d/yt-dlp-runtime/yt-dlp_linux_armv7l" "$@"', 1, true),
+    "ARMv7 setup must install a wrapper that keeps yt-dlp beside its _internal runtime")
+local armv7_script_path = data_dir .. "/bootstrap-armv7-test.sh"
+local armv7_script_file = assert(io.open(armv7_script_path, "wb"))
+armv7_script_file:write(armv7_script)
+armv7_script_file:close()
+assert(os.execute("sh -n " .. armv7_script_path) == 0, "The ARMv7 installer script must be valid POSIX shell")
+os.remove(armv7_script_path)
 
 ----------------------------------------------------------------
 -- Pane construction
