@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.8.22** korrigiert das Entpacken der ARMv7-musl-Laufzeit auf Kobo-Dateisystemen ohne Symlink-Unterstützung. [Details](RELEASE_NOTES_7.8.22.md).
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.8.23** behebt fehlgeschlagene YouTube-Downloads mit yt-dlp und zeigt verständlichere Fehlerhinweise. [Details](RELEASE_NOTES_7.8.23.md).
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst Androids Formensprache, nicht dessen Daueranimationen, Unschärfen oder Transparenzeffekte. Auf E-Ink wechseln App-Seiten und Recently-used-Drawer direkt und ohne Zwischenanimation. Damit bleibt die Darstellung auf monochromen Readern kontrastreich, sparsam und frei von unnötigem Ghosting.
 
@@ -27,6 +27,8 @@
 > **7.5.1:** Der Store-Kopf trägt jetzt ausschließlich die AppDock-Eigenmarke **AppDock Store** und das vorhandene AppStore-Logo. Das externe Play-Zeichen und der entsprechende Schriftzug wurden entfernt. [Details](RELEASE_NOTES_7.5.1.md).
 
 > **7.5.0:** Die erste Homescreen-Seite erhielt eine gebrandete **DuckDuckGo-Suchleiste**; der AppStore wurde mit Suchfeld, Empfehlungskarten, Installationsaktionen und unterer Kategorienavigation neu gestaltet. Angezeigt werden weiterhin nur echte Katalogdaten, ohne erfundene Bewertungen oder Screenshots. Details stehen in [`RELEASE_NOTES_7.5.0.md`](RELEASE_NOTES_7.5.0.md).
+
+> **7.8.23:** YouTube-Downloads verwenden jetzt den yt-dlp-Android-Client, um Probleme mit abgewiesenen Browser-Client-Streams zu vermeiden. Die Fortschrittsansicht benennt außerdem typische Ursachen wie Bot-Prüfung, HTTP 403 oder Netzwerkfehler. [Details](RELEASE_NOTES_7.8.23.md).
 
 > **7.8.22:** Das ARMv7-musl-Python-Archiv enthält jetzt Kopien statt Symlinks. Damit lässt es sich auch auf Kobo-Speichern entpacken, auf denen `tar` keine Symlinks anlegen darf. [Details](RELEASE_NOTES_7.8.22.md).
 
