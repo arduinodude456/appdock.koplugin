@@ -746,6 +746,33 @@ function YouTube:_startDetached(command, work_dir, tag)
     return { pid = pid, log = log_path, exit = exit_path }
 end
 
+function YouTube.liveLogPreview(text)
+    text = tostring(text or "")
+        :gsub("\27%[[%d;?]*[%a]", "")
+        :gsub("\r\n", "\n")
+        :gsub("\r", "\n")
+        :gsub("[%z\1-\9\11\12\14-\31\127]", " ")
+    local lines = {}
+    for line in text:gmatch("[^\n]+") do
+        line = trim(line):gsub("%s+", " ")
+        if line ~= "" then
+            if #line > 120 then
+                line = line:sub(1, 120)
+                while #line > 0 and line:byte(#line) >= 128 do
+                    line = line:sub(1, -2)
+                end
+                line = line .. "…"
+            end
+            lines[#lines + 1] = line
+        end
+    end
+    local preview = {}
+    for index = math.max(1, #lines - 4), #lines do
+        preview[#preview + 1] = lines[index]
+    end
+    return #preview > 0 and table.concat(preview, "\n") or _("Waiting for shell output…")
+end
+
 function YouTube:_pollDetached(handle)
     if not handle then return nil end
     local marker = readFile(handle.exit)
@@ -811,22 +838,23 @@ function YouTube.buildBootstrapCommand(tool_dir, work_dir, plan, need_ytdlp, nee
         "cleanup() { rm -rf \"$tmp\"; }",
         "trap cleanup EXIT",
         "trap 'exit 1' HUP INT TERM",
-        "download() { url=\"$1\"; dest=\"$2\"; if command -v curl >/dev/null 2>&1; then curl -fL --retry 2 --connect-timeout 25 --max-time 1200 -sS -o \"$dest\" \"$url\"; elif command -v wget >/dev/null 2>&1; then wget -T 25 -t 3 -q -O \"$dest\" \"$url\"; else echo 'Neither curl nor wget is installed.' >&2; return 127; fi; }",
+        "set_status() { printf '%s\\n' \"$1\" > \"$status\"; printf '[setup] %s\\n' \"$1\"; }",
+        "download() { url=\"$1\"; dest=\"$2\"; name=${dest##*/}; printf '[download] %s\\n' \"$name\"; if command -v curl >/dev/null 2>&1; then curl -fL --retry 2 --connect-timeout 25 --max-time 1200 -# -o \"$dest\" \"$url\"; elif command -v wget >/dev/null 2>&1; then wget -T 25 -t 3 -O \"$dest\" \"$url\"; else echo 'Neither curl nor wget is installed.' >&2; return 127; fi; }",
     }
     if need_ytdlp then
         local asset = plan.ytdlp_asset
         local url = plan.ytdlp_base .. asset
-        lines[#lines + 1] = "echo 'Downloading yt-dlp from the official GitHub release…' > \"$status\""
+        lines[#lines + 1] = "set_status 'Downloading yt-dlp from the official GitHub release…'"
         lines[#lines + 1] = "download " .. q(url) .. " \"$tmp/yt-dlp.pkg\""
-        lines[#lines + 1] = "echo 'Downloading the yt-dlp SHA-256 manifest…' > \"$status\""
+        lines[#lines + 1] = "set_status 'Downloading the yt-dlp SHA-256 manifest…'"
         lines[#lines + 1] = "download " .. q(plan.ytdlp_base .. "SHA2-256SUMS") .. " \"$tmp/SHA2-256SUMS\""
-        lines[#lines + 1] = "echo 'Calculating yt-dlp SHA-256 (large files may take a while on eReaders)…' > \"$status\""
+        lines[#lines + 1] = "set_status 'Calculating yt-dlp SHA-256 (large files may take a while on eReaders)…'"
         lines[#lines + 1] = "expected=$(awk -v name=" .. q(asset) .. " '$2 == name || $2 == \"*\" name { print $1; exit }' \"$tmp/SHA2-256SUMS\")"
         lines[#lines + 1] = "actual=$(sha256sum \"$tmp/yt-dlp.pkg\" | awk '{print $1}')"
         lines[#lines + 1] = "test -n \"$expected\" && test \"$expected\" = \"$actual\" || { echo 'yt-dlp SHA-256 verification failed.' >&2; exit 1; }"
-        lines[#lines + 1] = "echo 'yt-dlp checksum verified; preparing executable…' > \"$status\""
+        lines[#lines + 1] = "set_status 'yt-dlp checksum verified; preparing executable…'"
         if plan.ytdlp_zip then
-            lines[#lines + 1] = "echo 'Extracting the ARMv7 yt-dlp runtime…' > \"$status\""
+            lines[#lines + 1] = "set_status 'Extracting the ARMv7 yt-dlp runtime…'"
             lines[#lines + 1] = "mkdir -p \"$tmp/yt-dlp-runtime\""
             lines[#lines + 1] = "if command -v unzip >/dev/null 2>&1; then unzip -q \"$tmp/yt-dlp.pkg\" -d \"$tmp/yt-dlp-runtime\"; elif command -v busybox >/dev/null 2>&1; then busybox unzip -q \"$tmp/yt-dlp.pkg\" -d \"$tmp/yt-dlp-runtime\"; else echo 'unzip (or BusyBox with unzip) is required for the ARMv7 yt-dlp build.' >&2; exit 1; fi"
             lines[#lines + 1] = "test -f \"$tmp/yt-dlp-runtime/yt-dlp_linux_armv7l\" || { echo 'The ARMv7 yt-dlp archive is missing its executable.' >&2; exit 1; }"
@@ -836,15 +864,15 @@ function YouTube.buildBootstrapCommand(tool_dir, work_dir, plan, need_ytdlp, nee
             lines[#lines + 1] = "cp \"$tmp/yt-dlp.pkg\" \"$tmp/yt-dlp.new\""
         end
         lines[#lines + 1] = "chmod 755 \"$tmp/yt-dlp.new\""
-        lines[#lines + 1] = "echo 'Starting yt-dlp compatibility check (up to 2 minutes)…' > \"$status\""
-        lines[#lines + 1] = "check_ytdlp_version() { \"$1\" --version >/dev/null 2>&1 & check_pid=$!; elapsed=0; while kill -0 \"$check_pid\" 2>/dev/null; do if [ \"$elapsed\" -ge 120 ]; then kill -TERM \"$check_pid\" 2>/dev/null || true; sleep 2; kill -KILL \"$check_pid\" 2>/dev/null || true; wait \"$check_pid\" 2>/dev/null || true; return 124; fi; sleep 1; elapsed=$((elapsed + 1)); done; wait \"$check_pid\"; }"
-        lines[#lines + 1] = "if check_ytdlp_version \"$tmp/yt-dlp.new\"; then :; else check_rc=$?; if [ \"$check_rc\" -eq 124 ]; then echo 'yt-dlp compatibility check timed out after 120 seconds.' >&2; else echo 'Downloaded yt-dlp cannot run on this device.' >&2; fi; exit 1; fi"
+        lines[#lines + 1] = "set_status 'Starting yt-dlp compatibility check (up to 2 minutes)…'"
+        lines[#lines + 1] = "check_ytdlp_version() { \"$1\" --version & check_pid=$!; printf '[check] yt-dlp --version started (pid %s)\\n' \"$check_pid\"; elapsed=0; while kill -0 \"$check_pid\" 2>/dev/null; do if [ \"$elapsed\" -ge 120 ]; then kill -TERM \"$check_pid\" 2>/dev/null || true; sleep 2; kill -KILL \"$check_pid\" 2>/dev/null || true; wait \"$check_pid\" 2>/dev/null || true; return 124; fi; if [ $((elapsed % 10)) -eq 0 ]; then printf '[check] still running (%ss of 120s)\\n' \"$elapsed\"; fi; sleep 1; elapsed=$((elapsed + 1)); done; wait \"$check_pid\"; }"
+        lines[#lines + 1] = "if check_ytdlp_version \"$tmp/yt-dlp.new\"; then set_status 'yt-dlp compatibility check passed.'; else check_rc=$?; if [ \"$check_rc\" -eq 124 ]; then echo 'yt-dlp compatibility check timed out after 120 seconds.' >&2; else echo 'Downloaded yt-dlp cannot run on this device.' >&2; fi; exit 1; fi"
     end
     if need_ffmpeg then
         local url = plan.ffmpeg_url
-        lines[#lines + 1] = "echo 'Downloading FFmpeg static build…' > \"$status\""
+        lines[#lines + 1] = "set_status 'Downloading FFmpeg static build…'"
         lines[#lines + 1] = "download " .. q(url) .. " \"$tmp/ffmpeg.tar.xz\""
-        lines[#lines + 1] = "echo 'Verifying FFmpeg archive…' > \"$status\""
+        lines[#lines + 1] = "set_status 'Verifying FFmpeg archive…'"
         lines[#lines + 1] = "download " .. q(url .. ".md5") .. " \"$tmp/ffmpeg.md5\""
         lines[#lines + 1] = "expected=$(awk 'NR == 1 { print $1 }' \"$tmp/ffmpeg.md5\")"
         lines[#lines + 1] = "actual=$(md5sum \"$tmp/ffmpeg.tar.xz\" | awk '{print $1}')"
@@ -854,7 +882,7 @@ function YouTube.buildBootstrapCommand(tool_dir, work_dir, plan, need_ytdlp, nee
         lines[#lines + 1] = "ffmpeg_source=$(find \"$tmp/extracted\" -type f -name ffmpeg -print | head -n 1)"
         lines[#lines + 1] = "test -n \"$ffmpeg_source\" || { echo 'The FFmpeg archive did not contain an executable.' >&2; exit 1; }"
         lines[#lines + 1] = "cp \"$ffmpeg_source\" \"$tmp/ffmpeg.new\" && chmod 755 \"$tmp/ffmpeg.new\""
-        lines[#lines + 1] = "\"$tmp/ffmpeg.new\" -version >/dev/null 2>&1 || { echo 'Downloaded FFmpeg cannot run on this device.' >&2; exit 1; }"
+        lines[#lines + 1] = "if \"$tmp/ffmpeg.new\" -version > \"$tmp/ffmpeg-version.log\" 2>&1; then head -n 2 \"$tmp/ffmpeg-version.log\"; else cat \"$tmp/ffmpeg-version.log\" >&2; echo 'Downloaded FFmpeg cannot run on this device.' >&2; exit 1; fi"
         lines[#lines + 1] = "license=$(find \"$tmp/extracted\" -type f -iname GPLv3.txt -print | head -n 1)"
         lines[#lines + 1] = "if [ -n \"$license\" ]; then cp \"$license\" \"$tools/ffmpeg-GPLv3.txt\"; fi"
     end
@@ -872,7 +900,7 @@ function YouTube.buildBootstrapCommand(tool_dir, work_dir, plan, need_ytdlp, nee
         lines[#lines + 1] = "test ! -e \"$tools/ffmpeg\" || { echo 'An AppDock ffmpeg file appeared during setup; refusing to replace it.' >&2; exit 1; }"
         lines[#lines + 1] = "mv \"$tmp/ffmpeg.new\" \"$tools/ffmpeg\""
     end
-    lines[#lines + 1] = "echo 'Installation complete.' > \"$status\""
+    lines[#lines + 1] = "set_status 'Installation complete.'"
     return table.concat(lines, "\n")
 end
 
@@ -935,6 +963,7 @@ function YouTube:_startToolBootstrap(instance, context, defer_rebuild)
         work = work,
         started = os.time(),
         status = _("Starting automatic tool setup…"),
+        live_output = YouTube.liveLogPreview(""),
         install_ytdlp = state.tools.ytdlp == nil,
         install_ffmpeg = state.tools.ffmpeg == nil,
     }
@@ -952,9 +981,20 @@ function YouTube:_startToolBootstrap(instance, context, defer_rebuild)
         if code == nil then
             local status = readFile(work .. "/bootstrap.status")
             if status and trim(status) ~= "" then bootstrap.status = trim(status) end
+            local live_output = YouTube.liveLogPreview(readFile(handle.log) or "")
+            if live_output ~= bootstrap.live_output then
+                bootstrap.live_output = live_output
+                if bootstrap.live_widget and bootstrap.live_widget.setText then
+                    bootstrap.live_widget:setText(live_output)
+                end
+            end
             if context and hostIsActive(context) and context.requestRefresh then context.requestRefresh("ui") end
             UIManager:scheduleIn(2, tick)
             return
+        end
+        bootstrap.live_output = YouTube.liveLogPreview(log or "")
+        if bootstrap.live_widget and bootstrap.live_widget.setText then
+            bootstrap.live_widget:setText(bootstrap.live_output)
         end
         cleanupDirectory(work)
         bootstrap.handle = nil
@@ -2350,6 +2390,25 @@ function YouTube:_buildSetupPane(instance, context, state)
         retry.overlap_offset = { margin, scale(130) }
         table.insert(content, retry)
     end
+    local output_label = TextWidget:new{
+        text = _("Live shell output"),
+        face = Font:getFace("smallinfofont", scale(9)),
+        bold = true,
+        fgcolor = Blitbuffer.COLOR_DARK_GRAY,
+        padding = 0,
+    }
+    output_label.overlap_offset = { margin, bootstrap.error and scale(174) or scale(158) }
+    table.insert(content, output_label)
+    local output_widget = TextWidget:new{
+        text = bootstrap.live_output or YouTube.liveLogPreview(""),
+        face = Font:getFace("smallinfofont", scale(9)),
+        fgcolor = Blitbuffer.COLOR_DARK_GRAY,
+        max_width = width - 2 * margin,
+        padding = 0,
+    }
+    bootstrap.live_widget = output_widget
+    output_widget.overlap_offset = { margin, bootstrap.error and scale(192) or scale(176) }
+    table.insert(content, output_widget)
     local tools_button = Pill:new{
         text = _("Tool settings"),
         width = scale(142),
@@ -2418,6 +2477,7 @@ YouTube._test = {
     buildFilter = YouTube.buildFilter,
     bootstrapPlan = YouTube.bootstrapPlan,
     buildBootstrapCommand = YouTube.buildBootstrapCommand,
+    liveLogPreview = YouTube.liveLogPreview,
     classifyInput = YouTube.classifyInput,
     parseSearchOutput = YouTube.parseSearchOutput,
     parseProgress = YouTube.parseProgress,
