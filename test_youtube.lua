@@ -290,8 +290,8 @@ assert(armv7_legacy_plan.ytdlp_python and armv7_legacy_plan.ytdlp_asset == "yt-d
 local armv7_musl_plan = bootstrap{ arch = "armv7l", glibc = { major = 2, minor = 16 } }
 assert(armv7_musl_plan.ytdlp_python and armv7_musl_plan.python_musl
     and armv7_musl_plan.python_asset == "appdock-youtube-armhf-musl-python-3.12.15.tar.gz"
-    and armv7_musl_plan.python_sha256 == "8f47867ba2349dff0936c0e4c24bdda71f97b1494c7703c972d7a5a2744620b5"
-    and armv7_musl_plan.python_url:find("releases/download/v7.8.21/", 1, true),
+    and armv7_musl_plan.python_sha256 == "5348e11472e5ca6c07d7b0ec75a2f1df1d181be7eb52d9e3cafb43267b1f916c"
+    and armv7_musl_plan.python_url:find("releases/download/v7.8.22/", 1, true),
     "ARMv7 below glibc 2.17 must use the checksummed isolated musl runtime asset")
 local armv7_unknown_libc = bootstrap{ arch = "armv7l" }
 assert(armv7_unknown_libc.ytdlp_python and armv7_unknown_libc.python_musl,
@@ -358,7 +358,7 @@ os.remove(armv7_python_script_path)
 local armv7_musl_script = helpers.buildBootstrapCommand(
     data_dir .. "/appdock/tools", data_dir .. "/setup-armv7-musl", armv7_musl_plan, true, false)
 assert(armv7_musl_script:find("appdock-youtube-armhf-musl-python-3.12.15.tar.gz", 1, true)
-    and armv7_musl_script:find("8f47867ba2349dff0936c0e4c24bdda71f97b1494c7703c972d7a5a2744620b5", 1, true)
+    and armv7_musl_script:find("5348e11472e5ca6c07d7b0ec75a2f1df1d181be7eb52d9e3cafb43267b1f916c", 1, true)
     and armv7_musl_script:find('tar -xzf "$tmp/python-runtime.pkg"', 1, true)
     and armv7_musl_script:find('test -s "$tmp/python-extract/python-runtime/etc/ssl/cert.pem"', 1, true),
     "Legacy ARMv7 setup must download, hash-check, unpack and validate the bundled musl runtime")
