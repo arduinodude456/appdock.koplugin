@@ -354,9 +354,9 @@ function YouTube.detectTools(settings)
 end
 
 -- Download only upstream standalone builds whose OS/architecture is known.
--- ARMv7 yt-dlp currently requires glibc 2.31+, while the FFmpeg archives are
--- static builds from John Van Sickle. Android/Bionic and unknown ABIs are not
--- silently given Linux/glibc binaries.
+-- Older ARMv7 glibc devices use a portable Python runtime with yt-dlp's Python
+-- zipapp because the current upstream PyInstaller archive needs newer symbols.
+-- Android/Bionic and unknown ABIs are not silently given Linux/glibc binaries.
 function YouTube.bootstrapPlan(info)
     info = info or {}
     if info.android then return nil, "Android/Bionic is not supported by the automatic Linux tool installer." end
@@ -388,10 +388,29 @@ function YouTube.bootstrapPlan(info)
     elseif arch == "armv7l" or arch == "armv7" or arch == "armhf" then
         if info.musl then return nil, "No official yt-dlp ARMv7 musl build is available." end
         local version = info.glibc
+        if type(version) ~= "table" and type(version) ~= "number" then
+            return nil, "Could not detect the system glibc version. Automatic ARMv7 setup needs glibc 2.17 or newer."
+        end
+        if olderThan(version, 2, 17) then
+            return nil, "The ARMv7 Python runtime needs glibc 2.17 or newer."
+        end
         local too_old = type(version) == "table" and (version.major < 2 or (version.major == 2 and version.minor < 31))
             or type(version) == "number" and version < 231
         if too_old then
-            return nil, "The official yt-dlp ARMv7 build needs glibc 2.31 or newer."
+            local ytdlp_asset = "yt-dlp"
+            local python_asset = "python-headless-3.13.9-linux-arm.zip"
+            return {
+                ytdlp_asset = ytdlp_asset,
+                ytdlp_zip = false,
+                ytdlp_python = true,
+                python_asset = python_asset,
+                python_root = "python-headless-3.13.9-linux-arm",
+                python_url = "https://github.com/bjia56/portable-python/releases/download/cpython-v3.13.9-build.0/" .. python_asset,
+                python_sha256 = "a29499df42ae58d47e9080cae5500ba6aa5f1d7ec93407831ea565e40b117175",
+                ffmpeg_arch = "armhf",
+                ytdlp_base = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/",
+                ffmpeg_url = "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-armhf-static.tar.xz",
+            }
         end
         ytdlp_asset = "yt-dlp_linux_armv7l.zip"
         ffmpeg_arch = "armhf"
@@ -409,6 +428,19 @@ function YouTube.bootstrapPlan(info)
     }
 end
 
+function YouTube.parseGlibcVersion(getconf_output, ldd_output)
+    local major, minor = tostring(getconf_output or ""):match("(%d+)%.(%d+)")
+    local ldd = tostring(ldd_output or "")
+    local lower = ldd:lower()
+    if not major and not lower:find("musl", 1, true)
+        and (lower:find("glibc", 1, true) or lower:find("gnu libc", 1, true)
+            or lower:find("gnu c library", 1, true)) then
+        major, minor = ldd:match("(%d+)%.(%d+)")
+    end
+    if not major or not minor then return nil end
+    return { major = tonumber(major), minor = tonumber(minor) }
+end
+
 local function detectBootstrapPlatform()
     local function commandOutput(command, include_stderr)
         local pipe = io.popen(command .. (include_stderr and " 2>&1" or " 2>/dev/null"), "r")
@@ -420,8 +452,10 @@ local function detectBootstrapPlatform()
     local arch = commandOutput("uname -m")
     local ldd = commandOutput("ldd --version", true)
     local libc = commandOutput("getconf GNU_LIBC_VERSION")
-    local major, minor = libc:match("(%d+)%.(%d+)")
-    local glibc = major and minor and { major = tonumber(major), minor = tonumber(minor) } or nil
+    local glibc = YouTube.parseGlibcVersion(libc, ldd)
+    if not glibc then
+        glibc = YouTube.parseGlibcVersion("", commandOutput("/lib/libc.so.6", true))
+    end
     local musl_major, musl_minor = ldd:lower():match("musl.-(%d+)%.(%d+)")
     local musl_version = musl_major and musl_minor and {
         major = tonumber(musl_major), minor = tonumber(musl_minor),
@@ -847,7 +881,22 @@ function YouTube.buildBootstrapCommand(tool_dir, work_dir, plan, need_ytdlp, nee
         lines[#lines + 1] = "actual=$(sha256sum \"$tmp/yt-dlp.pkg\" | awk '{print $1}')"
         lines[#lines + 1] = "test -n \"$expected\" && test \"$expected\" = \"$actual\" || { echo 'yt-dlp SHA-256 verification failed.' >&2; exit 1; }"
         lines[#lines + 1] = "set_status 'yt-dlp checksum verified; preparing executable…'"
-        if plan.ytdlp_zip then
+        if plan.ytdlp_python then
+            lines[#lines + 1] = "set_status 'Downloading the portable ARM Python runtime…'"
+            lines[#lines + 1] = "download " .. q(plan.python_url) .. " \"$tmp/python-runtime.pkg\""
+            lines[#lines + 1] = "set_status 'Verifying portable Python SHA-256…'"
+            lines[#lines + 1] = "expected=" .. q(plan.python_sha256)
+            lines[#lines + 1] = "actual=$(sha256sum \"$tmp/python-runtime.pkg\" | awk '{print $1}')"
+            lines[#lines + 1] = "test \"$expected\" = \"$actual\" || { echo 'Portable Python SHA-256 verification failed.' >&2; exit 1; }"
+            lines[#lines + 1] = "set_status 'Extracting the portable ARM Python runtime…'"
+            lines[#lines + 1] = "mkdir -p \"$tmp/python-extract\""
+            lines[#lines + 1] = "if command -v unzip >/dev/null 2>&1; then unzip -q \"$tmp/python-runtime.pkg\" -d \"$tmp/python-extract\"; elif command -v busybox >/dev/null 2>&1; then busybox unzip -q \"$tmp/python-runtime.pkg\" -d \"$tmp/python-extract\"; else echo 'unzip (or BusyBox with unzip) is required for the portable ARM Python runtime.' >&2; exit 1; fi"
+            lines[#lines + 1] = "test -f \"$tmp/python-extract/" .. plan.python_root .. "/bin/python3.13\" || { echo 'The portable ARM Python archive is incomplete.' >&2; exit 1; }"
+            lines[#lines + 1] = "chmod 755 \"$tmp/python-extract/" .. plan.python_root .. "/bin/python3.13\""
+            lines[#lines + 1] = "mv \"$tmp/python-extract/" .. plan.python_root .. "\" \"$tmp/python-runtime\""
+            lines[#lines + 1] = "cp \"$tmp/yt-dlp.pkg\" \"$tmp/yt-dlp.pyz\""
+            lines[#lines + 1] = "printf '%s\\n' '#!/bin/sh' 'case \"$0\" in */*) d=${0%/*} ;; *) d=. ;; esac' 'exec \"$d/python-runtime/bin/python3.13\" \"$d/yt-dlp.pyz\" \"$@\"' > \"$tmp/yt-dlp.new\""
+        elseif plan.ytdlp_zip then
             lines[#lines + 1] = "set_status 'Extracting the ARMv7 yt-dlp runtime…'"
             lines[#lines + 1] = "mkdir -p \"$tmp/yt-dlp-runtime\""
             lines[#lines + 1] = "if command -v unzip >/dev/null 2>&1; then unzip -q \"$tmp/yt-dlp.pkg\" -d \"$tmp/yt-dlp-runtime\"; elif command -v busybox >/dev/null 2>&1; then busybox unzip -q \"$tmp/yt-dlp.pkg\" -d \"$tmp/yt-dlp-runtime\"; else echo 'unzip (or BusyBox with unzip) is required for the ARMv7 yt-dlp build.' >&2; exit 1; fi"
@@ -882,7 +931,12 @@ function YouTube.buildBootstrapCommand(tool_dir, work_dir, plan, need_ytdlp, nee
     end
     if need_ytdlp then
         lines[#lines + 1] = "test ! -e \"$tools/yt-dlp\" || { echo 'An AppDock yt-dlp file appeared during setup; refusing to replace it.' >&2; exit 1; }"
-        if plan.ytdlp_zip then
+        if plan.ytdlp_python then
+            lines[#lines + 1] = "test ! -e \"$tools/python-runtime\" && test ! -e \"$tools/yt-dlp.pyz\" || { echo 'An AppDock Python runtime or yt-dlp zipapp appeared during setup; refusing to replace it.' >&2; exit 1; }"
+            lines[#lines + 1] = "mv \"$tmp/python-runtime\" \"$tools/python-runtime\""
+            lines[#lines + 1] = "if ! mv \"$tmp/yt-dlp.pkg\" \"$tools/yt-dlp.pyz\"; then rm -rf \"$tools/python-runtime\"; exit 1; fi"
+            lines[#lines + 1] = "if ! mv \"$tmp/yt-dlp.new\" \"$tools/yt-dlp\"; then rm -rf \"$tools/python-runtime\"; rm -f \"$tools/yt-dlp.pyz\"; exit 1; fi"
+        elseif plan.ytdlp_zip then
             lines[#lines + 1] = "test ! -e \"$tools/yt-dlp-runtime\" || { echo 'An AppDock yt-dlp runtime appeared during setup; refusing to replace it.' >&2; exit 1; }"
             lines[#lines + 1] = "mv \"$tmp/yt-dlp-runtime\" \"$tools/yt-dlp-runtime\""
             lines[#lines + 1] = "if ! mv \"$tmp/yt-dlp.new\" \"$tools/yt-dlp\"; then rm -rf \"$tools/yt-dlp-runtime\"; exit 1; fi"
@@ -2471,6 +2525,7 @@ YouTube._test = {
     buildFilter = YouTube.buildFilter,
     bootstrapPlan = YouTube.bootstrapPlan,
     buildBootstrapCommand = YouTube.buildBootstrapCommand,
+    parseGlibcVersion = YouTube.parseGlibcVersion,
     liveLogPreview = YouTube.liveLogPreview,
     classifyInput = YouTube.classifyInput,
     parseSearchOutput = YouTube.parseSearchOutput,

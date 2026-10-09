@@ -266,6 +266,14 @@ assert(detached_code == 23 and detached_log:find("diagnostic-line", 1, true),
 os.execute("rm -rf " .. detached_dir)
 
 local bootstrap = helpers.bootstrapPlan
+local detected_glibc = helpers.parseGlibcVersion("", "ldd (GNU libc) 2.28")
+assert(detected_glibc and detected_glibc.major == 2 and detected_glibc.minor == 28,
+    "The platform detector must recover glibc versions from ldd when getconf is unavailable")
+local detected_from_libc = helpers.parseGlibcVersion("", "GNU C Library (GNU libc) stable release version 2.28")
+assert(detected_from_libc and detected_from_libc.major == 2 and detected_from_libc.minor == 28,
+    "The platform detector must recognize the glibc version banner as a final fallback")
+assert(helpers.parseGlibcVersion("", "musl libc (armhf) 1.2.5") == nil,
+    "A musl version must not be misclassified as glibc")
 local x64_plan = bootstrap{ arch = "x86_64" }
 assert(x64_plan.ytdlp_asset == "yt-dlp_linux" and x64_plan.ffmpeg_arch == "amd64",
     "x86_64 should map to the official Linux yt-dlp and static FFmpeg assets")
@@ -275,8 +283,14 @@ assert(arm64_musl.ytdlp_asset == "yt-dlp_musllinux_aarch64" and arm64_musl.ffmpe
 local armv7_plan = bootstrap{ arch = "armv7l", glibc = { major = 2, minor = 31 } }
 assert(armv7_plan.ytdlp_zip and armv7_plan.ffmpeg_arch == "armhf",
     "ARMv7 should select the upstream standalone archive and armhf FFmpeg")
-assert(not bootstrap{ arch = "armv7l", glibc = { major = 2, minor = 30 } },
-    "ARMv7 with old glibc must be rejected before download")
+local armv7_legacy_plan = bootstrap{ arch = "armv7l", glibc = { major = 2, minor = 28 } }
+assert(armv7_legacy_plan.ytdlp_python and armv7_legacy_plan.ytdlp_asset == "yt-dlp"
+    and armv7_legacy_plan.python_sha256 == "a29499df42ae58d47e9080cae5500ba6aa5f1d7ec93407831ea565e40b117175",
+    "ARMv7 with glibc 2.17 through 2.30 must select the checksummed portable Python path")
+assert(not bootstrap{ arch = "armv7l" },
+    "ARMv7 with undetected glibc must fail closed instead of selecting an incompatible binary")
+assert(not bootstrap{ arch = "armv7l", glibc = { major = 2, minor = 16 } },
+    "ARMv7 below the portable Python runtime's glibc minimum must be rejected")
 assert(not bootstrap{ arch = "armv7l", musl = true }, "ARMv7 musl must not receive a glibc executable")
 assert(not bootstrap{ arch = "x86_64", android = true }, "Android must not receive Linux/glibc binaries")
 assert(not bootstrap{ arch = "x86_64", glibc = { major = 2, minor = 16 } },
@@ -319,6 +333,21 @@ armv7_script_file:write(armv7_script)
 armv7_script_file:close()
 assert(os.execute("sh -n " .. armv7_script_path) == 0, "The ARMv7 installer script must be valid POSIX shell")
 os.remove(armv7_script_path)
+local armv7_python_script = helpers.buildBootstrapCommand(
+    data_dir .. "/appdock/tools", data_dir .. "/setup-armv7-python", armv7_legacy_plan, true, false)
+assert(armv7_python_script:find("portable Python SHA-256", 1, true)
+    and armv7_python_script:find("python-headless-3.13.9-linux-arm.zip", 1, true)
+    and armv7_python_script:find('test -f "$tmp/python-extract/python-headless-3.13.9-linux-arm/bin/python3.13"', 1, true)
+    and armv7_python_script:find('chmod 755 "$tmp/python-extract/python-headless-3.13.9-linux-arm/bin/python3.13"', 1, true)
+    and armv7_python_script:find('exec "$d/python-runtime/bin/python3.13" "$d/yt-dlp.pyz" "$@"', 1, true),
+    "Older ARMv7 setup must verify and wrap the portable Python runtime with the yt-dlp zipapp")
+local armv7_python_script_path = data_dir .. "/bootstrap-armv7-python-test.sh"
+local armv7_python_script_file = assert(io.open(armv7_python_script_path, "wb"))
+armv7_python_script_file:write(armv7_python_script)
+armv7_python_script_file:close()
+assert(os.execute("sh -n " .. armv7_python_script_path) == 0,
+    "The ARMv7 Python-fallback installer script must be valid POSIX shell")
+os.remove(armv7_python_script_path)
 
 ----------------------------------------------------------------
 -- Pane construction
