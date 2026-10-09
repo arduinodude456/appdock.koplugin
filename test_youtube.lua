@@ -248,6 +248,15 @@ repeat
 until detached_code ~= nil or os.time() >= detached_deadline
 assert(detached_code == 0 and detached_log:find("done", 1, true),
     "The detached command must report its exit status and captured output")
+detached = assert(youtube:_startDetached(
+    "set -eu\nprintf 'diagnostic-line\\n' >&2\nexit 23", detached_dir, "failure"))
+detached_deadline = os.time() + 10
+repeat
+    os.execute("sleep 0.1")
+    detached_code, detached_log = youtube:_pollDetached(detached)
+until detached_code ~= nil or os.time() >= detached_deadline
+assert(detached_code == 23 and detached_log:find("diagnostic-line", 1, true),
+    "A failing set -e command must still write its exit marker and preserve its diagnostic log")
 os.execute("rm -rf " .. detached_dir)
 
 local bootstrap = helpers.bootstrapPlan
