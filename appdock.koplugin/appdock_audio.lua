@@ -185,7 +185,8 @@ function Audio:startFrom(seconds)
         command = shellQuote(self.command) .. " " .. shellQuote(self.clip_path)
     end
 
-    local pipe = io.popen(command .. " >/dev/null 2>&1 & echo $!", "r")
+    local launch_tail = self.start_log and " & echo $!" or " >/dev/null 2>&1 & echo $!"
+    local pipe = io.popen(command .. launch_tail, "r")
     if not pipe then return nil, _("The audio process could not be started.") end
     self.pid = tonumber(pipe:read("*l"))
     pipe:close()
@@ -199,6 +200,13 @@ end
 -- is used only to let the player anchor the first frame to the MTK sink clock.
 function Audio:requiresStartConfirmation()
     return self.command_name == "mtk-gstreamer"
+end
+
+-- Kobo's MTK Bluetooth sink reports New clock before its hardware/ring buffer
+-- becomes audible. On the affected Kobo firmware this measured startup
+-- latency is about four seconds; aplay/tinyplay do not use this compensation.
+function Audio:startupLatency()
+    return self:requiresStartConfirmation() and 4.0 or 0
 end
 
 function Audio:isPlaybackReady()

@@ -801,10 +801,13 @@ function YouTube:scanLibrary(instance, context)
                     path = path,
                     name = name,
                     title = name:gsub("%.bwr$", ""):gsub("_", " "),
+                    subtitle = string.format("YouTube · %s", formatDuration(BWR.durationSeconds(header))),
                     duration = BWR.durationSeconds(header),
+                    value = formatDuration(BWR.durationSeconds(header)),
                     size = attributes.size or 0,
                     modified = attributes.modification or 0,
                     has_audio = wav ~= nil,
+                    video_card = true,
                 }
             end
         end
@@ -1694,13 +1697,17 @@ local Row = InputContainer:extend{
     height = nil,
     background = nil,
     bordered = false,
+    video_card = false,
+    thumbnail_text = "▶",
     dimen = nil,
 }
 
 function Row:init()
     self.dimen = Geom:new{ w = self.width, h = self.height }
     local padding = scale(8)
-    local text_width = math.max(1, self.width - padding * 2 - scale(46))
+    self.thumbnail_width = self.video_card and math.floor(self.width * 0.34) or 0
+    local text_left = padding + self.thumbnail_width + (self.video_card and padding or 0)
+    local text_width = math.max(1, self.width - text_left - padding - scale(46))
     self.title_widget = TextWidget:new{
         text = fitText(self.title or "", text_width, 12),
         face = Font:getFace("smallinfofont", scale(12)),
@@ -1720,6 +1727,14 @@ function Row:init()
         fgcolor = Blitbuffer.COLOR_DARK_GRAY,
         max_width = scale(44),
     }
+    if self.video_card then
+        self.thumbnail_widget = TextWidget:new{
+            text = self.thumbnail_text or "▶",
+            face = Font:getFace("cfont", scale(20)),
+            fgcolor = Blitbuffer.COLOR_WHITE,
+            padding = 0,
+        }
+    end
     local events = { TapRow = { GestureRange:new{ ges = "tap", range = self.dimen } } }
     if self.hold_callback then
         events.HoldRow = { GestureRange:new{ ges = "hold", range = self.dimen } }
@@ -1742,8 +1757,16 @@ function Row:paintTo(bb, x, y)
         bb:paintRect(x + self.width - thickness, y, thickness, self.height, Blitbuffer.COLOR_BLACK)
     end
     local padding = scale(8)
-    self.title_widget:paintTo(bb, x + padding, y + scale(5))
-    self.subtitle_widget:paintTo(bb, x + padding, y + scale(21))
+    if self.video_card then
+        bb:paintRect(x + padding, y + padding, self.thumbnail_width, self.height - padding * 2, Blitbuffer.COLOR_DARK_GRAY)
+        local thumb_size = self.thumbnail_widget:getSize()
+        self.thumbnail_widget:paintTo(bb,
+            x + padding + math.floor((self.thumbnail_width - thumb_size.w) / 2),
+            y + math.floor((self.height - thumb_size.h) / 2))
+    end
+    local text_x = x + padding + self.thumbnail_width + (self.video_card and padding or 0)
+    self.title_widget:paintTo(bb, text_x, y + scale(5))
+    self.subtitle_widget:paintTo(bb, text_x, y + scale(21))
     local value_size = self.value_widget:getSize()
     self.value_widget:paintTo(bb, x + self.width - padding - value_size.w, y + math.floor((self.height - value_size.h) / 2))
     local range = self.ges_events.TapRow[1].range
@@ -1948,6 +1971,8 @@ local function buildList(content, entries, page, per_page, offset_y, row_height,
             width = content.dimen.w - 2 * scale(12),
             height = row_height,
             bordered = entry.highlight == true,
+            video_card = entry.video_card == true,
+            thumbnail_text = entry.thumbnail_text or "▶",
             callback = function() if on_tap then on_tap(entry) end end,
             hold_callback = on_hold and function() on_hold(entry) end or nil,
         }
@@ -1972,12 +1997,23 @@ function YouTube:_buildHomePane(instance, context, state)
         },
     }
 
+    local header = FrameContainer:new{
+        width = width,
+        height = scale(46),
+        padding = 0,
+        bordersize = 0,
+        background = Blitbuffer.COLOR_BLACK,
+        emptySizedWidget(width, scale(46)),
+    }
+    header.overlap_offset = { 0, 0 }
+    table.insert(content, header)
+
     local bar_height = scale(46)
     local mark_size = scale(26)
     local mark = DAppLogo:new{
         kind = "youtube",
         size = mark_size,
-        ink = Blitbuffer.COLOR_BLACK,
+        ink = Blitbuffer.COLOR_WHITE,
     }
     mark.overlap_offset = { margin, math.floor((bar_height - mark_size) / 2) }
     table.insert(content, mark)
@@ -1986,11 +2022,16 @@ function YouTube:_buildHomePane(instance, context, state)
         text = "YouTube",
         face = Font:getFace("cfont", scale(18)),
         bold = true,
-        fgcolor = Blitbuffer.COLOR_BLACK,
+        fgcolor = Blitbuffer.COLOR_WHITE,
         padding = 0,
     }
     title.overlap_offset = { margin + mark_size + scale(8), math.max(scale(4), math.floor((bar_height - title:getSize().h) / 2)) }
     table.insert(content, title)
+
+    -- Keep the black surface behind the logo and title, matching YouTube's
+    -- strong top navigation while preserving their existing touch positions.
+    mark.overlap_offset = { margin, math.floor((bar_height - mark_size) / 2) }
+    title.overlap_offset = { margin + mark_size + scale(8), math.max(scale(4), math.floor((bar_height - title:getSize().h) / 2)) }
 
     local chip_width = scale(78)
     local tools_chip = Pill:new{
@@ -2009,7 +2050,7 @@ function YouTube:_buildHomePane(instance, context, state)
     local search_height = scale(40)
     local search_y = bar_height + scale(2)
     local search = Pill:new{
-        text = state.query ~= "" and (_("Search: ") .. state.query) or _("Search YouTube"),
+        text = state.query ~= "" and ("⌕  " .. state.query) or ("⌕  " .. _("Search YouTube")),
         width = width - 2 * margin,
         height = search_height,
         background = Blitbuffer.COLOR_LIGHT_GRAY,
@@ -2019,8 +2060,26 @@ function YouTube:_buildHomePane(instance, context, state)
     }
     table.insert(content, search)
 
+    local category_y = search_y + search_height + gap
+    local categories = { _("All"), _("Music"), _("Gaming"), _("News") }
+    local category_width = math.floor((width - 2 * margin - (#categories - 1) * gap) / #categories)
+    for index, category in ipairs(categories) do
+        table.insert(content, Pill:new{
+            text = category,
+            width = category_width,
+            height = scale(28),
+            background = index == 1 and Blitbuffer.COLOR_BLACK or Blitbuffer.COLOR_LIGHT_GRAY,
+            bold = index == 1,
+            callback = function()
+                state.query = index == 1 and "" or category
+                context.requestRebuild("ui")
+            end,
+            overlap_offset = { margin + (index - 1) * (category_width + gap), category_y },
+        })
+    end
+
     local link_height = scale(32)
-    local link_y = search_y + search_height + gap
+    local link_y = category_y + scale(28) + gap
     local link = Pill:new{
         text = _("Paste a video link"),
         width = width - 2 * margin,
@@ -2223,6 +2282,8 @@ function YouTube:_buildResultsPane(instance, context, state)
                 result.duration and formatDuration(result.duration) or "",
             }, " · "),
             value = result.duration and formatDuration(result.duration) or "",
+            video_card = true,
+            thumbnail_text = "▶",
             result = result,
         }
     end

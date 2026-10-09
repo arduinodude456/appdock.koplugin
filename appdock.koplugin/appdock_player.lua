@@ -283,6 +283,17 @@ function Engine:play()
                 UIManager:unschedule(self.tick)
                 UIManager:scheduleIn(AUDIO_START_POLL_INTERVAL, self.tick)
                 return true
+            elseif ready then
+                self.pending_start = {
+                    position = self.position or 0,
+                    deadline = Player.now() + self.audio:startupLatency(),
+                    clock_ready = true,
+                }
+                self.anchor_wall, self.paused = nil, false
+                self:status(_("Audio clock active; waiting for audible output…"))
+                UIManager:unschedule(self.tick)
+                UIManager:scheduleIn(AUDIO_START_POLL_INTERVAL, self.tick)
+                return true
             end
         end
     else
@@ -333,6 +344,7 @@ function Engine:jump(seconds)
                 self:status(err)
             else
                 self.pending_start.position = self.position
+                self.pending_start.clock_ready = false
                 self.pending_start.deadline = Player.now() + AUDIO_START_TIMEOUT
             end
         end
@@ -369,8 +381,16 @@ end
 function Engine:step()
     if self.closed then return end
     if self.pending_start then
+        local now = Player.now()
         local ready, start_error = self.audio:isPlaybackReady()
-        if ready or start_error or Player.now() >= self.pending_start.deadline then
+        if not self.pending_start.clock_ready and ready then
+            self.pending_start.clock_ready = true
+            self.pending_start.deadline = now + self.audio:startupLatency()
+            self:status(_("Audio clock active; waiting for audible output…"))
+            UIManager:scheduleIn(AUDIO_START_POLL_INTERVAL, self.tick)
+            return
+        end
+        if start_error or now >= self.pending_start.deadline then
             local position = self.pending_start.position
             self.pending_start = nil
             if start_error then
