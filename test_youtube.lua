@@ -601,31 +601,11 @@ local function runConversion(dither_mode, label, seconds)
     }
     engine.audio_error = nil
     engine.position, engine.anchor_wall, engine.paused = 0, nil, true
-    assert(engine:play() and engine.pending_start and engine.anchor_wall == nil,
-        label .. ": the video timeline must wait while the audio backend is still starting")
-    simulated_clock = simulated_clock + 0.5
-    engine:step()
-    assert(engine.pending_start and engine.position == 0,
-        label .. ": video time must remain frozen during backend startup")
-    audio_ready = true
-    simulated_clock = simulated_clock + 0.05
-    engine:step()
-    assert(not engine.pending_start and engine.anchor_wall == simulated_clock and not engine.paused,
-        label .. ": video clock must anchor when the audio output reports PLAYING")
-    assert(engine.position > 0,
-        label .. ": video must catch up with audio time accumulated during startup")
+    assert(engine:play() and not engine.pending_start and engine.anchor_wall == simulated_clock
+        and not engine.paused,
+        label .. ": video must start immediately while the audio backend initializes")
     engine:pause()
     assert(stopped_audio, label .. ": pausing after synchronized startup must stop audio")
-    audio_ready, stopped_audio = false, false
-    engine.position, engine.anchor_wall, engine.paused = 0, nil, true
-    assert(engine:play() and engine.pending_start,
-        label .. ": a second delayed backend start must enter the readiness wait")
-    simulated_clock = simulated_clock + 0.5
-    engine.pending_start.deadline = simulated_clock - 1
-    engine:step()
-    assert(not engine.pending_start and not stopped_audio and not engine.audio_error
-        and engine.anchor_wall == simulated_clock and engine.position > 0,
-        label .. ": a missing readiness log must keep audio running and catch up video time")
     engine:pause()
     engine.audio = original_audio
     Player.now = real_clock

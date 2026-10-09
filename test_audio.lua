@@ -77,25 +77,11 @@ assert(gst_command:find("filesrc", 1, true) and gst_command:find("wavparse", 1, 
     "GStreamer must read the WAV directly rather than relying on a shell pipeline")
 assert(gst_command:find('location="' .. wav_path .. '"', 1, true),
     "GStreamer must preserve a WAV path containing spaces")
-assert(not gst_command:find(" -q filesrc", 1, true) and gst_command:find(gst.start_log, 1, true),
-    "GStreamer startup output must be retained so playback readiness can be detected")
-assert(gst:requiresStartConfirmation() and not gst:isPlaybackReady(),
-    "GStreamer must remain pending until its pipeline begins playback")
-local startup_log = assert(io.open(gst.start_log, "wb"))
-assert(startup_log:write("Setting pipeline to PLAYING ...\n"))
-startup_log:close()
-assert(not gst:isPlaybackReady(), "The PLAYING announcement alone must not release the video start")
-startup_log = assert(io.open(gst.start_log, "ab"))
-assert(startup_log:write("New clock: GstSystemClock\n"))
-startup_log:close()
-assert(gst:isPlaybackReady(), "The GStreamer clock message must release the video start")
 local gst_pid = gst.pid
-local gst_log = gst.start_log
 gst:pause()
 assert(signals[#signals]:find("kill %-STOP " .. gst_pid), "GStreamer pause must signal its actual process")
 gst:stop()
 assert(signals[#signals]:find("kill %-TERM " .. gst_pid), "GStreamer stop must signal its actual process")
-assert(not io.open(gst_log, "rb"), "Stopping GStreamer must remove its temporary startup log")
 
 Audio.findCommand, io.popen, os.execute = original_find, original_popen, original_execute
 os.remove(wav_path)

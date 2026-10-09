@@ -161,8 +161,6 @@ end
 
 local Engine = {}
 Engine.__index = Engine
-local AUDIO_START_POLL_INTERVAL = 0.05
-local AUDIO_START_TIMEOUT = 8
 
 function Engine.open(video_path, wav_path, report)
     local handle = io.open(video_path, "rb")
@@ -244,21 +242,6 @@ function Engine:audioTime(video_position)
         self.audio_duration or self.duration)
 end
 
-function Engine:_beginPlayback(position)
-    self.pending_start = nil
-    self.position = clamp(tonumber(position) or 0, 0, self.duration)
-    self.anchor_position, self.anchor_wall, self.paused = self.position, Player.now(), false
-    local ok, err = self:show(self.position)
-    if not ok then
-        self.paused = true
-        if self.audio then self.audio:stop() end
-        return nil, err
-    end
-    UIManager:unschedule(self.tick)
-    UIManager:scheduleIn(self.period, self.tick)
-    return true
-end
-
 function Engine:readFrame(index)
     if not self.handle or index < 0 or index >= self.header.frames then
         return nil, _("The frame is outside the BWR video.")
@@ -284,49 +267,27 @@ end
 
 function Engine:play()
     if self.error then return nil, self.error end
-    if self.pending_start then return true end
     if self.audio then
-        -- Audio may already be consuming data while GStreamer is still
-        -- reporting its asynchronous PLAYING/clock transition. Remember when
-        -- it was launched so video can catch up instead of starting late.
-        local audio_start_wall = Player.now()
         local ok, err = self.audio:startFrom(self:audioTime(self.position or 0))
         if not ok then
             self.audio_error = err
             self:status(err)
-        elseif self.audio.requiresStartConfirmation and self.audio:requiresStartConfirmation() then
-            local ready, ready_error = self.audio:isPlaybackReady()
-            if not ready and not ready_error then
-                self.pending_start = {
-                    position = self.position or 0,
-                    audio_start_wall = audio_start_wall,
-                    deadline = Player.now() + AUDIO_START_TIMEOUT,
-                }
-                self.anchor_wall, self.paused = nil, false
-                self:status(_("Waiting for audio output…"))
-                UIManager:unschedule(self.tick)
-                UIManager:scheduleIn(AUDIO_START_POLL_INTERVAL, self.tick)
-                return true
-            elseif ready_error then
-                self.audio_error = ready_error
-                self:status(ready_error)
-            end
         end
     else
         self:status(_("Playing without companion audio."))
     end
-    return self:_beginPlayback(self.position or 0)
+    self.anchor_position, self.anchor_wall, self.paused = self.position or 0, Player.now(), false
+    local ok, err = self:show(self.position or 0)
+    if not ok then
+        self.paused = true
+        return nil, err
+    end
+    UIManager:unschedule(self.tick)
+    UIManager:scheduleIn(self.period, self.tick)
+    return true
 end
 
 function Engine:pause()
-    if self.pending_start then
-        self.position = self.pending_start.position
-        self.pending_start = nil
-        self.anchor_wall, self.paused = nil, true
-        if self.audio then self.audio:stop() end
-        UIManager:unschedule(self.tick)
-        return
-    end
     if self.paused then return end
     self.position = self:currentTime()
     self.anchor_wall, self.paused = nil, true
@@ -343,21 +304,6 @@ end
 
 function Engine:jump(seconds)
     if self.error then return nil, self.error end
-    if self.pending_start then
-        self.position = clamp(self.pending_start.position + (tonumber(seconds) or 0), 0, self.duration)
-        if self.audio then
-            local ok, err = self.audio:startFrom(self:audioTime(self.position))
-            if not ok then
-                self.audio_error = err
-                self:status(err)
-            else
-                self.pending_start.position = self.position
-                self.pending_start.audio_start_wall = Player.now()
-                self.pending_start.deadline = Player.now() + AUDIO_START_TIMEOUT
-            end
-        end
-        return self:show(self.position)
-    end
     local base = self.paused and (self.position or 0) or self:currentTime()
     self.position = clamp(base + (tonumber(seconds) or 0), 0, self.duration)
     if self.paused then
@@ -387,37 +333,7 @@ function Engine:restart()
 end
 
 function Engine:step()
-    if self.closed then return end
-    if self.pending_start then
-        local ready, start_error = self.audio:isPlaybackReady()
-        if ready or start_error or Player.now() >= self.pending_start.deadline then
-            local pending = self.pending_start
-            local now = Player.now()
-            -- The audio process starts before its readiness signal. Advance the
-            -- video by the elapsed audio time, including the timeout path where
-            -- a device emits no recognizable GStreamer startup line.
-            local elapsed = math.max(0, now - (pending.audio_start_wall or now))
-            local position = clamp(pending.position + elapsed * (self.clock_scale or 1),
-                0, self.duration)
-            self.pending_start = nil
-            if not ready then
-                if start_error then
-                    self.audio_error = start_error
-                    self:status(start_error)
-                else
-                    -- Readiness may be omitted or formatted differently by a
-                    -- device's GStreamer build. Never mute audio just because
-                    -- its optional startup log could not be recognized.
-                    self:status(_("Audio startup was not confirmed; continuing playback."))
-                end
-            end
-            self:_beginPlayback(position)
-            return
-        end
-        UIManager:scheduleIn(AUDIO_START_POLL_INTERVAL, self.tick)
-        return
-    end
-    if self.paused then return end
+    if self.closed or self.paused then return end
     self.position = self:currentTime()
     if self.position >= self.duration then
         self:show(self.duration)

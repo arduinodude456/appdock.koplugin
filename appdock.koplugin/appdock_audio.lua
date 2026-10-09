@@ -153,7 +153,6 @@ function Audio.new(path)
         paused = false,
         command = nil,
         command_name = nil,
-        start_log = nil,
     }, Audio)
 
     local gst_launch = Audio.findCommand("gst-launch-1.0")
@@ -246,20 +245,15 @@ function Audio:startFrom(seconds)
         -- Keep quotes inside the filesrc property for paths containing spaces.
         local location = 'location="' .. tostring(self.clip_path)
             :gsub("\\", "\\\\"):gsub('"', '\\"') .. '"'
-        self.start_log = os.tmpname()
-        command = shellQuote(self.command) .. " filesrc " .. shellQuote(location)
+        command = shellQuote(self.command) .. " -q filesrc " .. shellQuote(location)
             .. " ! wavparse ! audioconvert ! audioresample"
             .. " ! audio/x-raw,format=S16LE,rate=44100,channels=2 ! mtkbtmwrpcaudiosink"
-            .. " >" .. shellQuote(self.start_log) .. " 2>&1"
     elseif self.command_name == "aplay" then
         command = shellQuote(self.command) .. " -q " .. shellQuote(self.clip_path)
     else
         command = shellQuote(self.command) .. " " .. shellQuote(self.clip_path)
     end
-    if self.command_name ~= "mtk-gstreamer" then
-        command = command .. " >/dev/null 2>&1"
-    end
-    local pipe = io.popen(command .. " & echo $!", "r")
+    local pipe = io.popen(command .. " >/dev/null 2>&1 & echo $!", "r")
     if not pipe then return nil, _("The audio process could not be started.") end
     self.pid = tonumber(pipe:read("*l"))
     pipe:close()
@@ -267,33 +261,6 @@ function Audio:startFrom(seconds)
     logger.info("appdock youtube: audio started", self.command_name, "pid", self.pid)
     self.paused = false
     return true
-end
-
--- GStreamer is spawned asynchronously, so a PID alone does not mean that the
--- sink has negotiated a clock or begun playback. The player uses this signal
--- to hold its video clock until the pipeline reports that it is PLAYING.
-function Audio:requiresStartConfirmation()
-    return self.command_name == "mtk-gstreamer"
-end
-
-function Audio:isPlaybackReady()
-    if not self:requiresStartConfirmation() then return true end
-    if not self.start_log then return false end
-    local log = io.open(self.start_log, "rb")
-    if not log then return false end
-    local output = log:read("*a") or ""
-    log:close()
-    -- `Setting pipeline to PLAYING` only means that GStreamer accepted the
-    -- state transition. On Kobo it can be printed before the MTK sink has
-    -- opened the Bluetooth route; treating it as ready caused silent video.
-    -- `New clock:` is the readiness signal used by the known-good 7.8.28 path.
-    if output:find("New clock:", 1, true) then
-        return true
-    end
-    if output:find("ERROR:", 1, true) then
-        return nil, output:match("ERROR:[^\r\n]*") or output
-    end
-    return false
 end
 
 function Audio:pause()
@@ -317,10 +284,6 @@ function Audio:stop()
     end
     if self.clip_path and self.clip_path ~= self.path then
         os.remove(self.clip_path)
-    end
-    if self.start_log then
-        os.remove(self.start_log)
-        self.start_log = nil
     end
     self.clip_path = nil
     self.paused = false
