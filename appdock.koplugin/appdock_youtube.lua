@@ -354,13 +354,14 @@ function YouTube.detectTools(settings)
 end
 
 -- Download only upstream standalone builds whose OS/architecture is known.
--- Older ARMv7 glibc devices use a portable Python runtime with yt-dlp's Python
--- zipapp because the current upstream PyInstaller archive needs newer symbols.
--- Android/Bionic and unknown ABIs are not silently given Linux/glibc binaries.
+-- Older or unidentified ARMv7 libc versions use yt-dlp's Python zipapp with an
+-- isolated Alpine/musl Python runtime. The device's libc is never replaced.
+-- Android/Bionic and unknown architectures are not given Linux binaries.
 function YouTube.bootstrapPlan(info)
     info = info or {}
     if info.android then return nil, "Android/Bionic is not supported by the automatic Linux tool installer." end
     local arch = info.arch or ""
+    local is_armv7 = arch == "armv7l" or arch == "armv7" or arch == "armhf"
     local function olderThan(version, required_major, required_minor)
         if type(version) == "table" then
             return version.major < required_major
@@ -369,7 +370,7 @@ function YouTube.bootstrapPlan(info)
         if type(version) == "number" then return version < required_major * 100 + required_minor end
         return false
     end
-    if info.musl and olderThan(info.musl_version, 1, 2) then
+    if info.musl and not is_armv7 and olderThan(info.musl_version, 1, 2) then
         return nil, "The official yt-dlp musl build needs musl 1.2 or newer."
     end
     local ytdlp_asset, ffmpeg_arch
@@ -385,14 +386,24 @@ function YouTube.bootstrapPlan(info)
         end
         ytdlp_asset = info.musl and "yt-dlp_musllinux_aarch64" or "yt-dlp_linux_aarch64"
         ffmpeg_arch = "arm64"
-    elseif arch == "armv7l" or arch == "armv7" or arch == "armhf" then
-        if info.musl then return nil, "No official yt-dlp ARMv7 musl build is available." end
+    elseif is_armv7 then
         local version = info.glibc
-        if type(version) ~= "table" and type(version) ~= "number" then
-            return nil, "Could not detect the system glibc version. Automatic ARMv7 setup needs glibc 2.17 or newer."
-        end
-        if olderThan(version, 2, 17) then
-            return nil, "The ARMv7 Python runtime needs glibc 2.17 or newer."
+        local version_unknown = type(version) ~= "table" and type(version) ~= "number"
+        if info.musl or version_unknown or olderThan(version, 2, 17) then
+            local python_asset = "appdock-youtube-armhf-musl-python-3.12.15.tar.gz"
+            return {
+                ytdlp_asset = "yt-dlp",
+                ytdlp_zip = false,
+                ytdlp_python = true,
+                python_musl = true,
+                python_asset = python_asset,
+                python_root = "python-runtime",
+                python_url = "https://github.com/arduinodude456/appdock.koplugin/releases/download/v7.8.21/" .. python_asset,
+                python_sha256 = "8f47867ba2349dff0936c0e4c24bdda71f97b1494c7703c972d7a5a2744620b5",
+                ffmpeg_arch = "armhf",
+                ytdlp_base = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/",
+                ffmpeg_url = "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-armhf-static.tar.xz",
+            }
         end
         local too_old = type(version) == "table" and (version.major < 2 or (version.major == 2 and version.minor < 31))
             or type(version) == "number" and version < 231
@@ -882,20 +893,36 @@ function YouTube.buildBootstrapCommand(tool_dir, work_dir, plan, need_ytdlp, nee
         lines[#lines + 1] = "test -n \"$expected\" && test \"$expected\" = \"$actual\" || { echo 'yt-dlp SHA-256 verification failed.' >&2; exit 1; }"
         lines[#lines + 1] = "set_status 'yt-dlp checksum verified; preparing executable…'"
         if plan.ytdlp_python then
-            lines[#lines + 1] = "set_status 'Downloading the portable ARM Python runtime…'"
-            lines[#lines + 1] = "download " .. q(plan.python_url) .. " \"$tmp/python-runtime.pkg\""
-            lines[#lines + 1] = "set_status 'Verifying portable Python SHA-256…'"
-            lines[#lines + 1] = "expected=" .. q(plan.python_sha256)
-            lines[#lines + 1] = "actual=$(sha256sum \"$tmp/python-runtime.pkg\" | awk '{print $1}')"
-            lines[#lines + 1] = "test \"$expected\" = \"$actual\" || { echo 'Portable Python SHA-256 verification failed.' >&2; exit 1; }"
-            lines[#lines + 1] = "set_status 'Extracting the portable ARM Python runtime…'"
-            lines[#lines + 1] = "mkdir -p \"$tmp/python-extract\""
-            lines[#lines + 1] = "if command -v unzip >/dev/null 2>&1; then unzip -q \"$tmp/python-runtime.pkg\" -d \"$tmp/python-extract\"; elif command -v busybox >/dev/null 2>&1; then busybox unzip -q \"$tmp/python-runtime.pkg\" -d \"$tmp/python-extract\"; else echo 'unzip (or BusyBox with unzip) is required for the portable ARM Python runtime.' >&2; exit 1; fi"
-            lines[#lines + 1] = "test -f \"$tmp/python-extract/" .. plan.python_root .. "/bin/python3.13\" || { echo 'The portable ARM Python archive is incomplete.' >&2; exit 1; }"
-            lines[#lines + 1] = "chmod 755 \"$tmp/python-extract/" .. plan.python_root .. "/bin/python3.13\""
-            lines[#lines + 1] = "mv \"$tmp/python-extract/" .. plan.python_root .. "\" \"$tmp/python-runtime\""
-            lines[#lines + 1] = "cp \"$tmp/yt-dlp.pkg\" \"$tmp/yt-dlp.pyz\""
-            lines[#lines + 1] = "printf '%s\\n' '#!/bin/sh' 'case \"$0\" in */*) d=${0%/*} ;; *) d=. ;; esac' 'exec \"$d/python-runtime/bin/python3.13\" \"$d/yt-dlp.pyz\" \"$@\"' > \"$tmp/yt-dlp.new\""
+            if plan.python_musl then
+                lines[#lines + 1] = "set_status 'Downloading the bundled ARMHF musl Python runtime…'"
+                lines[#lines + 1] = "download " .. q(plan.python_url) .. " \"$tmp/python-runtime.pkg\""
+                lines[#lines + 1] = "set_status 'Verifying bundled musl Python SHA-256…'"
+                lines[#lines + 1] = "expected=" .. q(plan.python_sha256)
+                lines[#lines + 1] = "actual=$(sha256sum \"$tmp/python-runtime.pkg\" | awk '{print $1}')"
+                lines[#lines + 1] = "test \"$expected\" = \"$actual\" || { echo 'Bundled musl Python SHA-256 verification failed.' >&2; exit 1; }"
+                lines[#lines + 1] = "set_status 'Extracting the ARMHF musl Python runtime…'"
+                lines[#lines + 1] = "mkdir -p \"$tmp/python-extract\""
+                lines[#lines + 1] = "tar -xzf \"$tmp/python-runtime.pkg\" -C \"$tmp/python-extract\" || { echo 'Could not unpack the ARMHF musl Python runtime; tar/gzip may be missing.' >&2; exit 1; }"
+                lines[#lines + 1] = "test -x \"$tmp/python-extract/" .. plan.python_root .. "/lib/ld-musl-armhf.so.1\" && test -x \"$tmp/python-extract/" .. plan.python_root .. "/usr/bin/python3.12\" && test -s \"$tmp/python-extract/" .. plan.python_root .. "/etc/ssl/cert.pem\" || { echo 'The ARMHF musl Python runtime is incomplete.' >&2; exit 1; }"
+                lines[#lines + 1] = "mv \"$tmp/python-extract/" .. plan.python_root .. "\" \"$tmp/python-runtime\""
+                lines[#lines + 1] = "cp \"$tmp/yt-dlp.pkg\" \"$tmp/yt-dlp.pyz\""
+                lines[#lines + 1] = "printf '%s\\n' '#!/bin/sh' 'case \"$0\" in */*) d=${0%/*} ;; *) d=. ;; esac' 'r=\"$d/python-runtime\"' 'export PYTHONHOME=\"$r/usr\"' 'export PYTHONNOUSERSITE=1' 'export SSL_CERT_FILE=\"$r/etc/ssl/cert.pem\"' 'export SSL_CERT_DIR=\"$r/etc/ssl/certs\"' 'export LD_LIBRARY_PATH=\"$r/lib:$r/usr/lib:$r/usr/lib/python3.12/lib-dynload\"' 'exec \"$r/lib/ld-musl-armhf.so.1\" \"$r/usr/bin/python3.12\" \"$d/yt-dlp.pyz\" \"$@\"' > \"$tmp/yt-dlp.new\""
+            else
+                lines[#lines + 1] = "set_status 'Downloading the portable ARM Python runtime…'"
+                lines[#lines + 1] = "download " .. q(plan.python_url) .. " \"$tmp/python-runtime.pkg\""
+                lines[#lines + 1] = "set_status 'Verifying portable Python SHA-256…'"
+                lines[#lines + 1] = "expected=" .. q(plan.python_sha256)
+                lines[#lines + 1] = "actual=$(sha256sum \"$tmp/python-runtime.pkg\" | awk '{print $1}')"
+                lines[#lines + 1] = "test \"$expected\" = \"$actual\" || { echo 'Portable Python SHA-256 verification failed.' >&2; exit 1; }"
+                lines[#lines + 1] = "set_status 'Extracting the portable ARM Python runtime…'"
+                lines[#lines + 1] = "mkdir -p \"$tmp/python-extract\""
+                lines[#lines + 1] = "if command -v unzip >/dev/null 2>&1; then unzip -q \"$tmp/python-runtime.pkg\" -d \"$tmp/python-extract\"; elif command -v busybox >/dev/null 2>&1; then busybox unzip -q \"$tmp/python-runtime.pkg\" -d \"$tmp/python-extract\"; else echo 'unzip (or BusyBox with unzip) is required for the portable ARM Python runtime.' >&2; exit 1; fi"
+                lines[#lines + 1] = "test -f \"$tmp/python-extract/" .. plan.python_root .. "/bin/python3.13\" || { echo 'The portable ARM Python archive is incomplete.' >&2; exit 1; }"
+                lines[#lines + 1] = "chmod 755 \"$tmp/python-extract/" .. plan.python_root .. "/bin/python3.13\""
+                lines[#lines + 1] = "mv \"$tmp/python-extract/" .. plan.python_root .. "\" \"$tmp/python-runtime\""
+                lines[#lines + 1] = "cp \"$tmp/yt-dlp.pkg\" \"$tmp/yt-dlp.pyz\""
+                lines[#lines + 1] = "printf '%s\\n' '#!/bin/sh' 'case \"$0\" in */*) d=${0%/*} ;; *) d=. ;; esac' 'exec \"$d/python-runtime/bin/python3.13\" \"$d/yt-dlp.pyz\" \"$@\"' > \"$tmp/yt-dlp.new\""
+            end
         elseif plan.ytdlp_zip then
             lines[#lines + 1] = "set_status 'Extracting the ARMv7 yt-dlp runtime…'"
             lines[#lines + 1] = "mkdir -p \"$tmp/yt-dlp-runtime\""
