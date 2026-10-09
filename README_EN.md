@@ -4,7 +4,7 @@
 
 # New releases regulary commited at 3:00 AM CET
 
-**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **7.8.24** refreshes YouTube progress indicators live and speeds up video conversion with batched frame processing. [Details](RELEASE_NOTES_7.8.24.md).
+**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **7.8.25** fixes the YouTube player transition that closed the video just loaded for playback. [Details](RELEASE_NOTES_7.8.25.md).
 
 > **E-Ink approach:** AppDock deliberately borrows the visual language and information structure, not Android's animations, blur, or transparency effects. This keeps updates economical and maintains contrast on monochrome readers.
 
@@ -27,6 +27,8 @@
 > **7.5.1:** The store header now uses only AppDock’s own **AppDock Store** name and existing AppStore logo. External Play branding has been removed. [Details](RELEASE_NOTES_7.5.1.md).
 
 > **7.5.0:** The first homescreen page gained a branded **DuckDuckGo search bar**; the catalog was redesigned with search, recommendations, install actions, and bottom category navigation. It shows only real catalog data — no invented ratings or screenshots. See [`RELEASE_NOTES_7.5.0.md`](RELEASE_NOTES_7.5.0.md).
+
+> **7.8.25:** A video now remains loaded when transitioning from the library to the player. [Details](RELEASE_NOTES_7.8.25.md).
 
 > **7.8.24:** YouTube progress indicators now update during downloads and conversion. Conversion processes frames in time-bounded batches instead of being capped at two frames per second; E-Ink refreshes remain throttled. [Details](RELEASE_NOTES_7.8.24.md).
 

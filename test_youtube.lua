@@ -593,8 +593,12 @@ do
         requestRefresh = function() end,
         requestRebuild = function() end,
     }
+    local library_pane = youtube:buildPane(play_instance, play_context)
     assert(youtube:play(play_instance, play_context, bayer_entry.path), "Playing a converted video must succeed")
     assert(play_instance.youtube.view == "play", "Starting playback must switch to the play view")
+    library_pane:onDeactivate()
+    assert(youtube.player.engine and not youtube.player.engine.error,
+        "Deactivating the old library pane must not close the engine just loaded for playback")
     local play_pane = youtube:buildPane(play_instance, play_context)
     assert(play_pane and play_pane.dimen.w == 600, "The play pane must fill the assigned rectangle")
     assert(type(play_pane.onDeactivate) == "function", "The play pane must release playback when it is left")

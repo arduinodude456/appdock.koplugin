@@ -2638,7 +2638,10 @@ function YouTube:buildPane(instance, context)
     pane = WidgetContainer:new{ dimen = Geom:new{ w = context.dimen.w, h = context.dimen.h } }
     pane[1] = content
     pane.onDeactivate = function()
-        self.player:stop()
+        -- `play()` loads the engine before requesting the host rebuild. The
+        -- outgoing library pane is deactivated during that rebuild, so only
+        -- stop here when navigation is not transitioning into the player.
+        if state.view ~= "play" then self.player:stop() end
     end
     return pane
 end
