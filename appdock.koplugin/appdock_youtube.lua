@@ -671,6 +671,7 @@ local DEFAULT_SETTINGS = {
     max_duration = 180,
     max_height = 480,
     dither = "bayer",
+    audio_video_delay = 0,
 }
 
 function YouTube:new(appdock)
@@ -1871,6 +1872,24 @@ function YouTube:editToolPath(instance, context, key, title, hint)
     end)
 end
 
+function YouTube:editAudioVideoDelay(instance, context)
+    local settings = self:_settings()
+    promptText(
+        _("Video start after audio"),
+        _("Delay in seconds (0–60; decimals allowed)"),
+        string.format("%g", settings.audio_video_delay or 0),
+        function(value)
+            value = trim(value):gsub(",", ".")
+            local delay = tonumber(value)
+            if not delay or delay < 0 or delay > 60 then
+                self:_notify(instance, context, _("Enter a number between 0 and 60 seconds."))
+                return
+            end
+            self:_patchSettings({ audio_video_delay = delay })
+            if context and context.requestRebuild then context.requestRebuild("ui") end
+        end)
+end
+
 function YouTube:cycleSetting(instance, context, key)
     local settings = self:_settings()
     local patch = {}
@@ -2616,6 +2635,12 @@ function YouTube:_buildToolsPane(instance, context, state)
             subtitle = _("Lower rates refresh faster on E-Ink"),
             value = string.format("%g fps", settings.fps),
             action = function() self:cycleSetting(instance, context, "fps") end,
+        },
+        {
+            title = _("Video start after audio"),
+            subtitle = _("Positive value delays the video after audio starts"),
+            value = string.format("%g s", settings.audio_video_delay or 0),
+            action = function() self:editAudioVideoDelay(instance, context) end,
         },
         {
             title = _("Maximum length"),

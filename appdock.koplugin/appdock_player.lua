@@ -163,7 +163,7 @@ Engine.__index = Engine
 local AUDIO_START_POLL_INTERVAL = 0.05
 local AUDIO_START_TIMEOUT = 8
 
-function Engine.open(video_path, wav_path, report)
+function Engine.open(video_path, wav_path, report, video_delay)
     local handle = io.open(video_path, "rb")
     local instance = setmetatable({
         handle = handle,
@@ -176,6 +176,7 @@ function Engine.open(video_path, wav_path, report)
         frame_index = -1,
         position = 0,
         frame_locked = true,
+        video_delay = clamp(tonumber(video_delay) or 0, 0, 60),
         anchor_wall = nil,
         anchor_position = 0,
         pending_start = nil,
@@ -290,11 +291,23 @@ function Engine:play()
             elseif ready then
                 self.pending_start = {
                     position = self.position or 0,
-                    deadline = Player.now() + self.audio:startupLatency(),
+                    deadline = Player.now() + self.video_delay,
                     clock_ready = true,
                 }
                 self.anchor_wall, self.paused = nil, false
                 self:status(_("Audio clock active; waiting for audible output…"))
+                UIManager:unschedule(self.tick)
+                UIManager:scheduleIn(AUDIO_START_POLL_INTERVAL, self.tick)
+                return true
+            end
+            if ok and not self.audio:requiresStartConfirmation() and self.video_delay > 0 then
+                self.pending_start = {
+                    position = self.position or 0,
+                    deadline = Player.now() + self.video_delay,
+                    clock_ready = true,
+                }
+                self.anchor_wall, self.paused = nil, false
+                self:status(_("Audio started; waiting for video offset…"))
                 UIManager:unschedule(self.tick)
                 UIManager:scheduleIn(AUDIO_START_POLL_INTERVAL, self.tick)
                 return true
@@ -392,7 +405,7 @@ function Engine:step()
         local ready, start_error = self.audio:isPlaybackReady()
         if not self.pending_start.clock_ready and ready then
             self.pending_start.clock_ready = true
-            self.pending_start.deadline = now + self.audio:startupLatency()
+            self.pending_start.deadline = now + self.video_delay
             self:status(_("Audio clock active; waiting for audible output…"))
             UIManager:scheduleIn(AUDIO_START_POLL_INTERVAL, self.tick)
             return
@@ -548,10 +561,15 @@ function Player:load(instance, context, path)
     self:stop()
     self.path = path
     local wav = companionFor(path)
+    local video_delay = 0
+    if self.appdock and type(self.appdock.getYouTubeSettings) == "function" then
+        local stored = self.appdock:getYouTubeSettings()
+        if type(stored) == "table" then video_delay = tonumber(stored.audio_video_delay) or 0 end
+    end
     local engine = Engine.open(path, wav, function(message)
         self.note = message
         if context and context.requestRefresh then context.requestRefresh("ui") end
-    end)
+    end, video_delay)
     if engine.error then
         self.note = engine.error
         return nil, engine.error

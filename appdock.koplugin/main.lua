@@ -103,6 +103,7 @@ local function normalizeYouTubeSettings(stored)
     local frame_rate = tonumber(stored.fps)
     local duration = tonumber(stored.max_duration)
     local height = tonumber(stored.max_height)
+    local audio_video_delay = tonumber(stored.audio_video_delay)
     return {
         ytdlp_path = boundedText(stored.ytdlp_path, 360),
         ffmpeg_path = boundedText(stored.ffmpeg_path, 360),
@@ -112,6 +113,8 @@ local function normalizeYouTubeSettings(stored)
         max_duration = (duration and duration >= 0 and duration <= 3600) and math.floor(duration) or 180,
         max_height = (height and YOUTUBE_HEIGHTS[height]) and height or 480,
         dither = stored.dither == "ffmpeg" and "ffmpeg" or "bayer",
+        audio_video_delay = audio_video_delay and audio_video_delay >= 0 and audio_video_delay <= 60
+            and audio_video_delay or 0,
     }
 end
 
