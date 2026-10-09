@@ -386,7 +386,7 @@ function YouTube.toolFolders()
         folders[#folders + 1] = data_dir .. "/appdock/tools"
         folders[#folders + 1] = data_dir .. "/../tools"
     end
-    for _, folder in ipairs(TOOL_FOLDERS) do folders[#folders + 1] = folder end
+    for loop_index, folder in ipairs(TOOL_FOLDERS) do folders[#folders + 1] = folder end
     return folders
 end
 
@@ -395,12 +395,12 @@ function YouTube.locateTool(names, explicit)
         if isExecutable(explicit) then return explicit end
         return nil, _("The configured path does not exist.")
     end
-    for _, name in ipairs(names) do
+    for loop_index, name in ipairs(names) do
         local found = whichCommand(name)
         if found and isExecutable(found) then return found end
     end
-    for _, folder in ipairs(YouTube.toolFolders()) do
-        for _, name in ipairs(names) do
+    for loop_index, folder in ipairs(YouTube.toolFolders()) do
+        for loop_index, name in ipairs(names) do
             local candidate = folder .. "/" .. name
             if isExecutable(candidate) then return candidate end
         end
@@ -815,7 +815,7 @@ function YouTube:scanLibrary(instance, context)
         if name:lower():match("%.bwr$") then names[#names + 1] = name end
     end
     table.sort(names)
-    for _, name in ipairs(names) do
+    for loop_index, name in ipairs(names) do
         local path = directory .. "/" .. name
         local handle = io.open(path, "rb")
         if handle then
@@ -1655,7 +1655,7 @@ function YouTube:startSearch(instance, context, query)
             state.view = "home"
         else
             local results = YouTube.parseSearchOutput(log)
-            for _, result in ipairs(results) do self:_cacheThumbnail(result) end
+            for loop_index, result in ipairs(results) do self:_cacheThumbnail(result) end
             state.results = results
             state.results_query = query
             state.result_page = 1
@@ -1769,15 +1769,21 @@ function Row:init()
         max_width = scale(44),
     }
     if self.video_card then
+        local image_ok = false
         if ImageWidget and fileExists(self.thumbnail_path) then
-            self.thumbnail_widget = ImageWidget:new{
+            local ok, image = pcall(ImageWidget.new, ImageWidget, {
                 file = self.thumbnail_path,
                 width = math.max(1, self.thumbnail_width),
                 height = math.max(1, self.height - padding * 2),
                 file_do_cache = false,
-            }
-            self.has_thumbnail_image = true
-        else
+            })
+            if ok and image then
+                self.thumbnail_widget = image
+                self.has_thumbnail_image = true
+                image_ok = true
+            end
+        end
+        if not image_ok then
             self.thumbnail_widget = TextWidget:new{
                 text = self.thumbnail_text or "▶",
                 face = Font:getFace("cfont", scale(20)),
@@ -2269,7 +2275,7 @@ function YouTube:_buildResultsPane(instance, context, state)
     table.insert(content, title)
 
     local entries = {}
-    for _, result in ipairs(results) do
+    for loop_index, result in ipairs(results) do
         entries[#entries + 1] = {
             title = result.title,
             subtitle = table.concat({
@@ -2304,7 +2310,7 @@ function YouTube:_buildResultsPane(instance, context, state)
             state.result_page = math.min(total_pages, state.result_page + 1)
             context.requestRebuild("ui")
         end)
-    for _, widget in ipairs(pager) do
+    for loop_index, widget in ipairs(pager) do
         widget.overlap_offset = { margin + widget.overlap_offset[1], footer_y + widget.overlap_offset[2] }
         table.insert(content, widget)
     end
@@ -2536,7 +2542,7 @@ function YouTube:_buildToolsPane(instance, context, state)
                 state.tools_page = math.min(total_pages, state.tools_page + 1)
                 context.requestRebuild("ui")
             end)
-        for _, widget in ipairs(pager) do
+        for loop_index, widget in ipairs(pager) do
             widget.overlap_offset = { margin + widget.overlap_offset[1], footer_y + widget.overlap_offset[2] }
             table.insert(content, widget)
         end
