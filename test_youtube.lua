@@ -205,6 +205,7 @@ assert(helpers.durationLabel(180) == "3 min", "Whole minutes must read as minute
 
 local stored = { output_dir = data_dir .. "/videos" }
 local appdock = {
+    disableToolBootstrap = true,
     getYouTubeSettings = function() return stored end,
     setYouTubeSettings = function(_, patch)
         for key, value in pairs(patch) do stored[key] = value end
@@ -234,6 +235,55 @@ assert(youtube:_settings().dither == "ffmpeg", "Cycling the dither mode must swi
 youtube:cycleSetting(instance, context, "dither")
 assert(youtube:_settings().dither == "bayer", "Cycling the dither mode must return to Bayer")
 
+local detached_dir = data_dir .. "/detached-test"
+assert(lfs.mkdir(detached_dir), "The detached-process test directory must be creatable")
+local detached = assert(youtube:_startDetached("sleep 1; printf done", detached_dir, "probe"))
+assert(youtube:_pollDetached(detached) == nil,
+    "Starting a slow background command must return before its exit marker is written")
+local detached_code, detached_log
+local detached_deadline = os.time() + 10
+repeat
+    os.execute("sleep 0.1")
+    detached_code, detached_log = youtube:_pollDetached(detached)
+until detached_code ~= nil or os.time() >= detached_deadline
+assert(detached_code == 0 and detached_log:find("done", 1, true),
+    "The detached command must report its exit status and captured output")
+os.execute("rm -rf " .. detached_dir)
+
+local bootstrap = helpers.bootstrapPlan
+local x64_plan = bootstrap{ arch = "x86_64" }
+assert(x64_plan.ytdlp_asset == "yt-dlp_linux" and x64_plan.ffmpeg_arch == "amd64",
+    "x86_64 should map to the official Linux yt-dlp and static FFmpeg assets")
+local arm64_musl = bootstrap{ arch = "aarch64", musl = true }
+assert(arm64_musl.ytdlp_asset == "yt-dlp_musllinux_aarch64" and arm64_musl.ffmpeg_arch == "arm64",
+    "aarch64 musl should select the upstream musl yt-dlp build")
+local armv7_plan = bootstrap{ arch = "armv7l", glibc = { major = 2, minor = 31 } }
+assert(armv7_plan.ytdlp_zip and armv7_plan.ffmpeg_arch == "armhf",
+    "ARMv7 should select the upstream standalone archive and armhf FFmpeg")
+assert(not bootstrap{ arch = "armv7l", glibc = { major = 2, minor = 30 } },
+    "ARMv7 with old glibc must be rejected before download")
+assert(not bootstrap{ arch = "armv7l", musl = true }, "ARMv7 musl must not receive a glibc executable")
+assert(not bootstrap{ arch = "x86_64", android = true }, "Android must not receive Linux/glibc binaries")
+assert(not bootstrap{ arch = "x86_64", glibc = { major = 2, minor = 16 } },
+    "x86_64 with old glibc must be rejected before download")
+assert(not bootstrap{ arch = "aarch64", musl = true, musl_version = { major = 1, minor = 1 } },
+    "aarch64 with old musl must be rejected before download")
+local script = helpers.buildBootstrapCommand(
+    data_dir .. "/appdock/tools", data_dir .. "/setup-work", x64_plan, true, true)
+assert(script:find("SHA2%-256SUMS") and script:find("sha256sum") and script:find("md5sum"),
+    "The installer must verify upstream checksums")
+assert(script:find("yt%-dlp_linux") and script:find("ffmpeg%-release%-amd64%-static"),
+    "The generated installer must use the selected upstream assets")
+assert(script:find("%$tools/yt%-dlp") and script:find("%$tools/ffmpeg"),
+    "The installer must put tools in KOReader's data folder")
+assert(script:find("ffmpeg%-GPLv3%.txt"), "The FFmpeg distribution license should be preserved")
+local bootstrap_script_path = data_dir .. "/bootstrap-test.sh"
+local bootstrap_script_file = assert(io.open(bootstrap_script_path, "wb"))
+bootstrap_script_file:write(script)
+bootstrap_script_file:close()
+assert(os.execute("sh -n " .. bootstrap_script_path) == 0, "The generated installer script must be valid POSIX shell")
+os.remove(bootstrap_script_path)
+
 ----------------------------------------------------------------
 -- Pane construction
 ----------------------------------------------------------------
@@ -244,6 +294,39 @@ for _, view in ipairs({ "home", "tools" }) do
     assert(pane and pane.dimen and pane.dimen.w == 600, "The " .. view .. " pane must fill the assigned rectangle")
     assert(pane.onDeactivate, "Every pane must expose onDeactivate")
 end
+state.view = "setup"
+state.bootstrap = { error = "Download failed" }
+assert(youtube:buildPane(instance, context), "The setup error/retry pane must build")
+state.bootstrap = nil
+
+local auto_settings = { output_dir = data_dir .. "/videos" }
+local auto_appdock = {
+    getYouTubeSettings = function() return auto_settings end,
+    setYouTubeSettings = function(_, patch)
+        for key, value in pairs(patch) do auto_settings[key] = value end
+        return true
+    end,
+    notify = function() return true end,
+}
+local auto_youtube = YouTube:new(auto_appdock)
+local auto_instance = {}
+local auto_state = auto_youtube:_state(auto_instance)
+local scheduled_before_setup = #scheduled
+auto_youtube._startDetached = function(_, command, work, tag)
+    auto_state.bootstrap_command = command
+    auto_state.bootstrap_work = work
+    assert(tag == "bootstrap", "First-open setup must use the bootstrap job")
+    return { pid = 123, log = work .. "/bootstrap.log", exit = work .. "/bootstrap.exit" }
+end
+assert(auto_youtube:buildPane(auto_instance, context), "The first-open setup pane must build")
+assert(auto_state.view == "setup" and auto_state.bootstrap.handle,
+    "Opening YouTube without yt-dlp should immediately start setup")
+assert(auto_state.bootstrap.install_ytdlp and not auto_state.bootstrap.install_ffmpeg,
+    "First-open setup should install only missing tools")
+assert(auto_state.bootstrap_command:find("SHA2%-256SUMS"), "First-open setup must verify the yt-dlp release")
+while #scheduled > scheduled_before_setup do table.remove(scheduled) end
+os.execute("rm -rf " .. auto_state.bootstrap_work)
+
 state.view = "results"
 state.results = { { id = "abc12345678", title = "Video", duration = 100, uploader = "Channel", url = "https://www.youtube.com/watch?v=abc12345678" } }
 state.results_query = "test"

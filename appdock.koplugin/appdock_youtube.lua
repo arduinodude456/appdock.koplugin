@@ -338,11 +338,103 @@ end
 function YouTube.detectTools(settings)
     settings = settings or {}
     local tools = {}
-    tools.ytdlp, tools.ytdlp_error = YouTube.locateTool({ "yt-dlp", "youtube-dl" }, settings.ytdlp_path)
+    tools.ytdlp, tools.ytdlp_error = YouTube.locateTool({ "yt-dlp" }, settings.ytdlp_path)
     tools.ffmpeg, tools.ffmpeg_error = YouTube.locateTool({ "ffmpeg" }, settings.ffmpeg_path)
+    if not tools.ytdlp and settings.ytdlp_path and settings.ytdlp_path ~= "" then
+        tools.ytdlp = YouTube.locateTool({ "yt-dlp" })
+        if tools.ytdlp then tools.ytdlp_error = nil end
+    end
+    if not tools.ffmpeg and settings.ffmpeg_path and settings.ffmpeg_path ~= "" then
+        tools.ffmpeg = YouTube.locateTool({ "ffmpeg" })
+        if tools.ffmpeg then tools.ffmpeg_error = nil end
+    end
     tools.ready = (tools.ytdlp ~= nil) and (tools.ffmpeg ~= nil)
     return tools
 end
+
+-- Download only upstream standalone builds whose OS/architecture is known.
+-- ARMv7 yt-dlp currently requires glibc 2.31+, while the FFmpeg archives are
+-- static builds from John Van Sickle. Android/Bionic and unknown ABIs are not
+-- silently given Linux/glibc binaries.
+function YouTube.bootstrapPlan(info)
+    info = info or {}
+    if info.android then return nil, "Android/Bionic is not supported by the automatic Linux tool installer." end
+    local arch = info.arch or ""
+    local function olderThan(version, required_major, required_minor)
+        if type(version) == "table" then
+            return version.major < required_major
+                or (version.major == required_major and version.minor < required_minor)
+        end
+        if type(version) == "number" then return version < required_major * 100 + required_minor end
+        return false
+    end
+    if info.musl and olderThan(info.musl_version, 1, 2) then
+        return nil, "The official yt-dlp musl build needs musl 1.2 or newer."
+    end
+    local ytdlp_asset, ffmpeg_arch
+    if arch == "x86_64" or arch == "amd64" then
+        if not info.musl and olderThan(info.glibc, 2, 17) then
+            return nil, "The official yt-dlp Linux build needs glibc 2.17 or newer."
+        end
+        ytdlp_asset = info.musl and "yt-dlp_musllinux" or "yt-dlp_linux"
+        ffmpeg_arch = "amd64"
+    elseif arch == "aarch64" or arch == "arm64" then
+        if not info.musl and olderThan(info.glibc, 2, 17) then
+            return nil, "The official yt-dlp aarch64 build needs glibc 2.17 or newer."
+        end
+        ytdlp_asset = info.musl and "yt-dlp_musllinux_aarch64" or "yt-dlp_linux_aarch64"
+        ffmpeg_arch = "arm64"
+    elseif arch == "armv7l" or arch == "armv7" or arch == "armhf" then
+        if info.musl then return nil, "No official yt-dlp ARMv7 musl build is available." end
+        local version = info.glibc
+        local too_old = type(version) == "table" and (version.major < 2 or (version.major == 2 and version.minor < 31))
+            or type(version) == "number" and version < 231
+        if too_old then
+            return nil, "The official yt-dlp ARMv7 build needs glibc 2.31 or newer."
+        end
+        ytdlp_asset = "yt-dlp_linux_armv7l.zip"
+        ffmpeg_arch = "armhf"
+    elseif arch == "armv6l" or arch == "armel" then
+        return nil, "The official yt-dlp standalone release does not provide a compatible ARMv6 build."
+    else
+        return nil, "Automatic tool installation is not available for this Linux architecture: " .. tostring(arch)
+    end
+    return {
+        ytdlp_asset = ytdlp_asset,
+        ytdlp_zip = ytdlp_asset:match("%.zip$") ~= nil,
+        ffmpeg_arch = ffmpeg_arch,
+        ytdlp_base = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/",
+        ffmpeg_url = "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-" .. ffmpeg_arch .. "-static.tar.xz",
+    }
+end
+
+local function detectBootstrapPlatform()
+    local function commandOutput(command, include_stderr)
+        local pipe = io.popen(command .. (include_stderr and " 2>&1" or " 2>/dev/null"), "r")
+        if not pipe then return "" end
+        local value = pipe:read("*a") or ""
+        pipe:close()
+        return trim(value)
+    end
+    local arch = commandOutput("uname -m")
+    local ldd = commandOutput("ldd --version", true)
+    local libc = commandOutput("getconf GNU_LIBC_VERSION")
+    local major, minor = libc:match("(%d+)%.(%d+)")
+    local glibc = major and minor and { major = tonumber(major), minor = tonumber(minor) } or nil
+    local musl_major, musl_minor = ldd:lower():match("musl.-(%d+)%.(%d+)")
+    local musl_version = musl_major and musl_minor and {
+        major = tonumber(musl_major), minor = tonumber(musl_minor),
+    } or nil
+    return {
+        arch = arch,
+        musl = ldd:lower():find("musl", 1, true) ~= nil,
+        musl_version = musl_version,
+        glibc = glibc,
+        android = type(Device.isAndroid) == "function" and Device:isAndroid() or false,
+    }
+end
+
+YouTube.detectBootstrapPlatform = detectBootstrapPlatform
 
 ----------------------------------------------------------------
 -- Small widgets
@@ -547,6 +639,11 @@ end
 function YouTube:redetect(instance, context)
     local state = self:_state(instance)
     state.tools = YouTube.detectTools(self:_settings())
+    if state.tools.ready then
+        state.bootstrap = nil
+        state.bootstrap_attempted = true
+        state.view = "home"
+    end
     self:_notify(instance, context, state.tools.ready
         and _("yt-dlp and ffmpeg are ready.")
         or _("yt-dlp or ffmpeg is still missing."))
@@ -633,8 +730,15 @@ function YouTube:_startDetached(command, work_dir, tag)
     local exit_path = work_dir .. "/" .. tag .. ".exit"
     removeFile(exit_path)
     removeFile(log_path)
-    local wrapper = command .. " >" .. shellQuote(log_path) .. " 2>&1; echo $? >" .. shellQuote(exit_path)
-    local pipe = io.popen(wrapper .. " & echo $!", "r")
+    -- Group the whole command/exit-marker sequence before backgrounding it.
+    -- Without the subshell, POSIX shells background only the final `echo`,
+    -- leaving long downloads and conversions blocking the UI thread.
+    local runner = command .. " >" .. shellQuote(log_path) .. " 2>&1; code=$?; echo $code >" .. shellQuote(exit_path)
+    local quoted_runner = shellQuote(runner)
+    local launch = "if command -v setsid >/dev/null 2>&1; then setsid sh -c " .. quoted_runner
+        .. " </dev/null >/dev/null 2>&1 & else sh -c " .. quoted_runner
+        .. " </dev/null >/dev/null 2>&1 & fi; echo $!"
+    local pipe = io.popen(launch, "r")
     if not pipe then return nil, _("The command could not be started.") end
     local pid = tonumber(pipe:read("*l"))
     pipe:close()
@@ -652,7 +756,9 @@ end
 function YouTube:_killDetached(handle)
     if handle and handle.pid then
         os.execute("kill -TERM -" .. tostring(handle.pid) .. " 2>/dev/null")
+        os.execute("kill -TERM " .. tostring(handle.pid) .. " 2>/dev/null")
         os.execute("kill -KILL -" .. tostring(handle.pid) .. " 2>/dev/null")
+        os.execute("kill -KILL " .. tostring(handle.pid) .. " 2>/dev/null")
     end
 end
 
@@ -680,6 +786,175 @@ end
 local function cleanupDirectory(path)
     if not path then return end
     os.execute("rm -rf " .. shellQuote(path))
+end
+
+function YouTube.managedToolDirectory()
+    local ok, data_dir = pcall(function() return DataStorage:getDataDir() end)
+    if not ok or type(data_dir) ~= "string" or data_dir == "" then return nil end
+    return data_dir .. "/appdock/tools"
+end
+
+function YouTube.buildBootstrapCommand(tool_dir, work_dir, plan, need_ytdlp, need_ffmpeg)
+    if type(tool_dir) ~= "string" or type(work_dir) ~= "string" or type(plan) ~= "table" then
+        return nil, "Invalid automatic tool-install configuration."
+    end
+    local q = shellQuote
+    local lines = {
+        "set -eu",
+        "tools=" .. q(tool_dir),
+        "work=" .. q(work_dir),
+        "status=" .. q(work_dir .. "/bootstrap.status"),
+        "mkdir -p \"$tools\" \"$work\"",
+        "tmp=\"$tools/.appdock-setup-$$\"",
+        "mkdir -p \"$tmp\"",
+        "cleanup() { rm -rf \"$tmp\"; }",
+        "trap cleanup EXIT",
+        "trap 'exit 1' HUP INT TERM",
+        "download() { url=\"$1\"; dest=\"$2\"; if command -v curl >/dev/null 2>&1; then curl -fL --retry 2 --connect-timeout 25 --max-time 1200 -sS -o \"$dest\" \"$url\"; elif command -v wget >/dev/null 2>&1; then wget -T 25 -t 3 -q -O \"$dest\" \"$url\"; else echo 'Neither curl nor wget is installed.' >&2; return 127; fi; }",
+    }
+    if need_ytdlp then
+        local asset = plan.ytdlp_asset
+        local url = plan.ytdlp_base .. asset
+        lines[#lines + 1] = "echo 'Downloading yt-dlp from the official GitHub release…' > \"$status\""
+        lines[#lines + 1] = "download " .. q(url) .. " \"$tmp/yt-dlp.pkg\""
+        lines[#lines + 1] = "echo 'Verifying yt-dlp checksum…' > \"$status\""
+        lines[#lines + 1] = "download " .. q(plan.ytdlp_base .. "SHA2-256SUMS") .. " \"$tmp/SHA2-256SUMS\""
+        lines[#lines + 1] = "expected=$(awk -v name=" .. q(asset) .. " '$2 == name || $2 == \"*\" name { print $1; exit }' \"$tmp/SHA2-256SUMS\")"
+        lines[#lines + 1] = "actual=$(sha256sum \"$tmp/yt-dlp.pkg\" | awk '{print $1}')"
+        lines[#lines + 1] = "test -n \"$expected\" && test \"$expected\" = \"$actual\" || { echo 'yt-dlp SHA-256 verification failed.' >&2; exit 1; }"
+        if plan.ytdlp_zip then
+            lines[#lines + 1] = "if command -v unzip >/dev/null 2>&1; then unzip -p \"$tmp/yt-dlp.pkg\" > \"$tmp/yt-dlp.new\"; elif command -v busybox >/dev/null 2>&1; then busybox unzip -p \"$tmp/yt-dlp.pkg\" > \"$tmp/yt-dlp.new\"; else echo 'unzip (or BusyBox with unzip) is required for the ARMv7 yt-dlp build.' >&2; exit 1; fi"
+        else
+            lines[#lines + 1] = "cp \"$tmp/yt-dlp.pkg\" \"$tmp/yt-dlp.new\""
+        end
+        lines[#lines + 1] = "chmod 755 \"$tmp/yt-dlp.new\""
+        lines[#lines + 1] = "\"$tmp/yt-dlp.new\" --version >/dev/null 2>&1 || { echo 'Downloaded yt-dlp cannot run on this device.' >&2; exit 1; }"
+    end
+    if need_ffmpeg then
+        local url = plan.ffmpeg_url
+        lines[#lines + 1] = "echo 'Downloading FFmpeg static build…' > \"$status\""
+        lines[#lines + 1] = "download " .. q(url) .. " \"$tmp/ffmpeg.tar.xz\""
+        lines[#lines + 1] = "echo 'Verifying FFmpeg archive…' > \"$status\""
+        lines[#lines + 1] = "download " .. q(url .. ".md5") .. " \"$tmp/ffmpeg.md5\""
+        lines[#lines + 1] = "expected=$(awk 'NR == 1 { print $1 }' \"$tmp/ffmpeg.md5\")"
+        lines[#lines + 1] = "actual=$(md5sum \"$tmp/ffmpeg.tar.xz\" | awk '{print $1}')"
+        lines[#lines + 1] = "test -n \"$expected\" && test \"$expected\" = \"$actual\" || { echo 'FFmpeg archive checksum verification failed.' >&2; exit 1; }"
+        lines[#lines + 1] = "mkdir -p \"$tmp/extracted\""
+        lines[#lines + 1] = "tar -xJf \"$tmp/ffmpeg.tar.xz\" -C \"$tmp/extracted\" || { echo 'Could not unpack the FFmpeg archive (tar/xz may be missing). ' >&2; exit 1; }"
+        lines[#lines + 1] = "ffmpeg_source=$(find \"$tmp/extracted\" -type f -name ffmpeg -print | head -n 1)"
+        lines[#lines + 1] = "test -n \"$ffmpeg_source\" || { echo 'The FFmpeg archive did not contain an executable.' >&2; exit 1; }"
+        lines[#lines + 1] = "cp \"$ffmpeg_source\" \"$tmp/ffmpeg.new\" && chmod 755 \"$tmp/ffmpeg.new\""
+        lines[#lines + 1] = "\"$tmp/ffmpeg.new\" -version >/dev/null 2>&1 || { echo 'Downloaded FFmpeg cannot run on this device.' >&2; exit 1; }"
+        lines[#lines + 1] = "license=$(find \"$tmp/extracted\" -type f -iname GPLv3.txt -print | head -n 1)"
+        lines[#lines + 1] = "if [ -n \"$license\" ]; then cp \"$license\" \"$tools/ffmpeg-GPLv3.txt\"; fi"
+    end
+    if need_ytdlp then
+        lines[#lines + 1] = "test ! -e \"$tools/yt-dlp\" || { echo 'An AppDock yt-dlp file appeared during setup; refusing to replace it.' >&2; exit 1; }"
+        lines[#lines + 1] = "mv \"$tmp/yt-dlp.new\" \"$tools/yt-dlp\""
+    end
+    if need_ffmpeg then
+        lines[#lines + 1] = "test ! -e \"$tools/ffmpeg\" || { echo 'An AppDock ffmpeg file appeared during setup; refusing to replace it.' >&2; exit 1; }"
+        lines[#lines + 1] = "mv \"$tmp/ffmpeg.new\" \"$tools/ffmpeg\""
+    end
+    lines[#lines + 1] = "echo 'Installation complete.' > \"$status\""
+    return table.concat(lines, "\n")
+end
+
+function YouTube:_startToolBootstrap(instance, context, defer_rebuild)
+    local state = self:_state(instance)
+    if state.bootstrap and state.bootstrap.handle then return true end
+    state.tools = YouTube.detectTools(self:_settings())
+    if state.tools.ready then
+        state.view = "home"
+        state.bootstrap_attempted = true
+        if not defer_rebuild and context and context.requestRebuild then context.requestRebuild("ui") end
+        return true
+    end
+    local info = detectBootstrapPlatform()
+    local plan, plan_error = YouTube.bootstrapPlan(info)
+    if not plan then
+        state.bootstrap_attempted = true
+        state.bootstrap = { error = plan_error, status = _("Automatic setup is not supported on this device.") }
+        state.view = "setup"
+        if not defer_rebuild and context and context.requestRebuild then context.requestRebuild("ui") end
+        return false
+    end
+    local tool_dir = YouTube.managedToolDirectory()
+    if not tool_dir then
+        state.bootstrap_attempted = true
+        state.bootstrap = { error = _("KOReader's data folder could not be found.") }
+        state.view = "setup"
+        if not defer_rebuild and context and context.requestRebuild then context.requestRebuild("ui") end
+        return false
+    end
+    local work = jobDirectory()
+    local command, command_error = YouTube.buildBootstrapCommand(
+        tool_dir, work, plan, state.tools.ytdlp == nil, state.tools.ffmpeg == nil)
+    if not command then
+        state.bootstrap_attempted = true
+        state.bootstrap = { error = command_error }
+        state.view = "setup"
+        return false
+    end
+    local handle, start_error = self:_startDetached(command, work, "bootstrap")
+    if not handle then
+        cleanupDirectory(work)
+        state.bootstrap_attempted = true
+        state.bootstrap = { error = start_error or _("The download process could not be started.") }
+        state.view = "setup"
+        return false
+    end
+    state.bootstrap_attempted = true
+    state.bootstrap = {
+        handle = handle,
+        work = work,
+        started = os.time(),
+        status = _("Starting automatic tool setup…"),
+        install_ytdlp = state.tools.ytdlp == nil,
+        install_ffmpeg = state.tools.ffmpeg == nil,
+    }
+    state.view = "setup"
+    if not defer_rebuild and context and context.requestRebuild then context.requestRebuild("ui") end
+    local tick
+    tick = function()
+        local bootstrap = state.bootstrap
+        if not bootstrap or bootstrap.handle ~= handle then return end
+        local code, log = self:_pollDetached(handle)
+        if code == nil and os.time() - bootstrap.started > 1800 then
+            self:_killDetached(handle)
+            code, log = 124, _("Tool setup timed out after 30 minutes.")
+        end
+        if code == nil then
+            local status = readFile(work .. "/bootstrap.status")
+            if status and trim(status) ~= "" then bootstrap.status = trim(status) end
+            if context and hostIsActive(context) and context.requestRefresh then context.requestRefresh("ui") end
+            UIManager:scheduleIn(2, tick)
+            return
+        end
+        cleanupDirectory(work)
+        bootstrap.handle = nil
+        if code == 0 then
+            local tool_dir = YouTube.managedToolDirectory()
+            local patch = {}
+            if bootstrap.install_ytdlp then patch.ytdlp_path = tool_dir .. "/yt-dlp" end
+            if bootstrap.install_ffmpeg then patch.ffmpeg_path = tool_dir .. "/ffmpeg" end
+            self:_patchSettings(patch)
+        end
+        local tools = YouTube.detectTools(self:_settings())
+        state.tools = tools
+        if code == 0 and tools.ready then
+            state.bootstrap = nil
+            state.view = "home"
+            state.note = _("Setup complete. Search for a video.")
+        else
+            local tail = trim((log or ""):sub(-420))
+            bootstrap.error = tail ~= "" and tail or _("The automatic download failed. Check the network connection and try again.")
+            bootstrap.status = _("Automatic setup could not finish.")
+        end
+        if context and hostIsActive(context) and context.requestRebuild then context.requestRebuild("ui") end
+    end
+    UIManager:scheduleIn(2, tick)
+    return true
 end
 
 -- Runs a small ffmpeg job and reads the first output byte, to learn how this
@@ -1842,7 +2117,7 @@ function YouTube:_buildToolsPane(instance, context, state)
         height = scale(30),
         background = Blitbuffer.COLOR_GRAY_8,
         callback = function()
-            state.view = "home"
+            state.view = state.bootstrap and state.bootstrap.error and "setup" or "home"
             context.requestRebuild("ui")
         end,
         overlap_offset = { margin, scale(10) },
@@ -1972,7 +2247,7 @@ function YouTube:_buildToolsPane(instance, context, state)
     table.insert(content, detect)
 
     local hint = TextWidget:new{
-        text = _("Put yt-dlp and ffmpeg into the AppDock tools folder, or enter their full paths. AppDock never bundles them."),
+        text = _("If setup cannot fetch the tools, add yt-dlp and ffmpeg to the AppDock tools folder or enter their full paths. AppDock does not bundle them."),
         face = Font:getFace("smallinfofont", scale(9)),
         fgcolor = Blitbuffer.COLOR_DARK_GRAY,
         max_width = width - 2 * margin,
@@ -1983,8 +2258,101 @@ function YouTube:_buildToolsPane(instance, context, state)
     return content
 end
 
+function YouTube:_buildSetupPane(instance, context, state)
+    local width, height = context.dimen.w, context.dimen.h
+    local margin = scale(18)
+    local bootstrap = state.bootstrap or {}
+    local content = OverlapGroup:new{
+        dimen = Geom:new{ w = width, h = height },
+        allow_mirroring = false,
+        FrameContainer:new{
+            width = width, height = height, padding = 0, bordersize = 0,
+            background = Blitbuffer.COLOR_WHITE,
+            emptySizedWidget(width, height),
+        },
+    }
+    local title = TextWidget:new{
+        text = bootstrap.error and _("YouTube setup needs attention") or _("Preparing YouTube"),
+        face = Font:getFace("cfont", scale(17)),
+        bold = true,
+        fgcolor = Blitbuffer.COLOR_BLACK,
+        padding = 0,
+    }
+    title.overlap_offset = { margin, scale(20) }
+    table.insert(content, title)
+    local status_text = bootstrap.status or _("Checking for yt-dlp and ffmpeg…")
+    local status = TextWidget:new{
+        text = fitText(status_text, width - 2 * margin, 11),
+        face = Font:getFace("smallinfofont", scale(11)),
+        fgcolor = Blitbuffer.COLOR_BLACK,
+        max_width = width - 2 * margin,
+        padding = 0,
+    }
+    status.overlap_offset = { margin, scale(58) }
+    table.insert(content, status)
+
+    if not bootstrap.error then
+        local progress = ProgressBar:new{
+            width = width - 2 * margin,
+            height = scale(18),
+            ratio = 0.25,
+        }
+        progress.overlap_offset = { margin, scale(88) }
+        table.insert(content, progress)
+        local explanation = TextWidget:new{
+            text = _("The first setup downloads the official yt-dlp release and a static FFmpeg build into KOReader's data folder. You can leave this screen open while the tools are prepared."),
+            face = Font:getFace("smallinfofont", scale(9)),
+            fgcolor = Blitbuffer.COLOR_DARK_GRAY,
+            max_width = width - 2 * margin,
+            padding = 0,
+        }
+        explanation.overlap_offset = { margin, scale(120) }
+        table.insert(content, explanation)
+    else
+        local error = TextWidget:new{
+            text = fitText(bootstrap.error, width - 2 * margin, 9),
+            face = Font:getFace("smallinfofont", scale(9)),
+            fgcolor = Blitbuffer.COLOR_DARK_GRAY,
+            max_width = width - 2 * margin,
+            padding = 0,
+        }
+        error.overlap_offset = { margin, scale(90) }
+        table.insert(content, error)
+        local retry = Pill:new{
+            text = _("Retry setup"),
+            width = scale(142),
+            height = scale(34),
+            background = Blitbuffer.COLOR_GRAY_8,
+            callback = function()
+                state.bootstrap = nil
+                state.bootstrap_attempted = false
+                self:_startToolBootstrap(instance, context)
+            end,
+        }
+        retry.overlap_offset = { margin, scale(130) }
+        table.insert(content, retry)
+    end
+    local tools_button = Pill:new{
+        text = _("Tool settings"),
+        width = scale(142),
+        height = scale(34),
+        background = Blitbuffer.COLOR_GRAY_6,
+        callback = function()
+            state.view = "tools"
+            if context.requestRebuild then context.requestRebuild("ui") end
+        end,
+    }
+    tools_button.overlap_offset = { margin, height - scale(48) }
+    table.insert(content, tools_button)
+    return content
+end
+
 function YouTube:buildPane(instance, context)
     local state = self:_state(instance)
+    if state.view == "home" and not state.tools.ready and not state.bootstrap_attempted
+        and not (self.appdock and self.appdock.disableToolBootstrap) then
+        self:_startToolBootstrap(instance, context, true)
+    end
     local pane
     if state.view == "play" and state.playing then
         pane = self.player:buildPane(instance, context, {
@@ -2011,6 +2379,8 @@ function YouTube:buildPane(instance, context)
         content = self:_buildSearchPane(instance, context, state)
     elseif state.view == "job" and state.job then
         content = self:_buildJobPane(instance, context, state)
+    elseif state.view == "setup" then
+        content = self:_buildSetupPane(instance, context, state)
     elseif state.view == "tools" then
         content = self:_buildToolsPane(instance, context, state)
     else
@@ -2028,6 +2398,8 @@ end
 
 YouTube._test = {
     buildFilter = YouTube.buildFilter,
+    bootstrapPlan = YouTube.bootstrapPlan,
+    buildBootstrapCommand = YouTube.buildBootstrapCommand,
     classifyInput = YouTube.classifyInput,
     parseSearchOutput = YouTube.parseSearchOutput,
     parseProgress = YouTube.parseProgress,
