@@ -1383,7 +1383,8 @@ function YouTube:_finishVideoStage(instance, context, job)
         .. " -nostdin -hide_banner -loglevel error -y"
         .. " -i " .. shellQuote(job.source_file)
         .. (settings.max_duration > 0 and (" -t " .. tostring(settings.max_duration)) or "")
-        .. " -vn -sn -dn -c:a pcm_s16le -ar 44100 -ac 2 -f wav " .. shellQuote(job.wav)
+        .. " -vn -sn -dn -af " .. shellQuote("aresample=async=1:first_pts=0")
+        .. " -c:a pcm_s16le -ar 44100 -ac 2 -f wav " .. shellQuote(job.wav)
     local detached = self:_startDetached(command, job.work, "audio")
     if detached then
         job.audio = detached
@@ -1956,7 +1957,7 @@ local function listPager(width, height, page, total_pages, on_prev, on_next)
     return widgets
 end
 
-local function buildList(content, entries, page, per_page, offset_y, row_height, gap, on_tap, on_hold)
+local function buildList(content, entries, page, per_page, offset_y, row_height, gap, on_tap, on_hold, offset_x)
     local start_index = (page - 1) * per_page + 1
     for slot = 1, per_page do
         local entry = entries[start_index + slot - 1]
@@ -1976,13 +1977,137 @@ local function buildList(content, entries, page, per_page, offset_y, row_height,
             callback = function() if on_tap then on_tap(entry) end end,
             hold_callback = on_hold and function() on_hold(entry) end or nil,
         }
-        row.overlap_offset = { scale(12), offset_y + (slot - 1) * (row_height + gap) }
+        row.overlap_offset = { offset_x or scale(12), offset_y + (slot - 1) * (row_height + gap) }
         table.insert(content, row)
     end
 end
 
+-- Landscape KOReader panes get the same information hierarchy as the supplied
+-- YouTube reference: a dominant watch surface, metadata/actions underneath,
+-- and an Up-next rail on the right. The content remains local/E-Ink friendly.
+function YouTube:_buildWatchLikeHome(instance, context, state)
+    local width, height = context.dimen.w, context.dimen.h
+    local margin, gap = scale(12), scale(8)
+    local header_h, footer_h = scale(46), scale(34)
+    local rail_w = math.floor(width * 0.30)
+    local main_w = width - rail_w - margin * 3
+    local rail_x = margin * 2 + main_w
+    local content = OverlapGroup:new{
+        dimen = Geom:new{ w = width, h = height },
+        allow_mirroring = false,
+        FrameContainer:new{
+            width = width, height = height, padding = 0, bordersize = 0,
+            background = Blitbuffer.COLOR_WHITE,
+            emptySizedWidget(width, height),
+        },
+    }
+    table.insert(content, FrameContainer:new{
+        width = width, height = header_h, padding = 0, bordersize = 0,
+        background = Blitbuffer.COLOR_BLACK,
+        emptySizedWidget(width, header_h),
+    })
+    local logo = DAppLogo:new{ kind = "youtube", size = scale(25), ink = Blitbuffer.COLOR_WHITE }
+    logo.overlap_offset = { margin, math.floor((header_h - scale(25)) / 2) }
+    table.insert(content, logo)
+    local brand = TextWidget:new{
+        text = "YouTube", face = Font:getFace("cfont", scale(17)), bold = true,
+        fgcolor = Blitbuffer.COLOR_WHITE, padding = 0,
+    }
+    brand.overlap_offset = { margin + scale(33), math.floor((header_h - brand:getSize().h) / 2) }
+    table.insert(content, brand)
+    local search = Pill:new{
+        text = "⌕  " .. (state.query ~= "" and state.query or _("Search")),
+        width = math.min(scale(260), math.floor(width * 0.30)), height = scale(30),
+        background = Blitbuffer.COLOR_LIGHT_GRAY,
+        callback = function() self:promptSearch(instance, context) end,
+        overlap_offset = { math.floor(width * 0.42), math.floor((header_h - scale(30)) / 2) },
+    }
+    table.insert(content, search)
+    local tools = state.tools or YouTube.detectTools(self:_settings())
+    local tools_chip = Pill:new{
+        text = tools.ready and "⋮" or _("Tools"),
+        width = scale(54), height = scale(30), background = Blitbuffer.COLOR_GRAY_8,
+        callback = function() state.view = "tools"; context.requestRebuild("ui") end,
+        overlap_offset = { width - margin - scale(54), math.floor((header_h - scale(30)) / 2) },
+    }
+    table.insert(content, tools_chip)
+
+    local library = state.library or self:scanLibrary(instance, context)
+    local hero_y = header_h + gap
+    local hero_h = math.min(math.floor(main_w * 0.52), height - header_h - footer_h - scale(126))
+    hero_h = math.max(scale(100), hero_h)
+    local hero = FrameContainer:new{
+        width = main_w, height = hero_h, padding = 0, bordersize = 0,
+        background = Blitbuffer.COLOR_BLACK,
+        CenterContainer:new{ dimen = Geom:new{ w = main_w, h = hero_h },
+            TextWidget:new{ text = "▶", face = Font:getFace("cfont", scale(36)), fgcolor = Blitbuffer.COLOR_WHITE, padding = 0 },
+        },
+    }
+    hero.overlap_offset = { margin, hero_y }
+    table.insert(content, hero)
+    local selected = library[1]
+    local hero_title = TextWidget:new{
+        text = fitText(selected and selected.title or _("Your YouTube videos"), main_w, 16),
+        face = Font:getFace("cfont", scale(16)), bold = true, fgcolor = Blitbuffer.COLOR_BLACK,
+        max_width = main_w, padding = 0,
+    }
+    hero_title.overlap_offset = { margin, hero_y + hero_h + gap }
+    table.insert(content, hero_title)
+    local hero_meta = TextWidget:new{
+        text = selected and (selected.subtitle or "YouTube") or _("Search YouTube or paste a link to start"),
+        face = Font:getFace("smallinfofont", scale(10)), fgcolor = Blitbuffer.COLOR_DARK_GRAY,
+        max_width = main_w, padding = 0,
+    }
+    hero_meta.overlap_offset = { margin, hero_y + hero_h + gap + scale(22) }
+    table.insert(content, hero_meta)
+    local actions_y = hero_y + hero_h + scale(48)
+    local action_w = math.floor((main_w - gap * 2) / 3)
+    for index, action in ipairs({
+        { text = "▶  " .. _("Play"), callback = function() if selected then self:play(instance, context, selected.path) else self:promptSearch(instance, context) end end },
+        { text = "↗  " .. _("Share"), callback = function() self:promptLink(instance, context) end },
+        { text = "⇩  " .. _("Download"), callback = function() self:promptSearch(instance, context) end },
+    }) do
+        local pill = Pill:new{ text = action.text, width = action_w, height = scale(28), background = Blitbuffer.COLOR_LIGHT_GRAY, callback = action.callback }
+        pill.overlap_offset = { margin + (index - 1) * (action_w + gap), actions_y }
+        table.insert(content, pill)
+    end
+    local rail_title = TextWidget:new{
+        text = _("Up next"), face = Font:getFace("cfont", scale(15)), bold = true,
+        fgcolor = Blitbuffer.COLOR_BLACK, padding = 0,
+    }
+    rail_title.overlap_offset = { rail_x, hero_y }
+    table.insert(content, rail_title)
+    local rail_entries = {}
+    for index = 1, math.min(#library, 4) do rail_entries[#rail_entries + 1] = library[index] end
+    if #rail_entries == 0 then
+        rail_entries[1] = { title = _("No videos yet"), subtitle = _("Search or paste a link"), value = "", video_card = true }
+    end
+    local rail_row_h = math.max(scale(56), math.floor((height - hero_y - footer_h - scale(24)) / #rail_entries) - gap)
+    buildList(content, rail_entries, 1, #rail_entries, hero_y + scale(28), rail_row_h, gap,
+        function(entry) if entry.path then self:play(instance, context, entry.path) end end,
+        nil, rail_x)
+    local footer = FrameContainer:new{
+        width = width, height = footer_h, padding = 0, bordersize = 0,
+        background = Blitbuffer.COLOR_BLACK,
+        emptySizedWidget(width, footer_h),
+    }
+    footer.overlap_offset = { 0, height - footer_h }
+    table.insert(content, footer)
+    local nav = TextWidget:new{
+        text = "⌂  Home       ▣  Subscriptions       ▤  Library",
+        face = Font:getFace("smallinfofont", scale(10)), fgcolor = Blitbuffer.COLOR_WHITE,
+        padding = 0,
+    }
+    nav.overlap_offset = { margin, height - footer_h + scale(10) }
+    table.insert(content, nav)
+    return content
+end
+
 function YouTube:_buildHomePane(instance, context, state)
     local width, height = context.dimen.w, context.dimen.h
+    if width > height * 1.2 then
+        return self:_buildWatchLikeHome(instance, context, state)
+    end
     local margin, gap = scale(12), scale(6)
     local settings = self:_settings()
     local tools = state.tools or YouTube.detectTools(settings)

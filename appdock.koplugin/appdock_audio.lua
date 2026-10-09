@@ -202,11 +202,10 @@ function Audio:requiresStartConfirmation()
     return self.command_name == "mtk-gstreamer"
 end
 
--- Kobo's MTK Bluetooth sink reports New clock before its hardware/ring buffer
--- becomes audible. On the affected Kobo firmware this measured startup
--- latency is about four seconds; aplay/tinyplay do not use this compensation.
+-- The audible offset is not constant across YouTube files, so no fixed MTK
+-- delay belongs here. The player synchronizes to the per-process clock only.
 function Audio:startupLatency()
-    return self:requiresStartConfirmation() and 4.0 or 0
+    return 0
 end
 
 function Audio:isPlaybackReady()
