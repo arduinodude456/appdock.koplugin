@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.8.18** zeigt Shell-Ausgaben des YouTube-Tool-Setups live an. [Details](RELEASE_NOTES_7.8.18.md).
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.8.19** zeigt lange Shell-Fehler im YouTube-Setup vollständig mit Zeilenumbruch an. [Details](RELEASE_NOTES_7.8.19.md).
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst Androids Formensprache, nicht dessen Daueranimationen, Unschärfen oder Transparenzeffekte. Auf E-Ink wechseln App-Seiten und Recently-used-Drawer direkt und ohne Zwischenanimation. Damit bleibt die Darstellung auf monochromen Readern kontrastreich, sparsam und frei von unnötigem Ghosting.
 
@@ -27,6 +27,8 @@
 > **7.5.1:** Der Store-Kopf trägt jetzt ausschließlich die AppDock-Eigenmarke **AppDock Store** und das vorhandene AppStore-Logo. Das externe Play-Zeichen und der entsprechende Schriftzug wurden entfernt. [Details](RELEASE_NOTES_7.5.1.md).
 
 > **7.5.0:** Die erste Homescreen-Seite erhielt eine gebrandete **DuckDuckGo-Suchleiste**; der AppStore wurde mit Suchfeld, Empfehlungskarten, Installationsaktionen und unterer Kategorienavigation neu gestaltet. Angezeigt werden weiterhin nur echte Katalogdaten, ohne erfundene Bewertungen oder Screenshots. Details stehen in [`RELEASE_NOTES_7.5.0.md`](RELEASE_NOTES_7.5.0.md).
+
+> **7.8.19:** Lange Shell-Fehler werden in der YouTube-Setup-Ansicht jetzt vollständig umbrochen statt abgeschnitten. Details stehen in [`RELEASE_NOTES_7.8.19.md`](RELEASE_NOTES_7.8.19.md).
 
 > **7.8.18:** Die YouTube-Setup-Ansicht zeigt jetzt die letzten Shell-Ausgaben einschließlich Downloadfortschritt und yt-dlp-Starttest live an. Details stehen in [`RELEASE_NOTES_7.8.18.md`](RELEASE_NOTES_7.8.18.md).
 
