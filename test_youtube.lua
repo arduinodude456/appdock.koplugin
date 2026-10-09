@@ -244,15 +244,15 @@ local appdock = {
 }
 local youtube = YouTube:new(appdock)
 local instance = {}
-local refresh_calls, rebuild_calls = 0, 0
-local last_refresh_type
+local rebuild_calls = 0
+local last_rebuild_type
 local context = {
     dimen = { w = 600, h = 748 },
-    requestRefresh = function(refresh_type)
-        refresh_calls = refresh_calls + 1
-        last_refresh_type = refresh_type
+    requestRefresh = function() end,
+    requestRebuild = function(refresh_type)
+        rebuild_calls = rebuild_calls + 1
+        last_rebuild_type = refresh_type
     end,
-    requestRebuild = function() rebuild_calls = rebuild_calls + 1 end,
 }
 local state = youtube:_state(instance)
 assert(state.view == "home", "A new instance must start on the home view")
@@ -448,20 +448,23 @@ auto_youtube._pollDetached = function(_, handle)
     assert(handle == auto_state.bootstrap.handle, "The setup tick must poll its bootstrap process")
     return nil
 end
-local refreshes_before_bootstrap_tick = refresh_calls
+local rebuilds_before_bootstrap_tick = rebuild_calls
 assert(YouTube._writeFile(auto_state.bootstrap.handle.log, "[check] live version output\n"),
     "The fake bootstrap log should be writable")
 local tick_ok, tick_error = pcall(bootstrap_tick)
 assert(tick_ok, "The asynchronous setup tick must not call an undefined hostIsActive helper: " .. tostring(tick_error))
-assert(refresh_calls == refreshes_before_bootstrap_tick + 1,
-    "An active first-run setup tick must refresh its progress pane")
-assert(last_refresh_type == "fast", "Progress updates must use an E-Ink-friendly partial refresh")
+assert(rebuild_calls == rebuilds_before_bootstrap_tick + 1,
+    "An active first-run setup tick must rebuild its progress pane")
+assert(last_rebuild_type == "fast", "Progress updates must use an E-Ink-friendly partial rebuild")
 assert(auto_state.bootstrap.live_output:find("live version output", 1, true)
     and auto_state.bootstrap.live_widget.text:find("live version output", 1, true),
     "The setup tick must stream the current log tail into its visible widget")
 assert(auto_state.bootstrap.progress_widget and auto_state.bootstrap.progress_widget.indeterminate
     and auto_state.bootstrap.progress_widget.position == 0.25,
     "The setup tick must advance the visible indeterminate progress bar")
+assert(auto_youtube:buildPane(auto_instance, context), "The setup pane must rebuild after a progress update")
+assert(auto_state.bootstrap.progress_widget.position == 0.25,
+    "Rebuilding the setup pane must preserve the current progress pulse position")
 while #scheduled > scheduled_before_setup do table.remove(scheduled) end
 os.execute("rm -rf " .. auto_state.bootstrap_work)
 
@@ -522,17 +525,24 @@ local function runConversion(dither_mode, label, seconds)
     stored.output_dir = data_dir .. "/videos-" .. dither_mode
     local local_instance = {}
     local observed_progress_ratio = 0
-    local video_fast_refresh = false
-    local local_context = {
+    local video_fast_rebuild = false
+    local local_context
+    local_context = {
         dimen = { w = 600, h = 748 },
         requestRefresh = function(refresh_type)
             local job = local_instance.youtube and local_instance.youtube.job
             if job and job.progress_widget then
                 observed_progress_ratio = job.progress_widget.ratio
-                if refresh_type == "fast" then video_fast_refresh = true end
             end
         end,
-        requestRebuild = function() end,
+        requestRebuild = function(refresh_type)
+            if refresh_type == "fast" then
+                video_fast_rebuild = true
+                youtube:buildPane(local_instance, local_context)
+                local job = local_instance.youtube and local_instance.youtube.job
+                if job and job.progress_widget then observed_progress_ratio = job.progress_widget.ratio end
+            end
+        end,
     }
     assert(youtube:startLocalFile(local_instance, local_context, source), "The conversion job must start")
     local progress_pane = youtube:buildPane(local_instance, local_context)
@@ -545,8 +555,8 @@ local function runConversion(dither_mode, label, seconds)
     assert(job == nil, label .. ": the job must finish, but ended with: " .. tostring(job and job.stage_message))
     assert(schedule_counts[conversion_job.tick] <= 6,
         "A short conversion must process frames in batches rather than taking one UI tick per two frames")
-    assert(observed_progress_ratio > 0 and video_fast_refresh,
-        "Video ticks must update the existing progress bar and request an E-Ink-friendly partial refresh")
+    assert(observed_progress_ratio > 0 and video_fast_rebuild,
+        "Video ticks must rebuild the active pane with current progress using an E-Ink-friendly partial update")
     local library = local_instance.youtube.library
     assert(#library == 1, label .. ": exactly one converted video must appear in the library")
     local entry = library[1]

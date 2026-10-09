@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.8.25** behebt den YouTube-Player-Wechsel, der das gerade geladene Video beim Öffnen wieder geschlossen hat. [Details](RELEASE_NOTES_7.8.25.md).
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.8.26** zeichnet YouTube-Fortschrittsbalken während Setup, Download und Konvertierung sichtbar neu, ohne dass ein manueller Screen-Refresh nötig ist. [Details](RELEASE_NOTES_7.8.26.md).
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst Androids Formensprache, nicht dessen Daueranimationen, Unschärfen oder Transparenzeffekte. Auf E-Ink wechseln App-Seiten und Recently-used-Drawer direkt und ohne Zwischenanimation. Damit bleibt die Darstellung auf monochromen Readern kontrastreich, sparsam und frei von unnötigem Ghosting.
 
@@ -27,6 +27,8 @@
 > **7.5.1:** Der Store-Kopf trägt jetzt ausschließlich die AppDock-Eigenmarke **AppDock Store** und das vorhandene AppStore-Logo. Das externe Play-Zeichen und der entsprechende Schriftzug wurden entfernt. [Details](RELEASE_NOTES_7.5.1.md).
 
 > **7.5.0:** Die erste Homescreen-Seite erhielt eine gebrandete **DuckDuckGo-Suchleiste**; der AppStore wurde mit Suchfeld, Empfehlungskarten, Installationsaktionen und unterer Kategorienavigation neu gestaltet. Angezeigt werden weiterhin nur echte Katalogdaten, ohne erfundene Bewertungen oder Screenshots. Details stehen in [`RELEASE_NOTES_7.5.0.md`](RELEASE_NOTES_7.5.0.md).
+
+> **7.8.26:** Fortschrittsbalken im YouTube-Setup und bei Jobs werden in gedrosselten partiellen Pane-Neuaufbauten mit dem aktuellen Status neu gezeichnet. [Details](RELEASE_NOTES_7.8.26.md).
 
 > **7.8.25:** Beim Wechsel aus der Videobibliothek in den Player bleibt das geladene Video jetzt geöffnet. [Details](RELEASE_NOTES_7.8.25.md).
 

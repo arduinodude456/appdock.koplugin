@@ -4,7 +4,7 @@
 
 # New releases regulary commited at 3:00 AM CET
 
-**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **7.8.25** fixes the YouTube player transition that closed the video just loaded for playback. [Details](RELEASE_NOTES_7.8.25.md).
+**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **7.8.26** visibly redraws YouTube progress bars during setup, downloads, and conversion without a manual screen refresh. [Details](RELEASE_NOTES_7.8.26.md).
 
 > **E-Ink approach:** AppDock deliberately borrows the visual language and information structure, not Android's animations, blur, or transparency effects. This keeps updates economical and maintains contrast on monochrome readers.
 
@@ -27,6 +27,8 @@
 > **7.5.1:** The store header now uses only AppDock’s own **AppDock Store** name and existing AppStore logo. External Play branding has been removed. [Details](RELEASE_NOTES_7.5.1.md).
 
 > **7.5.0:** The first homescreen page gained a branded **DuckDuckGo search bar**; the catalog was redesigned with search, recommendations, install actions, and bottom category navigation. It shows only real catalog data — no invented ratings or screenshots. See [`RELEASE_NOTES_7.5.0.md`](RELEASE_NOTES_7.5.0.md).
+
+> **7.8.26:** YouTube setup and job progress bars now redraw with current status through throttled partial pane rebuilds. [Details](RELEASE_NOTES_7.8.26.md).
 
 > **7.8.25:** A video now remains loaded when transitioning from the library to the player. [Details](RELEASE_NOTES_7.8.25.md).
 

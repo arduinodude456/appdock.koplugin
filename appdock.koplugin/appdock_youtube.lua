@@ -644,10 +644,14 @@ local function setProgressBarPercent(widget, percent)
     return true
 end
 
+local function progressBarPulsePosition(phase)
+    phase = math.floor(tonumber(phase) or 0) % 8
+    return phase <= 4 and phase / 4 or (8 - phase) / 4
+end
+
 local function setProgressBarPulse(widget, phase)
     if not widget then return false end
-    phase = math.floor(tonumber(phase) or 0) % 8
-    widget.position = phase <= 4 and phase / 4 or (8 - phase) / 4
+    widget.position = progressBarPulsePosition(phase)
     return true
 end
 
@@ -1148,7 +1152,13 @@ function YouTube:_startToolBootstrap(instance, context, defer_rebuild)
                     bootstrap.live_widget:setText(live_output)
                 end
             end
-            if context and hostIsActive(context) and context.requestRefresh then context.requestRefresh("fast") end
+            if context and hostIsActive(context) then
+                -- Rebuild the visible setup pane so the pulse and live log are
+                -- painted from current state, even when a nested widget's
+                -- partial repaint would otherwise be skipped by the host.
+                if context.requestRebuild then context.requestRebuild("fast")
+                elseif context.requestRefresh then context.requestRefresh("fast") end
+            end
             UIManager:scheduleIn(2, tick)
             return
         end
@@ -1542,7 +1552,13 @@ function YouTube:_tick(instance, context)
     local refresh_now = monotonicNow()
     if not job.last_progress_refresh or refresh_now - job.last_progress_refresh >= PROGRESS_REFRESH_INTERVAL then
         job.last_progress_refresh = refresh_now
-        if hostIsActive(context) and context.requestRefresh then context.requestRefresh("fast") end
+        if hostIsActive(context) then
+            -- The progress bar is nested in the DApp pane. Rebuilding at this
+            -- throttled cadence makes the host paint a fresh widget tree while
+            -- keeping the E-Ink refresh partial and avoiding per-frame rebuilds.
+            if context.requestRebuild then context.requestRebuild("fast")
+            elseif context.requestRefresh then context.requestRefresh("fast") end
+        end
     end
     if job.stage == "error" then
         -- Nothing is running any more: show the message and stop ticking.
@@ -2522,7 +2538,7 @@ function YouTube:_buildSetupPane(instance, context, state)
             width = width - 2 * margin,
             height = scale(18),
             indeterminate = true,
-            position = 0,
+            position = progressBarPulsePosition(bootstrap.progress_phase or 0),
         }
         bootstrap.progress_widget = progress
         progress.overlap_offset = { margin, scale(88) }
