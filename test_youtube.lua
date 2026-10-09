@@ -287,11 +287,18 @@ local armv7_legacy_plan = bootstrap{ arch = "armv7l", glibc = { major = 2, minor
 assert(armv7_legacy_plan.ytdlp_python and armv7_legacy_plan.ytdlp_asset == "yt-dlp"
     and armv7_legacy_plan.python_sha256 == "a29499df42ae58d47e9080cae5500ba6aa5f1d7ec93407831ea565e40b117175",
     "ARMv7 with glibc 2.17 through 2.30 must select the checksummed portable Python path")
-assert(not bootstrap{ arch = "armv7l" },
-    "ARMv7 with undetected glibc must fail closed instead of selecting an incompatible binary")
-assert(not bootstrap{ arch = "armv7l", glibc = { major = 2, minor = 16 } },
-    "ARMv7 below the portable Python runtime's glibc minimum must be rejected")
-assert(not bootstrap{ arch = "armv7l", musl = true }, "ARMv7 musl must not receive a glibc executable")
+local armv7_musl_plan = bootstrap{ arch = "armv7l", glibc = { major = 2, minor = 16 } }
+assert(armv7_musl_plan.ytdlp_python and armv7_musl_plan.python_musl
+    and armv7_musl_plan.python_asset == "appdock-youtube-armhf-musl-python-3.12.15.tar.gz"
+    and armv7_musl_plan.python_sha256 == "8f47867ba2349dff0936c0e4c24bdda71f97b1494c7703c972d7a5a2744620b5"
+    and armv7_musl_plan.python_url:find("releases/download/v7.8.21/", 1, true),
+    "ARMv7 below glibc 2.17 must use the checksummed isolated musl runtime asset")
+local armv7_unknown_libc = bootstrap{ arch = "armv7l" }
+assert(armv7_unknown_libc.ytdlp_python and armv7_unknown_libc.python_musl,
+    "ARMv7 with an unknown libc version must use the isolated musl runtime, not fail on glibc detection")
+local armv7_old_musl = bootstrap{ arch = "armv7l", musl = true, musl_version = { major = 1, minor = 1 } }
+assert(armv7_old_musl.ytdlp_python and armv7_old_musl.python_musl,
+    "ARMv7 musl devices must use the bundled musl Python runtime regardless of the system musl version")
 assert(not bootstrap{ arch = "x86_64", android = true }, "Android must not receive Linux/glibc binaries")
 assert(not bootstrap{ arch = "x86_64", glibc = { major = 2, minor = 16 } },
     "x86_64 with old glibc must be rejected before download")
@@ -348,6 +355,25 @@ armv7_python_script_file:close()
 assert(os.execute("sh -n " .. armv7_python_script_path) == 0,
     "The ARMv7 Python-fallback installer script must be valid POSIX shell")
 os.remove(armv7_python_script_path)
+local armv7_musl_script = helpers.buildBootstrapCommand(
+    data_dir .. "/appdock/tools", data_dir .. "/setup-armv7-musl", armv7_musl_plan, true, false)
+assert(armv7_musl_script:find("appdock-youtube-armhf-musl-python-3.12.15.tar.gz", 1, true)
+    and armv7_musl_script:find("8f47867ba2349dff0936c0e4c24bdda71f97b1494c7703c972d7a5a2744620b5", 1, true)
+    and armv7_musl_script:find('tar -xzf "$tmp/python-runtime.pkg"', 1, true)
+    and armv7_musl_script:find('test -s "$tmp/python-extract/python-runtime/etc/ssl/cert.pem"', 1, true),
+    "Legacy ARMv7 setup must download, hash-check, unpack and validate the bundled musl runtime")
+assert(armv7_musl_script:find('export PYTHONHOME="$r/usr"', 1, true)
+    and armv7_musl_script:find('export SSL_CERT_FILE="$r/etc/ssl/cert.pem"', 1, true)
+    and armv7_musl_script:find('exec "$r/lib/ld-musl-armhf.so.1" "$r/usr/bin/python3.12" "$d/yt-dlp.pyz" "$@"', 1, true)
+    and not armv7_musl_script:find("unzip", 1, true),
+    "The musl wrapper must use only its bundled loader, Python libraries, and CA bundle")
+local armv7_musl_script_path = data_dir .. "/bootstrap-armv7-musl-test.sh"
+local armv7_musl_script_file = assert(io.open(armv7_musl_script_path, "wb"))
+armv7_musl_script_file:write(armv7_musl_script)
+armv7_musl_script_file:close()
+assert(os.execute("sh -n " .. armv7_musl_script_path) == 0,
+    "The ARMv7 musl-runtime installer script must be valid POSIX shell")
+os.remove(armv7_musl_script_path)
 
 ----------------------------------------------------------------
 -- Pane construction
