@@ -191,6 +191,16 @@ assert(helpers.describeDownloadFailure("ERROR: Sign in to confirm you're not a b
     :find("guest session", 1, true), "Bot challenges must explain why a public-video download cannot continue")
 assert(helpers.describeDownloadFailure("ERROR: unable to download video data: HTTP Error 403: Forbidden")
     :find("403", 1, true), "HTTP 403 failures must be named explicitly")
+local progress_widget = { ratio = 0 }
+assert(helpers.setProgressBarPercent(progress_widget, 42.5) and progress_widget.ratio == 0.425,
+    "A video tick must be able to update the already-built progress widget with its latest percentage")
+helpers.setProgressBarPercent(progress_widget, 140)
+assert(progress_widget.ratio == 1, "A progress bar must clamp completed progress to its full width")
+local pulse_widget = { position = 0 }
+helpers.setProgressBarPulse(pulse_widget, 2)
+assert(pulse_widget.position == 0.5, "The setup progress pulse must move across its bar")
+helpers.setProgressBarPulse(pulse_widget, 6)
+assert(pulse_widget.position == 0.5, "The setup progress pulse must move back instead of sticking at the edge")
 assert(helpers.liveLogPreview("\27[32mfirst line\27[0m\rprogress 1%\rprogress 2%\nsecond\nthird\nfourth\nfifth\nsixth")
     == "second\nthird\nfourth\nfifth\nsixth",
     "The live shell preview must remove terminal colors and keep only the latest five lines")
@@ -231,9 +241,13 @@ local appdock = {
 local youtube = YouTube:new(appdock)
 local instance = {}
 local refresh_calls, rebuild_calls = 0, 0
+local last_refresh_type
 local context = {
     dimen = { w = 600, h = 748 },
-    requestRefresh = function() refresh_calls = refresh_calls + 1 end,
+    requestRefresh = function(refresh_type)
+        refresh_calls = refresh_calls + 1
+        last_refresh_type = refresh_type
+    end,
     requestRebuild = function() rebuild_calls = rebuild_calls + 1 end,
 }
 local state = youtube:_state(instance)
@@ -437,9 +451,13 @@ local tick_ok, tick_error = pcall(bootstrap_tick)
 assert(tick_ok, "The asynchronous setup tick must not call an undefined hostIsActive helper: " .. tostring(tick_error))
 assert(refresh_calls == refreshes_before_bootstrap_tick + 1,
     "An active first-run setup tick must refresh its progress pane")
+assert(last_refresh_type == "fast", "Progress updates must use an E-Ink-friendly partial refresh")
 assert(auto_state.bootstrap.live_output:find("live version output", 1, true)
     and auto_state.bootstrap.live_widget.text:find("live version output", 1, true),
     "The setup tick must stream the current log tail into its visible widget")
+assert(auto_state.bootstrap.progress_widget and auto_state.bootstrap.progress_widget.indeterminate
+    and auto_state.bootstrap.progress_widget.position == 0.25,
+    "The setup tick must advance the visible indeterminate progress bar")
 while #scheduled > scheduled_before_setup do table.remove(scheduled) end
 os.execute("rm -rf " .. auto_state.bootstrap_work)
 
@@ -497,14 +515,27 @@ local function runConversion(dither_mode, label, seconds)
     stored.resolution_percent = 100
     stored.output_dir = data_dir .. "/videos-" .. dither_mode
     local local_instance = {}
+    local observed_progress_ratio = 0
+    local video_fast_refresh = false
     local local_context = {
         dimen = { w = 600, h = 748 },
-        requestRefresh = function() end,
+        requestRefresh = function(refresh_type)
+            local job = local_instance.youtube and local_instance.youtube.job
+            if job and job.progress_widget then
+                observed_progress_ratio = job.progress_widget.ratio
+                if refresh_type == "fast" then video_fast_refresh = true end
+            end
+        end,
         requestRebuild = function() end,
     }
     assert(youtube:startLocalFile(local_instance, local_context, source), "The conversion job must start")
+    local progress_pane = youtube:buildPane(local_instance, local_context)
+    assert(progress_pane and local_instance.youtube.job.progress_widget,
+        "The job pane must bind its progress bar to the active conversion job")
     local job = drain(local_instance)
     assert(job == nil, label .. ": the job must finish, but ended with: " .. tostring(job and job.stage_message))
+    assert(observed_progress_ratio > 0 and video_fast_refresh,
+        "Video ticks must update the existing progress bar and request an E-Ink-friendly partial refresh")
     local library = local_instance.youtube.library
     assert(#library == 1, label .. ": exactly one converted video must appear in the library")
     local entry = library[1]

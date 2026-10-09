@@ -601,6 +601,9 @@ end
 
 local ProgressBar = InputContainer:extend{
     ratio = 0,
+    indeterminate = false,
+    position = 0,
+    segment_ratio = 0.2,
     width = nil,
     height = nil,
     dimen = nil,
@@ -622,10 +625,30 @@ function ProgressBar:paintTo(bb, x, y)
     bb:paintRect(x, y, border, self.height, Blitbuffer.COLOR_BLACK)
     bb:paintRect(x + self.width - border, y, border, self.height, Blitbuffer.COLOR_BLACK)
     local inner_w = math.max(0, self.width - 2 * border)
-    local filled = math.floor(inner_w * clamp(self.ratio or 0, 0, 1) + 0.5)
-    if filled > 0 then
-        bb:paintRect(x + border, y + border, filled, self.height - 2 * border, Blitbuffer.COLOR_BLACK)
+    if self.indeterminate then
+        local filled = math.max(1, math.floor(inner_w * clamp(self.segment_ratio or 0.2, 0.05, 1) + 0.5))
+        local travel = math.max(0, inner_w - filled)
+        local offset = math.floor(travel * clamp(self.position or 0, 0, 1) + 0.5)
+        bb:paintRect(x + border + offset, y + border, filled, self.height - 2 * border, Blitbuffer.COLOR_BLACK)
+    else
+        local filled = math.floor(inner_w * clamp(self.ratio or 0, 0, 1) + 0.5)
+        if filled > 0 then
+            bb:paintRect(x + border, y + border, filled, self.height - 2 * border, Blitbuffer.COLOR_BLACK)
+        end
     end
+end
+
+local function setProgressBarPercent(widget, percent)
+    if not widget then return false end
+    widget.ratio = clamp((tonumber(percent) or 0) / 100, 0, 1)
+    return true
+end
+
+local function setProgressBarPulse(widget, phase)
+    if not widget then return false end
+    phase = math.floor(tonumber(phase) or 0) % 8
+    widget.position = phase <= 4 and phase / 4 or (8 - phase) / 4
+    return true
 end
 
 YouTube.Pill = Pill
@@ -1100,6 +1123,8 @@ function YouTube:_startToolBootstrap(instance, context, defer_rebuild)
         if code == nil then
             local status = readFile(work .. "/bootstrap.status")
             if status and trim(status) ~= "" then bootstrap.status = trim(status) end
+            bootstrap.progress_phase = ((bootstrap.progress_phase or 0) + 1) % 8
+            setProgressBarPulse(bootstrap.progress_widget, bootstrap.progress_phase)
             local live_output = YouTube.liveLogPreview(readFile(handle.log) or "")
             if live_output ~= bootstrap.live_output then
                 bootstrap.live_output = live_output
@@ -1107,7 +1132,7 @@ function YouTube:_startToolBootstrap(instance, context, defer_rebuild)
                     bootstrap.live_widget:setText(live_output)
                 end
             end
-            if context and hostIsActive(context) and context.requestRefresh then context.requestRefresh("ui") end
+            if context and hostIsActive(context) and context.requestRefresh then context.requestRefresh("fast") end
             UIManager:scheduleIn(2, tick)
             return
         end
@@ -1491,7 +1516,11 @@ function YouTube:_tick(instance, context)
         return
     end
 
-    if hostIsActive(context) and context.requestRefresh then context.requestRefresh("ui") end
+    setProgressBarPercent(job.progress_widget, job.percent)
+    if job.stage_widget and job.stage_widget.setText then
+        job.stage_widget:setText(fitText(job.stage_message or "", job.stage_widget_width or 160, 11))
+    end
+    if hostIsActive(context) and context.requestRefresh then context.requestRefresh("fast") end
     if job.stage == "error" then
         -- Nothing is running any more: show the message and stop ticking.
         if hostIsActive(context) and context.requestRebuild and self:_state(instance).view ~= "play" then
@@ -2214,6 +2243,7 @@ function YouTube:_buildJobPane(instance, context, state)
         width = width - 2 * margin,
         height = scale(18),
     }
+    if job then job.progress_widget = bar end
     bar.overlap_offset = { margin, scale(48) }
     table.insert(content, bar)
 
@@ -2224,6 +2254,10 @@ function YouTube:_buildJobPane(instance, context, state)
         max_width = width - 2 * margin,
         padding = 0,
     }
+    if job then
+        job.stage_widget = stage
+        job.stage_widget_width = width - 2 * margin
+    end
     stage.overlap_offset = { margin, scale(74) }
     table.insert(content, stage)
 
@@ -2464,8 +2498,10 @@ function YouTube:_buildSetupPane(instance, context, state)
         local progress = ProgressBar:new{
             width = width - 2 * margin,
             height = scale(18),
-            ratio = 0.25,
+            indeterminate = true,
+            position = 0,
         }
+        bootstrap.progress_widget = progress
         progress.overlap_offset = { margin, scale(88) }
         table.insert(content, progress)
         local explanation = TextWidget:new{
@@ -2596,6 +2632,8 @@ YouTube._test = {
     parseVideoId = YouTube.parseVideoId,
     buildDownloadCommand = YouTube.buildDownloadCommand,
     describeDownloadFailure = YouTube.describeDownloadFailure,
+    setProgressBarPercent = setProgressBarPercent,
+    setProgressBarPulse = setProgressBarPulse,
     slugify = YouTube.slugify,
     cycle = YouTube.cycle,
     durationLabel = YouTube.durationLabel,
