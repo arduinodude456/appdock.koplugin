@@ -175,6 +175,7 @@ function Engine.open(video_path, wav_path, report)
         frame = nil,
         frame_index = -1,
         position = 0,
+        frame_locked = true,
         anchor_wall = nil,
         anchor_position = 0,
         pending_start = nil,
@@ -223,6 +224,9 @@ function Engine:status(message)
 end
 
 function Engine:currentTime()
+    if self.frame_locked and self.frame_index >= 0 then
+        return clamp(self.frame_index / self.fps, 0, self.duration)
+    end
     if not self.anchor_wall then return clamp(self.position or 0, 0, self.duration) end
     local elapsed = Player.now() - self.anchor_wall
     if elapsed < 0 then elapsed = 0 end
@@ -230,8 +234,8 @@ function Engine:currentTime()
 end
 
 function Engine:audioTime(video_position)
-    local scale_to_video = self.clock_scale or 1
-    return clamp((tonumber(video_position) or 0) / scale_to_video, 0,
+    -- The displayed video frame is the single playback timebase.
+    return clamp(tonumber(video_position) or 0, 0,
         self.audio_duration or self.duration)
 end
 
@@ -320,7 +324,7 @@ function Engine:pause()
         return
     end
     if self.paused then return end
-    self.position = self:currentTime()
+    self.position = self.frame_locked and math.max(0, self.frame_index) / self.fps or self:currentTime()
     self.anchor_wall, self.paused = nil, true
     if self.audio then self.audio:stop() end
     UIManager:unschedule(self.tick)
@@ -351,7 +355,10 @@ function Engine:jump(seconds)
         return self:show(self.position)
     end
     local base = self.paused and (self.position or 0) or self:currentTime()
-    self.position = clamp(base + (tonumber(seconds) or 0), 0, self.duration)
+    local requested = clamp(base + (tonumber(seconds) or 0), 0, self.duration)
+    self.position = self.frame_locked
+        and clamp(math.floor(requested * self.fps + 0.5) / self.fps, 0, self.duration)
+        or requested
     if self.paused then
         if self.audio then self.audio:stop() end
     else
@@ -417,8 +424,13 @@ function Engine:step()
         return
     end
     if self.paused then return end
-    self.position = self:currentTime()
-    if self.position >= self.duration then
+    if self.frame_locked then
+        local next_index = math.min(self.header.frames - 1, math.max(0, self.frame_index + 1))
+        self.position = next_index / self.fps
+    else
+        self.position = self:currentTime()
+    end
+    if self.position >= self.duration or self.frame_index >= self.header.frames - 1 then
         self:show(self.duration)
         self:pause()
         self:status(_("Finished"))
