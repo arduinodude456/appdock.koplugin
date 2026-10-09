@@ -730,10 +730,11 @@ function YouTube:_startDetached(command, work_dir, tag)
     local exit_path = work_dir .. "/" .. tag .. ".exit"
     removeFile(exit_path)
     removeFile(log_path)
-    -- Group the whole command/exit-marker sequence before backgrounding it.
-    -- Without the subshell, POSIX shells background only the final `echo`,
-    -- leaving long downloads and conversions blocking the UI thread.
-    local runner = command .. " >" .. shellQuote(log_path) .. " 2>&1; code=$?; echo $code >" .. shellQuote(exit_path)
+    -- Run the command in its own subshell: its `set -e` must not bypass the
+    -- outer shell's exit-marker write on failure. Redirect the whole command
+    -- group so diagnostics are available when the UI receives that marker.
+    local runner = "(\n" .. command .. "\n) >" .. shellQuote(log_path)
+        .. " 2>&1; code=$?; echo $code >" .. shellQuote(exit_path)
     local quoted_runner = shellQuote(runner)
     local launch = "if command -v setsid >/dev/null 2>&1; then setsid sh -c " .. quoted_runner
         .. " </dev/null >/dev/null 2>&1 & else sh -c " .. quoted_runner
