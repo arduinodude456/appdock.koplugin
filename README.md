@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.8.15** korrigiert die ARMv7-yt-dlp-Installation und zeigt den Prüfschritt getrennt von Manifest-Download und Entpacken an. [Details](RELEASE_NOTES_7.8.15.md).
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.8.16** bricht einen hängenden yt-dlp-Kompatibilitätstest nach zwei Minuten mit einer klaren Fehlermeldung ab. [Details](RELEASE_NOTES_7.8.16.md).
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst Androids Formensprache, nicht dessen Daueranimationen, Unschärfen oder Transparenzeffekte. Auf E-Ink wechseln App-Seiten und Recently-used-Drawer direkt und ohne Zwischenanimation. Damit bleibt die Darstellung auf monochromen Readern kontrastreich, sparsam und frei von unnötigem Ghosting.
 
@@ -27,6 +27,8 @@
 > **7.5.1:** Der Store-Kopf trägt jetzt ausschließlich die AppDock-Eigenmarke **AppDock Store** und das vorhandene AppStore-Logo. Das externe Play-Zeichen und der entsprechende Schriftzug wurden entfernt. [Details](RELEASE_NOTES_7.5.1.md).
 
 > **7.5.0:** Die erste Homescreen-Seite erhielt eine gebrandete **DuckDuckGo-Suchleiste**; der AppStore wurde mit Suchfeld, Empfehlungskarten, Installationsaktionen und unterer Kategorienavigation neu gestaltet. Angezeigt werden weiterhin nur echte Katalogdaten, ohne erfundene Bewertungen oder Screenshots. Details stehen in [`RELEASE_NOTES_7.5.0.md`](RELEASE_NOTES_7.5.0.md).
+
+> **7.8.16:** Begrenzt den yt-dlp-`--version`-Kompatibilitätstest auf zwei Minuten und meldet einen Timeout als Setup-Fehler, statt den Reader unbegrenzt warten zu lassen. Details stehen in [`RELEASE_NOTES_7.8.16.md`](RELEASE_NOTES_7.8.16.md).
 
 > **7.8.15:** Korrigiert das Entpacken des ARMv7-yt-dlp-Archivs samt `_internal`-Laufzeitdateien und zeigt Download, SHA-256-Berechnung sowie Entpacken als getrennte Einrichtungsphasen. Details stehen in [`RELEASE_NOTES_7.8.15.md`](RELEASE_NOTES_7.8.15.md).
 
