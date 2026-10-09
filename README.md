@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.8.12** ergänzt die DApp **YouTube**, die Videos über yt-dlp und ffmpeg in E-Ink-Video umwandelt und direkt im Reader abspielt. [Details](RELEASE_NOTES_7.8.12.md).
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.8.13** richtet bei YouTube auf unterstützten Geräten **yt-dlp** und **ffmpeg** automatisch beim ersten Öffnen ein; danach kannst du direkt nach Videos suchen. [Details](RELEASE_NOTES_7.8.13.md).
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst Androids Formensprache, nicht dessen Daueranimationen, Unschärfen oder Transparenzeffekte. Auf E-Ink wechseln App-Seiten und Recently-used-Drawer direkt und ohne Zwischenanimation. Damit bleibt die Darstellung auf monochromen Readern kontrastreich, sparsam und frei von unnötigem Ghosting.
 
@@ -28,7 +28,9 @@
 
 > **7.5.0:** Die erste Homescreen-Seite erhielt eine gebrandete **DuckDuckGo-Suchleiste**; der AppStore wurde mit Suchfeld, Empfehlungskarten, Installationsaktionen und unterer Kategorienavigation neu gestaltet. Angezeigt werden weiterhin nur echte Katalogdaten, ohne erfundene Bewertungen oder Screenshots. Details stehen in [`RELEASE_NOTES_7.5.0.md`](RELEASE_NOTES_7.5.0.md).
 
-> **7.8.12:** Die neue DApp **YouTube** sucht und lädt Videos mit **yt-dlp**, wandelt sie mit **ffmpeg** in das Schwarzweiß-Containerformat **BWR1** um und spielt sie im Reader ab. Das Format und die Dither-Matrix sind byte-kompatibel zum Konverter aus dem Release **„Snake“** von `videoplayer.koplugin`. Beide Werkzeuge werden nicht mitgeliefert und bleiben optional. Details stehen in [`RELEASE_NOTES_7.8.12.md`](RELEASE_NOTES_7.8.12.md).
+> **7.8.13:** YouTube prüft beim ersten Öffnen auf **yt-dlp** und **ffmpeg**, lädt fehlende Werkzeuge mit Prüfsummenprüfung im Hintergrund und installiert sie unter `appdock/tools`. Danach öffnet sich die Suche automatisch. Details stehen in [`RELEASE_NOTES_7.8.13.md`](RELEASE_NOTES_7.8.13.md).
+
+> **7.8.12:** Die neue DApp **YouTube** sucht und lädt Videos mit **yt-dlp**, wandelt sie mit **ffmpeg** in das Schwarzweiß-Containerformat **BWR1** um und spielt sie im Reader ab. Das Format und die Dither-Matrix sind byte-kompatibel zum Konverter aus dem Release **„Snake“** von `videoplayer.koplugin`. Beide Werkzeuge werden nicht mitgeliefert und können manuell ergänzt werden. Details stehen in [`RELEASE_NOTES_7.8.12.md`](RELEASE_NOTES_7.8.12.md).
 
 ## Neu in 3.0.0 „Cappuccino“
 
@@ -182,7 +184,7 @@ Der Browser akzeptiert ausschließlich `http://` und `https://` und verwirft etw
 
 ## YouTube und E-Ink-Video
 
-Die DApp **YouTube** bringt Video auf ein Schwarzweiß-Display. Sie spricht nie selbst mit YouTube, sondern steuert zwei Werkzeuge, die der Nutzer einmal installiert: **yt-dlp** löst Links und Suchanfragen auf und lädt das Video, **ffmpeg** dekodiert es und erzeugt die Tonspur. Beide Programme werden nicht mitgeliefert; AppDock findet sie über `command -v` oder im Ordner `appdock/tools` des KOReader-Datenverzeichnisses und akzeptiert zusätzlich einen manuell eingetragenen Pfad.
+Die DApp **YouTube** bringt Video auf ein Schwarzweiß-Display. Sie spricht nie selbst mit YouTube, sondern steuert **yt-dlp** (Suche und Download) und **ffmpeg** (Dekodierung und Tonspur). Beim ersten Öffnen sucht sie nach vorhandenen Programmen; fehlen sie, lädt AppDock passende offizielle bzw. statische Linux-Builds im Hintergrund, prüft die Prüfsummen und richtet sie in `appdock/tools` im KOReader-Datenverzeichnis ein. Sobald beide Werkzeuge startfähig sind, erscheint die YouTube-Suche. Bereits installierte Werkzeuge werden nicht ersetzt. Unterstützt werden x86_64 und aarch64 mit glibc 2.17+ (oder musl 1.2+) sowie ARMv7 mit glibc 2.31+; auf Android/Bionic, ARMv6, älteren ARMv7-Systemen oder unbekannten ABIs zeigt AppDock stattdessen die manuelle Tool-Konfiguration. Quellen, Downloadablauf und Voraussetzungen stehen in [`YOUTUBE_TOOLS.md`](YOUTUBE_TOOLS.md).
 
 | Eingabe | Wirkung |
 |---|---|
