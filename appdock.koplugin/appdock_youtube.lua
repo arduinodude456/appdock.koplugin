@@ -311,6 +311,12 @@ function YouTube.durationLabel(seconds)
     return formatDuration(seconds)
 end
 
+function YouTube.audioVideoDelayLabel(seconds)
+    seconds = tonumber(seconds) or 0
+    if seconds <= 0 then return _("Immediately") end
+    return string.format("%.2g s", seconds)
+end
+
 function YouTube.resolutionLabel(percent)
     local width, height = YouTube.frameSize(percent)
     return string.format("%d%% · %dx%d", percent, width, height)
@@ -669,7 +675,10 @@ local DEFAULT_SETTINGS = {
     max_duration = 180,
     max_height = 480,
     dither = "ffmpeg",
+    audio_video_delay = 0,
 }
+
+local AUDIO_VIDEO_DELAYS = { 0, 0.1, 0.25, 0.5, 1, 2 }
 
 function YouTube:new(appdock)
     return setmetatable({ appdock = appdock, player = Player:new(appdock) }, YouTube)
@@ -1876,6 +1885,8 @@ function YouTube:cycleSetting(instance, context, key)
         patch.max_height = YouTube.cycle({ 360, 480, 720 }, settings.max_height)
     elseif key == "dither" then
         patch.dither = settings.dither == "ffmpeg" and "bayer" or "ffmpeg"
+    elseif key == "audio_video_delay" then
+        patch.audio_video_delay = YouTube.cycle(AUDIO_VIDEO_DELAYS, settings.audio_video_delay)
     end
     self:_patchSettings(patch)
     if context and context.requestRebuild then context.requestRebuild("ui") end
@@ -2446,6 +2457,12 @@ function YouTube:_buildToolsPane(instance, context, state)
             subtitle = _("Lower rates refresh faster on E-Ink"),
             value = string.format("%g fps", settings.fps),
             action = function() self:cycleSetting(instance, context, "fps") end,
+        },
+        {
+            title = _("Video start delay"),
+            subtitle = _("Wait this long after audio starts"),
+            value = YouTube.audioVideoDelayLabel(settings.audio_video_delay),
+            action = function() self:cycleSetting(instance, context, "audio_video_delay") end,
         },
         {
             title = _("Maximum length"),

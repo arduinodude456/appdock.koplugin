@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.8.31** behebt die Synchronisation von YouTube-Audio und -Video während des Audiostarts. [Details](RELEASE_NOTES_7.8.31.md).
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.8.32** stellt den bewährten YouTube-Audiostart wieder her und bietet eine einstellbare Verzögerung für den Videostart. [Details](RELEASE_NOTES_7.8.32.md).
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst Androids Formensprache, nicht dessen Daueranimationen, Unschärfen oder Transparenzeffekte. Auf E-Ink wechseln App-Seiten und Recently-used-Drawer direkt und ohne Zwischenanimation. Damit bleibt die Darstellung auf monochromen Readern kontrastreich, sparsam und frei von unnötigem Ghosting.
 
@@ -28,6 +28,7 @@
 
 > **7.5.0:** Die erste Homescreen-Seite erhielt eine gebrandete **DuckDuckGo-Suchleiste**; der AppStore wurde mit Suchfeld, Empfehlungskarten, Installationsaktionen und unterer Kategorienavigation neu gestaltet. Angezeigt werden weiterhin nur echte Katalogdaten, ohne erfundene Bewertungen oder Screenshots. Details stehen in [`RELEASE_NOTES_7.5.0.md`](RELEASE_NOTES_7.5.0.md).
 
+> **7.8.32:** Stellt den sofortigen Audio-/Videostart aus 7.8.27 wieder her und ergänzt in den YouTube-Einstellungen eine Verzögerung von sofort bis 2 Sekunden zwischen Audio- und Videostart. [Details](RELEASE_NOTES_7.8.32.md).
 > **7.8.31:** Korrigiert die YouTube-Audio-/Video-Synchronisation während der GStreamer-Audioinitialisierung und berücksichtigt auch Startup-Timeouts ohne bekanntes Logsignal. [Details](RELEASE_NOTES_7.8.31.md).
 > **7.8.30:** Beschleunigt die YouTube-Konvertierung: FFmpeg übernimmt standardmäßig die 1-Bit-Umwandlung, BWR2 überspringt unnötige Lua-RLE-Scans, und die Frameverarbeitung nutzt größere CPU-Batches. Bayer bleibt auswählbar. [Details](RELEASE_NOTES_7.8.30.md).
 

@@ -91,6 +91,7 @@ end
 local YOUTUBE_RESOLUTIONS = { [100] = true, [75] = true, [50] = true, [35] = true }
 local YOUTUBE_FRAME_RATES = { [7.5] = true, [10] = true, [12] = true, [15] = true }
 local YOUTUBE_HEIGHTS = { [360] = true, [480] = true, [720] = true }
+local YOUTUBE_AUDIO_VIDEO_DELAYS = { [0] = true, [0.1] = true, [0.25] = true, [0.5] = true, [1] = true, [2] = true }
 
 local function boundedText(value, limit)
     if type(value) ~= "string" then return "" end
@@ -103,6 +104,7 @@ local function normalizeYouTubeSettings(stored)
     local frame_rate = tonumber(stored.fps)
     local duration = tonumber(stored.max_duration)
     local height = tonumber(stored.max_height)
+    local audio_video_delay = tonumber(stored.audio_video_delay)
     return {
         ytdlp_path = boundedText(stored.ytdlp_path, 360),
         ffmpeg_path = boundedText(stored.ffmpeg_path, 360),
@@ -112,6 +114,8 @@ local function normalizeYouTubeSettings(stored)
         max_duration = (duration and duration >= 0 and duration <= 3600) and math.floor(duration) or 180,
         max_height = (height and YOUTUBE_HEIGHTS[height]) and height or 480,
         dither = stored.dither == "bayer" and "bayer" or "ffmpeg",
+        audio_video_delay = (audio_video_delay and YOUTUBE_AUDIO_VIDEO_DELAYS[audio_video_delay])
+            and audio_video_delay or 0,
     }
 end
 

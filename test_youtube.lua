@@ -259,7 +259,8 @@ assert(state.view == "home", "A new instance must start on the home view")
 assert(type(state.tools) == "table", "Tool detection must always produce a result table")
 
 local settings = youtube:_settings()
-assert(settings.fps == 12 and settings.dither == "ffmpeg" and settings.resolution_percent == 100,
+assert(settings.fps == 12 and settings.dither == "ffmpeg" and settings.resolution_percent == 100
+        and settings.audio_video_delay == 0,
     "Defaults must match the documented values")
 youtube:cycleSetting(instance, context, "fps")
 assert(youtube:_settings().fps == 15, "Cycling the frame rate must move to the next step")
@@ -267,6 +268,9 @@ youtube:cycleSetting(instance, context, "dither")
 assert(youtube:_settings().dither == "bayer", "Cycling the dither mode must switch to Bayer")
 youtube:cycleSetting(instance, context, "dither")
 assert(youtube:_settings().dither == "ffmpeg", "Cycling the dither mode must return to fast ffmpeg")
+youtube:cycleSetting(instance, context, "audio_video_delay")
+assert(youtube:_settings().audio_video_delay == 0.1,
+    "Cycling the audio/video delay must select the first non-zero delay")
 
 local detached_dir = data_dir .. "/detached-test"
 assert(lfs.mkdir(detached_dir), "The detached-process test directory must be creatable")

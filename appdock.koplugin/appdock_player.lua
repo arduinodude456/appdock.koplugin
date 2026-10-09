@@ -162,7 +162,7 @@ end
 local Engine = {}
 Engine.__index = Engine
 
-function Engine.open(video_path, wav_path, report)
+function Engine.open(video_path, wav_path, report, video_delay)
     local handle = io.open(video_path, "rb")
     local instance = setmetatable({
         handle = handle,
@@ -176,6 +176,8 @@ function Engine.open(video_path, wav_path, report)
         position = 0,
         anchor_wall = nil,
         anchor_position = 0,
+        video_delay = clamp(tonumber(video_delay) or 0, 0, 5),
+        pending_video_start = nil,
         canvas = nil,
     }, Engine)
     if not handle then
@@ -267,11 +269,22 @@ end
 
 function Engine:play()
     if self.error then return nil, self.error end
+    if self.pending_video_start then return true end
     if self.audio then
         local ok, err = self.audio:startFrom(self:audioTime(self.position or 0))
         if not ok then
             self.audio_error = err
             self:status(err)
+        elseif self.video_delay > 0 then
+            self.pending_video_start = {
+                position = self.position or 0,
+                deadline = Player.now() + self.video_delay,
+            }
+            self.paused = false
+            UIManager:unschedule(self.tick)
+            UIManager:scheduleIn(self.video_delay, self.tick)
+            self:status(string.format(_("Video starts %.2f s after audio"), self.video_delay))
+            return true
         end
     else
         self:status(_("Playing without companion audio."))
@@ -288,6 +301,14 @@ function Engine:play()
 end
 
 function Engine:pause()
+    if self.pending_video_start then
+        self.position = self.pending_video_start.position
+        self.pending_video_start = nil
+        self.anchor_wall, self.paused = nil, true
+        if self.audio then self.audio:stop() end
+        UIManager:unschedule(self.tick)
+        return
+    end
     if self.paused then return end
     self.position = self:currentTime()
     self.anchor_wall, self.paused = nil, true
@@ -304,6 +325,20 @@ end
 
 function Engine:jump(seconds)
     if self.error then return nil, self.error end
+    if self.pending_video_start then
+        self.position = clamp(self.pending_video_start.position + (tonumber(seconds) or 0), 0, self.duration)
+        if self.audio then
+            local ok, err = self.audio:startFrom(self:audioTime(self.position))
+            if not ok then
+                self.audio_error = err
+                self:status(err)
+            else
+                self.pending_video_start.position = self.position
+                self.pending_video_start.deadline = Player.now() + self.video_delay
+            end
+        end
+        return self:show(self.position)
+    end
     local base = self.paused and (self.position or 0) or self:currentTime()
     self.position = clamp(base + (tonumber(seconds) or 0), 0, self.duration)
     if self.paused then
@@ -333,7 +368,28 @@ function Engine:restart()
 end
 
 function Engine:step()
-    if self.closed or self.paused then return end
+    if self.closed then return end
+    if self.pending_video_start then
+        local now = Player.now()
+        if now < self.pending_video_start.deadline then
+            UIManager:scheduleIn(math.min(self.period, self.pending_video_start.deadline - now), self.tick)
+            return
+        end
+        local position = self.pending_video_start.position
+        self.pending_video_start = nil
+        self.anchor_position, self.anchor_wall, self.paused = position, now, false
+        local ok, err = self:show(position)
+        if not ok then
+            self.paused = true
+            if self.audio then self.audio:stop() end
+            self:status(err)
+            return
+        end
+        UIManager:unschedule(self.tick)
+        UIManager:scheduleIn(self.period, self.tick)
+        return
+    end
+    if self.paused then return end
     self.position = self:currentTime()
     if self.position >= self.duration then
         self:show(self.duration)
@@ -453,10 +509,15 @@ function Player:load(instance, context, path)
     self:stop()
     self.path = path
     local wav = companionFor(path)
+    local video_delay = 0
+    if self.appdock and type(self.appdock.getYouTubeSettings) == "function" then
+        local stored = self.appdock:getYouTubeSettings()
+        video_delay = type(stored) == "table" and tonumber(stored.audio_video_delay) or 0
+    end
     local engine = Engine.open(path, wav, function(message)
         self.note = message
         if context and context.requestRefresh then context.requestRefresh("ui") end
-    end)
+    end, video_delay)
     if engine.error then
         self.note = engine.error
         return nil, engine.error
