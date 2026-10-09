@@ -590,6 +590,40 @@ local function runConversion(dither_mode, label, seconds)
         label .. ": the video clock must follow the companion audio timeline (scale="
             .. tostring(engine.clock_scale) .. ", audio=" .. tostring(engine.audio_duration)
             .. ", video=" .. tostring(engine.duration) .. ", time=" .. tostring(engine:currentTime()) .. ")")
+    local original_audio = engine.audio
+    local audio_ready = false
+    local stopped_audio = false
+    engine.audio = {
+        startFrom = function() return true end,
+        requiresStartConfirmation = function() return true end,
+        isPlaybackReady = function() return audio_ready end,
+        stop = function() stopped_audio = true end,
+    }
+    engine.position, engine.anchor_wall, engine.paused = 0, nil, true
+    assert(engine:play() and engine.pending_start and engine.anchor_wall == nil,
+        label .. ": the video timeline must wait while the audio backend is still starting")
+    simulated_clock = simulated_clock + 0.5
+    engine:step()
+    assert(engine.pending_start and engine.position == 0,
+        label .. ": video time must remain frozen during backend startup")
+    audio_ready = true
+    simulated_clock = simulated_clock + 0.05
+    engine:step()
+    assert(not engine.pending_start and engine.anchor_wall == simulated_clock and not engine.paused,
+        label .. ": video clock must anchor when the audio output reports PLAYING")
+    engine:pause()
+    assert(stopped_audio, label .. ": pausing after synchronized startup must stop audio")
+    audio_ready, stopped_audio = false, false
+    engine.position, engine.anchor_wall, engine.paused = 0, nil, true
+    assert(engine:play() and engine.pending_start,
+        label .. ": a second delayed backend start must enter the readiness wait")
+    engine.pending_start.deadline = simulated_clock - 1
+    engine:step()
+    assert(not engine.pending_start and stopped_audio and engine.audio_error
+        and engine.anchor_wall == simulated_clock,
+        label .. ": an unconfirmed late audio process must be stopped rather than drift in after video")
+    engine:pause()
+    engine.audio = original_audio
     Player.now = real_clock
     engine.anchor_wall, engine.position = nil, 0
     local white, black, total = 0, 0, 0

@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.8.27** korrigiert WAV-Seeking und Audio-Prozesssteuerung und speichert neue Videos im kompakten, seekbaren BWR2-Format; vorhandene BWR1-Videos bleiben abspielbar. [Details](RELEASE_NOTES_7.8.27.md).
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.8.28** startet das Video erst, wenn GStreamer seine Audio-Wiedergabeuhr bereitmeldet, damit Bild und Ton nicht durch die Backend-Initialisierung auseinanderlaufen. [Details](RELEASE_NOTES_7.8.28.md).
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst Androids Formensprache, nicht dessen Daueranimationen, Unschärfen oder Transparenzeffekte. Auf E-Ink wechseln App-Seiten und Recently-used-Drawer direkt und ohne Zwischenanimation. Damit bleibt die Darstellung auf monochromen Readern kontrastreich, sparsam und frei von unnötigem Ghosting.
 
@@ -27,6 +27,8 @@
 > **7.5.1:** Der Store-Kopf trägt jetzt ausschließlich die AppDock-Eigenmarke **AppDock Store** und das vorhandene AppStore-Logo. Das externe Play-Zeichen und der entsprechende Schriftzug wurden entfernt. [Details](RELEASE_NOTES_7.5.1.md).
 
 > **7.5.0:** Die erste Homescreen-Seite erhielt eine gebrandete **DuckDuckGo-Suchleiste**; der AppStore wurde mit Suchfeld, Empfehlungskarten, Installationsaktionen und unterer Kategorienavigation neu gestaltet. Angezeigt werden weiterhin nur echte Katalogdaten, ohne erfundene Bewertungen oder Screenshots. Details stehen in [`RELEASE_NOTES_7.5.0.md`](RELEASE_NOTES_7.5.0.md).
+
+> **7.8.28:** Wartet beim GStreamer-Audiostart auf die zugewiesene Wiedergabeuhr, bevor die Videouhr beginnt; bei ausbleibender Bestätigung wird der verspätete Audioprozess beendet statt asynchron nachzustarten. [Details](RELEASE_NOTES_7.8.28.md).
 
 > **7.8.27:** Korrigiert WAV-Chunk-Erkennung und Audio-Seeking, kalibriert kleine A/V-Laufzeitabweichungen und schreibt neue Videos als komprimiertes BWR2 mit Keyframe-Index; BWR1 bleibt lesbar. [Details](RELEASE_NOTES_7.8.27.md).
 
