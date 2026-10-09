@@ -860,6 +860,15 @@ function YouTube.buildBootstrapCommand(tool_dir, work_dir, plan, need_ytdlp, nee
     return table.concat(lines, "\n")
 end
 
+-- Declare this before the asynchronous bootstrap closures below. Defining it
+-- later would make those closures resolve `hostIsActive` as a nil global.
+local function hostIsActive(context)
+    if not context then return false end
+    local manager = context.manager
+    if not manager or not context.host then return true end
+    return manager.active_host == context.host
+end
+
 function YouTube:_startToolBootstrap(instance, context, defer_rebuild)
     local state = self:_state(instance)
     if state.bootstrap and state.bootstrap.handle then return true end
@@ -1237,13 +1246,6 @@ function YouTube:_schedule(instance, context)
     if not job then return end
     job.tick = job.tick or function() self:_tick(instance, context) end
     UIManager:scheduleIn(job.interval or 1, job.tick)
-end
-
-local function hostIsActive(context)
-    if not context then return false end
-    local manager = context.manager
-    if not manager or not context.host then return true end
-    return manager.active_host == context.host
 end
 
 function YouTube:_tick(instance, context)

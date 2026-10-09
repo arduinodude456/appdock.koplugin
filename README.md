@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.8.13** richtet bei YouTube auf unterstützten Geräten **yt-dlp** und **ffmpeg** automatisch beim ersten Öffnen ein; danach kannst du direkt nach Videos suchen. [Details](RELEASE_NOTES_7.8.13.md).
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.8.14** behebt einen Absturz während des automatischen YouTube-Tool-Setups. [Details](RELEASE_NOTES_7.8.14.md).
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst Androids Formensprache, nicht dessen Daueranimationen, Unschärfen oder Transparenzeffekte. Auf E-Ink wechseln App-Seiten und Recently-used-Drawer direkt und ohne Zwischenanimation. Damit bleibt die Darstellung auf monochromen Readern kontrastreich, sparsam und frei von unnötigem Ghosting.
 
@@ -27,6 +27,8 @@
 > **7.5.1:** Der Store-Kopf trägt jetzt ausschließlich die AppDock-Eigenmarke **AppDock Store** und das vorhandene AppStore-Logo. Das externe Play-Zeichen und der entsprechende Schriftzug wurden entfernt. [Details](RELEASE_NOTES_7.5.1.md).
 
 > **7.5.0:** Die erste Homescreen-Seite erhielt eine gebrandete **DuckDuckGo-Suchleiste**; der AppStore wurde mit Suchfeld, Empfehlungskarten, Installationsaktionen und unterer Kategorienavigation neu gestaltet. Angezeigt werden weiterhin nur echte Katalogdaten, ohne erfundene Bewertungen oder Screenshots. Details stehen in [`RELEASE_NOTES_7.5.0.md`](RELEASE_NOTES_7.5.0.md).
+
+> **7.8.14:** Behebt den nil-Aufruf im asynchronen YouTube-Setup-Callback, der beim ersten Nachladen der Werkzeuge den DApp-Absturz auslöste. Details stehen in [`RELEASE_NOTES_7.8.14.md`](RELEASE_NOTES_7.8.14.md).
 
 > **7.8.13:** YouTube prüft beim ersten Öffnen auf **yt-dlp** und **ffmpeg**, lädt fehlende Werkzeuge mit Prüfsummenprüfung im Hintergrund und installiert sie unter `appdock/tools`. Danach öffnet sich die Suche automatisch. Details stehen in [`RELEASE_NOTES_7.8.13.md`](RELEASE_NOTES_7.8.13.md).
 

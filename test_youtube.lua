@@ -324,6 +324,17 @@ assert(auto_state.view == "setup" and auto_state.bootstrap.handle,
 assert(auto_state.bootstrap.install_ytdlp and not auto_state.bootstrap.install_ffmpeg,
     "First-open setup should install only missing tools")
 assert(auto_state.bootstrap_command:find("SHA2%-256SUMS"), "First-open setup must verify the yt-dlp release")
+local bootstrap_tick = scheduled[#scheduled]
+assert(type(bootstrap_tick) == "function", "Automatic tool setup must schedule a progress tick")
+auto_youtube._pollDetached = function(_, handle)
+    assert(handle == auto_state.bootstrap.handle, "The setup tick must poll its bootstrap process")
+    return nil
+end
+local refreshes_before_bootstrap_tick = refresh_calls
+local tick_ok, tick_error = pcall(bootstrap_tick)
+assert(tick_ok, "The asynchronous setup tick must not call an undefined hostIsActive helper: " .. tostring(tick_error))
+assert(refresh_calls == refreshes_before_bootstrap_tick + 1,
+    "An active first-run setup tick must refresh its progress pane")
 while #scheduled > scheduled_before_setup do table.remove(scheduled) end
 os.execute("rm -rf " .. auto_state.bootstrap_work)
 
