@@ -275,6 +275,9 @@ assert(script:find("SHA2%-256SUMS") and script:find("sha256sum") and script:find
 assert(script:find("Downloading the yt-dlp SHA-256 manifest", 1, true)
     and script:find("Calculating yt-dlp SHA-256", 1, true),
     "The setup status must distinguish fetching the checksum manifest from hashing the binary")
+assert(script:find("Starting yt-dlp compatibility check (up to 2 minutes)", 1, true)
+    and script:find("yt-dlp compatibility check timed out after 120 seconds", 1, true),
+    "A stuck yt-dlp version check must be bounded and report a clear timeout")
 assert(script:find("yt%-dlp_linux") and script:find("ffmpeg%-release%-amd64%-static"),
     "The generated installer must use the selected upstream assets")
 assert(script:find("%$tools/yt%-dlp") and script:find("%$tools/ffmpeg"),

@@ -835,8 +835,9 @@ function YouTube.buildBootstrapCommand(tool_dir, work_dir, plan, need_ytdlp, nee
             lines[#lines + 1] = "cp \"$tmp/yt-dlp.pkg\" \"$tmp/yt-dlp.new\""
         end
         lines[#lines + 1] = "chmod 755 \"$tmp/yt-dlp.new\""
-        lines[#lines + 1] = "echo 'Starting yt-dlp compatibility check…' > \"$status\""
-        lines[#lines + 1] = "\"$tmp/yt-dlp.new\" --version >/dev/null 2>&1 || { echo 'Downloaded yt-dlp cannot run on this device.' >&2; exit 1; }"
+        lines[#lines + 1] = "echo 'Starting yt-dlp compatibility check (up to 2 minutes)…' > \"$status\""
+        lines[#lines + 1] = "check_ytdlp_version() { \"$1\" --version >/dev/null 2>&1 & check_pid=$!; elapsed=0; while kill -0 \"$check_pid\" 2>/dev/null; do if [ \"$elapsed\" -ge 120 ]; then kill -TERM \"$check_pid\" 2>/dev/null || true; sleep 2; kill -KILL \"$check_pid\" 2>/dev/null || true; wait \"$check_pid\" 2>/dev/null || true; return 124; fi; sleep 1; elapsed=$((elapsed + 1)); done; wait \"$check_pid\"; }"
+        lines[#lines + 1] = "if check_ytdlp_version \"$tmp/yt-dlp.new\"; then :; else check_rc=$?; if [ \"$check_rc\" -eq 124 ]; then echo 'yt-dlp compatibility check timed out after 120 seconds.' >&2; else echo 'Downloaded yt-dlp cannot run on this device.' >&2; fi; exit 1; fi"
     end
     if need_ffmpeg then
         local url = plan.ffmpeg_url
