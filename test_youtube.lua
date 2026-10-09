@@ -181,6 +181,11 @@ assert(helpers.parseProgress("[download]   0.0% of 10.00MiB at 1.00MiB/s ETA 00:
     .. "[download]  42.5% of 10.00MiB at 1.00MiB/s ETA 00:05\n"
     .. "[download] 100.0% of 10.00MiB in 00:09\n") == 100, "The last download percentage must win")
 assert(helpers.parseProgress("no progress here") == nil, "A log without progress must report nothing")
+assert(helpers.liveLogPreview("\27[32mfirst line\27[0m\rprogress 1%\rprogress 2%\nsecond\nthird\nfourth\nfifth\nsixth")
+    == "second\nthird\nfourth\nfifth\nsixth",
+    "The live shell preview must remove terminal colors and keep only the latest five lines")
+assert(#helpers.liveLogPreview(string.rep("x", 200)) <= 124,
+    "A single long shell line must be bounded for the E-Ink setup view")
 
 local filter = helpers.buildFilter(632, 840, 12, false)
 assert(filter:find("fps=12", 1, true) and filter:find("scale=632:840", 1, true), "The filter must carry rate and size")
@@ -287,6 +292,9 @@ assert(script:find("Downloading the yt-dlp SHA-256 manifest", 1, true)
 assert(script:find("Starting yt-dlp compatibility check (up to 2 minutes)", 1, true)
     and script:find("yt-dlp compatibility check timed out after 120 seconds", 1, true),
     "A stuck yt-dlp version check must be bounded and report a clear timeout")
+assert(script:find("set_status", 1, true) and script:find("[setup] %s", 1, true)
+    and script:find("-# -o", 1, true) and script:find("still running", 1, true),
+    "Bootstrap output must include stage changes, visible download progress, and compatibility-check heartbeats")
 assert(script:find("yt%-dlp_linux") and script:find("ffmpeg%-release%-amd64%-static"),
     "The generated installer must use the selected upstream assets")
 assert(script:find("%$tools/yt%-dlp") and script:find("%$tools/ffmpeg"),
@@ -358,10 +366,15 @@ auto_youtube._pollDetached = function(_, handle)
     return nil
 end
 local refreshes_before_bootstrap_tick = refresh_calls
+assert(YouTube._writeFile(auto_state.bootstrap.handle.log, "[check] live version output\n"),
+    "The fake bootstrap log should be writable")
 local tick_ok, tick_error = pcall(bootstrap_tick)
 assert(tick_ok, "The asynchronous setup tick must not call an undefined hostIsActive helper: " .. tostring(tick_error))
 assert(refresh_calls == refreshes_before_bootstrap_tick + 1,
     "An active first-run setup tick must refresh its progress pane")
+assert(auto_state.bootstrap.live_output:find("live version output", 1, true)
+    and auto_state.bootstrap.live_widget.text:find("live version output", 1, true),
+    "The setup tick must stream the current log tail into its visible widget")
 while #scheduled > scheduled_before_setup do table.remove(scheduled) end
 os.execute("rm -rf " .. auto_state.bootstrap_work)
 
