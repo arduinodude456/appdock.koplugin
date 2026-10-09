@@ -1740,6 +1740,7 @@ local Row = InputContainer:extend{
     video_card = false,
     thumbnail_text = "▶",
     thumbnail_path = nil,
+    thumbnail_source_path = nil,
     dimen = nil,
 }
 
@@ -1783,6 +1784,20 @@ function Row:init()
                 image_ok = true
             end
         end
+        if not image_ok and fileExists(self.thumbnail_source_path) then
+            local ok, frame = pcall(function()
+                local handle = io.open(self.thumbnail_source_path, "rb")
+                if not handle then return nil end
+                local header = BWR.readHeader(handle)
+                if not header then handle:close(); return nil end
+                handle:seek("set", BWR.HEADER_BYTES)
+                local packed = handle:read(header.frame_bytes)
+                handle:close()
+                if not packed or #packed ~= header.frame_bytes then return nil end
+                return BWR.expandFrame(packed, header.width, header.height)
+            end)
+            if ok and frame then self.thumbnail_frame = frame end
+        end
         if not image_ok then
             self.thumbnail_widget = TextWidget:new{
                 text = self.thumbnail_text or "▶",
@@ -1815,13 +1830,26 @@ function Row:paintTo(bb, x, y)
     end
     local padding = scale(8)
     if self.video_card then
-        if not self.has_thumbnail_image then
+        if self.thumbnail_frame then
+            local draw_w, draw_h = self.thumbnail_width, self.height - padding * 2
+            local source_w, source_h = self.thumbnail_frame:getWidth(), self.thumbnail_frame:getHeight()
+            local copy_w = math.min(draw_w, source_w)
+            local copy_h = math.min(draw_h, source_h)
+            bb:paintRect(x + padding, y + padding, draw_w, draw_h, Blitbuffer.COLOR_BLACK)
+            bb:blitFrom(self.thumbnail_frame,
+                x + padding + math.floor((draw_w - copy_w) / 2),
+                y + padding + math.floor((draw_h - copy_h) / 2),
+                math.floor((source_w - copy_w) / 2),
+                math.floor((source_h - copy_h) / 2), copy_w, copy_h)
+        elseif not self.has_thumbnail_image then
             bb:paintRect(x + padding, y + padding, self.thumbnail_width, self.height - padding * 2, Blitbuffer.COLOR_DARK_GRAY)
         end
-        local thumb_size = self.thumbnail_widget:getSize()
-        self.thumbnail_widget:paintTo(bb,
-            x + padding + math.floor((self.thumbnail_width - thumb_size.w) / 2),
-            y + math.floor((self.height - thumb_size.h) / 2))
+        if not self.thumbnail_frame then
+            local thumb_size = self.thumbnail_widget:getSize()
+            self.thumbnail_widget:paintTo(bb,
+                x + padding + math.floor((self.thumbnail_width - thumb_size.w) / 2),
+                y + math.floor((self.height - thumb_size.h) / 2))
+        end
     end
     local text_x = x + padding + self.thumbnail_width + (self.video_card and padding or 0)
     self.title_widget:paintTo(bb, text_x, y + scale(5))
@@ -2051,6 +2079,7 @@ local function buildList(content, entries, page, per_page, offset_y, row_height,
             video_card = entry.video_card == true,
             thumbnail_text = entry.thumbnail_text or "▶",
             thumbnail_path = entry.thumbnail_path,
+            thumbnail_source_path = entry.path,
             callback = function() if on_tap then on_tap(entry) end end,
             hold_callback = on_hold and function() on_hold(entry) end or nil,
         }
@@ -2286,6 +2315,7 @@ function YouTube:_buildResultsPane(instance, context, state)
             video_card = true,
             thumbnail_text = "▶",
             thumbnail_path = result.thumbnail_path,
+            path = result.path,
             result = result,
         }
     end
