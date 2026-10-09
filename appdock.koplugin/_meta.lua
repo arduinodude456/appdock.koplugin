@@ -2,7 +2,7 @@ local _ = require("gettext")
 
 return {
     fullname = _("AppDock Homescreen"),
-    description = _("An E-Ink homescreen with a DuckDuckGo search bar, the AppDock Store, an easy-to-enter editor, and clear quick settings with a touch brightness slider."),
-    version = "7.8.10",
+    description = _("An E-Ink homescreen with a DuckDuckGo search bar, the AppDock Store, a YouTube DApp that converts videos to E-Ink video, an easy-to-enter editor, and clear quick settings with a touch brightness slider."),
+    version = "7.8.12",
     author = "Manus AI",
 }

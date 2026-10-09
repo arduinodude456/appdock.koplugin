@@ -25,6 +25,7 @@ local Help = require("appdock_help")
 local WebBrowser = require("appdock_browser")
 local FileBrowser = require("appdock_filemanager")
 local AppStore = require("appdock_appstore")
+local YouTube = require("appdock_youtube")
 local InfoMessage = require("ui/widget/infomessage")
 local OverlapGroup = require("ui/widget/overlapgroup")
 local TextWidget = require("ui/widget/textwidget")
@@ -974,6 +975,7 @@ function DAppManager:new(appdock)
         browser = WebBrowser:new(),
         file_browser = FileBrowser:new(),
         app_store = AppStore:new(),
+        youtube = YouTube:new(appdock),
         help = Help:new({
             scale = scale, palette = PALETTE, Geom = Geom, Font = Font,
             WidgetContainer = WidgetContainer, FrameContainer = FrameContainer,
@@ -1042,6 +1044,19 @@ function DAppManager:_registerBuiltins()
         logo = "file_manager",
         buildPane = function(instance, context)
             return self.file_browser:buildPane(instance, context)
+        end,
+    }
+    self.definitions.youtube = {
+        id = "youtube",
+        title = _("YouTube"),
+        subtitle = _("Search, convert and watch E-Ink video"),
+        symbol = "Y",
+        logo = "youtube",
+        buildPane = function(instance, context)
+            return self.youtube:buildPane(instance, context)
+        end,
+        onClose = function()
+            if self.youtube and self.youtube.player then self.youtube.player:stop() end
         end,
     }
     self.definitions.settings = {

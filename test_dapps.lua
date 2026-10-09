@@ -139,6 +139,20 @@ package.preload["ui/network/manager"] = function()
         toggleWifiOff = function(_, callback) wifi_on = false; callback() end,
     }
 end
+-- The YouTube DApp drives external tools and the BWR1 encoder. Its own test
+-- file covers those modules; here it only has to satisfy the DApp contract.
+package.preload["appdock_youtube"] = function()
+    return {
+        new = function()
+            return {
+                buildPane = function(_, instance, context)
+                    return WidgetContainer:new{ dimen = { w = context.dimen.w, h = context.dimen.h } }
+                end,
+                player = { stop = function() log.youtube_player_stops = (log.youtube_player_stops or 0) + 1 end },
+            }
+        end,
+    }
+end
 package.preload["ui/widget/confirmbox"] = function() return WidgetContainer end
 package.preload["ui/widget/inputdialog"] = function() return WidgetContainer end
 package.preload["ui/widget/buttondialog"] = function() return WidgetContainer end
@@ -411,7 +425,11 @@ assert(appdock:setBetaOption("plugin_custom_logos", true) and appdock:setPluginL
 appdock:setBetaOption("manual_app_spacing", true)
 assert(appdock.settings.beta.manual_app_spacing and appdock:setLauncherLayout({ app_spacing = 21 }) and appdock.settings.layout.app_spacing == 21, "Manual spacing Beta must persist a bounded launcher spacing value through the layout contract")
 local catalog = manager:getCatalogApps()
-assert(#catalog == 6 and catalog[1].id and catalog[2].id and catalog[3].id and catalog[4].id and catalog[5].id and catalog[6].id, "DApp registry must expose all built-in catalog apps")
+assert(#catalog == 7 and catalog[1].id and catalog[2].id and catalog[3].id and catalog[4].id and catalog[5].id and catalog[6].id and catalog[7].id, "DApp registry must expose all built-in catalog apps")
+for _, entry in ipairs(catalog) do
+    if entry.id == "dapp:youtube" then log.youtube_entry = entry end
+end
+assert(log.youtube_entry and log.youtube_entry.logo == "youtube" and log.youtube_entry.kind == "dapp", "The built-in YouTube DApp must be part of the AppDock catalog")
 local store_saves_before_install = log.store_saved or 0
 local store_fixture = "/tmp/appdock_store_fixture.lua"
 local store_file = assert(io.open(store_fixture, "wb"))
