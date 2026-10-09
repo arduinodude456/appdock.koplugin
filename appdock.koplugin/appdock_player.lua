@@ -296,18 +296,18 @@ function Engine:play()
                 UIManager:scheduleIn(AUDIO_START_POLL_INTERVAL, self.tick)
                 return true
             end
-            if ok and not self.audio:requiresStartConfirmation() and self.video_delay > 0 then
-                self.pending_start = {
-                    position = self.position or 0,
-                    deadline = Player.now() + self.video_delay,
-                    clock_ready = true,
-                }
-                self.anchor_wall, self.paused = nil, false
-                self:status(_("Audio started; waiting for video offset…"))
-                UIManager:unschedule(self.tick)
-                UIManager:scheduleIn(AUDIO_START_POLL_INTERVAL, self.tick)
-                return true
-            end
+        end
+        if ok and not self.audio:requiresStartConfirmation() and self.video_delay > 0 then
+            self.pending_start = {
+                position = self.position or 0,
+                deadline = Player.now() + self.video_delay,
+                clock_ready = true,
+            }
+            self.anchor_wall, self.paused = nil, false
+            self:status(_("Audio started; waiting for video offset…"))
+            UIManager:unschedule(self.tick)
+            UIManager:scheduleIn(AUDIO_START_POLL_INTERVAL, self.tick)
+            return true
         end
     else
         self:status(_("Playing without companion audio."))
