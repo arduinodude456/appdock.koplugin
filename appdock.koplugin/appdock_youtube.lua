@@ -817,17 +817,25 @@ function YouTube.buildBootstrapCommand(tool_dir, work_dir, plan, need_ytdlp, nee
         local url = plan.ytdlp_base .. asset
         lines[#lines + 1] = "echo 'Downloading yt-dlp from the official GitHub release…' > \"$status\""
         lines[#lines + 1] = "download " .. q(url) .. " \"$tmp/yt-dlp.pkg\""
-        lines[#lines + 1] = "echo 'Verifying yt-dlp checksum…' > \"$status\""
+        lines[#lines + 1] = "echo 'Downloading the yt-dlp SHA-256 manifest…' > \"$status\""
         lines[#lines + 1] = "download " .. q(plan.ytdlp_base .. "SHA2-256SUMS") .. " \"$tmp/SHA2-256SUMS\""
+        lines[#lines + 1] = "echo 'Calculating yt-dlp SHA-256 (large files may take a while on eReaders)…' > \"$status\""
         lines[#lines + 1] = "expected=$(awk -v name=" .. q(asset) .. " '$2 == name || $2 == \"*\" name { print $1; exit }' \"$tmp/SHA2-256SUMS\")"
         lines[#lines + 1] = "actual=$(sha256sum \"$tmp/yt-dlp.pkg\" | awk '{print $1}')"
         lines[#lines + 1] = "test -n \"$expected\" && test \"$expected\" = \"$actual\" || { echo 'yt-dlp SHA-256 verification failed.' >&2; exit 1; }"
+        lines[#lines + 1] = "echo 'yt-dlp checksum verified; preparing executable…' > \"$status\""
         if plan.ytdlp_zip then
-            lines[#lines + 1] = "if command -v unzip >/dev/null 2>&1; then unzip -p \"$tmp/yt-dlp.pkg\" > \"$tmp/yt-dlp.new\"; elif command -v busybox >/dev/null 2>&1; then busybox unzip -p \"$tmp/yt-dlp.pkg\" > \"$tmp/yt-dlp.new\"; else echo 'unzip (or BusyBox with unzip) is required for the ARMv7 yt-dlp build.' >&2; exit 1; fi"
+            lines[#lines + 1] = "echo 'Extracting the ARMv7 yt-dlp runtime…' > \"$status\""
+            lines[#lines + 1] = "mkdir -p \"$tmp/yt-dlp-runtime\""
+            lines[#lines + 1] = "if command -v unzip >/dev/null 2>&1; then unzip -q \"$tmp/yt-dlp.pkg\" -d \"$tmp/yt-dlp-runtime\"; elif command -v busybox >/dev/null 2>&1; then busybox unzip -q \"$tmp/yt-dlp.pkg\" -d \"$tmp/yt-dlp-runtime\"; else echo 'unzip (or BusyBox with unzip) is required for the ARMv7 yt-dlp build.' >&2; exit 1; fi"
+            lines[#lines + 1] = "test -f \"$tmp/yt-dlp-runtime/yt-dlp_linux_armv7l\" || { echo 'The ARMv7 yt-dlp archive is missing its executable.' >&2; exit 1; }"
+            lines[#lines + 1] = "chmod 755 \"$tmp/yt-dlp-runtime/yt-dlp_linux_armv7l\""
+            lines[#lines + 1] = "printf '%s\\n' '#!/bin/sh' 'case \"$0\" in */*) d=${0%/*} ;; *) d=. ;; esac' 'exec \"$d/yt-dlp-runtime/yt-dlp_linux_armv7l\" \"$@\"' > \"$tmp/yt-dlp.new\""
         else
             lines[#lines + 1] = "cp \"$tmp/yt-dlp.pkg\" \"$tmp/yt-dlp.new\""
         end
         lines[#lines + 1] = "chmod 755 \"$tmp/yt-dlp.new\""
+        lines[#lines + 1] = "echo 'Starting yt-dlp compatibility check…' > \"$status\""
         lines[#lines + 1] = "\"$tmp/yt-dlp.new\" --version >/dev/null 2>&1 || { echo 'Downloaded yt-dlp cannot run on this device.' >&2; exit 1; }"
     end
     if need_ffmpeg then
@@ -850,7 +858,13 @@ function YouTube.buildBootstrapCommand(tool_dir, work_dir, plan, need_ytdlp, nee
     end
     if need_ytdlp then
         lines[#lines + 1] = "test ! -e \"$tools/yt-dlp\" || { echo 'An AppDock yt-dlp file appeared during setup; refusing to replace it.' >&2; exit 1; }"
-        lines[#lines + 1] = "mv \"$tmp/yt-dlp.new\" \"$tools/yt-dlp\""
+        if plan.ytdlp_zip then
+            lines[#lines + 1] = "test ! -e \"$tools/yt-dlp-runtime\" || { echo 'An AppDock yt-dlp runtime appeared during setup; refusing to replace it.' >&2; exit 1; }"
+            lines[#lines + 1] = "mv \"$tmp/yt-dlp-runtime\" \"$tools/yt-dlp-runtime\""
+            lines[#lines + 1] = "if ! mv \"$tmp/yt-dlp.new\" \"$tools/yt-dlp\"; then rm -rf \"$tools/yt-dlp-runtime\"; exit 1; fi"
+        else
+            lines[#lines + 1] = "mv \"$tmp/yt-dlp.new\" \"$tools/yt-dlp\""
+        end
     end
     if need_ffmpeg then
         lines[#lines + 1] = "test ! -e \"$tools/ffmpeg\" || { echo 'An AppDock ffmpeg file appeared during setup; refusing to replace it.' >&2; exit 1; }"
