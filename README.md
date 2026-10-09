@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.8.10** stellt 10er-Helligkeitsschritte und 0%-Frontlight während des Bildschirmschoners bereit. [Details](RELEASE_NOTES_7.8.10.md).
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.9.0** ergänzt die DApp **YouTube**, die Videos über yt-dlp und ffmpeg in E-Ink-Video umwandelt und direkt im Reader abspielt. [Details](RELEASE_NOTES_7.9.0.md).
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst Androids Formensprache, nicht dessen Daueranimationen, Unschärfen oder Transparenzeffekte. Auf E-Ink wechseln App-Seiten und Recently-used-Drawer direkt und ohne Zwischenanimation. Damit bleibt die Darstellung auf monochromen Readern kontrastreich, sparsam und frei von unnötigem Ghosting.
 
@@ -27,6 +27,8 @@
 > **7.5.1:** Der Store-Kopf trägt jetzt ausschließlich die AppDock-Eigenmarke **AppDock Store** und das vorhandene AppStore-Logo. Das externe Play-Zeichen und der entsprechende Schriftzug wurden entfernt. [Details](RELEASE_NOTES_7.5.1.md).
 
 > **7.5.0:** Die erste Homescreen-Seite erhielt eine gebrandete **DuckDuckGo-Suchleiste**; der AppStore wurde mit Suchfeld, Empfehlungskarten, Installationsaktionen und unterer Kategorienavigation neu gestaltet. Angezeigt werden weiterhin nur echte Katalogdaten, ohne erfundene Bewertungen oder Screenshots. Details stehen in [`RELEASE_NOTES_7.5.0.md`](RELEASE_NOTES_7.5.0.md).
+
+> **7.9.0:** Die neue DApp **YouTube** sucht und lädt Videos mit **yt-dlp**, wandelt sie mit **ffmpeg** in das Schwarzweiß-Containerformat **BWR1** um und spielt sie im Reader ab. Das Format und die Dither-Matrix sind byte-kompatibel zum Konverter aus dem Release **„Snake“** von `videoplayer.koplugin`. Beide Werkzeuge werden nicht mitgeliefert und bleiben optional. Details stehen in [`RELEASE_NOTES_7.9.0.md`](RELEASE_NOTES_7.9.0.md).
 
 ## Neu in 3.0.0 „Cappuccino“
 
@@ -115,9 +117,10 @@ Starte KOReader danach vollständig neu. Unter **More tools → Plugin managemen
 | **Files** | Zeigt die Bibliothek in einem eigenen, scrollbaren AppDock-Dateibrowser. | Große Ordner- und Dateikarten, Ordner zuerst, **Up**, **Home** und **Refresh**; `.lua`-Dateien gehen direkt an NightLua. Nach DReader-Installation gehen `.epub`, `.html`, `.htm`, `.xhtml`, `.md` und `.markdown` direkt an DReader. Andere unterstützte Dokumente öffnen weiterhin über KOReaders sicheren ReaderUI-Pfad. |
 | **AppStore** | Lädt den Katalog aus [`arduinodude456/DApps`](https://github.com/arduinodude456/DApps). | Verwendet AppDock-eigene **AppDock Store**-Marke und AppStore-Logo, Suchfeld, **Recommended for you**-Regal, Katalogzeilen mit Installieren/Öffnen/Deinstallieren und untere Kategorienavigation. Liest nur `dapps.txt` über HTTPS, lässt den bereits geladenen Katalog lokal durchsuchen, erkennt neuere Repository-Versionen als **Update** und verlangt vor Installation, Update oder Deinstallation eine ausdrückliche Bestätigung. |
 | **Web Browser** | Öffnet serverseitig bereitgestellte Webinhalte und sucht über DuckDuckGo HTML. | Startseite, Direktziele, Reload, lokale Historie und klarer Lesemodus; aktive Webinhalte bleiben deaktiviert. |
+| **YouTube** | Sucht, lädt und konvertiert Videos für ein Schwarzweiß-Display. | Steuert **yt-dlp** und **ffmpeg** statt eigener Netzwerkzugriffe; schreibt **BWR1**-Dateien mit passender `.wav`-Tonspur, die auch der Player aus `videoplayer.koplugin` liest. Bibliothek, Fortschrittsansicht und Werkzeugverwaltung inklusive; im Splitscreen spielbar. |
 | **Help** | Offline verfügbare Bedienhilfe für AppDock. | Erläutert Homescreen, Schnellzugriff, DApps, Splitscreen, Browser und E-Ink-Refresh; auch im Splitscreen lesbar. |
 
-Die Logo-Bibliothek umfasst jetzt **38** gezeichnete Symbole für Produktivität, Medien, Kommunikation, Daten und Navigation. Die vollständige Auswahl und die Einbindung über das Feld `logo` stehen in [`DAPP_LOGOS.md`](DAPP_LOGOS.md).
+Die Logo-Bibliothek umfasst jetzt **45** gezeichnete Symbole für Produktivität, Medien, Kommunikation, Daten und Navigation, seit 7.9.0 einschließlich der Marke `youtube`. Die vollständige Auswahl und die Einbindung über das Feld `logo` stehen in [`DAPP_LOGOS.md`](DAPP_LOGOS.md).
 
 DApps bauen ihren Inhalt ausschließlich innerhalb eines vom DApp-Host zugewiesenen Pane-Rechtecks. Der Pane-Vertrag ist in einem echten Splitscreen umgesetzt: Ein gemeinsamer Host kann zwei geöffnete DApps untereinander mit klarer Trennlinie darstellen, ohne die DApps selbst umzuschreiben. Der **File Manager** behält dabei seinen aktuellen Ordner als DApp-Zustand und bleibt deshalb ebenfalls in Open apps sichtbar und splittbar. Seine Auflistung verwendet KOReaders LuaFileSystem-Schnittstelle; reguläre Dateien und Ordner werden angezeigt, nicht unterstützte Dateien ausdrücklich markiert und nicht geöffnet. Die detaillierte technische Beschreibung steht in `DAPP_ARCHITECTURE.md` und `SPLITSCREEN_DESIGN.md`. [7] [8]
 
@@ -176,6 +179,35 @@ Die DuckDuckGo-Leiste des Homescreens übergibt ihre bestätigte Anfrage unverä
 | HTTP/HTTPS, Weiterleitungen, serverseitiges HTML, DuckDuckGo HTML, relative Links, kleine lokale Historie | JavaScript, Formulare, Logins mit JavaScript, Videos, WebSockets, Downloads und Nicht-HTTP(S)-Links |
 
 Der Browser akzeptiert ausschließlich `http://` und `https://` und verwirft etwa `javascript:`, `file:`, `data:` oder `mailto:`. Antwortgrößen und Netzwerkzeit sind begrenzt. Eine ausführliche Beschreibung steht in `BROWSER_DESIGN.md`.
+
+## YouTube und E-Ink-Video
+
+Die DApp **YouTube** bringt Video auf ein Schwarzweiß-Display. Sie spricht nie selbst mit YouTube, sondern steuert zwei Werkzeuge, die der Nutzer einmal installiert: **yt-dlp** löst Links und Suchanfragen auf und lädt das Video, **ffmpeg** dekodiert es und erzeugt die Tonspur. Beide Programme werden nicht mitgeliefert; AppDock findet sie über `command -v` oder im Ordner `appdock/tools` des KOReader-Datenverzeichnisses und akzeptiert zusätzlich einen manuell eingetragenen Pfad.
+
+| Eingabe | Wirkung |
+|---|---|
+| **Search YouTube** | Übergibt die Anfrage als `ytsearch` an yt-dlp und zeigt die Treffer mit Kanal und Dauer. |
+| **Paste a video link** | Akzeptiert Video-, Shorts-, Live- und Embed-Links sowie eine reine elfstellige Video-ID. Andere Adressen werden ausdrücklich abgelehnt. |
+| **Convert a local video file** | Konvertiert eine bereits vorhandene Datei, die ffmpeg dekodieren kann. |
+
+Unter der Suche stellen drei Felder Auflösung, Bildrate und Maximallänge ein; die Ansicht **Tools** verwaltet zusätzlich Programm-Pfade, Ausgabeordner, maximale Quellqualität und die Dither-Methode. Konvertierungen laufen als abgekoppelte Prozesse weiter, auch wenn die DApp verlassen wird, und können im Fortschrittsbildschirm abgebrochen werden.
+
+### Format und Kompatibilität
+
+AppDock schreibt das Containerformat **BWR1**: ein 32-Byte-Kopf, danach 1 Bit pro Pixel, MSB zuerst, wobei 1 für Weiß steht. Dieses Layout und die geordnete 8×8-Dither-Matrix entsprechen dem Konverter `tools/make.py` aus dem Release **„Snake“** von `videoplayer.koplugin`. Eine in AppDock erzeugte Datei ist damit ohne Nachbearbeitung mit diesem Player austauschbar, und eine dort erzeugte Datei läuft umgekehrt in der YouTube-DApp. Zu jeder `.bwr`-Datei entsteht eine gleichnamige `.wav`-Tonspur; fehlt sie, läuft die Wiedergabe stumm.
+
+Optional übernimmt ffmpeg die 1-Bit-Umwandlung über `format=monow`. Da einzelne ffmpeg-Builds die Bitrichtung unterschiedlich schreiben, prüft AppDock das Verhalten einmalig zur Laufzeit und verwendet bei unklarer Antwort die eigene Matrix.
+
+### Wiedergabe
+
+Der Player zeigt den Frame, der zur tatsächlich verstrichenen Zeit gehört: Die Tonspur ist die Master-Uhr, sodass Schwankungen des Zeitgebers keine Drift erzeugen. Frames sind bereits gedithert und werden nur noch zu Bytes expandiert und geblittet; aktualisiert wird ausschließlich das eigene Rechteck mit einem **schnellen** Refresh. Bedient wird über **-5 s**, **Play/Pause**, **+5 s** und **Restart**. Die Bibliothek listet alle konvertierten Videos, ein Tipp startet die Wiedergabe und ein langer Druck fragt vor dem Löschen nach.
+
+| Umgebung | Verhalten |
+|---|---|
+| Vollbild-Host | Der Player füllt das gesamte Pane-Rechteck unter der App-Leiste. |
+| Splitscreen | Der Player arbeitet innerhalb des zugewiesenen Pane-Rechtecks und bleibt dort bedienbar. |
+| Ton | `gst-launch-1.0` mit `mtkbtmwrpcaudiosink` auf passenden Geräten, sonst `aplay` oder `tinyplay`; eine bereits gekoppelte Bluetooth-Verbindung läuft über denselben Weg. |
+| Grenzen | Nur YouTube-Quellen und lokale Dateien, die ffmpeg dekodieren kann; Länge, Auflösung und Bildrate hängen von Speicherplatz und Rechenleistung des Readers ab. |
 
 ## Splitscreen
 

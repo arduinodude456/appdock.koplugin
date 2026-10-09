@@ -27,6 +27,7 @@ local DEFAULT_SETTINGS = {
         "dapp:web_browser",
         "dapp:file_manager",
         "dapp:app_store",
+        "dapp:youtube",
         "dapp:analog_clock",
         "dapp:settings",
         "dapp:help",
@@ -64,7 +65,17 @@ local DEFAULT_SETTINGS = {
     power_saving = false,
     refresh_interval = 60,
     sleepscreen_enabled = false,
-    layout_version = 20,
+    youtube = {
+        ytdlp_path = "",
+        ffmpeg_path = "",
+        output_dir = "",
+        resolution_percent = 100,
+        fps = 12,
+        max_duration = 180,
+        max_height = 480,
+        dither = "bayer",
+    },
+    layout_version = 21,
 }
 
 local function copyArray(source)
@@ -73,6 +84,35 @@ local function copyArray(source)
         result[index] = value
     end
     return result
+end
+
+-- The YouTube DApp owns its own tool paths and conversion defaults. They are
+-- normalized in one place so a stored value can never break a conversion.
+local YOUTUBE_RESOLUTIONS = { [100] = true, [75] = true, [50] = true, [35] = true }
+local YOUTUBE_FRAME_RATES = { [7.5] = true, [10] = true, [12] = true, [15] = true }
+local YOUTUBE_HEIGHTS = { [360] = true, [480] = true, [720] = true }
+
+local function boundedText(value, limit)
+    if type(value) ~= "string" then return "" end
+    return value:gsub("^%s+", ""):gsub("%s+$", ""):sub(1, limit)
+end
+
+local function normalizeYouTubeSettings(stored)
+    stored = type(stored) == "table" and stored or {}
+    local resolution = tonumber(stored.resolution_percent)
+    local frame_rate = tonumber(stored.fps)
+    local duration = tonumber(stored.max_duration)
+    local height = tonumber(stored.max_height)
+    return {
+        ytdlp_path = boundedText(stored.ytdlp_path, 360),
+        ffmpeg_path = boundedText(stored.ffmpeg_path, 360),
+        output_dir = boundedText(stored.output_dir, 360),
+        resolution_percent = (resolution and YOUTUBE_RESOLUTIONS[resolution]) and resolution or 100,
+        fps = (frame_rate and YOUTUBE_FRAME_RATES[frame_rate]) and frame_rate or 12,
+        max_duration = (duration and duration >= 0 and duration <= 3600) and math.floor(duration) or 180,
+        max_height = (height and YOUTUBE_HEIGHTS[height]) and height or 480,
+        dither = stored.dither == "ffmpeg" and "ffmpeg" or "bayer",
+    }
 end
 
 function AppDock:init()
@@ -149,6 +189,7 @@ function AppDock:_loadSettings()
         power_saving = stored.power_saving == true,
         refresh_interval = tonumber(stored.refresh_interval) or DEFAULT_SETTINGS.refresh_interval,
         sleepscreen_enabled = stored.sleepscreen_enabled == true,
+        youtube = normalizeYouTubeSettings(stored.youtube),
         layout_version = stored.layout_version or 1,
     }
 
@@ -191,6 +232,21 @@ function AppDock:_loadSettings()
             end
         end
         self.settings.pinned_apps = migrated
+    end
+    if self.settings.layout_version < 21 then
+        -- Existing installations receive the YouTube tile once. Users who
+        -- remove it afterwards keep their own launcher.
+        local pinned_youtube = false
+        for _, app_id in ipairs(self.settings.pinned_apps) do
+            if app_id == "dapp:youtube" then pinned_youtube = true break end
+        end
+        if not pinned_youtube then
+            local insert_at
+            for index, app_id in ipairs(self.settings.pinned_apps) do
+                if app_id == "dapp:app_store" then insert_at = index + 1 break end
+            end
+            table.insert(self.settings.pinned_apps, insert_at or (#self.settings.pinned_apps + 1), "dapp:youtube")
+        end
     end
     if self.settings.layout_version < DEFAULT_SETTINGS.layout_version then self.settings.layout_version = DEFAULT_SETTINGS.layout_version end
 
@@ -674,6 +730,27 @@ function AppDock:setDAppPermission(id, key, enabled)
         local manager = self:getDAppManager()
         if manager and manager.runPermittedAutostarts then manager:runPermittedAutostarts() end
     end
+    return true
+end
+
+function AppDock:getYouTubeSettings()
+    self.settings.youtube = normalizeYouTubeSettings(self.settings.youtube)
+    return self.settings.youtube
+end
+
+-- Merges the given keys, normalizes the result and persists it. Unknown or
+-- unusable values fall back to the DApp defaults instead of being stored.
+function AppDock:setYouTubeSettings(changes)
+    if type(changes) ~= "table" then return false end
+    local merged = {}
+    for key, value in pairs(self:getYouTubeSettings()) do merged[key] = value end
+    for key, value in pairs(changes) do
+        if type(key) == "string" and (type(value) == "string" or type(value) == "number" or type(value) == "boolean") then
+            merged[key] = value
+        end
+    end
+    self.settings.youtube = normalizeYouTubeSettings(merged)
+    self:_saveSettings()
     return true
 end
 

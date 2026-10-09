@@ -1,0 +1,382 @@
+-- AppDock YouTube DApp test.
+--
+-- Covers the pure helpers, tool discovery and the complete conversion
+-- pipeline. The conversion part runs a real ffmpeg against a locally generated
+-- clip, so the BWR1 file it produces is decoded again and inspected. When
+-- ffmpeg is unavailable the conversion section is skipped instead of failing.
+
+local plugin_dir = os.getenv("APPDOCK_PLUGIN_DIR") or "/home/ubuntu/appdock.koplugin/appdock.koplugin/"
+local data_dir = "/tmp/appdock_youtube_test"
+local ffi = require("ffi")
+local lfs = require("lfs")
+
+os.execute("rm -rf " .. data_dir)
+assert(lfs.mkdir(data_dir), "The test data directory must be creatable")
+
+----------------------------------------------------------------
+-- KOReader stubs
+----------------------------------------------------------------
+
+local function baseClass(prototype)
+    prototype = prototype or {}
+    prototype.__index = prototype
+    function prototype:extend(child)
+        child = child or {}
+        child.__index = child
+        setmetatable(child, { __index = self })
+        return child
+    end
+    function prototype:new(args)
+        local instance = setmetatable(args or {}, self)
+        if instance._init then instance:_init() end
+        if instance.init then instance:init() end
+        return instance
+    end
+    function prototype:getSize()
+        if self.dimen then return self.dimen end
+        return { w = self.width or 0, h = self.height or 0 }
+    end
+    function prototype:clear() while table.remove(self) do end end
+    return prototype
+end
+
+local Widget = baseClass({})
+local WidgetContainer = Widget:extend({})
+local InputContainer = WidgetContainer:extend({})
+function InputContainer:paintTo() end
+local FrameContainer = WidgetContainer:extend({})
+local CenterContainer = WidgetContainer:extend({})
+local OverlapGroup = WidgetContainer:extend({})
+local HorizontalSpan = Widget:extend({})
+
+local TextWidget = Widget:extend({})
+function TextWidget:getSize()
+    local size = self.face and self.face.size or 12
+    return { w = #(self.text or "") * math.floor(size * .5), h = size }
+end
+function TextWidget:setText(text) self.text = text end
+
+package.preload["gettext"] = function() return function(text) return text end end
+package.preload["logger"] = function()
+    return { info = function() end, warn = function() end, err = function() end, dbg = function() end }
+end
+package.preload["datastorage"] = function()
+    return { getDataDir = function() return data_dir end }
+end
+package.preload["device"] = function()
+    return {
+        screen = {
+            getSize = function() return { w = 600, h = 800 } end,
+            getWidth = function() return 600 end,
+            getHeight = function() return 800 end,
+            scaleBySize = function(_, value) return value end,
+        },
+        hasKeys = function() return false end,
+    }
+end
+package.preload["ffi/blitbuffer"] = function()
+    return {
+        TYPE_BB8 = 1,
+        COLOR_WHITE = "white", COLOR_BLACK = "black",
+        COLOR_DARK_GRAY = "dark", COLOR_LIGHT_GRAY = "light", COLOR_GRAY = "gray",
+        COLOR_GRAY_7 = "g7", COLOR_GRAY_8 = "g8",
+        new = function(width, height)
+            return {
+                width = width, height = height,
+                data = ffi.new("uint8_t[?]", width * height),
+                getWidth = function(self) return self.width end,
+                getHeight = function(self) return self.height end,
+                free = function() end,
+            }
+        end,
+    }
+end
+package.preload["ui/font"] = function()
+    return { getFace = function(_, name, size) return { name = name, size = size or 12 } end }
+end
+package.preload["ui/geometry"] = function() return { new = function(_, args) return args end } end
+package.preload["ui/gesturerange"] = function() return { new = function(_, args) return args end } end
+package.preload["ui/widget/widget"] = function() return Widget end
+package.preload["ui/widget/container/widgetcontainer"] = function() return WidgetContainer end
+package.preload["ui/widget/container/inputcontainer"] = function() return InputContainer end
+package.preload["ui/widget/container/centercontainer"] = function() return CenterContainer end
+package.preload["ui/widget/container/framecontainer"] = function() return FrameContainer end
+package.preload["ui/widget/overlapgroup"] = function() return OverlapGroup end
+package.preload["ui/widget/horizontalspan"] = function() return HorizontalSpan end
+package.preload["ui/widget/textwidget"] = function() return TextWidget end
+package.preload["ui/widget/infomessage"] = function() return WidgetContainer end
+package.preload["ui/widget/inputdialog"] = function() return WidgetContainer end
+package.preload["appdock_keyboard"] = function() return WidgetContainer end
+package.preload["appdock_logo"] = function()
+    local Logo = Widget:extend({})
+    function Logo:init() self.dimen = { w = self.size or 0, h = self.size or 0 } end
+    return Logo
+end
+package.preload["libs/libkoreader-lfs"] = function() return lfs end
+
+local scheduled = {}
+local ui_log = { dirties = 0, shows = 0 }
+package.preload["ui/uimanager"] = function()
+    return {
+        scheduleIn = function(_, _, callback) table.insert(scheduled, callback) end,
+        unschedule = function(_, callback)
+            for index, entry in ipairs(scheduled) do
+                if entry == callback then table.remove(scheduled, index); break end
+            end
+        end,
+        nextTick = function(_, callback) table.insert(scheduled, callback) end,
+        setDirty = function() ui_log.dirties = ui_log.dirties + 1 end,
+        widgetRepaint = function() end,
+        forceRePaint = function() end,
+        yieldToEPDC = function() end,
+        show = function() ui_log.shows = ui_log.shows + 1 end,
+        close = function() ui_log.shows = math.max(0, ui_log.shows - 1) end,
+    }
+end
+
+local BWR = dofile(plugin_dir .. "appdock_bwr.lua")
+local Player = dofile(plugin_dir .. "appdock_player.lua")
+local YouTube = dofile(plugin_dir .. "appdock_youtube.lua")
+
+----------------------------------------------------------------
+-- Pure helpers
+----------------------------------------------------------------
+
+local helpers = YouTube._test
+
+assert(helpers.parseVideoId("https://www.youtube.com/watch?v=dQw4w9WgXcQ") == "dQw4w9WgXcQ", "watch links must resolve to a video id")
+assert(helpers.parseVideoId("https://youtu.be/dQw4w9WgXcQ?t=42") == "dQw4w9WgXcQ", "short links must resolve to a video id")
+assert(helpers.parseVideoId("https://www.youtube.com/shorts/abcdefghijk") == "abcdefghijk", "shorts links must resolve to a video id")
+assert(helpers.parseVideoId("https://www.youtube.com/live/abcdefghijk") == "abcdefghijk", "live links must resolve to a video id")
+assert(helpers.parseVideoId("https://www.youtube.com/embed/abcdefghijk") == "abcdefghijk", "embed links must resolve to a video id")
+assert(helpers.parseVideoId("https://example.org/watch?v=abcdefghijk") == "abcdefghijk", "a v parameter must be accepted regardless of host")
+assert(helpers.parseVideoId("no link here") == nil, "plain text must not resolve to a video id")
+
+assert(helpers.classifyInput("https://youtu.be/abcdefghijk") == "video", "A YouTube link must be treated as a video")
+assert(helpers.classifyInput("https://example.org/page") == "unsupported", "A foreign link must be reported as unsupported")
+assert(helpers.classifyInput("rick astley") == "search", "Plain text must become a search")
+assert(helpers.classifyInput("   ") == nil, "Empty input must be ignored")
+
+assert(helpers.slugify("Rick Astley - Never Gonna Give You Up (Official Video)") == "Rick_Astley_-_Never_Gonna_Give_You_Up_Official_Video",
+    "Titles must become shell safe file names")
+assert(helpers.slugify("Rock & Roll") == "Rock_and_Roll", "Ampersands must become readable words")
+assert(helpers.slugify("Ärger & Lärm: Teil 1/2") == "Ärger_and_Lärm_Teil_1_2",
+    "Letters beyond ASCII must survive so German titles stay readable")
+assert(helpers.slugify("!!!") == "video", "A title without usable characters must fall back to a default")
+assert(#helpers.slugify(string.rep("x", 200)) <= 58, "Slugs must stay bounded")
+assert(helpers.slugify(string.rep("ä", 40)):sub(-1) ~= "\196" or #helpers.slugify(string.rep("ä", 40)) % 2 == 0,
+    "A truncated slug must not end inside a UTF-8 sequence")
+
+local results = helpers.parseSearchOutput("abc12345678\tFirst video\t212\tChannel One\n"
+    .. "xyz98765432\tSecond video\tNA\tChannel Two\n"
+    .. "broken line without tabs\n"
+    .. "\tMissing id\t10\tChannel Three\n")
+assert(#results == 2, "Only well formed search rows must survive parsing")
+assert(results[1].id == "abc12345678" and results[1].duration == 212 and results[1].uploader == "Channel One",
+    "Search rows must keep id, duration and channel")
+assert(results[1].url == "https://www.youtube.com/watch?v=abc12345678", "Search rows must expose a watch url")
+assert(results[2].duration == nil, "A missing duration must stay empty instead of becoming zero")
+
+assert(helpers.parseProgress("[download]   0.0% of 10.00MiB at 1.00MiB/s ETA 00:10\n"
+    .. "[download]  42.5% of 10.00MiB at 1.00MiB/s ETA 00:05\n"
+    .. "[download] 100.0% of 10.00MiB in 00:09\n") == 100, "The last download percentage must win")
+assert(helpers.parseProgress("no progress here") == nil, "A log without progress must report nothing")
+
+local filter = helpers.buildFilter(632, 840, 12, false)
+assert(filter:find("fps=12", 1, true) and filter:find("scale=632:840", 1, true), "The filter must carry rate and size")
+assert(filter:find("pad=632:840", 1, true) and filter:find("color=white", 1, true), "The filter must letterbox on white")
+assert(not filter:find("monow", 1, true), "The Bayer path must not ask ffmpeg for 1-bit output")
+assert(helpers.buildFilter(632, 840, 12, true):find("format=monow", 1, true), "The ffmpeg path must request monow output")
+
+local frame_width, frame_height = helpers.frameSize(100)
+assert(frame_width == 600 and frame_height == 800, "The full resolution must follow the device screen")
+assert(frame_width % 8 == 0, "A frame width must be divisible by 8")
+local half_width, half_height = helpers.frameSize(50)
+assert(half_width == 296 and half_height == 400, "Half resolution must be half of the screen, rounded to a byte")
+
+assert(helpers.cycle({ 60, 180, 600, 0 }, 600) == 0, "Cycling must wrap around")
+assert(helpers.cycle({ 60, 180, 600, 0 }, 42) == 60, "An unknown value must fall back to the first entry")
+assert(helpers.durationLabel(0) == "Full length", "Zero must mean full length")
+assert(helpers.durationLabel(180) == "3 min", "Whole minutes must read as minutes")
+
+----------------------------------------------------------------
+-- Settings plumbing
+----------------------------------------------------------------
+
+local stored = { output_dir = data_dir .. "/videos" }
+local appdock = {
+    getYouTubeSettings = function() return stored end,
+    setYouTubeSettings = function(_, patch)
+        for key, value in pairs(patch) do stored[key] = value end
+        return true
+    end,
+    notify = function() return true end,
+}
+local youtube = YouTube:new(appdock)
+local instance = {}
+local refresh_calls, rebuild_calls = 0, 0
+local context = {
+    dimen = { w = 600, h = 748 },
+    requestRefresh = function() refresh_calls = refresh_calls + 1 end,
+    requestRebuild = function() rebuild_calls = rebuild_calls + 1 end,
+}
+local state = youtube:_state(instance)
+assert(state.view == "home", "A new instance must start on the home view")
+assert(type(state.tools) == "table", "Tool detection must always produce a result table")
+
+local settings = youtube:_settings()
+assert(settings.fps == 12 and settings.dither == "bayer" and settings.resolution_percent == 100,
+    "Defaults must match the documented values")
+youtube:cycleSetting(instance, context, "fps")
+assert(youtube:_settings().fps == 15, "Cycling the frame rate must move to the next step")
+youtube:cycleSetting(instance, context, "dither")
+assert(youtube:_settings().dither == "ffmpeg", "Cycling the dither mode must switch to ffmpeg")
+youtube:cycleSetting(instance, context, "dither")
+assert(youtube:_settings().dither == "bayer", "Cycling the dither mode must return to Bayer")
+
+----------------------------------------------------------------
+-- Pane construction
+----------------------------------------------------------------
+
+for _, view in ipairs({ "home", "tools" }) do
+    state.view = view
+    local pane = youtube:buildPane(instance, context)
+    assert(pane and pane.dimen and pane.dimen.w == 600, "The " .. view .. " pane must fill the assigned rectangle")
+    assert(pane.onDeactivate, "Every pane must expose onDeactivate")
+end
+state.view = "results"
+state.results = { { id = "abc12345678", title = "Video", duration = 100, uploader = "Channel", url = "https://www.youtube.com/watch?v=abc12345678" } }
+state.results_query = "test"
+state.result_page = 1
+assert(youtube:buildPane(instance, context), "The results pane must build")
+state.view = "home"
+
+----------------------------------------------------------------
+-- Conversion pipeline
+----------------------------------------------------------------
+
+local function findCommand(name)
+    local pipe = io.popen("command -v " .. name .. " 2>/dev/null", "r")
+    if not pipe then return nil end
+    local path = pipe:read("*l")
+    pipe:close()
+    return path and path ~= "" and path or nil
+end
+
+local ffmpeg = findCommand("ffmpeg")
+if not ffmpeg then
+    print("AppDock YouTube test: OK (conversion skipped, ffmpeg is unavailable)")
+    return
+end
+
+local source = data_dir .. "/source.mp4"
+assert(os.execute(string.format(
+    "%s -y -hide_banner -loglevel error -f lavfi -i testsrc2=size=320x240:rate=24:duration=2"
+    .. " -f lavfi -i sine=frequency=440:duration=2 -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest %s",
+    ffmpeg, source)) == 0, "The test clip must be generated")
+
+-- Ticks are driven by hand so the whole job runs without a real UI loop.
+local function drain(instance, timeout_seconds)
+    local deadline = os.time() + (timeout_seconds or 120)
+    while os.time() < deadline do
+        if #scheduled > 0 then
+            local callback = table.remove(scheduled, 1)
+            callback()
+        else
+            local job = instance.youtube and instance.youtube.job
+            if not job or job.stage == "error" then return job end
+            os.execute("sleep 0.2")
+        end
+    end
+    error("The conversion did not settle within the timeout")
+end
+
+local function runConversion(dither_mode, label, seconds)
+    stored.dither = dither_mode
+    stored.max_duration = 60
+    stored.fps = 12
+    stored.resolution_percent = 100
+    stored.output_dir = data_dir .. "/videos-" .. dither_mode
+    local local_instance = {}
+    local local_context = {
+        dimen = { w = 600, h = 748 },
+        requestRefresh = function() end,
+        requestRebuild = function() end,
+    }
+    assert(youtube:startLocalFile(local_instance, local_context, source), "The conversion job must start")
+    local job = drain(local_instance)
+    assert(job == nil, label .. ": the job must finish, but ended with: " .. tostring(job and job.stage_message))
+    local library = local_instance.youtube.library
+    assert(#library == 1, label .. ": exactly one converted video must appear in the library")
+    local entry = library[1]
+    assert(entry.has_audio, label .. ": a companion WAV file must exist")
+
+    local handle = assert(io.open(entry.path, "rb"))
+    local header = assert(BWR.readHeader(handle))
+    assert(header.width == 600 and header.height == 800, label .. ": the frame must follow the device screen")
+    assert(header.fps == 12, label .. ": the header must keep the configured frame rate")
+    local expected = seconds * header.fps
+    assert(header.frames >= expected - 4 and header.frames <= expected + 4,
+        label .. ": about " .. expected .. " frames were expected, found " .. header.frames)
+    assert(math.abs(BWR.durationSeconds(header) - seconds) < 0.5, label .. ": the duration must match the clip")
+
+    local engine = assert(Player.Engine.open(entry.path, entry.path:gsub("%.bwr$", ".wav"), function() end))
+    assert(not engine.error, label .. ": the player must accept the produced file")
+    local white, black, total = 0, 0, 0
+    for _, index in ipairs({ 0, math.floor(header.frames / 2), header.frames - 1 }) do
+        local packed = assert(engine:readFrame(index))
+        for byte_index = 1, #packed do
+            local value = packed:byte(byte_index)
+            if value == 255 then white = white + 1 end
+            if value == 0 then black = black + 1 end
+            total = total + 1
+        end
+    end
+    assert(white < total and black < total, label .. ": the frames must not be uniformly black or white")
+    local frame = assert(BWR.expandFrame(engine:readFrame(0), header.width, header.height))
+    assert(frame.width == header.width and frame.height == header.height, label .. ": the frame must expand to the header size")
+    engine:close()
+    handle:close()
+    return entry
+end
+
+local bayer_entry = runConversion("bayer", "Bayer path", 2)
+assert(bayer_entry.size > 0, "The Bayer conversion must write bytes")
+
+-- Playback view: the pane has to build around the loaded engine, and its
+-- deactivation must release the engine and return to the library.
+do
+    local play_instance = {}
+    local play_context = {
+        dimen = { w = 600, h = 748 },
+        requestRefresh = function() end,
+        requestRebuild = function() end,
+    }
+    assert(youtube:play(play_instance, play_context, bayer_entry.path), "Playing a converted video must succeed")
+    assert(play_instance.youtube.view == "play", "Starting playback must switch to the play view")
+    local play_pane = youtube:buildPane(play_instance, play_context)
+    assert(play_pane and play_pane.dimen.w == 600, "The play pane must fill the assigned rectangle")
+    assert(type(play_pane.onDeactivate) == "function", "The play pane must release playback when it is left")
+    assert(youtube.player.engine and not youtube.player.engine.error, "The play pane must hold a usable engine")
+    play_pane:onDeactivate()
+    assert(youtube.player.engine == nil, "Leaving the play pane must close the engine")
+    assert(play_instance.youtube.view == "home", "Leaving the play pane must return to the library")
+    assert(youtube:buildPane(play_instance, play_context), "The library must build again after playback")
+end
+
+-- The ffmpeg path probes this build's monow bit sense, so it has to land on the
+-- same contract even when the probe has to invert.
+local ffmpeg_entry = runConversion("ffmpeg", "ffmpeg path", 2)
+assert(ffmpeg_entry.size > 0, "The ffmpeg conversion must write bytes")
+
+----------------------------------------------------------------
+-- Failure handling
+----------------------------------------------------------------
+
+local missing_instance = {}
+local missing_context = { dimen = { w = 600, h = 748 }, requestRefresh = function() end, requestRebuild = function() end }
+assert(youtube:startLocalFile(missing_instance, missing_context, data_dir .. "/does-not-exist.mp4") == nil,
+    "A missing source file must be refused")
+assert(missing_instance.youtube.note ~= "", "A refused conversion must explain itself")
+
+print("AppDock YouTube test: OK")

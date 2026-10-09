@@ -221,6 +221,7 @@ local EXTENDED_KINDS = {
     "dictionary", "document", "download", "gallery", "location", "mail", "map", "music", "palette",
     "notes", "podcast", "reading", "rss", "search", "security", "sync", "tasks", "terminal",
     "timer", "translate", "upload", "weather", "battery", "dchat", "dockupdate", "minecraft",
+    "youtube",
 }
 
 function DAppLogo.availableKinds()
@@ -295,6 +296,21 @@ function DAppLogo:_paintExtended(bb, x, y, size, kind)
         rect(x + math.floor(size * 0.29), y + math.floor(size * 0.31), math.floor(size * 0.13), math.floor(size * 0.13))
         line(bb, x + math.floor(size * 0.24), y + math.floor(size * 0.75), x + math.floor(size * 0.47), y + math.floor(size * 0.51), stroke, self.ink)
         line(bb, x + math.floor(size * 0.47), y + math.floor(size * 0.51), x + math.floor(size * 0.76), y + math.floor(size * 0.75), stroke, self.ink)
+    elseif kind == "youtube" then
+        -- The recognisable YouTube mark reduced to what survives 1-bit
+        -- rendering at launcher size: a rounded screen with a play triangle.
+        hollow(x + math.floor(size * 0.08), y + math.floor(size * 0.24),
+            math.floor(size * 0.84), math.floor(size * 0.52), stroke)
+        local triangle_top = y + math.floor(size * 0.35)
+        local triangle_bottom = y + math.floor(size * 0.65)
+        local triangle_left = x + math.floor(size * 0.42)
+        local triangle_width = math.floor(size * 0.18)
+        local rows = math.max(1, triangle_bottom - triangle_top)
+        for row = 0, rows - 1 do
+            local position = row / (rows - 1)
+            local width = triangle_width * (1 - math.abs(2 * position - 1))
+            rect(triangle_left, triangle_top + row, math.max(1, math.floor(width + 0.5)), 1)
+        end
     elseif kind == "palette" then
         hollow(left, top, right - left, bottom - top, stroke)
         local swatch = math.max(thin * 2, math.floor(size * 0.18))
