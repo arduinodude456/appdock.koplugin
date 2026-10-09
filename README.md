@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.9.0** ergänzt die DApp **YouTube**, die Videos über yt-dlp und ffmpeg in E-Ink-Video umwandelt und direkt im Reader abspielt. [Details](RELEASE_NOTES_7.9.0.md).
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.8.12** ergänzt die DApp **YouTube**, die Videos über yt-dlp und ffmpeg in E-Ink-Video umwandelt und direkt im Reader abspielt. [Details](RELEASE_NOTES_7.8.12.md).
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst Androids Formensprache, nicht dessen Daueranimationen, Unschärfen oder Transparenzeffekte. Auf E-Ink wechseln App-Seiten und Recently-used-Drawer direkt und ohne Zwischenanimation. Damit bleibt die Darstellung auf monochromen Readern kontrastreich, sparsam und frei von unnötigem Ghosting.
 
@@ -28,7 +28,7 @@
 
 > **7.5.0:** Die erste Homescreen-Seite erhielt eine gebrandete **DuckDuckGo-Suchleiste**; der AppStore wurde mit Suchfeld, Empfehlungskarten, Installationsaktionen und unterer Kategorienavigation neu gestaltet. Angezeigt werden weiterhin nur echte Katalogdaten, ohne erfundene Bewertungen oder Screenshots. Details stehen in [`RELEASE_NOTES_7.5.0.md`](RELEASE_NOTES_7.5.0.md).
 
-> **7.9.0:** Die neue DApp **YouTube** sucht und lädt Videos mit **yt-dlp**, wandelt sie mit **ffmpeg** in das Schwarzweiß-Containerformat **BWR1** um und spielt sie im Reader ab. Das Format und die Dither-Matrix sind byte-kompatibel zum Konverter aus dem Release **„Snake“** von `videoplayer.koplugin`. Beide Werkzeuge werden nicht mitgeliefert und bleiben optional. Details stehen in [`RELEASE_NOTES_7.9.0.md`](RELEASE_NOTES_7.9.0.md).
+> **7.8.12:** Die neue DApp **YouTube** sucht und lädt Videos mit **yt-dlp**, wandelt sie mit **ffmpeg** in das Schwarzweiß-Containerformat **BWR1** um und spielt sie im Reader ab. Das Format und die Dither-Matrix sind byte-kompatibel zum Konverter aus dem Release **„Snake“** von `videoplayer.koplugin`. Beide Werkzeuge werden nicht mitgeliefert und bleiben optional. Details stehen in [`RELEASE_NOTES_7.8.12.md`](RELEASE_NOTES_7.8.12.md).
 
 ## Neu in 3.0.0 „Cappuccino“
 
@@ -120,7 +120,7 @@ Starte KOReader danach vollständig neu. Unter **More tools → Plugin managemen
 | **YouTube** | Sucht, lädt und konvertiert Videos für ein Schwarzweiß-Display. | Steuert **yt-dlp** und **ffmpeg** statt eigener Netzwerkzugriffe; schreibt **BWR1**-Dateien mit passender `.wav`-Tonspur, die auch der Player aus `videoplayer.koplugin` liest. Bibliothek, Fortschrittsansicht und Werkzeugverwaltung inklusive; im Splitscreen spielbar. |
 | **Help** | Offline verfügbare Bedienhilfe für AppDock. | Erläutert Homescreen, Schnellzugriff, DApps, Splitscreen, Browser und E-Ink-Refresh; auch im Splitscreen lesbar. |
 
-Die Logo-Bibliothek umfasst jetzt **45** gezeichnete Symbole für Produktivität, Medien, Kommunikation, Daten und Navigation, seit 7.9.0 einschließlich der Marke `youtube`. Die vollständige Auswahl und die Einbindung über das Feld `logo` stehen in [`DAPP_LOGOS.md`](DAPP_LOGOS.md).
+Die Logo-Bibliothek umfasst jetzt **45** gezeichnete Symbole für Produktivität, Medien, Kommunikation, Daten und Navigation, seit 7.8.12 einschließlich der Marke `youtube`. Die vollständige Auswahl und die Einbindung über das Feld `logo` stehen in [`DAPP_LOGOS.md`](DAPP_LOGOS.md).
 
 DApps bauen ihren Inhalt ausschließlich innerhalb eines vom DApp-Host zugewiesenen Pane-Rechtecks. Der Pane-Vertrag ist in einem echten Splitscreen umgesetzt: Ein gemeinsamer Host kann zwei geöffnete DApps untereinander mit klarer Trennlinie darstellen, ohne die DApps selbst umzuschreiben. Der **File Manager** behält dabei seinen aktuellen Ordner als DApp-Zustand und bleibt deshalb ebenfalls in Open apps sichtbar und splittbar. Seine Auflistung verwendet KOReaders LuaFileSystem-Schnittstelle; reguläre Dateien und Ordner werden angezeigt, nicht unterstützte Dateien ausdrücklich markiert und nicht geöffnet. Die detaillierte technische Beschreibung steht in `DAPP_ARCHITECTURE.md` und `SPLITSCREEN_DESIGN.md`. [7] [8]
 

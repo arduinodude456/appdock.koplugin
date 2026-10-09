@@ -1,4 +1,4 @@
-# AppDock 7.9.0
+# AppDock 7.8.12
 
 ## Deutsch
 
