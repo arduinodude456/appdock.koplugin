@@ -286,6 +286,10 @@ function Engine:play()
     if self.error then return nil, self.error end
     if self.pending_start then return true end
     if self.audio then
+        -- Audio may already be consuming data while GStreamer is still
+        -- reporting its asynchronous PLAYING/clock transition. Remember when
+        -- it was launched so video can catch up instead of starting late.
+        local audio_start_wall = Player.now()
         local ok, err = self.audio:startFrom(self:audioTime(self.position or 0))
         if not ok then
             self.audio_error = err
@@ -295,6 +299,7 @@ function Engine:play()
             if not ready and not ready_error then
                 self.pending_start = {
                     position = self.position or 0,
+                    audio_start_wall = audio_start_wall,
                     deadline = Player.now() + AUDIO_START_TIMEOUT,
                 }
                 self.anchor_wall, self.paused = nil, false
@@ -347,6 +352,7 @@ function Engine:jump(seconds)
                 self:status(err)
             else
                 self.pending_start.position = self.position
+                self.pending_start.audio_start_wall = Player.now()
                 self.pending_start.deadline = Player.now() + AUDIO_START_TIMEOUT
             end
         end
@@ -385,7 +391,14 @@ function Engine:step()
     if self.pending_start then
         local ready, start_error = self.audio:isPlaybackReady()
         if ready or start_error or Player.now() >= self.pending_start.deadline then
-            local position = self.pending_start.position
+            local pending = self.pending_start
+            local now = Player.now()
+            -- The audio process starts before its readiness signal. Advance the
+            -- video by the elapsed audio time, including the timeout path where
+            -- a device emits no recognizable GStreamer startup line.
+            local elapsed = math.max(0, now - (pending.audio_start_wall or now))
+            local position = clamp(pending.position + elapsed * (self.clock_scale or 1),
+                0, self.duration)
             self.pending_start = nil
             if not ready then
                 if start_error then
