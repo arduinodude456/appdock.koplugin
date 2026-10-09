@@ -283,7 +283,10 @@ function Audio:isPlaybackReady()
     if not log then return false end
     local output = log:read("*a") or ""
     log:close()
-    if output:find("New clock:", 1, true) then return true end
+    if output:find("New clock:", 1, true)
+        or output:find("Setting pipeline to PLAYING", 1, true) then
+        return true
+    end
     if output:find("ERROR:", 1, true) then
         return nil, output:match("ERROR:[^\r\n]*") or output
     end

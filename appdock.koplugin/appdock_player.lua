@@ -305,7 +305,6 @@ function Engine:play()
             elseif ready_error then
                 self.audio_error = ready_error
                 self:status(ready_error)
-                self.audio:stop()
             end
         end
     else
@@ -389,9 +388,15 @@ function Engine:step()
             local position = self.pending_start.position
             self.pending_start = nil
             if not ready then
-                self.audio_error = start_error or _("Audio output did not become ready in time.")
-                self.audio:stop()
-                self:status(self.audio_error)
+                if start_error then
+                    self.audio_error = start_error
+                    self:status(start_error)
+                else
+                    -- Readiness may be omitted or formatted differently by a
+                    -- device's GStreamer build. Never mute audio just because
+                    -- its optional startup log could not be recognized.
+                    self:status(_("Audio startup was not confirmed; continuing playback."))
+                end
             end
             self:_beginPlayback(position)
             return

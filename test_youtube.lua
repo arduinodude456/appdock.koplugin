@@ -599,6 +599,7 @@ local function runConversion(dither_mode, label, seconds)
         isPlaybackReady = function() return audio_ready end,
         stop = function() stopped_audio = true end,
     }
+    engine.audio_error = nil
     engine.position, engine.anchor_wall, engine.paused = 0, nil, true
     assert(engine:play() and engine.pending_start and engine.anchor_wall == nil,
         label .. ": the video timeline must wait while the audio backend is still starting")
@@ -619,9 +620,9 @@ local function runConversion(dither_mode, label, seconds)
         label .. ": a second delayed backend start must enter the readiness wait")
     engine.pending_start.deadline = simulated_clock - 1
     engine:step()
-    assert(not engine.pending_start and stopped_audio and engine.audio_error
+    assert(not engine.pending_start and not stopped_audio and not engine.audio_error
         and engine.anchor_wall == simulated_clock,
-        label .. ": an unconfirmed late audio process must be stopped rather than drift in after video")
+        label .. ": a missing readiness log must not mute or stop the audio process")
     engine:pause()
     engine.audio = original_audio
     Player.now = real_clock
