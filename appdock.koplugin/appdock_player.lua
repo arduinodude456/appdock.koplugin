@@ -1,12 +1,13 @@
 --[[--
-AppDock BWR1 player: the playback half of the YouTube DApp.
+AppDock BWR1/BWR2 player: the playback half of the YouTube DApp.
 
 Playback follows the design that the `videoplayer.koplugin` release "Snake"
 proved on E-Ink hardware:
 
-* audio is the master clock; the frame to show is computed from the actually
-  elapsed playback time, so `UIManager:scheduleIn` jitter can never accumulate
-  into a drift,
+* a monotonic playback clock is calibrated to the companion WAV duration, so
+  small muxer/frame-rounding differences do not accumulate into A/V drift,
+* the target frame is computed from elapsed playback time, so
+  `UIManager:scheduleIn` jitter cannot accumulate into a drift,
 * frames are already dithered and only have to be expanded to bytes and blitted,
 * the widget asks for a `fast` refresh of its own rectangle instead of a full
   screen update, which is what makes 12 frames per second readable on E-Ink.
@@ -178,7 +179,7 @@ function Engine.open(video_path, wav_path, report)
         canvas = nil,
     }, Engine)
     if not handle then
-        instance.error = _("The BWR1 file cannot be opened.")
+        instance.error = _("The BWR video file cannot be opened.")
         return instance
     end
     local header, err = BWR.readHeader(handle)
@@ -189,10 +190,29 @@ function Engine.open(video_path, wav_path, report)
         return instance
     end
     instance.header = header
+    local reader, reader_error = BWR.newReader(handle, header)
+    if not reader then
+        handle:close()
+        instance.handle = nil
+        instance.error = reader_error
+        return instance
+    end
+    instance.reader = reader
     instance.fps = header.fps
     instance.duration = BWR.durationSeconds(header)
     instance.period = 1 / instance.fps
     if wav_path then
+        instance.audio_duration = Audio.durationOf(wav_path)
+        instance.clock_scale = 1
+        if instance.audio_duration and instance.audio_duration > 0 and instance.duration > 0 then
+            local scale_to_audio = instance.duration / instance.audio_duration
+            -- Video and WAV are extracted from the same source. Correct small
+            -- muxer/frame-rounding differences so both tracks finish together;
+            -- do not stretch malformed or intentionally different-length audio.
+            if scale_to_audio >= 0.97 and scale_to_audio <= 1.03 then
+                instance.clock_scale = scale_to_audio
+            end
+        end
         instance.audio = Audio.new(wav_path)
         instance.audio_error = instance.audio:getError()
     end
@@ -211,21 +231,22 @@ end
 
 function Engine:currentTime()
     if not self.anchor_wall then return clamp(self.position or 0, 0, self.duration) end
-    local elapsed = now_seconds() - self.anchor_wall
+    local elapsed = Player.now() - self.anchor_wall
     if elapsed < 0 then elapsed = 0 end
-    return clamp(self.anchor_position + elapsed, 0, self.duration)
+    return clamp(self.anchor_position + elapsed * (self.clock_scale or 1), 0, self.duration)
+end
+
+function Engine:audioTime(video_position)
+    local scale_to_video = self.clock_scale or 1
+    return clamp((tonumber(video_position) or 0) / scale_to_video, 0,
+        self.audio_duration or self.duration)
 end
 
 function Engine:readFrame(index)
     if not self.handle or index < 0 or index >= self.header.frames then
-        return nil, _("The frame is outside the BWR1 file.")
+        return nil, _("The frame is outside the BWR video.")
     end
-    self.handle:seek("set", BWR.HEADER_BYTES + index * self.header.frame_bytes)
-    local packed = self.handle:read(self.header.frame_bytes)
-    if not packed or #packed ~= self.header.frame_bytes then
-        return nil, _("Cannot read a complete BWR1 frame.")
-    end
-    return packed
+    return self.reader:readFrame(index)
 end
 
 function Engine:show(position)
@@ -247,7 +268,7 @@ end
 function Engine:play()
     if self.error then return nil, self.error end
     if self.audio then
-        local ok, err = self.audio:startFrom(self.position or 0)
+        local ok, err = self.audio:startFrom(self:audioTime(self.position or 0))
         if not ok then
             self.audio_error = err
             self:status(err)
@@ -255,7 +276,7 @@ function Engine:play()
     else
         self:status(_("Playing without companion audio."))
     end
-    self.anchor_position, self.anchor_wall, self.paused = self.position or 0, now_seconds(), false
+    self.anchor_position, self.anchor_wall, self.paused = self.position or 0, Player.now(), false
     local ok, err = self:show(self.position or 0)
     if not ok then
         self.paused = true
@@ -289,13 +310,13 @@ function Engine:jump(seconds)
         if self.audio then self.audio:stop() end
     else
         if self.audio then
-            local ok, err = self.audio:startFrom(self.position)
+            local ok, err = self.audio:startFrom(self:audioTime(self.position))
             if not ok then
                 self.audio_error = err
                 self:status(err)
             end
         end
-        self.anchor_position, self.anchor_wall = self.position, now_seconds()
+        self.anchor_position, self.anchor_wall = self.position, Player.now()
         UIManager:unschedule(self.tick)
         UIManager:scheduleIn(self.period, self.tick)
     end
@@ -407,7 +428,7 @@ Player.Engine = Engine
 ----------------------------------------------------------------
 
 local function companionFor(path)
-    local wav = path:gsub("%.bwr$", ".wav")
+    local wav = path:sub(1, #path - 4) .. ".wav"
     local handle = io.open(wav, "rb")
     if handle then
         handle:close()
@@ -427,7 +448,7 @@ function Player:load(instance, context, path)
         return nil, _("No video file was given.")
     end
     if not path:lower():match("%.bwr$") then
-        return nil, _("AppDock plays BWR1 files only.")
+        return nil, _("AppDock plays BWR video files only.")
     end
     self:stop()
     self.path = path
@@ -517,7 +538,7 @@ function Player:buildPane(instance, context, options)
 
     local header_hint = self.engine
         and (string.format("%d fps · %s", math.floor(self.engine.fps + 0.5), formatTime(self.engine.duration)))
-        or _("No BWR1 file is loaded.")
+        or _("No BWR video file is loaded.")
     local hint = TextWidget:new{
         text = header_hint,
         face = Font:getFace("smallinfofont", scale(9)),

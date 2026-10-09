@@ -1,5 +1,5 @@
 --[[--
-AppDock YouTube: search, download and convert videos to BWR1 for E-Ink.
+AppDock YouTube: search, download and convert videos to compressed BWR2 for E-Ink.
 
 The DApp never talks to YouTube itself. It drives two well-known command line
 tools that the user installs once:
@@ -9,8 +9,8 @@ tools that the user installs once:
 
 The dithering that makes the result readable on a black-and-white screen runs
 inside AppDock (`appdock_bwr.lua`) and uses the same 8x8 ordered matrix as the
-`videoplayer.koplugin` release "Snake", so AppDock output and player output are
-interchangeable. A second mode lets ffmpeg do the 1-bit conversion for speed;
+`videoplayer.koplugin` release "Snake". Existing BWR1 videos remain readable;
+new AppDock output uses BWR2 compression. A second mode lets ffmpeg do the 1-bit conversion for speed;
 the bit sense of ffmpeg's `monow` output is probed once at runtime instead of
 being assumed.
 
@@ -1312,7 +1312,13 @@ function YouTube:_startVideoStage(instance, context, job)
         job.stage_message = _("The target file cannot be written. Choose another output folder.")
         return
     end
-    handle:write(BWR.buildHeader(width, height, settings.fps, 0))
+    local writer, writer_error = BWR.newWriter(handle, width, height, settings.fps)
+    if not writer then
+        handle:close()
+        job.stage = "error"
+        job.stage_message = writer_error
+        return
+    end
 
     local error_log = job.work .. "/ffmpeg.log"
     local command = shellQuote(tools.ffmpeg)
@@ -1336,6 +1342,7 @@ function YouTube:_startVideoStage(instance, context, job)
     job.width, job.height = width, height
     job.encoder = encoder
     job.handle = handle
+    job.writer = writer
     job.pipe = pipe
     job.dithered = dithered
     job.invert = inversion == true
@@ -1353,13 +1360,22 @@ function YouTube:_finishVideoStage(instance, context, job)
     end
     if handle then
         if frame_count > 0 then
-            local settings = self:_settings()
-            handle:seek("set", 0)
-            handle:write(BWR.buildHeader(job.width, job.height, settings.fps, frame_count))
+            local finalized, finalize_error
+            if job.writer then finalized, finalize_error = job.writer:finish() end
+            if not finalized then
+                handle:close()
+                job.handle, job.writer = nil, nil
+                job.stage = "error"
+                job.stage_message = finalize_error or _("The BWR2 video index could not be finalized.")
+                return
+            end
+        else
+            os.remove(job.target)
         end
         handle:close()
     end
     job.handle = nil
+    job.writer = nil
     job.encoder = nil
 
     if frame_count == 0 then
@@ -1516,7 +1532,11 @@ function YouTube:_tick(instance, context)
                 self:_failJob(instance, context, job, encode_error)
                 return
             end
-            job.handle:write(packed)
+            local written, write_error = job.writer:writeFrame(packed)
+            if not written then
+                self:_failJob(instance, context, job, write_error)
+                return
+            end
             job.frames = job.frames + 1
             if os.clock() - tick_started >= VIDEO_TICK_CPU_BUDGET then break end
         end

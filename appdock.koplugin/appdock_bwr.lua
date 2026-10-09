@@ -1,7 +1,7 @@
 --[[--
-AppDock BWR1: the monochrome raw-video container AppDock plays on E-Ink.
+AppDock BWR1/BWR2: monochrome video containers AppDock plays on E-Ink.
 
-A BWR1 file is deliberately tiny and seekable:
+A legacy BWR1 file is deliberately simple and seekable:
 
     header: 32 bytes, little-endian
         0..3   "BWR1"
@@ -15,12 +15,14 @@ A BWR1 file is deliberately tiny and seekable:
         20..31 reserved, zero
     frames: 1-bit pixels, row-major, no per-row padding
 
-The layout is byte-compatible with the `BWR1` files written by the
-`videoplayer.koplugin` release "Snake" (`tools/make.py`). Frames are already
-dithered, so playback only has to expand bits to bytes and blit them; that is
-what keeps E-Ink refresh times low.
+The BWR1 layout remains byte-compatible with files written by the
+`videoplayer.koplugin` release "Snake" (`tools/make.py`). New AppDock conversions
+use BWR2: independently decodable keyframes, indexed at the end of the file,
+with compressed XOR deltas between them. This keeps seeking bounded to one GOP
+while substantially reducing storage for real video. Both formats retain
+already-dithered 1-bit frames, so playback only expands bits to bytes and blits.
 
-Two dithering paths exist and both write the same container:
+Two dithering paths supply frames to the BWR2 writer:
 
 * `Encoder:pack` (Bayer, the default) dithers grey frames inside AppDock with
   the same 8x8 ordered matrix `make.py` uses, so AppDock output matches the
@@ -39,14 +41,37 @@ local _ = require("gettext")
 local BWR = {}
 
 BWR.MAGIC = "BWR1"
+BWR.MAGIC_V2 = "BWR2"
 BWR.HEADER_BYTES = 32
 BWR.VERSION = 1
+BWR.VERSION_V2 = 2
 BWR.PIXEL_FORMAT_MONO1_MSB_WHITE = 1
 BWR.MAX_FRAME_BYTES = 8 * 1024 * 1024
 BWR.MAX_FRAMES = 500000
 BWR.MAX_DIMENSION = 4096
 BWR.MIN_FPS = 0.01
 BWR.MAX_FPS = 30
+BWR.DEFAULT_KEYFRAME_INTERVAL = 12
+
+-- zlib is optional. KOReader builds generally expose libz; when they do, BWR2
+-- uses fast level-1 DEFLATE. The built-in zero-run codec remains available on
+-- builds without it, so BWR2 never requires an additional executable.
+local zlib
+do
+    pcall(ffi.cdef, [[
+        typedef unsigned char appdock_z_Bytef;
+        typedef unsigned long appdock_z_uLong;
+        int compress2(appdock_z_Bytef *dest, appdock_z_uLong *destLen,
+                     const appdock_z_Bytef *source, appdock_z_uLong sourceLen, int level);
+        appdock_z_uLong compressBound(appdock_z_uLong sourceLen);
+        int uncompress(appdock_z_Bytef *dest, appdock_z_uLong *destLen,
+                       const appdock_z_Bytef *source, appdock_z_uLong sourceLen);
+    ]])
+    for _, name in ipairs({ "z", "libz.so.1", "libz.so" }) do
+        local ok, library = pcall(ffi.load, name)
+        if ok then zlib = library; break end
+    end
+end
 
 -- The ordered matrix from videoplayer.koplugin/tools/make.py. Keeping the exact
 -- values means AppDock, the Snake player and the desktop converter all produce
@@ -189,6 +214,30 @@ function BWR.buildHeader(width, height, fps, frames)
         .. string.rep("\0", 12)
 end
 
+-- BWR2 keeps the BWR1 geometry fields but stores a keyframe interval and the
+-- byte offset of its compact keyframe index in the formerly reserved bytes.
+function BWR.buildHeaderV2(width, height, fps, frames, key_interval, index_offset)
+    local ok, err = BWR.validateGeometry(width, height, fps)
+    if not ok then return nil, err end
+    frames = math.floor(tonumber(frames) or 0)
+    key_interval = math.floor(tonumber(key_interval) or BWR.DEFAULT_KEYFRAME_INTERVAL)
+    index_offset = math.floor(tonumber(index_offset) or 0)
+    if frames < 0 or frames > BWR.MAX_FRAMES then return nil, _("The frame count is out of range.") end
+    if key_interval < 1 or key_interval > 65535 then return nil, _("The BWR2 keyframe interval is out of range.") end
+    if index_offset < 0 or index_offset > 4294967295 then return nil, _("The BWR2 index offset is out of range.") end
+    return BWR.MAGIC_V2
+        .. string.char(BWR.VERSION_V2, BWR.PIXEL_FORMAT_MONO1_MSB_WHITE)
+        .. put_u16_le(width)
+        .. put_u16_le(height)
+        .. put_u16_le(math.floor(fps * 100 + 0.5))
+        .. put_u32_le(frames)
+        .. put_u32_le(BWR.frameBytes(width, height))
+        .. put_u16_le(key_interval)
+        .. put_u16_le(0) -- flags reserved
+        .. put_u32_le(index_offset)
+        .. string.rep("\0", 4)
+end
+
 function BWR.validateGeometry(width, height, fps)
     width, height, fps = tonumber(width), tonumber(height), tonumber(fps)
     if not width or not height then return nil, _("The video size is missing.") end
@@ -215,15 +264,16 @@ function BWR.readHeader(source)
     elseif source ~= nil and type(source.read) == "function" then
         data = source:read(BWR.HEADER_BYTES)
     else
-        return nil, _("A BWR1 header needs a string or an open file.")
+        return nil, _("A BWR header needs a string or an open file.")
     end
     if not data or #data ~= BWR.HEADER_BYTES then
-        return nil, _("The BWR1 file has no complete header.")
+        return nil, _("The BWR file has no complete header.")
     end
-    if data:sub(1, 4) ~= BWR.MAGIC then
-        return nil, _("This is not a BWR1 raw-video file.")
-    end
+    local magic = data:sub(1, 4)
+    local is_v2 = magic == BWR.MAGIC_V2
+    if magic ~= BWR.MAGIC and not is_v2 then return nil, _("This is not an AppDock BWR video file.") end
     local header = {
+        format = magic,
         version = data:byte(5),
         pixel_format = data:byte(6),
         width = u16_le(data, 7),
@@ -232,31 +282,381 @@ function BWR.readHeader(source)
         frames = u32_le(data, 13),
         frame_bytes = u32_le(data, 17),
     }
-    if header.version ~= BWR.VERSION then
-        return nil, _("Unsupported BWR1 version.") .. " " .. tostring(header.version)
+    local expected_version = is_v2 and BWR.VERSION_V2 or BWR.VERSION
+    if header.version ~= expected_version then
+        return nil, _("Unsupported BWR video version.") .. " " .. tostring(header.version)
     end
     if header.pixel_format ~= BWR.PIXEL_FORMAT_MONO1_MSB_WHITE then
-        return nil, _("Unsupported BWR1 pixel format.")
+        return nil, _("Unsupported BWR pixel format.")
     end
     if not header.width or not header.height
         or header.width < 8 or header.width % 8 ~= 0
         or header.height < 1
         or header.width > BWR.MAX_DIMENSION or header.height > BWR.MAX_DIMENSION
     then
-        return nil, _("Invalid BWR1 dimensions.")
+        return nil, _("Invalid BWR dimensions.")
     end
     if not header.fps_x100 or header.fps_x100 < 1 or not header.frames
         or header.frames < 1 or header.frames > BWR.MAX_FRAMES
     then
-        return nil, _("Invalid BWR1 timing or frame count.")
+        return nil, _("Invalid BWR timing or frame count.")
     end
-    if header.frame_bytes ~= BWR.frameBytes(header.width, header.height)
-        or header.frame_bytes > BWR.MAX_FRAME_BYTES
-    then
-        return nil, _("Invalid BWR1 frame size.")
+    if header.frame_bytes ~= BWR.frameBytes(header.width, header.height) or header.frame_bytes > BWR.MAX_FRAME_BYTES then
+        return nil, _("Invalid BWR frame size.")
+    end
+    if is_v2 then
+        header.key_interval = u16_le(data, 21)
+        header.index_offset = u32_le(data, 25)
+        if not header.key_interval or header.key_interval < 1
+            or not header.index_offset or header.index_offset < BWR.HEADER_BYTES
+        then
+            return nil, _("Invalid BWR2 keyframe index.")
+        end
     end
     header.fps = header.fps_x100 / 100
     return header
+end
+
+----------------------------------------------------------------
+-- BWR2 writer
+----------------------------------------------------------------
+
+local function rle_encode(data)
+    local output, index, length = {}, 1, #data
+    while index <= length do
+        local value = data:byte(index)
+        if value == 0 then
+            local finish = index + 1
+            while finish <= length and finish - index < 128 and data:byte(finish) == 0 do
+                finish = finish + 1
+            end
+            output[#output + 1] = string.char(finish - index - 1)
+            index = finish
+        else
+            local start = index
+            index = index + 1
+            while index <= length and index - start < 128 and data:byte(index) ~= 0 do
+                index = index + 1
+            end
+            local count = index - start
+            output[#output + 1] = string.char(127 + count)
+            output[#output + 1] = data:sub(start, index - 1)
+        end
+    end
+    return table.concat(output)
+end
+
+local Writer = {}
+Writer.__index = Writer
+
+function BWR.newWriter(handle, width, height, fps, key_interval)
+    if not handle or type(handle.write) ~= "function" or type(handle.seek) ~= "function" then
+        return nil, _("A BWR2 writer needs a seekable output file.")
+    end
+    local ok, err = BWR.validateGeometry(width, height, fps)
+    if not ok then return nil, err end
+    key_interval = math.floor(tonumber(key_interval) or BWR.DEFAULT_KEYFRAME_INTERVAL)
+    if key_interval < 1 or key_interval > 65535 then return nil, _("The BWR2 keyframe interval is out of range.") end
+    local frame_bytes = BWR.frameBytes(width, height)
+    local header, header_error = BWR.buildHeaderV2(width, height, fps, 0, key_interval, 0)
+    if not header then return nil, header_error end
+    local positioned = handle:seek("set", 0)
+    if positioned == nil then return nil, _("The BWR2 output file cannot be positioned.") end
+    local written, write_error = handle:write(header)
+    if not written then return nil, write_error or _("The BWR2 header could not be written.") end
+    local writer = setmetatable({
+        handle = handle,
+        width = width,
+        height = height,
+        fps = fps,
+        frame_bytes = frame_bytes,
+        key_interval = key_interval,
+        frames = 0,
+        key_offsets = {},
+        previous_frame = nil,
+        previous = ffi.new("uint8_t[?]", frame_bytes),
+        delta = ffi.new("uint8_t[?]", frame_bytes),
+        bytes_written = BWR.HEADER_BYTES,
+        finished = false,
+    }, Writer)
+    if zlib then
+        writer.z_input = ffi.new("uint8_t[?]", frame_bytes)
+        writer.z_bound = tonumber(zlib.compressBound(frame_bytes))
+        writer.z_output = ffi.new("uint8_t[?]", writer.z_bound)
+        writer.z_output_length = ffi.new("appdock_z_uLong[1]")
+    end
+    return writer
+end
+
+function Writer:_compress(source)
+    if not zlib then return nil end
+    ffi.copy(self.z_input, source, self.frame_bytes)
+    self.z_output_length[0] = self.z_bound
+    local status = zlib.compress2(
+        self.z_output, self.z_output_length, self.z_input, self.frame_bytes, 1)
+    if status ~= 0 then return nil end
+    return ffi.string(self.z_output, tonumber(self.z_output_length[0]))
+end
+
+function Writer:_writePacket(codec, payload)
+    local packet = string.char(codec) .. payload
+    if #packet > 4294967295 then return nil, _("A BWR2 frame packet is too large.") end
+    local written, err = self.handle:write(put_u32_le(#packet), packet)
+    if not written then return nil, err or _("A BWR2 frame could not be written.") end
+    self.bytes_written = self.bytes_written + 4 + #packet
+    return true
+end
+
+function Writer:writeFrame(frame)
+    if self.finished then return nil, _("The BWR2 writer is already finished.") end
+    if type(frame) ~= "string" or #frame ~= self.frame_bytes then
+        return nil, _("The packed frame has the wrong size for BWR2.")
+    end
+    if self.frames >= BWR.MAX_FRAMES then return nil, _("The BWR2 frame limit was reached.") end
+    local offset, seek_error = self.handle:seek("cur")
+    if offset == nil or offset > 4294967295 then
+        return nil, seek_error or _("The BWR2 file exceeded its 32-bit offset limit.")
+    end
+
+    local frame_index = self.frames
+    local is_keyframe = frame_index % self.key_interval == 0
+    local ok, err
+    if is_keyframe then
+        local compressed = self:_compress(frame)
+        if compressed and #compressed < self.frame_bytes then
+            ok, err = self:_writePacket(1, compressed) -- DEFLATE keyframe
+        else
+            ok, err = self:_writePacket(0, frame) -- raw keyframe
+        end
+    elseif frame == self.previous_frame then
+        ok, err = self:_writePacket(4, "") -- repeat previous frame
+    else
+        ffi.copy(self.delta, frame, self.frame_bytes)
+        for index = 0, self.frame_bytes - 1 do
+            self.delta[index] = bit.bxor(self.delta[index], self.previous[index])
+        end
+        local compressed = self:_compress(self.delta)
+        local rle = rle_encode(ffi.string(self.delta, self.frame_bytes))
+        if compressed and #compressed < #rle and #compressed < self.frame_bytes then
+            ok, err = self:_writePacket(2, compressed) -- DEFLATE XOR delta
+        elseif #rle < self.frame_bytes then
+            ok, err = self:_writePacket(3, rle) -- zero-run XOR delta
+        else
+            ok, err = self:_writePacket(0, frame) -- raw absolute fallback
+        end
+    end
+    if not ok then return nil, err end
+    if is_keyframe then self.key_offsets[#self.key_offsets + 1] = offset end
+    ffi.copy(self.previous, frame, self.frame_bytes)
+    self.previous_frame = frame
+    self.frames = self.frames + 1
+    return true
+end
+
+function Writer:finish()
+    if self.finished then return true end
+    if self.frames < 1 then return nil, _("A BWR2 file must contain at least one frame.") end
+    local index_offset, seek_error = self.handle:seek("cur")
+    if index_offset == nil or index_offset > 4294967295 then
+        return nil, seek_error or _("The BWR2 index exceeded its 32-bit offset limit.")
+    end
+    for _, offset in ipairs(self.key_offsets) do
+        local written, err = self.handle:write(put_u32_le(offset))
+        if not written then return nil, err or _("The BWR2 keyframe index could not be written.") end
+    end
+    local header, header_error = BWR.buildHeaderV2(
+        self.width, self.height, self.fps, self.frames, self.key_interval, index_offset)
+    if not header then return nil, header_error end
+    local positioned, position_error = self.handle:seek("set", 0)
+    if positioned == nil then return nil, position_error or _("The BWR2 header could not be updated.") end
+    local written, write_error = self.handle:write(header)
+    if not written then return nil, write_error or _("The BWR2 header could not be updated.") end
+    self.handle:seek("end")
+    self.bytes_written = index_offset + #self.key_offsets * 4
+    self.finished = true
+    return true
+end
+
+----------------------------------------------------------------
+-- BWR readers
+----------------------------------------------------------------
+
+local Reader = {}
+Reader.__index = Reader
+
+local function rle_decode(data, output, expected_bytes)
+    local input_index, output_index = 1, 0
+    while input_index <= #data do
+        local control = data:byte(input_index)
+        input_index = input_index + 1
+        local count
+        if control < 128 then
+            count = control + 1
+            if output_index + count > expected_bytes then return nil end
+            ffi.fill(output + output_index, count, 0)
+        else
+            count = control - 127
+            if output_index + count > expected_bytes or input_index + count - 1 > #data then return nil end
+            ffi.copy(output + output_index, data:sub(input_index, input_index + count - 1), count)
+            input_index = input_index + count
+        end
+        output_index = output_index + count
+    end
+    if output_index ~= expected_bytes then return nil end
+    return true
+end
+
+local function xor_delta(reader, previous)
+    if not previous then return nil, _("A BWR2 delta frame has no previous frame.") end
+    ffi.copy(reader.previous, previous, reader.frame_bytes)
+    for index = 0, reader.frame_bytes - 1 do
+        reader.output[index] = bit.bxor(reader.delta[index], reader.previous[index])
+    end
+    return ffi.string(reader.output, reader.frame_bytes)
+end
+
+function BWR.newReader(handle, header)
+    if not handle or type(handle.read) ~= "function" or type(handle.seek) ~= "function" then
+        return nil, _("A BWR reader needs a seekable input file.")
+    end
+    local reader = setmetatable({
+        handle = handle,
+        header = header,
+        frame_bytes = header.frame_bytes,
+        cache_index = -1,
+        cache_frame = nil,
+    }, Reader)
+    if header.format ~= BWR.MAGIC_V2 then return reader end
+
+    local group_count = math.ceil(header.frames / header.key_interval)
+    local file_end, seek_error = handle:seek("end")
+    if file_end == nil then return nil, seek_error or _("The BWR2 file size cannot be checked.") end
+    if header.index_offset + group_count * 4 > file_end then
+        return nil, _("The BWR2 keyframe index is truncated.")
+    end
+    handle:seek("set", header.index_offset)
+    local index_data = handle:read(group_count * 4)
+    if not index_data or #index_data ~= group_count * 4 then
+        return nil, _("The BWR2 keyframe index cannot be read.")
+    end
+    reader.key_offsets = {}
+    local previous_offset = BWR.HEADER_BYTES - 1
+    for group = 0, group_count - 1 do
+        local offset = u32_le(index_data, group * 4 + 1)
+        if not offset or offset <= previous_offset or offset >= header.index_offset then
+            return nil, _("The BWR2 keyframe index contains an invalid offset.")
+        end
+        reader.key_offsets[group + 1] = offset
+        previous_offset = offset
+    end
+    reader.file_end = file_end
+    reader.zlib_available = zlib ~= nil
+    reader.output = ffi.new("uint8_t[?]", header.frame_bytes)
+    reader.delta = ffi.new("uint8_t[?]", header.frame_bytes)
+    reader.previous = ffi.new("uint8_t[?]", header.frame_bytes)
+    if zlib then
+        reader.z_input = ffi.new("uint8_t[?]", header.frame_bytes + 1024)
+        reader.z_output_length = ffi.new("appdock_z_uLong[1]")
+    end
+    handle:seek("set", BWR.HEADER_BYTES)
+    return reader
+end
+
+function Reader:_inflate(payload)
+    if not zlib then return nil, _("This BWR2 video needs the system zlib library to decode a frame.") end
+    if #payload > self.frame_bytes + 1024 then return nil, _("The BWR2 compressed frame is too large.") end
+    ffi.copy(self.z_input, payload, #payload)
+    self.z_output_length[0] = self.frame_bytes
+    local status = zlib.uncompress(self.output, self.z_output_length, self.z_input, #payload)
+    if status ~= 0 or tonumber(self.z_output_length[0]) ~= self.frame_bytes then
+        return nil, _("The BWR2 compressed frame is invalid.")
+    end
+    return true
+end
+
+function Reader:_readPacket(previous, keyframe)
+    local packet_start = self.handle:seek("cur")
+    if not packet_start or packet_start + 4 > self.header.index_offset then
+        return nil, _("The BWR2 frame packet is missing.")
+    end
+    local length_data = self.handle:read(4)
+    local length = length_data and #length_data == 4 and u32_le(length_data, 1) or nil
+    local max_packet = self.frame_bytes + math.floor(self.frame_bytes / 1000) + 1024
+    if not length or length < 1 or length > max_packet
+        or packet_start + 4 + length > self.header.index_offset
+    then
+        return nil, _("The BWR2 frame packet has an invalid size.")
+    end
+    local packet = self.handle:read(length)
+    if not packet or #packet ~= length then return nil, _("The BWR2 frame packet is truncated.") end
+    local codec = packet:byte(1)
+    local payload = packet:sub(2)
+    local packed
+    if codec == 0 then
+        if #payload ~= self.frame_bytes then return nil, _("The raw BWR2 frame has the wrong size.") end
+        ffi.copy(self.output, payload, self.frame_bytes)
+        packed = ffi.string(self.output, self.frame_bytes)
+    elseif codec == 1 then
+        if not keyframe then return nil, _("A BWR2 keyframe appeared outside the keyframe index.") end
+        local ok, err = self:_inflate(payload)
+        if not ok then return nil, err end
+        packed = ffi.string(self.output, self.frame_bytes)
+    elseif codec == 2 then
+        if keyframe or not previous then return nil, _("A BWR2 delta cannot begin a keyframe group.") end
+        local ok, err = self:_inflate(payload)
+        if not ok then return nil, err end
+        ffi.copy(self.delta, self.output, self.frame_bytes)
+        packed, err = xor_delta(self, previous)
+        if not packed then return nil, err end
+    elseif codec == 3 then
+        if keyframe or not previous then return nil, _("A BWR2 delta cannot begin a keyframe group.") end
+        if not rle_decode(payload, self.delta, self.frame_bytes) then
+            return nil, _("The BWR2 zero-run frame is invalid.")
+        end
+        packed = xor_delta(self, previous)
+        if not packed then return nil, _("The BWR2 delta frame is invalid.") end
+    elseif codec == 4 then
+        if keyframe or not previous or #payload ~= 0 then
+            return nil, _("The BWR2 repeated frame is invalid.")
+        end
+        packed = previous
+        ffi.copy(self.output, packed, self.frame_bytes)
+    else
+        return nil, _("Unknown BWR2 frame codec.")
+    end
+    return packed
+end
+
+function Reader:readFrame(index)
+    index = math.floor(tonumber(index) or -1)
+    if index < 0 or index >= self.header.frames then return nil, _("The frame is outside the BWR video.") end
+    if self.header.format ~= BWR.MAGIC_V2 then
+        self.handle:seek("set", BWR.HEADER_BYTES + index * self.frame_bytes)
+        local packed = self.handle:read(self.frame_bytes)
+        if not packed or #packed ~= self.frame_bytes then return nil, _("Cannot read a complete BWR1 frame.") end
+        return packed
+    end
+    if index == self.cache_index then return self.cache_frame end
+
+    local first, previous
+    if index == self.cache_index + 1 and index % self.header.key_interval ~= 0 then
+        first = index
+        previous = self.cache_frame
+    else
+        local group = math.floor(index / self.header.key_interval)
+        first = group * self.header.key_interval
+        self.handle:seek("set", self.key_offsets[group + 1])
+    end
+    local packed, decode_error
+    for frame_index = first, index do
+        packed, decode_error = self:_readPacket(previous, frame_index % self.header.key_interval == 0)
+        if not packed then
+            return nil, _("Cannot decode BWR2 frame ") .. tostring(frame_index) .. ": " .. tostring(decode_error)
+        end
+        previous = packed
+    end
+    self.cache_index, self.cache_frame = index, packed
+    return packed
 end
 
 ----------------------------------------------------------------

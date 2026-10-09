@@ -2,7 +2,7 @@
 --
 -- Covers the pure helpers, tool discovery and the complete conversion
 -- pipeline. The conversion part runs a real ffmpeg against a locally generated
--- clip, so the BWR1 file it produces is decoded again and inspected. When
+-- clip, so the compressed BWR2 file it produces is decoded again and inspected. When
 -- ffmpeg is unavailable the conversion section is skipped instead of failing.
 
 local plugin_dir = os.getenv("APPDOCK_PLUGIN_DIR") or "/home/ubuntu/appdock.koplugin/appdock.koplugin/"
@@ -564,6 +564,7 @@ local function runConversion(dither_mode, label, seconds)
 
     local handle = assert(io.open(entry.path, "rb"))
     local header = assert(BWR.readHeader(handle))
+    assert(header.format == "BWR2", label .. ": new conversions must use the indexed compressed format")
     assert(header.width == 600 and header.height == 800, label .. ": the frame must follow the device screen")
     assert(header.fps == 12, label .. ": the header must keep the configured frame rate")
     local expected = seconds * header.fps
@@ -573,6 +574,24 @@ local function runConversion(dither_mode, label, seconds)
 
     local engine = assert(Player.Engine.open(entry.path, entry.path:gsub("%.bwr$", ".wav"), function() end))
     assert(not engine.error, label .. ": the player must accept the produced file")
+    local ui_player = Player:new(appdock)
+    local loaded, load_error = ui_player:load({}, {}, entry.path)
+    assert(loaded, label .. ": the player UI loader must accept BWR2: " .. tostring(load_error))
+    ui_player:stop()
+    assert(engine.audio_duration and engine.audio_duration > 0,
+        label .. ": the player must read the companion WAV duration for timing calibration")
+    assert(math.abs(engine:audioTime(engine.duration / 2) - engine.audio_duration / 2) < 0.001,
+        label .. ": seeks must map the calibrated video position back onto the WAV timeline")
+    local real_clock, simulated_clock = Player.now, 100
+    Player.now = function() return simulated_clock end
+    engine.anchor_wall, engine.anchor_position = simulated_clock, 0
+    simulated_clock = simulated_clock + engine.audio_duration / 2
+    assert(math.abs(engine:currentTime() - engine.duration / 2) < 0.001,
+        label .. ": the video clock must follow the companion audio timeline (scale="
+            .. tostring(engine.clock_scale) .. ", audio=" .. tostring(engine.audio_duration)
+            .. ", video=" .. tostring(engine.duration) .. ", time=" .. tostring(engine:currentTime()) .. ")")
+    Player.now = real_clock
+    engine.anchor_wall, engine.position = nil, 0
     local white, black, total = 0, 0, 0
     for _, index in ipairs({ 0, math.floor(header.frames / 2), header.frames - 1 }) do
         local packed = assert(engine:readFrame(index))

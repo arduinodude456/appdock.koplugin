@@ -1,4 +1,4 @@
--- AppDock BWR1 format test.
+-- AppDock BWR1/BWR2 format test.
 --
 -- Verifies the container contract that the YouTube DApp writes and the player
 -- reads, and checks the ordered dithering against an independent reference
@@ -153,4 +153,56 @@ end
 
 expectError(select(1, BWR.expandFrame("short", test_width, test_height)), select(2, BWR.expandFrame("short", test_width, test_height)), "A short frame must be rejected")
 
-print("AppDock BWR1 test: OK")
+----------------------------------------------------------------
+-- BWR2 compression, keyframe index and random access
+----------------------------------------------------------------
+
+local bwr2_path = os.tmpname()
+local bwr2_handle = assert(io.open(bwr2_path, "w+b"))
+local writer = assert(BWR.newWriter(bwr2_handle, test_width, test_height, 12, 4))
+local frame_bytes = BWR.frameBytes(test_width, test_height)
+local black_frame, white_frame = string.rep("\0", frame_bytes), string.rep("\255", frame_bytes)
+
+local legacy_path = os.tmpname()
+local legacy_file = assert(io.open(legacy_path, "w+b"))
+assert(legacy_file:write(assert(BWR.buildHeader(test_width, test_height, 12, 2)), black_frame, white_frame))
+legacy_file:close()
+legacy_file = assert(io.open(legacy_path, "rb"))
+local legacy_header = assert(BWR.readHeader(legacy_file))
+assert(legacy_header.format == "BWR1", "Old raw BWR1 files must remain recognized")
+local legacy_reader = assert(BWR.newReader(legacy_file, legacy_header))
+assert(legacy_reader:readFrame(0) == black_frame and legacy_reader:readFrame(1) == white_frame,
+    "The indexed reader must retain backward-compatible random access to raw BWR1 frames")
+legacy_file:close()
+os.remove(legacy_path)
+
+local bwr2_frames = {}
+for index = 0, 23 do
+    local frame = math.floor(index / 6) % 2 == 0 and black_frame or white_frame
+    if index % 6 == 3 then
+        local changed = frame:byte(21) == 0 and 255 or 0
+        frame = frame:sub(1, 20) .. string.char(changed) .. frame:sub(22)
+    end
+    bwr2_frames[index + 1] = frame
+    assert(writer:writeFrame(frame), "BWR2 must accept a complete packed frame")
+end
+assert(writer:finish(), "BWR2 must finalize its index and frame count")
+local bwr2_bytes = writer.bytes_written
+bwr2_handle:close()
+
+local bwr2_file = assert(io.open(bwr2_path, "rb"))
+local bwr2_header = assert(BWR.readHeader(bwr2_file))
+assert(bwr2_header.format == "BWR2" and bwr2_header.version == 2, "The new writer must mark output as BWR2")
+assert(bwr2_header.key_interval == 4 and bwr2_header.frames == #bwr2_frames,
+    "BWR2 must preserve frame count and keyframe interval")
+local reader = assert(BWR.newReader(bwr2_file, bwr2_header))
+for _, index in ipairs({ 0, 1, 3, 4, 7, 8, 17, 23, 10, 11, 2, 15 }) do
+    local decoded, decode_error = reader:readFrame(index)
+    assert(decoded == bwr2_frames[index + 1], "BWR2 seek/decode must reproduce frame " .. index .. ": " .. tostring(decode_error))
+end
+assert(bwr2_bytes < BWR.HEADER_BYTES + #bwr2_frames * frame_bytes,
+    "Repeated and near-static frames must compress materially below the BWR1 raw size")
+bwr2_file:close()
+os.remove(bwr2_path)
+
+print("AppDock BWR1/BWR2 test: OK")
