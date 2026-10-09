@@ -193,6 +193,16 @@ function Engine.open(video_path, wav_path, report)
     instance.duration = BWR.durationSeconds(header)
     instance.period = 1 / instance.fps
     if wav_path then
+        instance.audio_duration = Audio.durationOf(wav_path)
+        instance.clock_scale = 1
+        if instance.audio_duration and instance.audio_duration > 0 and instance.duration > 0 then
+            local scale_to_audio = instance.duration / instance.audio_duration
+            -- Compensate only small frame/audio duration differences; do not
+            -- stretch an intentionally mismatched or malformed track.
+            if scale_to_audio >= 0.97 and scale_to_audio <= 1.03 then
+                instance.clock_scale = scale_to_audio
+            end
+        end
         instance.audio = Audio.new(wav_path)
         instance.audio_error = instance.audio:getError()
     end
@@ -211,9 +221,15 @@ end
 
 function Engine:currentTime()
     if not self.anchor_wall then return clamp(self.position or 0, 0, self.duration) end
-    local elapsed = now_seconds() - self.anchor_wall
+    local elapsed = Player.now() - self.anchor_wall
     if elapsed < 0 then elapsed = 0 end
-    return clamp(self.anchor_position + elapsed, 0, self.duration)
+    return clamp(self.anchor_position + elapsed * (self.clock_scale or 1), 0, self.duration)
+end
+
+function Engine:audioTime(video_position)
+    local scale_to_video = self.clock_scale or 1
+    return clamp((tonumber(video_position) or 0) / scale_to_video, 0,
+        self.audio_duration or self.duration)
 end
 
 function Engine:readFrame(index)
@@ -247,7 +263,7 @@ end
 function Engine:play()
     if self.error then return nil, self.error end
     if self.audio then
-        local ok, err = self.audio:startFrom(self.position or 0)
+        local ok, err = self.audio:startFrom(self:audioTime(self.position or 0))
         if not ok then
             self.audio_error = err
             self:status(err)
@@ -255,7 +271,7 @@ function Engine:play()
     else
         self:status(_("Playing without companion audio."))
     end
-    self.anchor_position, self.anchor_wall, self.paused = self.position or 0, now_seconds(), false
+    self.anchor_position, self.anchor_wall, self.paused = self.position or 0, Player.now(), false
     local ok, err = self:show(self.position or 0)
     if not ok then
         self.paused = true
@@ -289,13 +305,13 @@ function Engine:jump(seconds)
         if self.audio then self.audio:stop() end
     else
         if self.audio then
-            local ok, err = self.audio:startFrom(self.position)
+            local ok, err = self.audio:startFrom(self:audioTime(self.position))
             if not ok then
                 self.audio_error = err
                 self:status(err)
             end
         end
-        self.anchor_position, self.anchor_wall = self.position, now_seconds()
+        self.anchor_position, self.anchor_wall = self.position, Player.now()
         UIManager:unschedule(self.tick)
         UIManager:scheduleIn(self.period, self.tick)
     end
