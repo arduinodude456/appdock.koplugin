@@ -87,6 +87,7 @@ function Audio.new(path)
         paused = false,
         command = nil,
         command_name = nil,
+        start_log = nil,
     }, Audio)
 
     local gst_launch = Audio.findCommand("gst-launch-1.0")
@@ -176,6 +177,8 @@ function Audio:startFrom(seconds)
         local setsid = Audio.findCommand("setsid")
         command = setsid and (shellQuote(setsid) .. " sh -c " .. shellQuote(pipeline))
             or ("sh -c " .. shellQuote(pipeline))
+        self.start_log = os.tmpname()
+        command = command .. " >" .. shellQuote(self.start_log) .. " 2>&1"
     elseif self.command_name == "aplay" then
         command = shellQuote(self.command) .. " -q " .. shellQuote(self.clip_path)
     else
@@ -190,6 +193,26 @@ function Audio:startFrom(seconds)
     logger.info("appdock youtube: audio started", self.command_name, "pid", self.pid)
     self.paused = false
     return true
+end
+
+-- The raw PCM pipeline is unchanged from 7.8.26. Its normal GStreamer output
+-- is used only to let the player anchor the first frame to the MTK sink clock.
+function Audio:requiresStartConfirmation()
+    return self.command_name == "mtk-gstreamer"
+end
+
+function Audio:isPlaybackReady()
+    if not self:requiresStartConfirmation() then return true end
+    if not self.start_log then return false end
+    local log = io.open(self.start_log, "rb")
+    if not log then return false end
+    local output = log:read("*a") or ""
+    log:close()
+    if output:find("New clock:", 1, true) then return true end
+    if output:find("ERROR:", 1, true) then
+        return nil, output:match("ERROR:[^\r\n]*") or output
+    end
+    return false
 end
 
 function Audio:pause()
@@ -215,6 +238,10 @@ function Audio:stop()
         os.remove(self.clip_path)
     end
     self.clip_path = nil
+    if self.start_log then
+        os.remove(self.start_log)
+        self.start_log = nil
+    end
     self.paused = false
 end
 

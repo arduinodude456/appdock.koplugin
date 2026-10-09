@@ -160,6 +160,8 @@ end
 
 local Engine = {}
 Engine.__index = Engine
+local AUDIO_START_POLL_INTERVAL = 0.05
+local AUDIO_START_TIMEOUT = 8
 
 function Engine.open(video_path, wav_path, report)
     local handle = io.open(video_path, "rb")
@@ -175,6 +177,7 @@ function Engine.open(video_path, wav_path, report)
         position = 0,
         anchor_wall = nil,
         anchor_position = 0,
+        pending_start = nil,
         canvas = nil,
     }, Engine)
     if not handle then
@@ -262,11 +265,25 @@ end
 
 function Engine:play()
     if self.error then return nil, self.error end
+    if self.pending_start then return true end
     if self.audio then
         local ok, err = self.audio:startFrom(self:audioTime(self.position or 0))
         if not ok then
             self.audio_error = err
             self:status(err)
+        elseif self.audio.requiresStartConfirmation and self.audio:requiresStartConfirmation() then
+            local ready, ready_error = self.audio:isPlaybackReady()
+            if not ready and not ready_error then
+                self.pending_start = {
+                    position = self.position or 0,
+                    deadline = Player.now() + AUDIO_START_TIMEOUT,
+                }
+                self.anchor_wall, self.paused = nil, false
+                self:status(_("Waiting for the audio clock…"))
+                UIManager:unschedule(self.tick)
+                UIManager:scheduleIn(AUDIO_START_POLL_INTERVAL, self.tick)
+                return true
+            end
         end
     else
         self:status(_("Playing without companion audio."))
@@ -283,6 +300,14 @@ function Engine:play()
 end
 
 function Engine:pause()
+    if self.pending_start then
+        self.position = self.pending_start.position
+        self.pending_start = nil
+        self.anchor_wall, self.paused = nil, true
+        if self.audio then self.audio:stop() end
+        UIManager:unschedule(self.tick)
+        return
+    end
     if self.paused then return end
     self.position = self:currentTime()
     self.anchor_wall, self.paused = nil, true
@@ -299,6 +324,20 @@ end
 
 function Engine:jump(seconds)
     if self.error then return nil, self.error end
+    if self.pending_start then
+        self.position = clamp(self.pending_start.position + (tonumber(seconds) or 0), 0, self.duration)
+        if self.audio then
+            local ok, err = self.audio:startFrom(self:audioTime(self.position))
+            if not ok then
+                self.audio_error = err
+                self:status(err)
+            else
+                self.pending_start.position = self.position
+                self.pending_start.deadline = Player.now() + AUDIO_START_TIMEOUT
+            end
+        end
+        return self:show(self.position)
+    end
     local base = self.paused and (self.position or 0) or self:currentTime()
     self.position = clamp(base + (tonumber(seconds) or 0), 0, self.duration)
     if self.paused then
@@ -328,7 +367,36 @@ function Engine:restart()
 end
 
 function Engine:step()
-    if self.closed or self.paused then return end
+    if self.closed then return end
+    if self.pending_start then
+        local ready, start_error = self.audio:isPlaybackReady()
+        if ready or start_error or Player.now() >= self.pending_start.deadline then
+            local position = self.pending_start.position
+            self.pending_start = nil
+            if start_error then
+                self.audio_error = start_error
+                self:status(start_error)
+            elseif not ready then
+                -- Do not stop audio merely because this firmware omitted the
+                -- optional New clock line; keep the proven 7.8.26 pipeline.
+                self:status(_("Audio clock was not reported; continuing playback."))
+            end
+            self.anchor_position, self.anchor_wall, self.paused = position, Player.now(), false
+            local ok, err = self:show(position)
+            if not ok then
+                self.paused = true
+                if self.audio then self.audio:stop() end
+                self:status(err)
+            else
+                UIManager:unschedule(self.tick)
+                UIManager:scheduleIn(self.period, self.tick)
+            end
+            return
+        end
+        UIManager:scheduleIn(AUDIO_START_POLL_INTERVAL, self.tick)
+        return
+    end
+    if self.paused then return end
     self.position = self:currentTime()
     if self.position >= self.duration then
         self:show(self.duration)
