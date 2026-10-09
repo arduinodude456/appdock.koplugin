@@ -283,8 +283,11 @@ function Audio:isPlaybackReady()
     if not log then return false end
     local output = log:read("*a") or ""
     log:close()
-    if output:find("New clock:", 1, true)
-        or output:find("Setting pipeline to PLAYING", 1, true) then
+    -- `Setting pipeline to PLAYING` only means that GStreamer accepted the
+    -- state transition. On Kobo it can be printed before the MTK sink has
+    -- opened the Bluetooth route; treating it as ready caused silent video.
+    -- `New clock:` is the readiness signal used by the known-good 7.8.28 path.
+    if output:find("New clock:", 1, true) then
         return true
     end
     if output:find("ERROR:", 1, true) then

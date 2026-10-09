@@ -84,7 +84,7 @@ assert(gst:requiresStartConfirmation() and not gst:isPlaybackReady(),
 local startup_log = assert(io.open(gst.start_log, "wb"))
 assert(startup_log:write("Setting pipeline to PLAYING ...\n"))
 startup_log:close()
-assert(gst:isPlaybackReady(), "The GStreamer PLAYING announcement must release the video start")
+assert(not gst:isPlaybackReady(), "The PLAYING announcement alone must not release the video start")
 startup_log = assert(io.open(gst.start_log, "ab"))
 assert(startup_log:write("New clock: GstSystemClock\n"))
 startup_log:close()
