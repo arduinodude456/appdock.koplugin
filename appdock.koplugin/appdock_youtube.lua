@@ -225,6 +225,50 @@ function YouTube.parseProgress(text)
     return last
 end
 
+-- YouTube's default browser clients have recently been switched to streaming
+-- modes that frequently return expired or forbidden media URLs to yt-dlp. The
+-- Android client still supplies a direct, modest-quality stream, which is a
+-- better fit for this E-Ink converter and does not require a JS runtime.
+local YOUTUBE_PLAYER_CLIENT = "youtube:player_client=android"
+
+function YouTube.buildDownloadCommand(ytdlp, ffmpeg, source_file, source, max_height)
+    local height = tonumber(max_height) or 480
+    local format = string.format(
+        "bv*[height<=%d][ext=mp4]+ba[ext=m4a]/b[height<=%d]/bv*[height<=%d]+ba/b[height<=%d]/b",
+        height, height, height, height
+    )
+    return shellQuote(ytdlp)
+        .. " --no-playlist --newline --no-warnings --no-cache-dir"
+        .. " --extractor-args " .. shellQuote(YOUTUBE_PLAYER_CLIENT)
+        .. " --merge-output-format mp4"
+        .. " --ffmpeg-location " .. shellQuote(ffmpeg)
+        .. " -f " .. shellQuote(format)
+        .. " -o " .. shellQuote(source_file)
+        .. " " .. shellQuote(source)
+end
+
+-- Keep the visible failure reason short and actionable. The complete yt-dlp
+-- diagnostic remains available below it in the job pane.
+function YouTube.describeDownloadFailure(log)
+    local lower = tostring(log or ""):lower()
+    if lower:find("sign in to confirm", 1, true) and lower:find("not a bot", 1, true) then
+        return _("YouTube blocked this reader's guest session. Wait and try again; some videos require a signed-in session.")
+    end
+    if lower:find("http error 403", 1, true) or lower:find("403 forbidden", 1, true) then
+        return _("YouTube rejected the video stream (403). Try again later.")
+    end
+    if lower:find("po token", 1, true) then
+        return _("YouTube requested an access token for this video. Try another public video.")
+    end
+    if lower:find("requested format is not available", 1, true) then
+        return _("This video has no compatible stream at the selected source quality.")
+    end
+    if lower:find("network is unreachable", 1, true) or lower:find("connection", 1, true) then
+        return _("The network connection failed while downloading the video.")
+    end
+    return _("The download failed. See the yt-dlp details below.")
+end
+
 -- ffmpeg filter chain that letterboxes the source into the BWR1 frame.
 function YouTube.buildFilter(width, height, fps, dithered)
     local chain = string.format(
@@ -1170,17 +1214,8 @@ function YouTube:_startJob(instance, context, spec)
         job.stage_message = _("Converting video")
         self:_startVideoStage(instance, context, job)
     else
-        local format = string.format(
-            "bv*[height<=%d][ext=mp4]+ba[ext=m4a]/b[height<=%d]/bv*[height<=%d]+ba/b[height<=%d]/b",
-            settings.max_height, settings.max_height, settings.max_height, settings.max_height
-        )
-        local command = shellQuote(tools.ytdlp)
-            .. " --no-playlist --newline --no-warnings --no-cache-dir"
-            .. " --merge-output-format mp4"
-            .. " --ffmpeg-location " .. shellQuote(tools.ffmpeg)
-            .. " -f " .. shellQuote(format)
-            .. " -o " .. shellQuote(job.source_file)
-            .. " " .. shellQuote(spec.source)
+        local command = YouTube.buildDownloadCommand(
+            tools.ytdlp, tools.ffmpeg, job.source_file, spec.source, settings.max_height)
         local handle, err = self:_startDetached(command, work, "download")
         if not handle then
             job.stage = "error"
@@ -1403,7 +1438,8 @@ function YouTube:_tick(instance, context)
             job.download = nil
             local source_handle = io.open(job.source_file, "rb")
             if code ~= 0 or not source_handle then
-                self:_failJob(instance, context, job, _("The download failed.") .. "\n" .. trim((log or ""):sub(-400)))
+                job.log_tail = trim((log or ""):sub(-700))
+                self:_failJob(instance, context, job, YouTube.describeDownloadFailure(log))
                 return
             end
             source_handle:close()
@@ -2558,6 +2594,8 @@ YouTube._test = {
     parseSearchOutput = YouTube.parseSearchOutput,
     parseProgress = YouTube.parseProgress,
     parseVideoId = YouTube.parseVideoId,
+    buildDownloadCommand = YouTube.buildDownloadCommand,
+    describeDownloadFailure = YouTube.describeDownloadFailure,
     slugify = YouTube.slugify,
     cycle = YouTube.cycle,
     durationLabel = YouTube.durationLabel,

@@ -182,6 +182,15 @@ assert(helpers.parseProgress("[download]   0.0% of 10.00MiB at 1.00MiB/s ETA 00:
     .. "[download]  42.5% of 10.00MiB at 1.00MiB/s ETA 00:05\n"
     .. "[download] 100.0% of 10.00MiB in 00:09\n") == 100, "The last download percentage must win")
 assert(helpers.parseProgress("no progress here") == nil, "A log without progress must report nothing")
+local download_command = helpers.buildDownloadCommand(
+    "/tools/yt-dlp", "/tools/ffmpeg", "/tmp/source.media", "https://www.youtube.com/watch?v=abc12345678", 480)
+assert(download_command:find("%-%-extractor%-args 'youtube:player_client=android'", 1)
+    and download_command:find("%-%-merge%-output%-format mp4", 1),
+    "Video downloads must use yt-dlp's Android client to avoid browser-client streaming failures")
+assert(helpers.describeDownloadFailure("ERROR: Sign in to confirm you're not a bot")
+    :find("guest session", 1, true), "Bot challenges must explain why a public-video download cannot continue")
+assert(helpers.describeDownloadFailure("ERROR: unable to download video data: HTTP Error 403: Forbidden")
+    :find("403", 1, true), "HTTP 403 failures must be named explicitly")
 assert(helpers.liveLogPreview("\27[32mfirst line\27[0m\rprogress 1%\rprogress 2%\nsecond\nthird\nfourth\nfifth\nsixth")
     == "second\nthird\nfourth\nfifth\nsixth",
     "The live shell preview must remove terminal colors and keep only the latest five lines")
