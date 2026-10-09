@@ -31,6 +31,7 @@ local InputContainer = require("ui/widget/container/inputcontainer")
 local InputDialog = require("ui/widget/inputdialog")
 local OverlapGroup = require("ui/widget/overlapgroup")
 local TextWidget = require("ui/widget/textwidget")
+local TextBoxWidget = require("ui/widget/textboxwidget")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local _ = require("gettext")
@@ -756,13 +757,6 @@ function YouTube.liveLogPreview(text)
     for line in text:gmatch("[^\n]+") do
         line = trim(line):gsub("%s+", " ")
         if line ~= "" then
-            if #line > 120 then
-                line = line:sub(1, 120)
-                while #line > 0 and line:byte(#line) >= 128 do
-                    line = line:sub(1, -2)
-                end
-                line = line .. "…"
-            end
             lines[#lines + 1] = line
         end
     end
@@ -2399,12 +2393,12 @@ function YouTube:_buildSetupPane(instance, context, state)
     }
     output_label.overlap_offset = { margin, bootstrap.error and scale(174) or scale(158) }
     table.insert(content, output_label)
-    local output_widget = TextWidget:new{
+    local output_widget = TextBoxWidget:new{
         text = bootstrap.live_output or YouTube.liveLogPreview(""),
         face = Font:getFace("smallinfofont", scale(9)),
         fgcolor = Blitbuffer.COLOR_DARK_GRAY,
-        max_width = width - 2 * margin,
-        padding = 0,
+        width = width - 2 * margin,
+        alignment = "left",
     }
     bootstrap.live_widget = output_widget
     output_widget.overlap_offset = { margin, bootstrap.error and scale(192) or scale(176) }

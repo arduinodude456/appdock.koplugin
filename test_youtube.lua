@@ -104,6 +104,7 @@ package.preload["ui/widget/container/framecontainer"] = function() return FrameC
 package.preload["ui/widget/overlapgroup"] = function() return OverlapGroup end
 package.preload["ui/widget/horizontalspan"] = function() return HorizontalSpan end
 package.preload["ui/widget/textwidget"] = function() return TextWidget end
+package.preload["ui/widget/textboxwidget"] = function() return TextWidget end
 package.preload["ui/widget/infomessage"] = function() return WidgetContainer end
 package.preload["ui/widget/inputdialog"] = function() return WidgetContainer end
 package.preload["appdock_keyboard"] = function() return WidgetContainer end
@@ -184,8 +185,8 @@ assert(helpers.parseProgress("no progress here") == nil, "A log without progress
 assert(helpers.liveLogPreview("\27[32mfirst line\27[0m\rprogress 1%\rprogress 2%\nsecond\nthird\nfourth\nfifth\nsixth")
     == "second\nthird\nfourth\nfifth\nsixth",
     "The live shell preview must remove terminal colors and keep only the latest five lines")
-assert(#helpers.liveLogPreview(string.rep("x", 200)) <= 124,
-    "A single long shell line must be bounded for the E-Ink setup view")
+assert(helpers.liveLogPreview(string.rep("x", 200)) == string.rep("x", 200),
+    "The live shell preview must preserve long error lines for the wrapping text box")
 
 local filter = helpers.buildFilter(632, 840, 12, false)
 assert(filter:find("fps=12", 1, true) and filter:find("scale=632:840", 1, true), "The filter must carry rate and size")
