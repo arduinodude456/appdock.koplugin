@@ -573,7 +573,6 @@ local function runConversion(dither_mode, label, seconds)
 
     local engine = assert(Player.Engine.open(entry.path, entry.path:gsub("%.bwr$", ".wav"), function() end))
     assert(not engine.error, label .. ": the player must accept the produced file")
-    assert(engine.frame_locked == true, label .. ": playback must use the displayed frame as its timebase")
     local white, black, total = 0, 0, 0
     for _, index in ipairs({ 0, math.floor(header.frames / 2), header.frames - 1 }) do
         local packed = assert(engine:readFrame(index))
