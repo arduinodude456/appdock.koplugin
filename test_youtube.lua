@@ -115,11 +115,15 @@ package.preload["appdock_logo"] = function()
 end
 package.preload["libs/libkoreader-lfs"] = function() return lfs end
 
-local scheduled = {}
+local scheduled, scheduled_delays, schedule_counts = {}, {}, {}
 local ui_log = { dirties = 0, shows = 0 }
 package.preload["ui/uimanager"] = function()
     return {
-        scheduleIn = function(_, _, callback) table.insert(scheduled, callback) end,
+        scheduleIn = function(_, delay, callback)
+            table.insert(scheduled, callback)
+            scheduled_delays[callback] = delay
+            schedule_counts[callback] = (schedule_counts[callback] or 0) + 1
+        end,
         unschedule = function(_, callback)
             for index, entry in ipairs(scheduled) do
                 if entry == callback then table.remove(scheduled, index); break end
@@ -498,6 +502,8 @@ local function drain(instance, timeout_seconds)
     while os.time() < deadline do
         if #scheduled > 0 then
             local callback = table.remove(scheduled, 1)
+            local delay = tonumber(scheduled_delays[callback]) or 0
+            if delay > 0 then os.execute(string.format("sleep %.3f", delay)) end
             callback()
         else
             local job = instance.youtube and instance.youtube.job
@@ -532,8 +538,13 @@ local function runConversion(dither_mode, label, seconds)
     local progress_pane = youtube:buildPane(local_instance, local_context)
     assert(progress_pane and local_instance.youtube.job.progress_widget,
         "The job pane must bind its progress bar to the active conversion job")
+    local conversion_job = local_instance.youtube.job
+    assert(scheduled_delays[conversion_job.tick] <= 0.1,
+        "Video conversion must use frequent short ticks instead of sleeping a full second")
     local job = drain(local_instance)
     assert(job == nil, label .. ": the job must finish, but ended with: " .. tostring(job and job.stage_message))
+    assert(schedule_counts[conversion_job.tick] <= 6,
+        "A short conversion must process frames in batches rather than taking one UI tick per two frames")
     assert(observed_progress_ratio > 0 and video_fast_refresh,
         "Video ticks must update the existing progress bar and request an E-Ink-friendly partial refresh")
     local library = local_instance.youtube.library

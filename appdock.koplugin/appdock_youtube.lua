@@ -903,6 +903,22 @@ YouTube._writeFile = writeFile
 -- Job pipeline
 ----------------------------------------------------------------
 
+-- The old UI loop read only two frames before sleeping for one full second,
+-- limiting conversion to 2 fps regardless of encoder speed. Use bounded batches
+-- and short video ticks while keeping each UI-thread turn time-limited.
+local VIDEO_TICK_INTERVAL = 0.05
+local VIDEO_TICK_CPU_BUDGET = 0.08
+local VIDEO_MAX_FRAMES_PER_TICK = 6
+local PROGRESS_REFRESH_INTERVAL = 0.75
+
+local function monotonicNow()
+    if Player and type(Player.now) == "function" then
+        local ok, value = pcall(Player.now)
+        if ok and type(value) == "number" then return value end
+    end
+    return os.time()
+end
+
 local function jobDirectory()
     local ok, lfs = pcall(require, "libs/libkoreader-lfs")
     if not ok then ok, lfs = pcall(require, "lfs") end
@@ -1306,6 +1322,7 @@ function YouTube:_startVideoStage(instance, context, job)
 
     job.stage = "video"
     job.stage_message = _("Converting video")
+    job.interval = VIDEO_TICK_INTERVAL
     job.width, job.height = width, height
     job.encoder = encoder
     job.handle = handle
@@ -1345,6 +1362,7 @@ function YouTube:_finishVideoStage(instance, context, job)
     job.stage = "audio"
     job.stage_message = _("Extracting audio")
     job.percent = 96
+    job.interval = 1
 
     local settings = self:_settings()
     local tools = self:_state(instance).tools
@@ -1471,8 +1489,8 @@ function YouTube:_tick(instance, context)
             self:_startVideoStage(instance, context, job)
         end
     elseif job.stage == "video" then
-        local frames_per_tick = 2
-        for _ = 1, frames_per_tick do
+        local tick_started = os.clock()
+        for _ = 1, VIDEO_MAX_FRAMES_PER_TICK do
             local chunk = job.pipe:read(job.frame_bytes)
             if not chunk or #chunk < job.frame_bytes then
                 self:_finishVideoStage(instance, context, job)
@@ -1490,6 +1508,7 @@ function YouTube:_tick(instance, context)
             end
             job.handle:write(packed)
             job.frames = job.frames + 1
+            if os.clock() - tick_started >= VIDEO_TICK_CPU_BUDGET then break end
         end
         if job.stage == "video" then
             if job.expected_frames and job.expected_frames > 0 then
@@ -1520,7 +1539,11 @@ function YouTube:_tick(instance, context)
     if job.stage_widget and job.stage_widget.setText then
         job.stage_widget:setText(fitText(job.stage_message or "", job.stage_widget_width or 160, 11))
     end
-    if hostIsActive(context) and context.requestRefresh then context.requestRefresh("fast") end
+    local refresh_now = monotonicNow()
+    if not job.last_progress_refresh or refresh_now - job.last_progress_refresh >= PROGRESS_REFRESH_INTERVAL then
+        job.last_progress_refresh = refresh_now
+        if hostIsActive(context) and context.requestRefresh then context.requestRefresh("fast") end
+    end
     if job.stage == "error" then
         -- Nothing is running any more: show the message and stop ticking.
         if hostIsActive(context) and context.requestRebuild and self:_state(instance).view ~= "play" then

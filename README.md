@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.8.23** behebt fehlgeschlagene YouTube-Downloads mit yt-dlp und zeigt verständlichere Fehlerhinweise. [Details](RELEASE_NOTES_7.8.23.md).
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.8.24** aktualisiert YouTube-Fortschrittsanzeigen live und beschleunigt die Video-Konvertierung durch gebündelte Frame-Verarbeitung. [Details](RELEASE_NOTES_7.8.24.md).
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst Androids Formensprache, nicht dessen Daueranimationen, Unschärfen oder Transparenzeffekte. Auf E-Ink wechseln App-Seiten und Recently-used-Drawer direkt und ohne Zwischenanimation. Damit bleibt die Darstellung auf monochromen Readern kontrastreich, sparsam und frei von unnötigem Ghosting.
 
@@ -27,6 +27,8 @@
 > **7.5.1:** Der Store-Kopf trägt jetzt ausschließlich die AppDock-Eigenmarke **AppDock Store** und das vorhandene AppStore-Logo. Das externe Play-Zeichen und der entsprechende Schriftzug wurden entfernt. [Details](RELEASE_NOTES_7.5.1.md).
 
 > **7.5.0:** Die erste Homescreen-Seite erhielt eine gebrandete **DuckDuckGo-Suchleiste**; der AppStore wurde mit Suchfeld, Empfehlungskarten, Installationsaktionen und unterer Kategorienavigation neu gestaltet. Angezeigt werden weiterhin nur echte Katalogdaten, ohne erfundene Bewertungen oder Screenshots. Details stehen in [`RELEASE_NOTES_7.5.0.md`](RELEASE_NOTES_7.5.0.md).
+
+> **7.8.24:** YouTube-Fortschrittsanzeigen werden während Downloads und Konvertierung aktualisiert. Die Konvertierung verarbeitet Frames in zeitbegrenzten Batches statt höchstens zwei Frames pro Sekunde; E-Ink-Refreshes bleiben gedrosselt. [Details](RELEASE_NOTES_7.8.24.md).
 
 > **7.8.23:** YouTube-Downloads verwenden jetzt den yt-dlp-Android-Client, um Probleme mit abgewiesenen Browser-Client-Streams zu vermeiden. Die Fortschrittsansicht benennt außerdem typische Ursachen wie Bot-Prüfung, HTTP 403 oder Netzwerkfehler. [Details](RELEASE_NOTES_7.8.23.md).
 
