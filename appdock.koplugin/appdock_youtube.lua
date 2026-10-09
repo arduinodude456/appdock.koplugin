@@ -25,6 +25,8 @@ local Font = require("ui/font")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
 local GestureRange = require("ui/gesturerange")
+local ImageWidget
+pcall(function() ImageWidget = require("ui/widget/imagewidget") end)
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local InfoMessage = require("ui/widget/infomessage")
 local InputContainer = require("ui/widget/container/inputcontainer")
@@ -63,6 +65,12 @@ end
 
 local function basename(path)
     return (path or ""):match("([^/]+)$") or path or ""
+end
+
+local function fileExists(path)
+    local handle = path and io.open(path, "rb")
+    if handle then handle:close(); return true end
+    return false
 end
 
 -- TextWidget wraps at max_width, which would overflow a fixed-height row, so
@@ -196,7 +204,10 @@ end
 function YouTube.parseSearchOutput(text)
     local results = {}
     for line in tostring(text or ""):gmatch("[^\r\n]+") do
-        local id, title, duration, uploader = line:match("^([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)$")
+        local id, title, duration, uploader, thumbnail = line:match("^([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)$")
+        if not id then
+            id, title, duration, uploader = line:match("^([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)$")
+        end
         if id and id:match("^[%w%-_]+$") and #id >= 5 then
             local seconds = tonumber(duration)
             results[#results + 1] = {
@@ -204,11 +215,28 @@ function YouTube.parseSearchOutput(text)
                 title = trim(title) ~= "" and trim(title) or id,
                 duration = seconds and seconds > 0 and seconds or nil,
                 uploader = trim(uploader) ~= "" and trim(uploader) or nil,
+                thumbnail = trim(thumbnail) ~= "" and trim(thumbnail) or nil,
                 url = YouTube.watchUrl(id),
             }
         end
     end
     return results
+end
+
+function YouTube:_cacheThumbnail(result, target_path)
+    if type(result) ~= "table" or not result.id then return nil end
+    local cache = self:_outputDirectory() .. "/.thumbnails"
+    os.execute("mkdir -p " .. shellQuote(cache) .. " >/dev/null 2>&1")
+    local path = target_path or (cache .. "/" .. result.id .. ".jpg")
+    result.thumbnail_path = path
+    if result.thumbnail and not fileExists(path) then
+        local download = "(command -v curl >/dev/null 2>&1 && curl -L --fail --max-time 15 -sS -o "
+            .. shellQuote(path) .. " " .. shellQuote(result.thumbnail)
+            .. " || (command -v wget >/dev/null 2>&1 && wget -q -T 15 -O "
+            .. shellQuote(path) .. " " .. shellQuote(result.thumbnail) .. "))"
+        os.execute("setsid sh -c " .. shellQuote(download) .. " >/dev/null 2>&1 &")
+    end
+    return path
 end
 
 -- Reads the download percentage out of a yt-dlp/youtube-dl progress line.
@@ -808,6 +836,7 @@ function YouTube:scanLibrary(instance, context)
                     size = attributes.size or 0,
                     modified = attributes.modification or 0,
                     has_audio = wav ~= nil,
+                    thumbnail_path = path:gsub("%.bwr$", ".jpg"),
                     video_card = true,
                 }
             end
@@ -1592,7 +1621,7 @@ function YouTube:startSearch(instance, context, query)
     local work = jobDirectory()
     local command = shellQuote(tools.ytdlp)
         .. " --no-warnings --no-cache-dir --flat-playlist --ignore-errors"
-        .. " --print " .. shellQuote("%(id)s\t%(title)s\t%(duration)s\t%(uploader)s")
+        .. " --print " .. shellQuote("%(id)s\t%(title)s\t%(duration)s\t%(uploader)s\t%(thumbnail)s")
         .. " " .. shellQuote("ytsearch8:" .. query)
     local handle, err = self:_startDetached(command, work, "search")
     if not handle then
@@ -1626,11 +1655,15 @@ function YouTube:startSearch(instance, context, query)
             state.view = "home"
         else
             local results = YouTube.parseSearchOutput(log)
+            for _, result in ipairs(results) do self:_cacheThumbnail(result) end
             state.results = results
             state.results_query = query
             state.result_page = 1
             state.view = #results > 0 and "results" or "home"
             state.note = #results > 0 and "" or _("No results were returned.")
+            if #results > 0 and context and context.requestRebuild then
+                UIManager:scheduleIn(3, function() context.requestRebuild("ui") end)
+            end
         end
         if context and context.requestRebuild then context.requestRebuild("ui") end
     end
@@ -1650,6 +1683,9 @@ function YouTube:startVideo(instance, context, result)
         if index > 50 then break end
     end
     slug = basename(candidate):gsub("%.bwr$", "")
+    if result.thumbnail then
+        self:_cacheThumbnail(result, candidate:gsub("%.bwr$", ".jpg"))
+    end
     return self:_startJob(instance, context, {
         kind = "url",
         source = result.url or YouTube.watchUrl(result.id),
@@ -1703,6 +1739,7 @@ local Row = InputContainer:extend{
     bordered = false,
     video_card = false,
     thumbnail_text = "▶",
+    thumbnail_path = nil,
     dimen = nil,
 }
 
@@ -1732,12 +1769,22 @@ function Row:init()
         max_width = scale(44),
     }
     if self.video_card then
-        self.thumbnail_widget = TextWidget:new{
-            text = self.thumbnail_text or "▶",
-            face = Font:getFace("cfont", scale(20)),
-            fgcolor = Blitbuffer.COLOR_WHITE,
-            padding = 0,
-        }
+        if ImageWidget and fileExists(self.thumbnail_path) then
+            self.thumbnail_widget = ImageWidget:new{
+                file = self.thumbnail_path,
+                width = math.max(1, self.thumbnail_width),
+                height = math.max(1, self.height - padding * 2),
+                file_do_cache = false,
+            }
+            self.has_thumbnail_image = true
+        else
+            self.thumbnail_widget = TextWidget:new{
+                text = self.thumbnail_text or "▶",
+                face = Font:getFace("cfont", scale(20)),
+                fgcolor = Blitbuffer.COLOR_WHITE,
+                padding = 0,
+            }
+        end
     end
     local events = { TapRow = { GestureRange:new{ ges = "tap", range = self.dimen } } }
     if self.hold_callback then
@@ -1762,7 +1809,9 @@ function Row:paintTo(bb, x, y)
     end
     local padding = scale(8)
     if self.video_card then
-        bb:paintRect(x + padding, y + padding, self.thumbnail_width, self.height - padding * 2, Blitbuffer.COLOR_DARK_GRAY)
+        if not self.has_thumbnail_image then
+            bb:paintRect(x + padding, y + padding, self.thumbnail_width, self.height - padding * 2, Blitbuffer.COLOR_DARK_GRAY)
+        end
         local thumb_size = self.thumbnail_widget:getSize()
         self.thumbnail_widget:paintTo(bb,
             x + padding + math.floor((self.thumbnail_width - thumb_size.w) / 2),
@@ -1995,6 +2044,7 @@ local function buildList(content, entries, page, per_page, offset_y, row_height,
             bordered = entry.highlight == true,
             video_card = entry.video_card == true,
             thumbnail_text = entry.thumbnail_text or "▶",
+            thumbnail_path = entry.thumbnail_path,
             callback = function() if on_tap then on_tap(entry) end end,
             hold_callback = on_hold and function() on_hold(entry) end or nil,
         }
@@ -2116,13 +2166,29 @@ function YouTube:_buildWatchLikeHome(instance, context, state)
     }
     footer.overlap_offset = { 0, height - footer_h }
     table.insert(content, footer)
-    local nav = TextWidget:new{
-        text = "⌂  Home       ▣  Subscriptions       ▤  Library",
-        face = Font:getFace("smallinfofont", scale(10)), fgcolor = Blitbuffer.COLOR_WHITE,
-        padding = 0,
+    local nav_width = math.floor((width - 2 * margin - gap * 2) / 3)
+    local navigation = {
+        { text = "⌂  " .. _("Home"), callback = function()
+            state.library_mode = false; state.view = "home"; context.requestRebuild("ui")
+        end },
+        { text = "▣  " .. _("Subscriptions"), callback = function()
+            self:_notify(instance, context, _("Subscriptions are not available in the offline DApp."))
+        end },
+        { text = "▤  " .. _("Library"), callback = function()
+            state.library = self:scanLibrary(instance, context)
+            state.library_mode = true; state.result_page = 1; state.view = "results"
+            context.requestRebuild("ui")
+        end },
     }
-    nav.overlap_offset = { margin, height - footer_h + scale(10) }
-    table.insert(content, nav)
+    for index, item in ipairs(navigation) do
+        local button = Pill:new{
+            text = item.text, width = nav_width, height = scale(28),
+            background = Blitbuffer.COLOR_BLACK, foreground = Blitbuffer.COLOR_WHITE,
+            callback = item.callback,
+            overlap_offset = { margin + (index - 1) * (nav_width + gap), height - footer_h + scale(3) },
+        }
+        table.insert(content, button)
+    end
     return content
 end
 
@@ -2175,7 +2241,7 @@ function YouTube:_buildResultsPane(instance, context, state)
             emptySizedWidget(width, height),
         },
     }
-    local results = state.results or {}
+    local results = state.library_mode and (state.library or {}) or (state.results or {})
     local back_width = scale(76)
     local back = Pill:new{
         text = "‹ " .. _("Back"),
@@ -2183,6 +2249,7 @@ function YouTube:_buildResultsPane(instance, context, state)
         height = scale(30),
         background = Blitbuffer.COLOR_GRAY_8,
         callback = function()
+            state.library_mode = false
             state.view = "home"
             context.requestRebuild("ui")
         end,
@@ -2190,7 +2257,8 @@ function YouTube:_buildResultsPane(instance, context, state)
     }
     table.insert(content, back)
     local title = TextWidget:new{
-        text = string.format(_("%d result(s) for \"%s\""), #results, state.results_query or ""),
+        text = state.library_mode and (_("Library") .. string.format(" · %d video(s)", #results))
+            or string.format(_("%d result(s) for \"%s\""), #results, state.results_query or ""),
         face = Font:getFace("smallinfofont", scale(11)),
         bold = true,
         fgcolor = Blitbuffer.COLOR_BLACK,
@@ -2211,6 +2279,7 @@ function YouTube:_buildResultsPane(instance, context, state)
             value = result.duration and formatDuration(result.duration) or "",
             video_card = true,
             thumbnail_text = "▶",
+            thumbnail_path = result.thumbnail_path,
             result = result,
         }
     end
@@ -2223,7 +2292,8 @@ function YouTube:_buildResultsPane(instance, context, state)
     local total_pages = math.max(1, math.ceil(#entries / per_page))
     state.result_page = clamp(state.result_page or 1, 1, total_pages)
     buildList(content, entries, state.result_page, per_page, top, row_height, gap, function(entry)
-        self:startVideo(instance, context, entry.result)
+        if state.library_mode then self:play(instance, context, entry.result.path)
+        else self:startVideo(instance, context, entry.result) end
     end)
     local pager = listPager(width - 2 * margin, pager_height, state.result_page, total_pages,
         function()
