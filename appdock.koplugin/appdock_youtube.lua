@@ -1383,7 +1383,9 @@ function YouTube:_finishVideoStage(instance, context, job)
         .. " -nostdin -hide_banner -loglevel error -y"
         .. " -i " .. shellQuote(job.source_file)
         .. (settings.max_duration > 0 and (" -t " .. tostring(settings.max_duration)) or "")
-        .. " -vn -sn -dn -af " .. shellQuote("aresample=async=1:first_pts=0")
+        .. " -vn -sn -dn -af " .. shellQuote(
+            "silenceremove=start_periods=1:start_duration=0.05:start_threshold=-50dB,"
+            .. "aresample=async=1:first_pts=0")
         .. " -c:a pcm_s16le -ar 44100 -ac 2 -f wav " .. shellQuote(job.wav)
     local detached = self:_startDetached(command, job.work, "audio")
     if detached then
