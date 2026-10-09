@@ -7,12 +7,10 @@ tools that the user installs once:
 * `yt-dlp` resolves and downloads a video,
 * `ffmpeg` decodes it to grey frames and extracts the companion WAV file.
 
-The dithering that makes the result readable on a black-and-white screen runs
-inside AppDock (`appdock_bwr.lua`) and uses the same 8x8 ordered matrix as the
-`videoplayer.koplugin` release "Snake". Existing BWR1 videos remain readable;
-new AppDock output uses BWR2 compression. A second mode lets ffmpeg do the 1-bit conversion for speed;
-the bit sense of ffmpeg's `monow` output is probed once at runtime instead of
-being assumed.
+FFmpeg performs the 1-bit dithering by default for speed; its `monow` bit sense
+is probed at runtime. The optional AppDock Bayer mode uses the same 8x8 ordered
+matrix as the `videoplayer.koplugin` release "Snake". Existing BWR1 videos
+remain readable; new AppDock output uses compressed BWR2.
 
 Playback is handled by `appdock_player.lua` and stays inside `context.dimen`.
 --]]--
@@ -269,7 +267,7 @@ function YouTube.describeDownloadFailure(log)
     return _("The download failed. See the yt-dlp details below.")
 end
 
--- ffmpeg filter chain that letterboxes the source into the BWR1 frame.
+-- ffmpeg filter chain that letterboxes the source into the BWR2 frame.
 function YouTube.buildFilter(width, height, fps, dithered)
     local chain = string.format(
         "fps=%s,scale=%d:%d:force_original_aspect_ratio=decrease:flags=lanczos,"
@@ -670,7 +668,7 @@ local DEFAULT_SETTINGS = {
     fps = 12,
     max_duration = 180,
     max_height = 480,
-    dither = "bayer",
+    dither = "ffmpeg",
 }
 
 function YouTube:new(appdock)
@@ -910,9 +908,9 @@ YouTube._writeFile = writeFile
 -- The old UI loop read only two frames before sleeping for one full second,
 -- limiting conversion to 2 fps regardless of encoder speed. Use bounded batches
 -- and short video ticks while keeping each UI-thread turn time-limited.
-local VIDEO_TICK_INTERVAL = 0.05
-local VIDEO_TICK_CPU_BUDGET = 0.08
-local VIDEO_MAX_FRAMES_PER_TICK = 6
+local VIDEO_TICK_INTERVAL = 0.01
+local VIDEO_TICK_CPU_BUDGET = 0.16
+local VIDEO_MAX_FRAMES_PER_TICK = 12
 local PROGRESS_REFRESH_INTERVAL = 0.75
 
 local function monotonicNow()

@@ -73,9 +73,9 @@ local DEFAULT_SETTINGS = {
         fps = 12,
         max_duration = 180,
         max_height = 480,
-        dither = "bayer",
+        dither = "ffmpeg",
     },
-    layout_version = 21,
+    layout_version = 22,
 }
 
 local function copyArray(source)
@@ -111,7 +111,7 @@ local function normalizeYouTubeSettings(stored)
         fps = (frame_rate and YOUTUBE_FRAME_RATES[frame_rate]) and frame_rate or 12,
         max_duration = (duration and duration >= 0 and duration <= 3600) and math.floor(duration) or 180,
         max_height = (height and YOUTUBE_HEIGHTS[height]) and height or 480,
-        dither = stored.dither == "ffmpeg" and "ffmpeg" or "bayer",
+        dither = stored.dither == "bayer" and "bayer" or "ffmpeg",
     }
 end
 
@@ -247,6 +247,12 @@ function AppDock:_loadSettings()
             end
             table.insert(self.settings.pinned_apps, insert_at or (#self.settings.pinned_apps + 1), "dapp:youtube")
         end
+    end
+    if self.settings.layout_version < 22 then
+        -- Existing releases defaulted every installation to Lua Bayer
+        -- dithering. FFmpeg's native monochrome conversion is materially faster;
+        -- users can still switch back to Bayer from YouTube settings.
+        self.settings.youtube.dither = "ffmpeg"
     end
     if self.settings.layout_version < DEFAULT_SETTINGS.layout_version then self.settings.layout_version = DEFAULT_SETTINGS.layout_version end
 

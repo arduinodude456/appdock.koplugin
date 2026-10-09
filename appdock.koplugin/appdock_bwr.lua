@@ -24,14 +24,11 @@ already-dithered 1-bit frames, so playback only expands bits to bytes and blits.
 
 Two dithering paths supply frames to the BWR2 writer:
 
-* `Encoder:pack` (Bayer, the default) dithers grey frames inside AppDock with
-  the same 8x8 ordered matrix `make.py` uses, so AppDock output matches the
-  files the Snake player already knows.
-* `BWR.ditherFromFfmpeg` accepts frames ffmpeg already reduced to 1 bit.
-
-The pixel work runs on FFI buffers. A 1264x1680 frame costs roughly two
-milliseconds on a desktop CPU, so a whole conversion stays interactive on the
-device.
+* `Encoder:pack` dithers grey frames inside AppDock with the same 8x8 ordered
+  matrix `make.py` uses, so users can choose output that matches the Snake
+  player.
+* `Encoder:packPreDithered` accepts frames ffmpeg already reduced to 1 bit; this
+  is the default conversion path because it is substantially faster.
 --]]--
 
 local bit = require("bit")
@@ -390,10 +387,14 @@ end
 
 function Writer:_compress(source)
     if not zlib then return nil end
-    ffi.copy(self.z_input, source, self.frame_bytes)
+    local input = source
+    if type(source) == "string" then
+        ffi.copy(self.z_input, source, self.frame_bytes)
+        input = self.z_input
+    end
     self.z_output_length[0] = self.z_bound
     local status = zlib.compress2(
-        self.z_output, self.z_output_length, self.z_input, self.frame_bytes, 1)
+        self.z_output, self.z_output_length, input, self.frame_bytes, 1)
     if status ~= 0 then return nil end
     return ffi.string(self.z_output, tonumber(self.z_output_length[0]))
 end
@@ -432,17 +433,30 @@ function Writer:writeFrame(frame)
         ok, err = self:_writePacket(4, "") -- repeat previous frame
     else
         ffi.copy(self.delta, frame, self.frame_bytes)
-        for index = 0, self.frame_bytes - 1 do
+        local words = math.floor(self.frame_bytes / 4)
+        local delta_words = ffi.cast("uint32_t*", self.delta)
+        local previous_words = ffi.cast("const uint32_t*", self.previous)
+        for index = 0, words - 1 do
+            delta_words[index] = bit.bxor(delta_words[index], previous_words[index])
+        end
+        for index = words * 4, self.frame_bytes - 1 do
             self.delta[index] = bit.bxor(self.delta[index], self.previous[index])
         end
         local compressed = self:_compress(self.delta)
-        local rle = rle_encode(ffi.string(self.delta, self.frame_bytes))
-        if compressed and #compressed < #rle and #compressed < self.frame_bytes then
+        -- DEFLATE is implemented in C. On ordinary moving footage it already
+        -- gives a compact packet, so avoid a second full Lua-level scan. Run
+        -- the zero-run codec only when DEFLATE is not clearly compact.
+        if compressed and #compressed < self.frame_bytes * 0.75 then
             ok, err = self:_writePacket(2, compressed) -- DEFLATE XOR delta
-        elseif #rle < self.frame_bytes then
-            ok, err = self:_writePacket(3, rle) -- zero-run XOR delta
         else
-            ok, err = self:_writePacket(0, frame) -- raw absolute fallback
+            local rle = rle_encode(ffi.string(self.delta, self.frame_bytes))
+            if compressed and #compressed < #rle and #compressed < self.frame_bytes then
+                ok, err = self:_writePacket(2, compressed) -- DEFLATE XOR delta
+            elseif #rle < self.frame_bytes then
+                ok, err = self:_writePacket(3, rle) -- zero-run XOR delta
+            else
+                ok, err = self:_writePacket(0, frame) -- raw absolute fallback
+            end
         end
     end
     if not ok then return nil, err end

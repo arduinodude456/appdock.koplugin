@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.8.29** erkennt beide üblichen GStreamer-Startmeldungen und beendet die Tonspur nicht mehr, falls ein Gerät die optionale Bereitschaftsmeldung anders ausgibt. [Details](RELEASE_NOTES_7.8.29.md).
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.8.30** beschleunigt die Videokonvertierung mit FFmpeg-Dithering als Standard, größeren CPU-Batches und einem optimierten BWR2-Encoder. [Details](RELEASE_NOTES_7.8.30.md).
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst Androids Formensprache, nicht dessen Daueranimationen, Unschärfen oder Transparenzeffekte. Auf E-Ink wechseln App-Seiten und Recently-used-Drawer direkt und ohne Zwischenanimation. Damit bleibt die Darstellung auf monochromen Readern kontrastreich, sparsam und frei von unnötigem Ghosting.
 
@@ -27,6 +27,8 @@
 > **7.5.1:** Der Store-Kopf trägt jetzt ausschließlich die AppDock-Eigenmarke **AppDock Store** und das vorhandene AppStore-Logo. Das externe Play-Zeichen und der entsprechende Schriftzug wurden entfernt. [Details](RELEASE_NOTES_7.5.1.md).
 
 > **7.5.0:** Die erste Homescreen-Seite erhielt eine gebrandete **DuckDuckGo-Suchleiste**; der AppStore wurde mit Suchfeld, Empfehlungskarten, Installationsaktionen und unterer Kategorienavigation neu gestaltet. Angezeigt werden weiterhin nur echte Katalogdaten, ohne erfundene Bewertungen oder Screenshots. Details stehen in [`RELEASE_NOTES_7.5.0.md`](RELEASE_NOTES_7.5.0.md).
+
+> **7.8.30:** Beschleunigt die YouTube-Konvertierung: FFmpeg übernimmt standardmäßig die 1-Bit-Umwandlung, BWR2 überspringt unnötige Lua-RLE-Scans, und die Frameverarbeitung nutzt größere CPU-Batches. Bayer bleibt auswählbar. [Details](RELEASE_NOTES_7.8.30.md).
 
 > **7.8.29:** Erkennt `Setting pipeline to PLAYING` und `New clock:` als Startbestätigung. Kommt kein bekanntes Logsignal, läuft der Ton weiter, statt nach dem Timeout abgeschaltet zu werden. [Details](RELEASE_NOTES_7.8.29.md).
 
@@ -224,13 +226,13 @@ Die DApp **YouTube** bringt Video auf ein Schwarzweiß-Display. Sie spricht nie 
 | **Paste a video link** | Akzeptiert Video-, Shorts-, Live- und Embed-Links sowie eine reine elfstellige Video-ID. Andere Adressen werden ausdrücklich abgelehnt. |
 | **Convert a local video file** | Konvertiert eine bereits vorhandene Datei, die ffmpeg dekodieren kann. |
 
-Unter der Suche stellen drei Felder Auflösung, Bildrate und Maximallänge ein; die Ansicht **Tools** verwaltet zusätzlich Programm-Pfade, Ausgabeordner, maximale Quellqualität und die Dither-Methode. Konvertierungen laufen als abgekoppelte Prozesse weiter, auch wenn die DApp verlassen wird, und können im Fortschrittsbildschirm abgebrochen werden.
+Unter der Suche stellen drei Felder Auflösung, Bildrate und Maximallänge ein; die Ansicht **Tools** verwaltet zusätzlich Programm-Pfade, Ausgabeordner, maximale Quellqualität und die Dither-Methode. Der schnelle FFmpeg-Modus ist Standard; bestehende Installationen werden einmalig darauf umgestellt. Wer das Snake-kompatible Bayer-Dithering bevorzugt, kann es in den Tools aktivieren. Konvertierungen laufen als abgekoppelte Prozesse weiter, auch wenn die DApp verlassen wird, und können im Fortschrittsbildschirm abgebrochen werden.
 
 ### Format und Kompatibilität
 
-AppDock schreibt das Containerformat **BWR1**: ein 32-Byte-Kopf, danach 1 Bit pro Pixel, MSB zuerst, wobei 1 für Weiß steht. Dieses Layout und die geordnete 8×8-Dither-Matrix entsprechen dem Konverter `tools/make.py` aus dem Release **„Snake“** von `videoplayer.koplugin`. Eine in AppDock erzeugte Datei ist damit ohne Nachbearbeitung mit diesem Player austauschbar, und eine dort erzeugte Datei läuft umgekehrt in der YouTube-DApp. Zu jeder `.bwr`-Datei entsteht eine gleichnamige `.wav`-Tonspur; fehlt sie, läuft die Wiedergabe stumm.
+Neue AppDock-Videos werden im kompakten, seekbaren **BWR2**-Format mit komprimierten Keyframes und Deltas gespeichert. Bereits vorhandene **BWR1**-Dateien aus `videoplayer.koplugin` bleiben lesbar; BWR1 nutzt 1 Bit pro Pixel, MSB zuerst, wobei 1 für Weiß steht. Zu jeder `.bwr`-Datei entsteht eine gleichnamige `.wav`-Tonspur; fehlt sie, läuft die Wiedergabe stumm.
 
-Optional übernimmt ffmpeg die 1-Bit-Umwandlung über `format=monow`. Da einzelne ffmpeg-Builds die Bitrichtung unterschiedlich schreiben, prüft AppDock das Verhalten einmalig zur Laufzeit und verwendet bei unklarer Antwort die eigene Matrix.
+FFmpeg übernimmt standardmäßig die schnelle 1-Bit-Umwandlung über `format=monow`; AppDock prüft die Bitrichtung des jeweiligen Builds. Die Bayer-Matrix bleibt in **Tools → Dithering** als Alternative verfügbar, wenn das Snake-kompatible Ditherbild bevorzugt wird.
 
 ### Wiedergabe
 

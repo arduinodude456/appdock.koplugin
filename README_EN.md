@@ -4,7 +4,7 @@
 
 # New releases regulary commited at 3:00 AM CET
 
-**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **7.8.29** recognizes both common GStreamer startup messages and no longer stops audio when a device formats its optional readiness message differently. [Details](RELEASE_NOTES_7.8.29.md).
+**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **7.8.30** speeds up video conversion with FFmpeg dithering by default, larger CPU batches, and an optimized BWR2 writer. [Details](RELEASE_NOTES_7.8.30.md).
 
 > **E-Ink approach:** AppDock deliberately borrows the visual language and information structure, not Android's animations, blur, or transparency effects. This keeps updates economical and maintains contrast on monochrome readers.
 
@@ -27,6 +27,8 @@
 > **7.5.1:** The store header now uses only AppDock’s own **AppDock Store** name and existing AppStore logo. External Play branding has been removed. [Details](RELEASE_NOTES_7.5.1.md).
 
 > **7.5.0:** The first homescreen page gained a branded **DuckDuckGo search bar**; the catalog was redesigned with search, recommendations, install actions, and bottom category navigation. It shows only real catalog data — no invented ratings or screenshots. See [`RELEASE_NOTES_7.5.0.md`](RELEASE_NOTES_7.5.0.md).
+
+> **7.8.30:** Speeds up YouTube conversion: FFmpeg handles 1-bit conversion by default, BWR2 skips unnecessary Lua RLE scans, and frame processing uses larger CPU batches. Bayer remains selectable. [Details](RELEASE_NOTES_7.8.30.md).
 
 > **7.8.29:** Recognizes `Setting pipeline to PLAYING` and `New clock:` as readiness signals. If neither is logged, audio continues rather than being terminated after the timeout. [Details](RELEASE_NOTES_7.8.29.md).
 
