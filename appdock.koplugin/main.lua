@@ -918,14 +918,16 @@ end
 
 function AppDock:_scheduleDAppTasks()
     if self._dapp_task_tick then UIManager:unschedule(self._dapp_task_tick) end
+    -- DApps such as DChat may opt in to a one-minute background check; each
+    -- DApp still enforces its own interval and explicit permission.
     self._dapp_task_tick = function()
         if not self.settings.power_saving then
             local manager = self:getDAppManager()
             if manager and manager.runPermittedBackgroundTasks then manager:runPermittedBackgroundTasks() end
         end
-        UIManager:scheduleIn(120, self._dapp_task_tick)
+        UIManager:scheduleIn(60, self._dapp_task_tick)
     end
-    UIManager:scheduleIn(120, self._dapp_task_tick)
+    UIManager:scheduleIn(60, self._dapp_task_tick)
 end
 
 function AppDock:onCloseWidget()
