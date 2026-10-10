@@ -57,7 +57,7 @@ local DEFAULT_SETTINGS = {
     wallpaper = { enabled = false, path = "" },
     lockscreen = { enabled = false, method = "swipe", secret_hash = nil, profile_name = "", profile_image_path = "" },
     beta = { black_borders = false, keep_wallpaper_original_in_night = false, plugin_dapp_host = false, manual_app_spacing = false, plugin_custom_logos = false },
-    quick_settings = { tiles = { "wifi", "night", "refresh", "edit", "draw", "sleep", "power_saving", "wallpaper" } },
+    quick_settings = { tiles = { "wifi", "night", "refresh", "edit", "rotate", "sleep", "power_saving", "wallpaper" } },
     simple_mode = { homescreen = false, quick_settings = false, focus_apps = false },
     workspace = { restore_enabled = false, session = nil },
     accessibility = { text_scale = 1, high_contrast = false },
@@ -79,7 +79,7 @@ local DEFAULT_SETTINGS = {
         color_mode = false,
         color_dither = true,
     },
-    layout_version = 23,
+    layout_version = 24,
 }
 
 local function copyArray(source)
@@ -661,20 +661,27 @@ function AppDock:setRefreshInterval(seconds)
     return seconds
 end
 
-local QUICK_TILE_IDS = { wifi = true, night = true, refresh = true, edit = true, draw = true, sleep = true, power_saving = true, wallpaper = true }
+local QUICK_TILE_IDS = { wifi = true, night = true, refresh = true, edit = true, rotate = true, sleep = true, power_saving = true, wallpaper = true }
 
 function AppDock:getQuickSettingsTiles()
     if self:isSimpleModeEnabled("quick_settings") then
-        return { "wifi", "night", "power_saving", "draw" }
+        return { "wifi", "night", "power_saving", "rotate" }
     end
     local tile_settings = self.settings.quick_settings
-    if tile_settings.draw_tile_migrated ~= true then
-        local has_draw = false
+    if tile_settings.rotation_tile_migrated ~= true then
+        local tiles, has_rotate = {}, false
         for _, tile_id in ipairs(tile_settings.tiles or {}) do
-            if tile_id == "draw" then has_draw = true; break end
+            if tile_id == "draw" then
+                if not has_rotate then tiles[#tiles + 1] = "rotate"; has_rotate = true end
+            else
+                tiles[#tiles + 1] = tile_id
+                if tile_id == "rotate" then has_rotate = true end
+            end
         end
-        if not has_draw then table.insert(tile_settings.tiles, "draw") end
-        tile_settings.draw_tile_migrated = true
+        if not has_rotate then tiles[#tiles + 1] = "rotate" end
+        tile_settings.tiles = tiles
+        tile_settings.draw_tile_migrated = nil
+        tile_settings.rotation_tile_migrated = true
     end
     local tiles, seen = {}, {}
     for _, tile_id in ipairs(tile_settings.tiles or {}) do

@@ -2917,7 +2917,7 @@ end
 function DAppManager:showControlCenterEditor(instance, context)
     local labels = {
         wifi = _("Wi-Fi"), night = _("Night mode"), refresh = _("Refresh"), edit = _("Edit apps"),
-        draw = _("Draw"),
+        rotate = _("Rotate"),
         sleep = _("Sleep"), power_saving = _("Save power"), wallpaper = _("Background image"),
     }
     local dialog
@@ -2925,7 +2925,7 @@ function DAppManager:showControlCenterEditor(instance, context)
         local current = {}
         for _, tile_id in ipairs(self.appdock:getQuickSettingsTiles()) do current[tile_id] = true end
         local buttons = {}
-        for _, tile_id in ipairs({ "wifi", "night", "refresh", "edit", "draw", "sleep", "power_saving", "wallpaper" }) do
+        for _, tile_id in ipairs({ "wifi", "night", "refresh", "edit", "rotate", "sleep", "power_saving", "wallpaper" }) do
             buttons[#buttons + 1] = { { text = (current[tile_id] and "✓ " or "") .. labels[tile_id], callback = function()
                 self.appdock:setQuickTileEnabled(tile_id, not current[tile_id])
                 UIManager:close(dialog)

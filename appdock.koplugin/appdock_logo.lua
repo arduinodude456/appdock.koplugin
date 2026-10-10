@@ -220,7 +220,7 @@ local EXTENDED_KINDS = {
     "archive", "bookmark", "calendar", "camera", "chat", "cloud", "code", "calculator",
     "dictionary", "document", "download", "gallery", "location", "mail", "map", "music", "palette",
     "notes", "podcast", "reading", "rss", "search", "security", "sync", "tasks", "terminal",
-    "timer", "translate", "upload", "weather", "battery", "dchat", "dockupdate", "minecraft",
+    "timer", "translate", "upload", "weather", "battery", "dchat", "dockupdate", "minecraft", "rotation",
     "youtube",
 }
 
@@ -388,6 +388,18 @@ function DAppLogo:_paintExtended(bb, x, y, size, kind)
         hollow(left, y + math.floor(size * 0.31), right - left, math.floor(size * 0.52), stroke)
         hollow(x + math.floor(size * 0.10), y + math.floor(size * 0.20), math.floor(size * 0.80), math.floor(size * 0.16), stroke)
         rect(x + math.floor(size * 0.38), y + math.floor(size * 0.56), math.floor(size * 0.24), thin)
+    elseif kind == "rotation" then
+        local radius = math.floor(size * 0.31)
+        local previous_x, previous_y
+        for step = 0, 24 do
+            local angle = math.pi * 0.25 + math.pi * 1.5 * step / 24
+            local px = math.floor(cx + math.cos(angle) * radius)
+            local py = math.floor(cy + math.sin(angle) * radius)
+            if previous_x then line(bb, previous_x, previous_y, px, py, stroke, self.ink) end
+            previous_x, previous_y = px, py
+        end
+        line(bb, previous_x, previous_y, previous_x + stroke * 2, previous_y - stroke, stroke, self.ink)
+        line(bb, previous_x, previous_y, previous_x + stroke, previous_y + stroke * 2, stroke, self.ink)
     elseif kind == "sync" then
         line(bb, x + math.floor(size * 0.22), y + math.floor(size * 0.42), x + math.floor(size * 0.68), y + math.floor(size * 0.42), stroke, self.ink)
         line(bb, x + math.floor(size * 0.68), y + math.floor(size * 0.42), x + math.floor(size * 0.57), y + math.floor(size * 0.29), stroke, self.ink)

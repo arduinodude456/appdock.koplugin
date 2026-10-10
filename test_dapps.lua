@@ -60,7 +60,7 @@ package.preload["ffi/blitbuffer"] = function()
 end
 package.preload["device"] = function()
     return {
-        screen = { getSize = function() return { w = 600, h = 800 } end, scaleBySize = function(_, n) return n end, isColorEnabled = function() return false end },
+        screen = { getSize = function() return { w = 600, h = 800 } end, scaleBySize = function(_, n) return n end, isColorEnabled = function() return false end, getRotationMode = function() return log.rotation_mode or 0 end },
         hasKeys = function() return false end,
     }
 end
@@ -69,7 +69,8 @@ package.preload["datastorage"] = function() return { getDataDir = function() ret
 package.preload["ui/font"] = function() return { getFace = function(_, name, size) return { name = name, size = size or 12 } end } end
 package.preload["ui/geometry"] = function() return { new = function(_, args) return args end } end
 package.preload["ui/gesturerange"] = function() return { new = function(_, args) return args end } end
-package.preload["ui/event"] = function() return { new = function(_, name) return { name = name } end } end
+package.preload["ui/event"] = function() return { new = function(_, name, ...) return { name = name, args = { ... } } end } end
+package.preload["ui/data/optionsutil"] = function() return { rotation_modes = { 3, 0, 1, 2 } } end
 package.preload["appdock_theme"] = function()
     return dofile(plugin_dir .. "appdock_theme.lua")
 end
@@ -190,13 +191,19 @@ package.preload["ui/uimanager"] = function()
         setDirty = function(_, widget, kind, region) table.insert(log.dirties, { widget = widget, kind = kind, region = region }) end,
         forceRePaint = function() end,
         yieldToEPDC = function() log.epdc_yields = (log.epdc_yields or 0) + 1 end,
-        broadcastEvent = function(_, event) table.insert(log.events, event.name) end,
+        broadcastEvent = function(_, event) table.insert(log.events, event.name); if event.name == "SetRotationMode" then log.rotation_mode = event.args[1] end end,
     }
 end
 
 local DAppManager = dofile(plugin_dir .. "appdock_dapps.lua")
 package.preload["pluginloader"] = function() return { loadPlugins = function() return {} end } end
 local AppDockClass = dofile(plugin_dir .. "main.lua")
+do
+    local migration_fixture = { settings = { quick_settings = { tiles = { "wifi", "draw", "sleep" } } }, isSimpleModeEnabled = function() return false end }
+    local migrated_tiles = AppDockClass.getQuickSettingsTiles(migration_fixture)
+    assert(migrated_tiles[1] == "wifi" and migrated_tiles[2] == "rotate" and migrated_tiles[3] == "sleep", "Existing Draw Quick Settings entries must migrate in place to Rotate")
+    assert(AppDockClass.setQuickTileEnabled(migration_fixture, "draw", true) == false, "Draw must no longer be offered as a Quick Settings tile")
+end
 local pinned_save_count = 0
 local pinned_order_test = {
     settings = { pinned_apps = { "dapp:first", "dapp:second", "dapp:third" } },
@@ -353,7 +360,7 @@ local appdock = {
         return not self:isSimpleModeEnabled("homescreen") and not self:isSimpleModeEnabled("quick_settings") and not self:isSimpleModeEnabled("focus_apps")
     end,
     setSimpleModeOption = function(self, option, enabled) self.settings.simple_mode[option] = enabled == true; self:_saveSettings(); return true end,
-    getQuickSettingsTiles = function(self) return self:isSimpleModeEnabled("quick_settings") and { "wifi", "night", "power_saving", "draw" } or self.settings.quick_settings.tiles end,
+    getQuickSettingsTiles = function(self) return self:isSimpleModeEnabled("quick_settings") and { "wifi", "night", "power_saving", "rotate" } or self.settings.quick_settings.tiles end,
     getNotifications = function() return {} end,
     getUnreadNotificationCount = function() return 0 end,
     movePinned = function() log.moved_app = true; return true end,
@@ -415,6 +422,12 @@ assert(active_design and active_design.id == "galaxy" and active_design.wallpape
 assert(Theme.getAppLogoShape(appdock) == "circle" and Theme.getPalette(appdock).primary_hex == "#A98BFF", "An active design must override the launcher logo form and highlight color")
 assert(Theme.getButtonFrameStyle(appdock, 48, 12).bordersize == 1, "The Galaxy design must select the visible 3D button frame")
 local manager = DAppManager:new(appdock)
+appdock.settings.quick_settings.tiles = { "wifi", "night", "refresh", "edit", "rotate", "sleep", "power_saving", "wallpaper" }
+do
+    manager:activate("draw")
+    assert(manager.instances.draw and manager.instances.draw.pane and manager.instances.draw.pane.dimen and manager.instances.draw.pane[1], "The built-in Draw DApp must build its pane successfully in the real DApp host")
+    assert(manager:closeDApp("draw"), "The Draw host startup regression must cleanly close its test instance")
+end
 appdock.getDAppManager = function() return manager end
 appdock.getStoreWidgets = function()
     local function buildWidget(_, context) return WidgetContainer:new{ dimen = context.dimen } end
@@ -733,7 +746,7 @@ assert(not simple_home._widget_tick, "Simple homescreen must not schedule hidden
 assert(not (simple_home.ges_events or {}).SwipeHomePage and not (simple_home.ges_events or {}).RevealRecentApps, "Simple homescreen must retain its previous gesture surface without animated paging or the Recent Apps drawer")
 local QuickSettings = dofile(plugin_dir .. "appdock_quicksettings.lua")
 local simple_quick_settings = QuickSettings:new{ appdock = appdock, home = simple_home }
-assert(simple_quick_settings.layout.simple_mode and simple_quick_settings.layout.tile_count == 4 and simple_quick_settings.layout.tile_icon_count == 4 and not simple_quick_settings.layout.show_notifications, "Simple quick settings must include the three core toggles plus the Draw shortcut, brightness, and no notifications")
+assert(simple_quick_settings.layout.simple_mode and simple_quick_settings.layout.tile_count == 4 and simple_quick_settings.layout.tile_icon_count == 4 and not simple_quick_settings.layout.show_notifications, "Simple quick settings must include the three core toggles plus the Rotate shortcut, brightness, and no notifications")
 assert(not simple_quick_settings.layout.expressive and simple_quick_settings.sheet_height < 400, "Simple quick settings must retain its existing compact non-expressive layout")
 assert(simple_quick_settings.layout.has_close_button and not simple_quick_settings.layout.has_grab_handle and simple_quick_settings.layout.slider_has_thumb, "Simple Quick Settings must retain a close action and a visible brightness thumb without expressive extras")
 assert(not simple_quick_settings.ges_events.RevealRecentApps, "Simple quick settings must not add the expressive Recent Apps drawer gesture")
@@ -864,10 +877,10 @@ local expressive_close_button, expressive_icon_tiles = nil, 0
 walk_tree(expressive_quick_settings[1], function(node)
     if type(node.onTapCloseQuickSettings) == "function" then expressive_close_button = node end
     if node.icon_kind then expressive_icon_tiles = expressive_icon_tiles + 1 end
-    if node.title == "Draw" and type(node.onTapQuickTile) == "function" then log.draw_quick_tile = node end
+    if node.title == "Rotate" and type(node.onTapQuickTile) == "function" then log.rotate_quick_tile = node end
 end)
 assert(expressive_close_button and expressive_icon_tiles == expressive_quick_settings.layout.tile_count, "Every normal Quick Settings tile must render its semantic icon, with an actionable close control")
-assert(log.draw_quick_tile and log.draw_quick_tile.icon_kind == "draw", "Quick Settings must expose Draw as a semantic-icon tile")
+assert(log.rotate_quick_tile and log.rotate_quick_tile.icon_kind == "rotation", "Quick Settings must expose Rotate as a semantic-icon tile")
 local brightness_test = QuickSettings:new{ appdock = appdock, home = expressive_home }
 brightness_test._brightnessState = function() return { min = 0, max = 100, current = 50 } end
 brightness_test.setBrightness = function(self, value) self.test_brightness = value end
@@ -886,13 +899,8 @@ end
 assert(recent_drawer.sheet_layer.overlap_offset[2] == recent_drawer.sheet_y and recent_drawer.sheet_y > 0 and recent_drawer.sheet_y < recent_drawer.dimen.h, "The Recently used drawer must settle at its bounded sheet position in the lower screen area")
 assert(drawer_motions == 0, "The Recently used drawer must switch instantly instead of animating on E-Ink")
 assert(expressive_close_button:onTapCloseQuickSettings(), "Tapping the visible close control must dismiss Quick Settings")
-log.original_get_dapp_manager = appdock.getDAppManager
-appdock.getDAppManager = function()
-    return { activate = function(_, app_id) log.draw_tile_activation = app_id end }
-end
-assert(log.draw_quick_tile:onTapQuickTile() and log.draw_tile_activation == "draw",
-    "Tapping the Draw quick tile must activate the built-in Draw DApp")
-appdock.getDAppManager = log.original_get_dapp_manager
+assert(log.rotate_quick_tile:onTapQuickTile() and log.rotation_mode == 1 and log.events[#log.events] == "SetRotationMode",
+    "Tapping Rotate must cycle the current mode and broadcast KOReader's SetRotationMode event")
 
 local recents = {}
 manager:showDAppActions("analog_clock", recents)

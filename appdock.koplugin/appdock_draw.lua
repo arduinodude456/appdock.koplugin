@@ -116,6 +116,7 @@ function Canvas:onPaintTap(_,ev) self.app.last_point=nil; self.app.start_point=n
 function Canvas:onPaintRelease(_,ev) if ev then self:_draw(ev,true) end; self.app.last_point=nil; self.app.start_point=nil; return true end
 function Canvas:paintTo(bb,x,y)
     self.origin_x,self.origin_y=x,y
+    self.dimen.x,self.dimen.y=x,y
     local app=self.app
     local layers=app.layers
     bb:paintRect(x,y,self.dimen.w,self.dimen.h,Blitbuffer.COLOR_WHITE)
@@ -153,6 +154,7 @@ local ToolButton=InputContainer:extend{label=nil,callback=nil,width=nil,height=n
 function ToolButton:init() self.dimen=Geom:new{w=self.width,h=self.height}; self.ges_events={TapToolButton={GestureRange:new{ges="tap",range=function() return self.dimen end}}} end
 function ToolButton:onTapToolButton() if self.callback then self.callback() end; return true end
 function ToolButton:paintTo(bb,x,y)
+    self.dimen.x,self.dimen.y=x,y
     local fg=Blitbuffer.COLOR_BLACK
     bb:paintRect(x,y,self.width,self.height,Blitbuffer.COLOR_GRAY_8)
     local t=TextWidget:new{text=self.label,face=Font:getFace("smallinfofont",scale(11)),fgcolor=fg,align="center",max_width=self.width-4}
@@ -162,8 +164,16 @@ local function u16(n) return string.char(n%256,math.floor(n/256)%256) end
 function Draw:new() return setmetatable({layers={},active=1,color=2,tool="pen",brush_size=2,color_dither=false,pressure_enabled=true},self) end
 function Draw:ensure()
     if #self.layers==0 then
-        local w=clamp(math.floor((Device.screen:getWidth()-scale(24))/scale(2)),64,480)
-        local h=clamp(math.floor((Device.screen:getHeight()-scale(180))/scale(2)),64,640)
+        local size
+        if Screen.getSize then
+            local ok, result = pcall(Screen.getSize, Screen)
+            if ok and type(result) == "table" then size = result end
+        end
+        local screen_w = tonumber(size and size.w) or (Screen.getWidth and tonumber(Screen:getWidth())) or tonumber(Screen.width) or 600
+        local screen_h = tonumber(size and size.h) or (Screen.getHeight and tonumber(Screen:getHeight())) or tonumber(Screen.height) or 800
+        local step = math.max(1, scale(2))
+        local w=clamp(math.floor((screen_w-scale(24))/step),64,480)
+        local h=clamp(math.floor((screen_h-scale(180))/step),64,640)
         self.width,self.height=w,h
         local base=ffi.new("uint8_t[?]",w*h); ffi.fill(base,w*h,1); self.layers={{name=_('Layer 1'),width=w,height=h,pixels=base}}
     end

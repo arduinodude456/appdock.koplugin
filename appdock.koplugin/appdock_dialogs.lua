@@ -201,7 +201,6 @@ function Modal:paintTo(bb, x, y)
         if self.page>1 then self._hits[#self._hits+1]={x=self.card_x+pad,y=footer_y,w=scale(60),h=self.footer_h,action=function() self.page=self.page-1; UIManager:setDirty(self,"ui"); return true end} end
         if self.page<self.pages then self._hits[#self._hits+1]={x=self.card_x+self.card_w-pad-scale(60),y=footer_y,w=scale(60),h=self.footer_h,action=function() self.page=self.page+1; UIManager:setDirty(self,"ui"); return true end} end
     end
-    for _, event in ipairs(self.ges_events.TapAppDockModal) do event.range.x,event.range.y,event.range.w,event.range.h=0,0,self.screen_w,self.screen_h end
 end
 local ButtonDialog={}
 function ButtonDialog:new(args) args=args or {}; args.mode="buttons"; return Modal:new(args) end
