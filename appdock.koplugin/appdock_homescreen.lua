@@ -149,6 +149,7 @@ local PALETTE = {
     -- panels it becomes a solid black badge with a white magnifier.
     duckduckgo = color(222, 88, 51, Blitbuffer.COLOR_BLACK),
     on_duckduckgo = color(255, 255, 255, Blitbuffer.COLOR_WHITE),
+    notification_badge = color(210, 34, 48, Blitbuffer.COLOR_BLACK),
 }
 
 local APP_TONES = {
@@ -612,6 +613,13 @@ function AppTile:init()
     end
 end
 
+local function paintBadgeCircle(bb, center_x, center_y, radius, ink)
+    for dy = -radius, radius do
+        local half_width = math.floor(math.sqrt(radius * radius - dy * dy))
+        bb:paintRect(center_x - half_width, center_y + dy, half_width * 2 + 1, 1, ink)
+    end
+end
+
 function AppTile:paintTo(bb, x, y)
     local drag_pos = self.home and self.home.edit_mode and self.home.drag_app_id == self.app.id and self.home.drag_pos
     if drag_pos then
@@ -628,7 +636,18 @@ function AppTile:paintTo(bb, x, y)
             pan_range.x, pan_range.y, pan_range.w, pan_range.h = x, y, self.dimen.w, self.dimen.h
         end
     end
-    return InputContainer.paintTo(self, bb, x, y)
+    local result = InputContainer.paintTo(self, bb, x, y)
+    local unread_count = self.appdock and self.app and self.appdock.getUnreadNotificationCountForApp
+        and self.appdock:getUnreadNotificationCountForApp(self.app.id) or 0
+    if unread_count > 0 then
+        local icon_x = x + math.floor((self.dimen.w - self.tile_size) / 2)
+        local radius = math.max(scale(3), math.floor(self.tile_size * .08))
+        local center_x = icon_x + self.tile_size - radius - scale(2)
+        local center_y = y + radius + scale(2)
+        paintBadgeCircle(bb, center_x, center_y, radius + scale(1), Blitbuffer.COLOR_WHITE)
+        paintBadgeCircle(bb, center_x, center_y, radius, PALETTE.notification_badge)
+    end
+    return result
 end
 
 function AppTile:onTapSelectAppTile()
@@ -676,6 +695,7 @@ function AppDockHomeScreen:init()
     self.dimen = Screen:getSize()
     self.page = self.page or 1
     self.appdock:seedDefaults()
+    self.appdock._home_screen = self
 
     if not self.appdock:isSimpleModeEnabled("homescreen") then
         self.ges_events = {
@@ -1562,6 +1582,11 @@ function AppDockHomeScreen:onClose()
     if self._widget_tick then UIManager:unschedule(self._widget_tick); self._widget_tick = nil end
     UIManager:close(self)
     return true
+end
+
+function AppDockHomeScreen:onCloseWidget()
+    if self._widget_tick then UIManager:unschedule(self._widget_tick); self._widget_tick = nil end
+    if self.appdock and self.appdock._home_screen == self then self.appdock._home_screen = nil end
 end
 
 function AppDrawerGlyph:init()

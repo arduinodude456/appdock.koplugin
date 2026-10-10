@@ -203,10 +203,39 @@ package.preload["ui/uimanager"] = function()
         broadcastEvent = function(_, event) table.insert(log.events, event.name); if event.name == "SetRotationMode" then log.rotation_mode = event.args[1] end end,
     }
 end
+package.preload["appdock_notifications"] = function()
+    return {
+        showToast = function(notification)
+            log.toasts = log.toasts or {}
+            table.insert(log.toasts, notification)
+        end,
+    }
+end
 
 local DAppManager = dofile(plugin_dir .. "appdock_dapps.lua")
 package.preload["pluginloader"] = function() return { loadPlugins = function() return {} end } end
 local AppDockClass = dofile(plugin_dir .. "main.lua")
+do
+    local home_widget = {}
+    local notifications_appdock = setmetatable({
+        settings = { notifications = { items = {}, next_id = 0 } },
+        _home_screen = home_widget,
+        _saveSettings = function() end,
+    }, { __index = AppDockClass })
+    local accepted, notification = notifications_appdock:notify{
+        title = "Video ready", message = "sample.mp4", source = "YouTube", app_id = "dapp:youtube",
+    }
+    assert(accepted and notification.app_id == "dapp:youtube" and log.toasts[#log.toasts] == notification, "A notification must retain its app ID and display its existing transient toast")
+    assert(notifications_appdock:getUnreadNotificationCountForApp("dapp:youtube") == 1 and notifications_appdock:getUnreadNotificationCountForApp("dapp:draw") == 0, "Unread badges must be counted per app rather than globally")
+    assert(log.dirties[#log.dirties].widget == home_widget, "Receiving a notification must refresh an already-visible homescreen")
+    assert(notifications_appdock:markNotificationRead(notification.id) and notifications_appdock:getUnreadNotificationCountForApp("dapp:youtube") == 0, "Reading a notification must clear its app badge")
+    local _, second_notification = notifications_appdock:notify{
+        title = "New drawing", message = "drawing.adraw", source = "Draw", app_id = "dapp:draw",
+    }
+    assert(second_notification and notifications_appdock:getUnreadNotificationCountForApp("dapp:draw") == 1, "A new app notification must restore that app's unread badge")
+    notifications_appdock:markAllNotificationsRead()
+    assert(notifications_appdock:getUnreadNotificationCountForApp("dapp:draw") == 0, "Mark all read must clear app-specific badges")
+end
 do
     local migration_fixture = { settings = { quick_settings = { tiles = { "wifi", "draw", "sleep" } } }, isSimpleModeEnabled = function() return false end }
     local migrated_tiles = AppDockClass.getQuickSettingsTiles(migration_fixture)
@@ -372,6 +401,8 @@ local appdock = {
     getQuickSettingsTiles = function(self) return self:isSimpleModeEnabled("quick_settings") and { "wifi", "night", "power_saving", "rotate" } or self.settings.quick_settings.tiles end,
     getNotifications = function() return {} end,
     getUnreadNotificationCount = function() return 0 end,
+    _test_unread_app_ids = {},
+    getUnreadNotificationCountForApp = function(self, app_id) return self._test_unread_app_ids[app_id] or 0 end,
     movePinned = function() log.moved_app = true; return true end,
     moveStoreWidget = function() log.moved_widget = true; return true end,
     setTheme = function(self, id) self.settings.theme = self.settings.theme or { custom = {} }; self.settings.theme.selected = id; return true end,
@@ -803,6 +834,19 @@ walk_tree(simple_home[1], function(node)
     if node.app and node.app.id == "dapp:first" and node.onHoldSelectAppTile then simple_app_tile = node end
 end)
 assert(simple_edit_button and simple_app_tile, "Simple Mode must expose a visible Edit button and recognizable app tiles")
+do
+    local badge_pixels = {}
+    local badge_blitbuffer = { paintRect = function(_, x, y, w, h, ink) table.insert(badge_pixels, { x = x, y = y, w = w, h = h, ink = ink }) end }
+    appdock._test_unread_app_ids["dapp:first"] = 1
+    simple_app_tile:paintTo(badge_blitbuffer, 0, 0)
+    local found_badge_ink = false
+    for _, pixel in ipairs(badge_pixels) do if pixel.ink == "black" then found_badge_ink = true break end end
+    assert(#badge_pixels > 0 and found_badge_ink, "An app with unread notifications must draw a high-contrast badge dot on its homescreen tile")
+    appdock._test_unread_app_ids["dapp:first"] = nil
+    badge_pixels = {}
+    simple_app_tile:paintTo(badge_blitbuffer, 0, 0)
+    assert(#badge_pixels == 0, "Reading or clearing the app's notifications must remove its homescreen badge")
+end
 local manager_count_before_hold = log.manager or 0
 assert(simple_app_tile:onHoldSelectAppTile() and simple_home.edit_mode, "Long-pressing an app must enter edit mode directly")
 assert((log.manager or 0) == manager_count_before_hold, "Long-pressing an app to edit the layout must not open a separate management dialog")
@@ -1064,7 +1108,7 @@ assert(hosted_action_calls == 1, "A plugin with one published main-menu action m
 local hosted_context = manager:_newContext(manager.active_host, hosted_instance, hosted_instance.pane.dimen)
 assert(manager:_invokePluginHostItem(hosted_instance, hosted_context, hosted_plugin.actions[1].item) and hosted_action_calls == 2, "Plugin host actions must preserve the existing no-argument plugin callback contract")
 assert(hosted_host_context and hosted_host_context.notify({ title = "Plugin result", message = "Completed locally" }), "A cooperating plugin pane must receive an explicit local AppDock context")
-assert(log.plugin_notification and log.plugin_notification.title == "Plugin result" and log.plugin_notification.source == "Hosted Test Plugin", "Plugin host context notifications must be routed through AppDock notifications with a truthful source")
+assert(log.plugin_notification and log.plugin_notification.title == "Plugin result" and log.plugin_notification.source == "Hosted Test Plugin" and log.plugin_notification.app_id == "plugin:hosted_test_plugin", "Plugin host context notifications must retain a truthful source and map to the plugin's homescreen tile")
 local hosted_open
 for open_index, open_app in ipairs(manager:getOpenApps()) do if open_app.id == hosted_id then hosted_open = open_app; break end end
 assert(hosted_open and hosted_open.is_plugin_host and hosted_open.can_split == false and hosted_open.subtitle == "Plugin host · Beta", "Open Apps must identify beta plugin hosts and their split-screen limit")
@@ -1072,7 +1116,7 @@ manager:showDAppActions(hosted_id)
 local hosted_actions = log.shown[#log.shown]
 assert(hosted_actions.buttons[1][1].text == "Plugin host beta · Split screen unavailable", "Plugin host long-press actions must not offer split screen")
 manager:startSplit(hosted_id, "settings")
-assert(log.plugin_notification and log.plugin_notification.title == "Plugin host beta" and manager.active_host and manager.active_host.dapp_id == hosted_id, "Split creation must defensively reject a plugin host even if called directly through an AppDock notification")
+assert(log.plugin_notification and log.plugin_notification.title == "Plugin host beta" and log.plugin_notification.app_id == "plugin:hosted_test_plugin" and manager.active_host and manager.active_host.dapp_id == hosted_id, "Split creation must reject plugin hosts and associate the notice with the plugin tile")
 manager:closeDApp(hosted_id)
 assert(manager.instances[hosted_id] == nil and manager.plugin_definitions[hosted_id] == nil, "Closing a plugin host must clear its transient AppDock session definition")
 local fallback_plugin = {

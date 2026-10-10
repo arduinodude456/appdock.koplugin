@@ -1599,6 +1599,18 @@ function DAppManager:restoreWorkspace()
     return false
 end
 
+local function notificationAppId(instance)
+    if type(instance) ~= "table" then return nil end
+    local plugin_app = instance.definition and instance.definition.plugin_app
+    if type(plugin_app) == "table" and type(plugin_app.plugin_name) == "string" and plugin_app.plugin_name ~= "" then
+        return "plugin:" .. plugin_app.plugin_name
+    end
+    local id = instance.dapp_id or instance.id
+    if type(id) ~= "string" or id == "" then return nil end
+    if id:match("^dapp:") or id:match("^plugin:") then return id end
+    return "dapp:" .. id
+end
+
 function DAppManager:_pluginHostContext(instance, context)
     return {
         appdock = self.appdock,
@@ -1608,6 +1620,7 @@ function DAppManager:_pluginHostContext(instance, context)
         notify = function(payload)
             payload = type(payload) == "table" and payload or {}
             payload.source = payload.source or instance.definition.title
+            payload.app_id = notificationAppId(instance)
             return self.appdock:notify(payload)
         end,
         requestRefresh = context.requestRefresh,
@@ -1759,7 +1772,7 @@ function DAppManager:_invokePluginOverlayAction(instance, context, action)
     local ok, accepted, reason = self:_runPluginWidgetBridge(instance, context, action.callback)
     if not ok or accepted == false then
         local detail = type(reason) == "string" and reason or (ok and _("The plugin dialog action was not accepted.") or tostring(accepted))
-        self.appdock:notify({ title = _("Plugin dialog action failed"), message = detail:sub(1, 240), source = instance.definition.title, priority = "high" })
+        self.appdock:notify({ title = _("Plugin dialog action failed"), message = detail:sub(1, 240), source = instance.definition.title, app_id = notificationAppId(instance), priority = "high" })
         return false
     end
     if not instance.plugin_overlay then context.requestRebuild("ui") end
@@ -1841,6 +1854,7 @@ function DAppManager:_invokePluginHostItem(instance, context, item, menu_adapter
             title = _("Plugin action unavailable"),
             message = _("This plugin action is currently unavailable."),
             source = instance.definition.title,
+            app_id = notificationAppId(instance),
             priority = "high",
         })
         return false
@@ -1854,6 +1868,7 @@ function DAppManager:_invokePluginHostItem(instance, context, item, menu_adapter
                 title = _("Plugin action could not start"),
                 message = detail:sub(1, 240),
                 source = instance.definition.title,
+                app_id = notificationAppId(instance),
                 priority = "high",
             })
             return false
@@ -1873,6 +1888,7 @@ function DAppManager:_invokePluginHostItem(instance, context, item, menu_adapter
         title = _("Plugin menu entry unavailable"),
         message = _("This plugin menu entry is not launchable in the AppDock beta host."),
         source = instance.definition.title,
+        app_id = notificationAppId(instance),
         priority = "high",
     })
     return false
@@ -1905,6 +1921,7 @@ function DAppManager:_showPluginHostMenu(instance, context, items, title)
             title = _("Plugin menu unavailable"),
             message = _("This plugin menu has no launchable entries."),
             source = instance.definition.title,
+            app_id = notificationAppId(instance),
             priority = "high",
         })
         return
@@ -2051,6 +2068,7 @@ function DAppManager:_newContext(host, instance, assigned_dimen)
         notify = function(payload)
             payload = type(payload) == "table" and payload or {}
             payload.source = payload.source or instance.definition.title or instance.id
+            payload.app_id = notificationAppId(instance)
             return self.appdock:notify(payload)
         end,
     }
@@ -2066,6 +2084,7 @@ function DAppManager:_backgroundContext(instance)
         notify = function(payload)
             payload = type(payload) == "table" and payload or {}
             payload.source = payload.source or instance.definition.title or instance.id
+            payload.app_id = notificationAppId(instance)
             return self.appdock:notify(payload)
         end,
     }
@@ -2263,7 +2282,7 @@ end
 function DAppManager:beginSplitSelection(first_id, recents)
     local first_instance = self.instances[first_id]
     if not first_instance or first_instance.definition.can_split == false then
-        self.appdock:notify({ title = _("Plugin host beta"), message = _("Plugin host beta sessions cannot use split screen."), source = first_instance and first_instance.definition.title or "AppDock", priority = "high" })
+        self.appdock:notify({ title = _("Plugin host beta"), message = _("Plugin host beta sessions cannot use split screen."), source = first_instance and first_instance.definition.title or "AppDock", app_id = notificationAppId(first_instance), priority = "high" })
         return
     end
     local candidates = {}
@@ -2306,7 +2325,7 @@ function DAppManager:startSplit(first_id, second_id)
     if not first or not second then return end
     if first.definition.can_split == false or second.definition.can_split == false then
         local blocked = first.definition.can_split == false and first or second
-        self.appdock:notify({ title = _("Plugin host beta"), message = _("Plugin host beta sessions cannot use split screen."), source = blocked.definition.title, priority = "high" })
+        self.appdock:notify({ title = _("Plugin host beta"), message = _("Plugin host beta sessions cannot use split screen."), source = blocked.definition.title, app_id = notificationAppId(blocked), priority = "high" })
         return
     end
     if self.active_host then UIManager:close(self.active_host) end
