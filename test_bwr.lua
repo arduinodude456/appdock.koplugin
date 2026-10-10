@@ -236,6 +236,10 @@ local red_rgb = string.rep(string.char(255, 0, 0), 64)
 local red_indices = assert(color_encoder:pack(red_rgb, false))
 assert(#red_indices == 64, "The color encoder must return one palette index per pixel")
 for i = 1, #red_indices do assert(red_indices:byte(i) == 3, "Exact red must never become a mixed color") end
+local dithered_red_indices = assert(color_encoder:pack(red_rgb, true))
+for i = 1, #dithered_red_indices do
+    assert(dithered_red_indices:byte(i) == 3, "Exact red must stay exact with color dithering enabled")
+end
 local gray_rgb = string.rep(string.char(128, 128, 128), 64)
 local gray_indices = assert(color_encoder:pack(gray_rgb, true))
 local saw_black, saw_white = false, false
@@ -268,9 +272,19 @@ end
 local three_color_rgb = string.rep(string.char(85, 85, 0), 64)
 local three_color_indices = assert(color_encoder:pack(three_color_rgb, true))
 local three_color_seen = {}
-for i = 1, #three_color_indices do three_color_seen[three_color_indices:byte(i)] = true end
+local average = { 0, 0, 0 }
+for i = 1, #three_color_indices do
+    local palette_index = three_color_indices:byte(i)
+    assert(palette_index >= 1 and palette_index <= 5,
+        "Multi-color ordered dithering must only emit the five exact palette colors")
+    three_color_seen[palette_index] = true
+    local color = BWR.COLOR_PALETTE[palette_index]
+    for channel = 1, 3 do average[channel] = average[channel] + color[channel] / #three_color_indices end
+end
 assert(three_color_seen[2] and three_color_seen[3] and three_color_seen[4],
-    "Error diffusion must mix black, red and green across pixels, not limit every source pixel to one color pair")
+    "Multi-color ordered dithering must mix black, red and green, not limit a color to one pair")
+assert(math.abs(average[1] - 85) <= 8 and math.abs(average[2] - 85) <= 8 and average[3] == 0,
+    "A three-color pattern must preserve the source color's spatial average")
 
 local brc_path = os.tmpname()
 local brc_file = assert(io.open(brc_path, "w+b"))
