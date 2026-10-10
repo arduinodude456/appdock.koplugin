@@ -28,6 +28,7 @@
 
 > **7.5.0:** Die erste Homescreen-Seite erhielt eine gebrandete **DuckDuckGo-Suchleiste**; der AppStore wurde mit Suchfeld, Empfehlungskarten, Installationsaktionen und unterer Kategorienavigation neu gestaltet. Angezeigt werden weiterhin nur echte Katalogdaten, ohne erfundene Bewertungen oder Screenshots. Details stehen in [`RELEASE_NOTES_7.5.0.md`](RELEASE_NOTES_7.5.0.md).
 
+> **7.9.8:** Korrigiert den Kontrast der neuen AppDock-Dialoge: Titel, Aktionslabels und Seitennavigation erscheinen mit schwarzer Schrift auf hellen Flächen, damit die Beschriftungen auf allen KOReader-Renderpfaden lesbar bleiben. [Details](RELEASE_NOTES_7.9.8.md).
 > **7.9.7:** Beschleunigt die S/W- und BRC2-Farbkonvertierung, stärkt AppDock-eigene Dialoge und Meldungen, härtet Draw gegen unvollständige Displaywerte und ergänzt verschiebbare sowie skalierbare DApp-Fenster als Beta. Blättertasten ändern die Helligkeit jetzt in allen AppDock-Hauptoberflächen; ihre gedrückt gehaltenen Power-/Bildschirmschoner-Aktionen bleiben erhalten. [Details](RELEASE_NOTES_7.9.7.md).
 > **7.9.6:** Setzt die BWR2/BRC2-Decodierung bei übersprungenen Frames im selben Keyframe-Block am letzten Cache-Frame fort, statt bereits decodierte Pakete erneut zu verarbeiten. [Details](RELEASE_NOTES_7.9.6.md).
 > **7.9.5:** Zieht Renderzeit vom nächsten Frameintervall ab und verwendet den Decoder-Framebuffer wieder, statt pro Frame einen neuen anzulegen. [Details](RELEASE_NOTES_7.9.5.md).

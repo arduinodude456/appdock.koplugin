@@ -155,9 +155,9 @@ end
 function Modal:paintTo(bb, x, y)
     x,y=0,0
     self._hits={}
-    -- A soft E-Ink veil, subtle offset shadow, and a strong title band give
-    -- AppDock-owned dialogs a coherent visual hierarchy without animation or
-    -- low-contrast translucent layers.
+    -- A soft E-Ink veil and a light title band keep every text surface
+    -- readable. Do not put labels on solid-black fills: some KOReader render
+    -- paths invert text independently from custom-painted rectangles.
     bb:paintRect(0,0,self.screen_w,self.screen_h,Blitbuffer.COLOR_LIGHT_GRAY)
     bb:paintRect(self.card_x + scale(3),self.card_y + scale(4),self.card_w,self.card_h,Blitbuffer.COLOR_GRAY_8)
     bb:paintRect(self.card_x,self.card_y,self.card_w,self.card_h,Blitbuffer.COLOR_WHITE)
@@ -170,8 +170,8 @@ function Modal:paintTo(bb, x, y)
     local text_y=self.card_y+self.margin
     if self.title then
         local band_h = math.min(self.card_h - border * 2, self.title_h + self.margin)
-        bb:paintRect(self.card_x + border,self.card_y + border,self.card_w - border * 2,band_h,Blitbuffer.COLOR_BLACK)
-        self:_paintText(bb,self.title,self.card_x+pad,text_y,self.card_w-pad*2,18,true,Blitbuffer.COLOR_WHITE)
+        bb:paintRect(self.card_x + border,self.card_y + border,self.card_w - border * 2,band_h,Blitbuffer.COLOR_LIGHT_GRAY)
+        self:_paintText(bb,self.title,self.card_x+pad,text_y,self.card_w-pad*2,18,true,Blitbuffer.COLOR_BLACK)
     end
     local y0=self.card_y+self.top_h
     if self.mode=="input" then
@@ -200,8 +200,11 @@ function Modal:paintTo(bb, x, y)
             local bx=self.card_x+pad+(cols==1 and 0 or (col-1)*(w+gap))
             local disabled = button.enabled == false or button.disabled
             local primary = button.is_default or button.is_enter_default
-            local bg = disabled and Blitbuffer.COLOR_LIGHT_GRAY or (primary and Blitbuffer.COLOR_BLACK or Blitbuffer.COLOR_GRAY_8)
-            local fg = primary and Blitbuffer.COLOR_WHITE or Blitbuffer.COLOR_BLACK
+            -- Keep foreground black on a white/light fill for every action,
+            -- including the primary action. Outlines and fill distinguish
+            -- choices without relying on white text over a black rectangle.
+            local bg = (disabled or primary) and Blitbuffer.COLOR_LIGHT_GRAY or Blitbuffer.COLOR_WHITE
+            local fg = Blitbuffer.COLOR_BLACK
             bb:paintRect(bx,row_y,w,self.row_h-scale(4),bg)
             bb:paintRect(bx,row_y,w,scale(1),Blitbuffer.COLOR_BLACK)
             bb:paintRect(bx,row_y+self.row_h-scale(5),w,scale(1),Blitbuffer.COLOR_BLACK)
@@ -218,13 +221,15 @@ function Modal:paintTo(bb, x, y)
         self:_paintText(bb,label,self.card_x+math.floor((self.card_w-scale(88))/2),footer_y+scale(10),scale(88),12,false)
         if self.page>1 then
             local bx = self.card_x + pad
-            bb:paintRect(bx,footer_y+scale(7),button_w,button_h,Blitbuffer.COLOR_GRAY_8)
+            bb:paintRect(bx,footer_y+scale(7),button_w,button_h,Blitbuffer.COLOR_WHITE)
+            bb:paintRect(bx,footer_y+scale(7),button_w,scale(1),Blitbuffer.COLOR_BLACK)
             self:_paintText(bb,_('‹ Previous'),bx+scale(6),footer_y+scale(16),button_w-scale(12),11,true)
             self._hits[#self._hits+1]={x=bx,y=footer_y,w=button_w,h=self.footer_h,action=function() self.page=self.page-1; UIManager:setDirty(self,"ui"); return true end}
         end
         if self.page<self.pages then
             local bx = self.card_x+self.card_w-pad-button_w
-            bb:paintRect(bx,footer_y+scale(7),button_w,button_h,Blitbuffer.COLOR_GRAY_8)
+            bb:paintRect(bx,footer_y+scale(7),button_w,button_h,Blitbuffer.COLOR_WHITE)
+            bb:paintRect(bx,footer_y+scale(7),button_w,scale(1),Blitbuffer.COLOR_BLACK)
             self:_paintText(bb,_('Next ›'),bx+scale(11),footer_y+scale(16),button_w-scale(16),11,true)
             self._hits[#self._hits+1]={x=bx,y=footer_y,w=button_w,h=self.footer_h,action=function() self.page=self.page+1; UIManager:setDirty(self,"ui"); return true end}
         end

@@ -26,7 +26,9 @@ function TextWidget:init()
     self.dimen = { w = self.max_width or 120, h = (self.face and self.face.size or 12) + 4 }
 end
 function TextWidget:getSize() return self.dimen end
-function TextWidget:paintTo() end
+function TextWidget:paintTo(bb)
+    if bb and bb.text_calls then bb.text_calls[#bb.text_calls + 1] = { fgcolor = self.fgcolor, text = self.text, last_fill = bb.last_fill } end
+end
 
 local scheduled, closed = {}, {}
 local UIManager = {
@@ -40,7 +42,7 @@ local UIManager = {
 }
 
 package.preload["ffi/blitbuffer"] = function()
-    return { COLOR_WHITE = 1, COLOR_BLACK = 2, COLOR_GRAY_8 = 3 }
+    return { COLOR_WHITE = 1, COLOR_BLACK = 2, COLOR_GRAY_8 = 3, COLOR_LIGHT_GRAY = 4 }
 end
 package.preload["device"] = function()
     return {
@@ -65,12 +67,21 @@ end
 
 local Dialogs = dofile(plugin_dir .. "appdock_dialogs.lua")
 local paints = 0
-local bb = { paintRect = function() paints = paints + 1 end }
+local bb = {
+    rectangles = {}, text_calls = {},
+    paintRect = function(self, x, y, width, height, color)
+        paints = paints + 1
+        self.last_fill = color
+        self.rectangles[#self.rectangles + 1] = { x = x, y = y, w = width, h = height, color = color }
+    end,
+}
 local info = Dialogs.InfoMessage:new{ title = "Status", text = "Connecting to Wi-Fi…", duration = 0 }
 local paint_ok, paint_error = pcall(info.paintTo, info, bb, 0, 0)
 assert(paint_ok, "A custom status dialog must paint without treating GestureRange.range as a geometry: " .. tostring(paint_error))
 assert(paints > 0 and info.ges_events.TapAppDockModal[1].range() == info.dimen,
     "The status dialog must paint and its tap callback must resolve to the full-screen geometry")
+assert(bb.text_calls[1] and bb.text_calls[1].fgcolor == 2 and bb.text_calls[1].last_fill == 4,
+    "Dialog title text must be black over a light-gray title surface, never black over black")
 assert(info:onKeyRepeat() == true, "A custom AppDock modal must consume held page-key repeats")
 
 local selected = false
@@ -79,6 +90,15 @@ local picker = Dialogs.ButtonDialog:new{
     buttons = { { { text = "First choice", callback = function() selected = true end } } },
 }
 assert(pcall(picker.paintTo, picker, bb, 0, 0) and #picker._hits > 0, "An AppDock selection dialog must build visible tap targets")
+for _, text_call in ipairs(bb.text_calls) do
+    assert(text_call.fgcolor == 2, "Every label in AppDock dialogs must use black foreground text")
+end
+local first_hit = picker._hits[1]
+local first_fill
+for _, rect in ipairs(bb.rectangles) do
+    if rect.x == first_hit.x and rect.y == first_hit.y and rect.w == first_hit.w then first_fill = rect.color; break end
+end
+assert(first_fill == 1, "Standard action labels must be drawn on a white button surface")
 local selection_hit = picker._hits[1]
 assert(picker:onTapAppDockModal(nil, { pos = { x = selection_hit.x + 1, y = selection_hit.y + 1 } })
     and selected and picker._closed, "Selecting a custom dialog row must run the callback and close the modal")
