@@ -57,6 +57,8 @@ local DAppHost = InputContainer:extend{
     active_pane = nil,
     active_panes = nil,
     split_ratio = nil,
+    fullscreen_dapp_id = nil,
+    fullscreen_restore = nil,
     _split_content_top = nil,
     _split_available = nil,
     _split_touch_range = nil,
@@ -75,6 +77,8 @@ local DAppWindowHost = InputContainer:extend{
     is_window = true,
     dimen = nil,
     window_rect = nil,
+    is_fullscreen = false,
+    windowed_rect = nil,
     active_panes = nil,
     covers_fullscreen = true,
 }
@@ -2040,6 +2044,10 @@ function DAppManager:_newContext(host, instance, assigned_dimen)
                 if UIManager.forceRePaint then UIManager:forceRePaint() end
             end
         end,
+        requestFullscreen = function(enabled)
+            if self.active_host ~= host or type(host.setDAppFullscreen) ~= "function" then return false end
+            return host:setDAppFullscreen(instance.id, enabled == true)
+        end,
         notify = function(payload)
             payload = type(payload) == "table" and payload or {}
             payload.source = payload.source or instance.definition.title or instance.id
@@ -3726,7 +3734,7 @@ function DAppWindowHost:_clampWindowRect(rect)
 end
 
 function DAppWindowHost:_updateWindow(position, resize, persist)
-    if not position or not self.window_rect then return false end
+    if self.is_fullscreen or not position or not self.window_rect then return false end
     local rect = { x = self.window_rect.x, y = self.window_rect.y, w = self.window_rect.w, h = self.window_rect.h }
     if resize then
         rect.w = position.x - rect.x + scale(8)
@@ -3768,10 +3776,35 @@ function DAppWindowHost:onKeyRepeat(key)
     return InputContainer.onKeyRepeat and InputContainer.onKeyRepeat(self, key) or false
 end
 
+function DAppWindowHost:setDAppFullscreen(id, enabled)
+    if id ~= self.dapp_id then return false end
+    enabled = enabled == true
+    if enabled == self.is_fullscreen then return true end
+    if enabled then
+        local rect = self.window_rect or self.manager:_windowGeometry(id, Screen:getSize())
+        self.windowed_rect = { x = rect.x, y = rect.y, w = rect.w, h = rect.h }
+        self.is_fullscreen = true
+    else
+        self.is_fullscreen = false
+        self.window_rect = self.windowed_rect or self.manager:_windowGeometry(id, Screen:getSize())
+        self.windowed_rect = nil
+    end
+    if self.manager.active_host == self then
+        self:rebuild()
+        UIManager:setDirty(self, "ui")
+        if UIManager.forceRePaint then UIManager:forceRePaint() end
+    end
+    return true
+end
+
 function DAppWindowHost:rebuild(preserve_active)
     applyTheme(self.manager.appdock)
     self.dimen = Screen:getSize()
-    self.window_rect = self:_clampWindowRect(self.window_rect or self.manager:_windowGeometry(self.dapp_id, self.dimen))
+    if self.is_fullscreen then
+        self.window_rect = { x = 0, y = 0, w = self.dimen.w, h = self.dimen.h }
+    else
+        self.window_rect = self:_clampWindowRect(self.window_rect or self.manager:_windowGeometry(self.dapp_id, self.dimen))
+    end
     local rect = self.window_rect
     local instance = self.manager:_instanceFor(self.dapp_id)
     if not instance then return end
@@ -3780,7 +3813,12 @@ function DAppWindowHost:rebuild(preserve_active)
     end
     self.active_panes = {}
     local border, title_h = math.max(scale(2), 1), math.max(scale(40), scale(36))
-    local content = Geom:new{ x = rect.x + border, y = rect.y + title_h, w = math.max(1, rect.w - border * 2), h = math.max(1, rect.h - title_h - border) }
+    local content
+    if self.is_fullscreen then
+        content = Geom:new{ x = 0, y = 0, w = rect.w, h = rect.h }
+    else
+        content = Geom:new{ x = rect.x + border, y = rect.y + title_h, w = math.max(1, rect.w - border * 2), h = math.max(1, rect.h - title_h - border) }
+    end
     local context = self.manager:_newContext(self, instance, content)
     if instance.workspace_state ~= nil and instance.definition.restoreState and not instance._workspace_state_applied then
         pcall(instance.definition.restoreState, instance, instance.workspace_state, context)
@@ -3790,25 +3828,35 @@ function DAppWindowHost:rebuild(preserve_active)
     instance.pane, instance.visible, instance.in_split, instance.in_window = pane, true, false, true
     pane.overlap_offset = { content.x, content.y }
     self.active_panes[1], self.active_pane = pane, pane
-    local title = TextWidget:new{
-        text = instance.definition.title, face = Font:getFace("smallinfofont", scale(16)), fgcolor = PALETTE.on_primary,
-        bold = true, max_width = math.max(1, rect.w - scale(100)), padding = 0,
-        overlap_offset = { rect.x + scale(14), rect.y + math.floor((title_h - scale(16)) / 2) },
-    }
     local chrome = OverlapGroup:new{
         dimen = self.dimen, allow_mirroring = false,
         FrameContainer:new{ width = self.dimen.w, height = self.dimen.h, padding = 0, bordersize = 0, background = PALETTE.background, emptySizedWidget(self.dimen.w, self.dimen.h) },
-        FrameContainer:new{ width = rect.w, height = rect.h, padding = 0, bordersize = border, color = PALETTE.on_surface, background = PALETTE.surface, emptySizedWidget(rect.w, rect.h), overlap_offset = { rect.x, rect.y } },
-        FrameContainer:new{ width = rect.w - border * 2, height = title_h - border, padding = 0, bordersize = 0, background = PALETTE.primary, emptySizedWidget(rect.w - border * 2, title_h - border), overlap_offset = { rect.x + border, rect.y + border } },
-        title,
-        pane,
     }
-    table.insert(chrome, ActionChip:new{ title = "", symbol = "□", width = scale(28), height = scale(28), background = PALETTE.surface_variant, foreground = PALETTE.on_variant, callback = function() self.manager:showRecentsFromHost(self) end, overlap_offset = { rect.x + rect.w - scale(64), rect.y + math.floor((title_h - scale(28)) / 2) } })
-    table.insert(chrome, ActionChip:new{ title = "", symbol = "×", width = scale(28), height = scale(28), background = PALETTE.surface_variant, foreground = PALETTE.on_variant, callback = function() self.manager:closeDApp(self.dapp_id); UIManager:nextTick(function() self.manager:showRecents() end) end, overlap_offset = { rect.x + rect.w - scale(32), rect.y + math.floor((title_h - scale(28)) / 2) } })
-    table.insert(chrome, TextWidget:new{ text = "↘", face = Font:getFace("cfont", scale(16)), fgcolor = PALETTE.on_surface, padding = 0, overlap_offset = { rect.x + rect.w - scale(23), rect.y + rect.h - scale(23) } })
+    if not self.is_fullscreen then
+        local title = TextWidget:new{
+            text = instance.definition.title, face = Font:getFace("smallinfofont", scale(16)), fgcolor = PALETTE.on_primary,
+            bold = true, max_width = math.max(1, rect.w - scale(100)), padding = 0,
+            overlap_offset = { rect.x + scale(14), rect.y + math.floor((title_h - scale(16)) / 2) },
+        }
+        table.insert(chrome, FrameContainer:new{ width = rect.w, height = rect.h, padding = 0, bordersize = border, color = PALETTE.on_surface, background = PALETTE.surface, emptySizedWidget(rect.w, rect.h), overlap_offset = { rect.x, rect.y } })
+        table.insert(chrome, FrameContainer:new{ width = rect.w - border * 2, height = title_h - border, padding = 0, bordersize = 0, background = PALETTE.primary, emptySizedWidget(rect.w - border * 2, title_h - border), overlap_offset = { rect.x + border, rect.y + border } })
+        table.insert(chrome, title)
+    end
+    table.insert(chrome, pane)
+    if not self.is_fullscreen then
+        table.insert(chrome, ActionChip:new{ title = "", symbol = "□", width = scale(28), height = scale(28), background = PALETTE.surface_variant, foreground = PALETTE.on_variant, callback = function() self.manager:showRecentsFromHost(self) end, overlap_offset = { rect.x + rect.w - scale(64), rect.y + math.floor((title_h - scale(28)) / 2) } })
+        table.insert(chrome, ActionChip:new{ title = "", symbol = "×", width = scale(28), height = scale(28), background = PALETTE.surface_variant, foreground = PALETTE.on_variant, callback = function() self.manager:closeDApp(self.dapp_id); UIManager:nextTick(function() self.manager:showRecents() end) end, overlap_offset = { rect.x + rect.w - scale(32), rect.y + math.floor((title_h - scale(28)) / 2) } })
+        table.insert(chrome, TextWidget:new{ text = "↘", face = Font:getFace("cfont", scale(16)), fgcolor = PALETTE.on_surface, padding = 0, overlap_offset = { rect.x + rect.w - scale(23), rect.y + rect.h - scale(23) } })
+    end
     if self._brightness_indicator then table.insert(chrome, self._brightness_indicator) end
-    self._window_title_range = Geom:new{ x = rect.x, y = rect.y, w = rect.w - scale(68), h = title_h }
-    self._window_resize_range = Geom:new{ x = rect.x + rect.w - scale(36), y = rect.y + rect.h - scale(36), w = scale(36), h = scale(36) }
+    self.window_layout = { fullscreen = self.is_fullscreen, content = content }
+    if self.is_fullscreen then
+        self._window_title_range = Geom:new{ x = 0, y = 0, w = 0, h = 0 }
+        self._window_resize_range = Geom:new{ x = 0, y = 0, w = 0, h = 0 }
+    else
+        self._window_title_range = Geom:new{ x = rect.x, y = rect.y, w = rect.w - scale(68), h = title_h }
+        self._window_resize_range = Geom:new{ x = rect.x + rect.w - scale(36), y = rect.y + rect.h - scale(36), w = scale(36), h = scale(36) }
+    end
     self:clear()
     self[1] = chrome
 end
@@ -3895,15 +3943,53 @@ function DAppHost:onRevealRecentApps()
     return true
 end
 
+function DAppHost:setDAppFullscreen(id, enabled)
+    local ids = self.dapp_ids or { self.dapp_id }
+    if enabled then
+        if self.fullscreen_dapp_id == id then return true end
+        local found = false
+        local saved_ids = {}
+        for index, active_id in ipairs(ids) do
+            saved_ids[index] = active_id
+            if active_id == id then found = true end
+        end
+        if not found then return false end
+        self.fullscreen_restore = {
+            dapp_ids = saved_ids,
+            dapp_id = self.dapp_id,
+            split = self.split,
+            split_ratio = self.split_ratio,
+        }
+        self.fullscreen_dapp_id = id
+        self.dapp_ids, self.dapp_id, self.split = { id }, id, false
+    else
+        if self.fullscreen_dapp_id ~= id then return false end
+        self.fullscreen_dapp_id = nil
+        local saved = self.fullscreen_restore
+        self.fullscreen_restore = nil
+        if saved then
+            self.dapp_ids, self.dapp_id = saved.dapp_ids, saved.dapp_id
+            self.split, self.split_ratio = saved.split, saved.split_ratio
+        end
+    end
+    if self.manager.active_host == self then
+        self:rebuild()
+        UIManager:setDirty(self, "ui")
+        if UIManager.forceRePaint then UIManager:forceRePaint() end
+    end
+    return true
+end
+
 function DAppHost:rebuild(preserve_active)
     applyTheme(self.manager.appdock)
     local width, height = self.dimen.w, self.dimen.h
     local expressive = type(self.manager.appdock.isExpressiveUiEnabled) == "function" and self.manager.appdock:isExpressiveUiEnabled()
-    local appbar_height = expressive and scale(58) or scale(52)
-    local navigation_height = expressive and scale(58) or scale(50)
-    local content_top, content_bottom = appbar_height, height - navigation_height
     local ids = self.dapp_ids or { self.dapp_id }
     self.dapp_ids = ids
+    local fullscreen = self.fullscreen_dapp_id == ids[1] and not self.split
+    local appbar_height = fullscreen and 0 or (expressive and scale(58) or scale(52))
+    local navigation_height = fullscreen and 0 or (expressive and scale(58) or scale(50))
+    local content_top, content_bottom = appbar_height, height - navigation_height
     if not preserve_active then
         for _, pane in ipairs(self.active_panes or {}) do
             if pane.onDeactivate then pane:onDeactivate() end
@@ -3956,15 +4042,17 @@ function DAppHost:rebuild(preserve_active)
             background = PALETTE.background,
             emptySizedWidget(width, height),
         },
-        FrameContainer:new{
+    }
+    if not fullscreen then
+        table.insert(chrome, FrameContainer:new{
             width = width, height = appbar_height, padding = 0, bordersize = 0,
             background = PALETTE.surface,
             emptySizedWidget(width, appbar_height),
-        },
-        host_title,
-        quick_action,
-    }
-    if expressive then
+        })
+        table.insert(chrome, host_title)
+        table.insert(chrome, quick_action)
+    end
+    if expressive and not fullscreen then
         table.insert(chrome, FrameContainer:new{
             width = width - scale(36), height = scale(42), padding = 0, bordersize = 0,
             radius = scale(21), background = PALETTE.surface_variant,
@@ -4016,6 +4104,7 @@ function DAppHost:rebuild(preserve_active)
         })
     end
 
+    if not fullscreen then
     local chip_size, chip_gap = expressive and scale(38) or scale(34), expressive and scale(12) or scale(11)
     local navigation_height = expressive and scale(58) or scale(50)
     local navigation_y = height - navigation_height
@@ -4058,11 +4147,13 @@ function DAppHost:rebuild(preserve_active)
         end,
         overlap_offset = { navigation_x + 2 * (chip_size + chip_gap), chip_y },
     })
+    end
     self.chrome_layout = {
         expressive = expressive,
+        fullscreen = fullscreen,
         appbar_height = appbar_height,
         navigation_height = navigation_height,
-        has_navigation_pill = expressive,
+        has_navigation_pill = not fullscreen and expressive,
     }
     if self._brightness_indicator then table.insert(chrome, self._brightness_indicator) end
     self:clear()

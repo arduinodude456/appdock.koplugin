@@ -2177,10 +2177,12 @@ function YouTube:openInlineFullscreen(instance, context, path)
         if not self:toggleInline(instance, context, path) then return false end
     end
     state.playing = path
-    state.inline_playing = nil
+    state.fullscreen = true
     state.inline_rebuild = false
+    state.return_to_inline = false
     state.view = "play"
-    if context and context.requestRebuild then context.requestRebuild("ui") end
+    local entered = context and context.requestFullscreen and context.requestFullscreen(true)
+    if not entered and context and context.requestRebuild then context.requestRebuild("ui") end
     return true
 end
 
@@ -2937,11 +2939,23 @@ function YouTube:buildPane(instance, context)
     local pane
     if state.view == "play" and state.playing then
         pane = self.player:buildPane(instance, context, {
+            fullscreen = state.fullscreen == true,
+            keep_engine_on_deactivate = function() return state.return_to_inline == true end,
             on_back = function()
+                local path = state.playing
+                local keep_inline = path and state.inline_playing == path
                 state.view = "home"
                 state.playing = nil
-                self.player:stop()
-                if context.requestRebuild then context.requestRebuild("ui") end
+                state.fullscreen = false
+                state.return_to_inline = keep_inline == true
+                if keep_inline then
+                    state.inline_playing = path
+                else
+                    state.inline_playing = nil
+                    self.player:stop()
+                end
+                local exited = context.requestFullscreen and context.requestFullscreen(false)
+                if not exited and context.requestRebuild then context.requestRebuild("ui") end
             end,
         })
         local previous = pane.onDeactivate
@@ -2949,6 +2963,12 @@ function YouTube:buildPane(instance, context)
             if previous then previous() end
             state.view = "home"
             state.playing = nil
+            if state.return_to_inline then
+                state.return_to_inline = false
+            else
+                state.fullscreen = false
+                state.inline_playing = nil
+            end
         end
         return pane
     end

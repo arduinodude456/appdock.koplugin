@@ -690,14 +690,20 @@ local color_entry = runConversion("bayer", "five-color path", 2, true)
 assert(color_entry.size > 0, "The opt-in pure five-color conversion must write bytes")
 
 -- Every video opens in the inline MiniPlayer by default; fullscreen remains an
--- explicit action and leaving the DApp releases the engine.
+-- explicit host-level action; exiting fullscreen returns to the playing MiniPlayer.
 do
     local play_instance = {}
+    local fullscreen_calls = {}
     local play_context = {
         dimen = { w = 600, h = 748 },
         requestRefresh = function() end,
         requestRebuild = function() end,
     }
+    play_context.requestFullscreen = function(enabled)
+        table.insert(fullscreen_calls, enabled)
+        play_context.dimen = enabled and { w = 600, h = 800 } or { w = 600, h = 748 }
+        return true
+    end
     local library_pane = youtube:buildPane(play_instance, play_context)
     assert(youtube:play(play_instance, play_context, bayer_entry.path), "Playing a converted video must succeed")
     assert(play_instance.youtube.view == "home" and play_instance.youtube.inline_playing == bayer_entry.path,
@@ -716,9 +722,30 @@ do
     assert(youtube:openInlineFullscreen(play_instance, play_context, bayer_entry.path),
         "Fullscreen must remain available as an explicit MiniPlayer action")
     assert(play_instance.youtube.view == "play", "Only the explicit fullscreen action may enter the play view")
+    assert(fullscreen_calls[#fullscreen_calls] == true and play_instance.youtube.inline_playing == bayer_entry.path,
+        "Fullscreen must request the host's screen mode while retaining the inline playback path")
     local fullscreen_pane = youtube:buildPane(play_instance, play_context)
-    assert(fullscreen_pane and fullscreen_pane.dimen.w == 600, "The explicit fullscreen pane must fill the assigned rectangle")
+    assert(fullscreen_pane and fullscreen_pane.dimen.w == 600 and fullscreen_pane.dimen.h == 800
+        and fullscreen_pane.fullscreen_layout.canvas_x == 0 and fullscreen_pane.fullscreen_layout.canvas_y == 0
+        and fullscreen_pane.fullscreen_layout.canvas_width == 600 and fullscreen_pane.fullscreen_layout.canvas_height == 800,
+        "The fullscreen player canvas must cover the complete device screen")
+    local controls = fullscreen_pane[1][1]
+    local library_button
+    for _, child in ipairs(controls) do
+        if child.label == "‹ Library" then library_button = child; break end
+    end
+    assert(library_button and library_button.callback, "Fullscreen must expose a visible control to return to the YouTube library")
+    library_button.callback()
+    assert(play_instance.youtube.view == "home" and play_instance.youtube.inline_playing == bayer_entry.path
+        and fullscreen_calls[#fullscreen_calls] == false,
+        "Leaving fullscreen must restore the library/MiniPlayer host mode")
     fullscreen_pane:onDeactivate()
+    assert(youtube.player.engine and not youtube.player.engine.closed,
+        "Returning to the MiniPlayer must preserve the running video engine")
+    local restored_home = youtube:buildPane(play_instance, play_context)
+    assert(restored_home and play_instance.youtube.view == "home", "Fullscreen exit must return to the YouTube home pane")
+    restored_home:onDeactivate()
+    assert(youtube.player.engine == nil, "Leaving YouTube after fullscreen exit must stop playback")
 end
 
 -- The ffmpeg path probes this build's monow bit sense, so it has to land on the

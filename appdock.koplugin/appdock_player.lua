@@ -132,16 +132,20 @@ function Canvas:paintTo(bb, x, y)
     self.origin_x, self.origin_y = x, y
     self.painted = true
     bb:paintRect(x, y, self.width, self.height, Blitbuffer.COLOR_BLACK)
-    if not self.frame then return end
-    local source = self.frame
-    local source_w, source_h = source:getWidth(), source:getHeight()
-    local draw_w = math.min(self.width, source_w)
-    local draw_h = math.min(self.height, source_h)
-    local source_x = math.max(0, math.floor((source_w - draw_w) / 2))
-    local source_y = math.max(0, math.floor((source_h - draw_h) / 2))
-    local target_x = x + math.max(0, math.floor((self.width - draw_w) / 2))
-    local target_y = y + math.max(0, math.floor((self.height - draw_h) / 2))
-    bb:blitFrom(source, target_x, target_y, source_x, source_y, draw_w, draw_h)
+    if self.frame then
+        local source = self.frame
+        local source_w, source_h = source:getWidth(), source:getHeight()
+        local draw_w = math.min(self.width, source_w)
+        local draw_h = math.min(self.height, source_h)
+        local source_x = math.max(0, math.floor((source_w - draw_w) / 2))
+        local source_y = math.max(0, math.floor((source_h - draw_h) / 2))
+        local target_x = x + math.max(0, math.floor((self.width - draw_w) / 2))
+        local target_y = y + math.max(0, math.floor((self.height - draw_h) / 2))
+        bb:blitFrom(source, target_x, target_y, source_x, source_y, draw_w, draw_h)
+    end
+    -- Full-screen transport controls are children of the canvas so each video
+    -- refresh paints them after the new frame instead of erasing the overlay.
+    if self[1] then InputContainer.paintTo(self, bb, x, y) end
 end
 
 -- Repaints only this rectangle. A full `ui` refresh for every frame would make
@@ -555,10 +559,100 @@ function Player:stop()
     end
 end
 
+function Player:buildFullscreenPane(instance, context, options)
+    options = options or {}
+    local width, height = context.dimen.w, context.dimen.h
+    local margin, gap = scale(4), scale(4)
+    local button_height = scale(34)
+    local controls_height = button_height + margin * 2
+    local button_width = math.max(1, math.floor((width - 2 * margin - 4 * gap) / 5))
+    local canvas = Canvas:new{ width = width, height = height }
+    if self.engine then
+        self.engine:setCanvas(canvas)
+        self.engine:show(self.engine.position or 0)
+    end
+
+    local controls = OverlapGroup:new{
+        dimen = Geom:new{ w = width, h = height },
+        allow_mirroring = false,
+        FrameContainer:new{
+            width = width, height = controls_height, padding = 0, bordersize = 0,
+            background = Blitbuffer.COLOR_WHITE,
+            emptySizedWidget(width, controls_height),
+            overlap_offset = { 0, height - controls_height },
+        },
+    }
+    local play_button
+    local function control(name)
+        local engine = self.engine
+        if not engine then
+            UIManager:show(InfoMessage:new{ text = _("No video is loaded.") })
+            return
+        end
+        if name == "toggle" then
+            engine:toggle()
+            if play_button then play_button:setLabel(engine.paused and _("Play") or _("Pause")) end
+        elseif name == "back" then
+            engine:jump(-5)
+        elseif name == "forward" then
+            engine:jump(5)
+        elseif name == "restart" then
+            engine:restart()
+            if play_button then play_button:setLabel(engine.paused and _("Play") or _("Pause")) end
+        end
+        if context.requestRefresh then context.requestRefresh("ui") end
+    end
+    local actions = {
+        { label = "‹ " .. _("Library"), background = Blitbuffer.COLOR_GRAY_7, callback = options.on_back },
+        { label = "-5 s", background = Blitbuffer.COLOR_LIGHT_GRAY, callback = function() control("back") end },
+        { label = (self.engine and not self.engine.paused) and _("Pause") or _("Play"), background = Blitbuffer.COLOR_GRAY_8, callback = function() control("toggle") end, play = true },
+        { label = "+5 s", background = Blitbuffer.COLOR_LIGHT_GRAY, callback = function() control("forward") end },
+        { label = _("Restart"), background = Blitbuffer.COLOR_GRAY_7, callback = function() control("restart") end },
+    }
+    for index, spec in ipairs(actions) do
+        local button = Action:new{
+            label = spec.label,
+            width = button_width,
+            height = button_height,
+            background = spec.background,
+            callback = spec.callback,
+        }
+        button.overlap_offset = { margin + (index - 1) * (button_width + gap), height - controls_height + margin }
+        table.insert(controls, button)
+        if spec.play then play_button = button end
+    end
+    canvas[1] = controls
+
+    local pane = WidgetContainer:new{ dimen = Geom:new{ w = width, h = height } }
+    pane[1] = canvas
+    pane.fullscreen_layout = {
+        canvas_x = 0,
+        canvas_y = 0,
+        canvas_width = width,
+        canvas_height = height,
+        controls_height = controls_height,
+    }
+    pane.onDeactivate = function()
+        local keep_engine = options.keep_engine_on_deactivate
+        if type(keep_engine) == "function" then
+            local ok, value = pcall(keep_engine)
+            keep_engine = ok and value
+        end
+        if self.engine and not keep_engine then
+            self.engine:pause()
+            self.engine:close()
+            self.engine = nil
+        end
+    end
+    return pane
+end
+
 -- `options.on_back` adds a Library button in the top right corner, so a DApp
--- can leave playback without relying on the host navigation.
+-- can leave playback without relying on host navigation; fullscreen places
+-- that same action in its bottom transport bar.
 function Player:buildPane(instance, context, options)
     options = options or {}
+    if options.fullscreen then return self:buildFullscreenPane(instance, context, options) end
     local width, height = context.dimen.w, context.dimen.h
     local margin, gap = scale(10), scale(6)
     local row_height = scale(34)
