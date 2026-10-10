@@ -153,7 +153,6 @@ function Audio.new(path)
         paused = false,
         command = nil,
         command_name = nil,
-        process_group = false,
     }, Audio)
 
     local gst_launch = Audio.findCommand("gst-launch-1.0")
@@ -257,14 +256,12 @@ function Audio:startFrom(seconds)
             .. ",channels=" .. tostring(info.channels)
             .. ",layout=interleaved"
             .. " ! audioconvert ! audioresample ! mtkbtmwrpcaudiosink"
-        local setsid = Audio.findCommand("setsid")
-        if setsid then
-            command = shellQuote(setsid) .. " sh -c " .. shellQuote(pipeline)
-            self.process_group = true
-        else
-            command = "sh -c " .. shellQuote(pipeline)
-            self.process_group = false
-        end
+        -- Keep the pipeline direct: the shell reports the final command's PID
+        -- for a background pipeline. `setsid` may fork when its caller is a
+        -- process-group leader, so its launcher PID is not a reliable PGID.
+        -- Stopping gst-launch closes the pipe and lets the finite tail producer
+        -- exit on SIGPIPE/EOF without leaving audio running after DApp exit.
+        command = pipeline
     elseif self.command_name == "aplay" then
         command = shellQuote(self.command) .. " -q " .. shellQuote(self.clip_path)
     else
@@ -282,27 +279,23 @@ end
 
 function Audio:pause()
     if self.pid and not self.paused then
-        os.execute("kill -STOP " .. (self.process_group and "-" or "")
-            .. tostring(self.pid) .. " 2>/dev/null")
+        os.execute("kill -STOP " .. tostring(self.pid) .. " 2>/dev/null")
         self.paused = true
     end
 end
 
 function Audio:resume()
     if self.pid and self.paused then
-        os.execute("kill -CONT " .. (self.process_group and "-" or "")
-            .. tostring(self.pid) .. " 2>/dev/null")
+        os.execute("kill -CONT " .. tostring(self.pid) .. " 2>/dev/null")
         self.paused = false
     end
 end
 
 function Audio:stop()
     if self.pid then
-        os.execute("kill -TERM " .. (self.process_group and "-" or "")
-            .. tostring(self.pid) .. " 2>/dev/null")
+        os.execute("kill -TERM " .. tostring(self.pid) .. " 2>/dev/null")
         self.pid = nil
     end
-    self.process_group = false
     if self.clip_path and self.clip_path ~= self.path then
         os.remove(self.clip_path)
     end
