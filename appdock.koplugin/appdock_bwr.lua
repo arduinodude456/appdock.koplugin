@@ -30,8 +30,8 @@ Two dithering paths supply frames to the BWR2 writer:
   player.
 * `Encoder:packPreDithered` accepts frames ffmpeg already reduced to 1 bit; this
   is the default monochrome conversion path because it is substantially faster.
-* `ColorEncoder:pack` maps RGB frames to the five-color palette and can combine
-  multiple palette entries spatially with ordered selection and error diffusion.
+* `ColorEncoder:pack` maps RGB frames to the five-color palette with precomputed
+  8x8 ordered patterns that can combine multiple palette entries per image area.
 --]]--
 
 local bit = require("bit")
@@ -848,12 +848,71 @@ local function buildColorLUT()
     end
 end
 
--- A phase-specific output table keeps the established 8x8 Bayer threshold and
--- palette tie-breaks byte-for-byte while replacing per-pixel Lua arithmetic
--- with one indexed FFI load. It costs 2 MiB once per process, well below a
--- decoded RGB frame, and eliminates the dominant BRC2 conversion hot loop.
+-- A phase-specific output table maps each 5:5:5 RGB bucket directly to one of
+-- five palette indices. For colors inside the palette gamut, the 8x8 Bayer
+-- pattern distributes the exact convex mixture across pixels; near-neutral or
+-- out-of-gamut colors retain the perceptual best-pair mapping. This keeps
+-- multi-color dithering to one LUT load per pixel instead of per-pixel error
+-- propagation in Lua. The tables cost 2 MiB once per process.
 local function buildColorDitherLUTs()
     if COLOR_DITHER_LUTS then return end
+    local boundaries = ffi.new("uint8_t[?]", 32768 * 4)
+    local function bucket_center(index)
+        if index == 0 then return 0 end
+        if index == 31 then return 255 end
+        return index * 8 + 4
+    end
+    local function rounded_boundary(value)
+        return math.max(0, math.min(64, math.floor(value * 64 + 0.5)))
+    end
+    for ri = 0, 31 do
+        local r = bucket_center(ri)
+        for gi = 0, 31 do
+            local g = bucket_center(gi)
+            for bi = 0, 31 do
+                local b = bucket_center(bi)
+                local index = ri * 1024 + gi * 32 + bi
+                local base = index * 4
+                local low, high = math.min(r, g, b), math.max(r, g, b)
+                local sum = r + g + b
+                local white, black, red, green, blue
+                if high - low <= 16 then
+                    -- Keep neutral grays and near-neutral colors on the
+                    -- established black/white or best-pair path; colored
+                    -- primary speckles are especially distracting there.
+                    white = nil
+                elseif sum <= 255 then
+                    white = 0
+                    black = (255 - sum) / 255
+                    red, green, blue = r / 255, g / 255, b / 255
+                else
+                    local white_level = (sum - 255) / 2
+                    if white_level <= low then
+                        white = white_level / 255
+                        black = 0
+                        red, green, blue = (r - white_level) / 255,
+                            (g - white_level) / 255, (b - white_level) / 255
+                    else
+                        white = nil
+                    end
+                end
+                if white ~= nil then
+                    local after_white = rounded_boundary(white)
+                    local after_black = rounded_boundary(white + black)
+                    local after_red = rounded_boundary(white + black + red)
+                    local after_green = rounded_boundary(white + black + red + green)
+                    boundaries[base] = after_white
+                    boundaries[base + 1] = after_black
+                    boundaries[base + 2] = after_red
+                    boundaries[base + 3] = after_green
+                else
+                    -- 255 cannot be a valid Bayer boundary and marks a
+                    -- bucket that should use its best two-color mixture.
+                    boundaries[base] = 255
+                end
+            end
+        end
+    end
     COLOR_DITHER_LUTS = {}
     for row_phase = 0, 7 do
         local row = {}
@@ -861,10 +920,26 @@ local function buildColorDitherLUTs()
             local threshold_at_phase = BAYER_8[row_phase + 1][column_phase + 1]
             local output = ffi.new("uint8_t[32768]")
             for index = 0, 32767 do
-                local code = COLOR_LUT[index]
-                local a = bit.band(code, 7)
-                local b = bit.band(bit.rshift(code, 3), 7)
-                output[index] = threshold_at_phase < bit.rshift(code, 6) and b or a
+                local base = index * 4
+                local after_white = boundaries[base]
+                if after_white < 65 then
+                    if threshold_at_phase < after_white then
+                        output[index] = 1
+                    elseif threshold_at_phase < boundaries[base + 1] then
+                        output[index] = 2
+                    elseif threshold_at_phase < boundaries[base + 2] then
+                        output[index] = 3
+                    elseif threshold_at_phase < boundaries[base + 3] then
+                        output[index] = 4
+                    else
+                        output[index] = 5
+                    end
+                else
+                    local code = COLOR_LUT[index]
+                    local a = bit.band(code, 7)
+                    local b = bit.band(bit.rshift(code, 3), 7)
+                    output[index] = threshold_at_phase < bit.rshift(code, 6) and b or a
+                end
             end
             row[column_phase] = output
         end
@@ -882,8 +957,7 @@ function BWR.newColorEncoder(width, height)
     buildColorLUT()
     buildColorDitherLUTs()
     return setmetatable({ width=width, height=height, frame_bytes=size,
-        target=ffi.new("uint8_t[?]", size),
-        error_buffer=ffi.new("double[?]", (width + 2) * 6) }, ColorEncoder)
+        target=ffi.new("uint8_t[?]", size) }, ColorEncoder)
 end
 function ColorEncoder:pack(rgb, dither)
     local pixels = self.width * self.height
@@ -895,56 +969,19 @@ function ColorEncoder:pack(rgb, dither)
     local width, height = self.width, self.height
     local use_dither = dither ~= false
     if use_dither then
-        -- Ordered palette selection handles local tone fractions; diffuse the
-        -- quantization residual so adjacent pixels can select different pairs
-        -- and the frame can form mixtures of three or more palette colors.
-        -- The two RGB error rows are frame-local to avoid temporal trails.
-        local errors = self.error_buffer
-        local stride = width + 2
-        local row_bytes = stride * 3
-        for index = 0, row_bytes * 2 - 1 do errors[index] = 0 end
-        local current_base, next_base = 0, row_bytes
         for y = 0, height - 1 do
             local dither_row = COLOR_DITHER_LUTS[y % 8]
             local source_row = y * width * 3
             local output_row = y * width
-            local reverse = y % 2 == 1
-            local x, stop, step = reverse and (width - 1) or 0,
-                reverse and -1 or width, reverse and -1 or 1
-            while x ~= stop do
-                local pixel = source_row + x * 3
-                local error_pixel = x + 1
-                local r = source[pixel] + errors[current_base + error_pixel]
-                local g = source[pixel + 1] + errors[current_base + stride + error_pixel]
-                local b = source[pixel + 2] + errors[current_base + stride * 2 + error_pixel]
-                if r < 0 then r = 0 elseif r > 255 then r = 255 end
-                if g < 0 then g = 0 elseif g > 255 then g = 255 end
-                if b < 0 then b = 0 elseif b > 255 then b = 255 end
-                local ri, gi, bi = math.floor(r + 0.5), math.floor(g + 0.5), math.floor(b + 0.5)
-                local table_index = COLOR_RED_INDEX[ri]
-                    + COLOR_GREEN_INDEX[gi] + COLOR_BLUE_INDEX[bi]
-                local color_index = dither_row[x % 8][table_index]
-                target[output_row + x] = color_index
-                local palette_color = BWR.COLOR_PALETTE[color_index]
-                local er, eg, eb = r - palette_color[1], g - palette_color[2], b - palette_color[3]
-                local direction = reverse and -1 or 1
-                local same_row = current_base + error_pixel + direction
-                local below_back = next_base + error_pixel - direction
-                local below_forward = next_base + error_pixel + direction
-                for channel = 0, 2 do
-                    local error = channel == 0 and er or (channel == 1 and eg or eb)
-                    local channel_offset = channel * stride
-                    errors[same_row + channel_offset] = errors[same_row + channel_offset] + error * (7 / 16)
-                    errors[below_back + channel_offset] = errors[below_back + channel_offset] + error * (3 / 16)
-                    errors[next_base + error_pixel + channel_offset] = errors[next_base + error_pixel + channel_offset] + error * (5 / 16)
-                    errors[below_forward + channel_offset] = errors[below_forward + channel_offset] + error * (1 / 16)
-                end
-                x = x + step
-            end
-            current_base, next_base = next_base, current_base
-            for channel = 0, 2 do
-                local base = next_base + channel * stride
-                for index = 0, stride - 1 do errors[base + index] = 0 end
+            local offset = source_row
+            local output = output_row
+            for x = 0, width - 1 do
+                local table_index = COLOR_RED_INDEX[source[offset]]
+                    + COLOR_GREEN_INDEX[source[offset + 1]]
+                    + COLOR_BLUE_INDEX[source[offset + 2]]
+                target[output] = dither_row[x % 8][table_index]
+                offset = offset + 3
+                output = output + 1
             end
         end
         return ffi.string(target, pixels)
