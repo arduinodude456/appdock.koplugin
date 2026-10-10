@@ -5,8 +5,9 @@ browse grid. Opening files still uses only KOReader's safe reader path or the
 explicit AppDock DApp handlers.
 --]]--
 local Blitbuffer = require("ffi/blitbuffer")
-local ButtonDialog = require("ui/widget/buttondialog")
-local ConfirmBox = require("ui/widget/confirmbox")
+local AppDockDialogs = require("appdock_dialogs")
+local ButtonDialog = AppDockDialogs.ButtonDialog
+local ConfirmBox = AppDockDialogs.ConfirmBox
 local CenterContainer = require("ui/widget/container/centercontainer")
 local Device = require("device")
 local DocumentRegistry = require("document/documentregistry")
@@ -20,7 +21,7 @@ local Geom = require("ui/geometry")
 local GestureRange = require("ui/gesturerange")
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local InputContainer = require("ui/widget/container/inputcontainer")
-local InfoMessage = require("ui/widget/infomessage")
+local InfoMessage = AppDockDialogs.InfoMessage
 local OverlapGroup = require("ui/widget/overlapgroup")
 local ScrollableContainer = require("ui/widget/container/scrollablecontainer")
 local TextWidget = require("ui/widget/textwidget")

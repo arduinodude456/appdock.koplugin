@@ -1,5 +1,5 @@
 --[[--
-AppDock BWR1/BWR2: monochrome video containers AppDock plays on E-Ink.
+AppDock BWR1/BWR2/BRC2: monochrome and indexed five-color video containers.
 
 A legacy BWR1 file is deliberately simple and seekable:
 
@@ -17,10 +17,11 @@ A legacy BWR1 file is deliberately simple and seekable:
 
 The BWR1 layout remains byte-compatible with files written by the
 `videoplayer.koplugin` release "Snake" (`tools/make.py`). New AppDock conversions
-use BWR2: independently decodable keyframes, indexed at the end of the file,
-with compressed XOR deltas between them. This keeps seeking bounded to one GOP
-while substantially reducing storage for real video. Both formats retain
-already-dithered 1-bit frames, so playback only expands bits to bytes and blits.
+use BWR2 for monochrome or BRC2 for indexed-color output. Both use independently
+decodable keyframes, a keyframe index at the end of the file and compressed XOR
+deltas, keeping seeking bounded to one GOP. BRC2 stores one palette index per
+pixel, restricted to white, black and pure red/green/blue; no mixed RGB pixels
+are stored. Existing BWR1/BWR2 output remains byte-compatible.
 
 Two dithering paths supply frames to the BWR2 writer:
 
@@ -28,7 +29,9 @@ Two dithering paths supply frames to the BWR2 writer:
   matrix `make.py` uses, so users can choose output that matches the Snake
   player.
 * `Encoder:packPreDithered` accepts frames ffmpeg already reduced to 1 bit; this
-  is the default conversion path because it is substantially faster.
+  is the default monochrome conversion path because it is substantially faster.
+* `ColorEncoder:pack` maps RGB frames to the five-color palette and can use an
+  ordered matrix to spatially dither between palette entries.
 --]]--
 
 local bit = require("bit")
@@ -39,10 +42,12 @@ local BWR = {}
 
 BWR.MAGIC = "BWR1"
 BWR.MAGIC_V2 = "BWR2"
+BWR.MAGIC_COLOR_V2 = "BRC2"
 BWR.HEADER_BYTES = 32
 BWR.VERSION = 1
 BWR.VERSION_V2 = 2
 BWR.PIXEL_FORMAT_MONO1_MSB_WHITE = 1
+BWR.PIXEL_FORMAT_PALETTE5_INDEX8 = 2
 BWR.MAX_FRAME_BYTES = 8 * 1024 * 1024
 BWR.MAX_FRAMES = 500000
 BWR.MAX_DIMENSION = 4096
@@ -188,6 +193,9 @@ BWR.putU32 = put_u32_le
 function BWR.frameBytes(width, height)
     return (width / 8) * height
 end
+function BWR.colorFrameBytes(width, height)
+    return width * height
+end
 
 function BWR.durationSeconds(header)
     if not header or not header.fps or header.fps <= 0 then return 0 end
@@ -213,7 +221,7 @@ end
 
 -- BWR2 keeps the BWR1 geometry fields but stores a keyframe interval and the
 -- byte offset of its compact keyframe index in the formerly reserved bytes.
-function BWR.buildHeaderV2(width, height, fps, frames, key_interval, index_offset)
+function BWR.buildHeaderV2(width, height, fps, frames, key_interval, index_offset, format, pixel_format)
     local ok, err = BWR.validateGeometry(width, height, fps)
     if not ok then return nil, err end
     frames = math.floor(tonumber(frames) or 0)
@@ -222,13 +230,17 @@ function BWR.buildHeaderV2(width, height, fps, frames, key_interval, index_offse
     if frames < 0 or frames > BWR.MAX_FRAMES then return nil, _("The frame count is out of range.") end
     if key_interval < 1 or key_interval > 65535 then return nil, _("The BWR2 keyframe interval is out of range.") end
     if index_offset < 0 or index_offset > 4294967295 then return nil, _("The BWR2 index offset is out of range.") end
-    return BWR.MAGIC_V2
-        .. string.char(BWR.VERSION_V2, BWR.PIXEL_FORMAT_MONO1_MSB_WHITE)
+    format = format == BWR.MAGIC_COLOR_V2 and BWR.MAGIC_COLOR_V2 or BWR.MAGIC_V2
+    pixel_format = format == BWR.MAGIC_COLOR_V2 and BWR.PIXEL_FORMAT_PALETTE5_INDEX8 or BWR.PIXEL_FORMAT_MONO1_MSB_WHITE
+    local frame_bytes = pixel_format == BWR.PIXEL_FORMAT_PALETTE5_INDEX8 and BWR.colorFrameBytes(width, height) or BWR.frameBytes(width, height)
+    if frame_bytes > BWR.MAX_FRAME_BYTES then return nil, _("The video frame exceeds the supported size.") end
+    return format
+        .. string.char(BWR.VERSION_V2, pixel_format)
         .. put_u16_le(width)
         .. put_u16_le(height)
         .. put_u16_le(math.floor(fps * 100 + 0.5))
         .. put_u32_le(frames)
-        .. put_u32_le(BWR.frameBytes(width, height))
+        .. put_u32_le(frame_bytes)
         .. put_u16_le(key_interval)
         .. put_u16_le(0) -- flags reserved
         .. put_u32_le(index_offset)
@@ -267,7 +279,8 @@ function BWR.readHeader(source)
         return nil, _("The BWR file has no complete header.")
     end
     local magic = data:sub(1, 4)
-    local is_v2 = magic == BWR.MAGIC_V2
+    local is_color = magic == BWR.MAGIC_COLOR_V2
+    local is_v2 = magic == BWR.MAGIC_V2 or is_color
     if magic ~= BWR.MAGIC and not is_v2 then return nil, _("This is not an AppDock BWR video file.") end
     local header = {
         format = magic,
@@ -283,7 +296,8 @@ function BWR.readHeader(source)
     if header.version ~= expected_version then
         return nil, _("Unsupported BWR video version.") .. " " .. tostring(header.version)
     end
-    if header.pixel_format ~= BWR.PIXEL_FORMAT_MONO1_MSB_WHITE then
+    if (is_color and header.pixel_format ~= BWR.PIXEL_FORMAT_PALETTE5_INDEX8)
+        or (not is_color and header.pixel_format ~= BWR.PIXEL_FORMAT_MONO1_MSB_WHITE) then
         return nil, _("Unsupported BWR pixel format.")
     end
     if not header.width or not header.height
@@ -298,7 +312,9 @@ function BWR.readHeader(source)
     then
         return nil, _("Invalid BWR timing or frame count.")
     end
-    if header.frame_bytes ~= BWR.frameBytes(header.width, header.height) or header.frame_bytes > BWR.MAX_FRAME_BYTES then
+    local expected_frame_bytes = is_color and BWR.colorFrameBytes(header.width, header.height)
+        or BWR.frameBytes(header.width, header.height)
+    if header.frame_bytes ~= expected_frame_bytes or header.frame_bytes > BWR.MAX_FRAME_BYTES then
         return nil, _("Invalid BWR frame size.")
     end
     if is_v2 then
@@ -311,6 +327,7 @@ function BWR.readHeader(source)
         end
     end
     header.fps = header.fps_x100 / 100
+    header.is_color = is_color
     return header
 end
 
@@ -346,7 +363,7 @@ end
 local Writer = {}
 Writer.__index = Writer
 
-function BWR.newWriter(handle, width, height, fps, key_interval)
+local function new_writer(handle, width, height, fps, key_interval, format, pixel_format, frame_bytes)
     if not handle or type(handle.write) ~= "function" or type(handle.seek) ~= "function" then
         return nil, _("A BWR2 writer needs a seekable output file.")
     end
@@ -354,8 +371,11 @@ function BWR.newWriter(handle, width, height, fps, key_interval)
     if not ok then return nil, err end
     key_interval = math.floor(tonumber(key_interval) or BWR.DEFAULT_KEYFRAME_INTERVAL)
     if key_interval < 1 or key_interval > 65535 then return nil, _("The BWR2 keyframe interval is out of range.") end
-    local frame_bytes = BWR.frameBytes(width, height)
-    local header, header_error = BWR.buildHeaderV2(width, height, fps, 0, key_interval, 0)
+    format = format or BWR.MAGIC_V2
+    pixel_format = pixel_format or BWR.PIXEL_FORMAT_MONO1_MSB_WHITE
+    frame_bytes = frame_bytes or (pixel_format == BWR.PIXEL_FORMAT_PALETTE5_INDEX8
+        and BWR.colorFrameBytes(width, height) or BWR.frameBytes(width, height))
+    local header, header_error = BWR.buildHeaderV2(width, height, fps, 0, key_interval, 0, format, pixel_format)
     if not header then return nil, header_error end
     local positioned = handle:seek("set", 0)
     if positioned == nil then return nil, _("The BWR2 output file cannot be positioned.") end
@@ -367,6 +387,8 @@ function BWR.newWriter(handle, width, height, fps, key_interval)
         height = height,
         fps = fps,
         frame_bytes = frame_bytes,
+        format = format,
+        pixel_format = pixel_format,
         key_interval = key_interval,
         frames = 0,
         key_offsets = {},
@@ -383,6 +405,16 @@ function BWR.newWriter(handle, width, height, fps, key_interval)
         writer.z_output_length = ffi.new("appdock_z_uLong[1]")
     end
     return writer
+end
+function BWR.newWriter(handle, width, height, fps, key_interval)
+    return new_writer(handle, width, height, fps, key_interval,
+        BWR.MAGIC_V2, BWR.PIXEL_FORMAT_MONO1_MSB_WHITE)
+end
+function BWR.newColorWriter(handle, width, height, fps, key_interval)
+    local ok, err = BWR.validateGeometry(width, height, fps)
+    if not ok then return nil, err end
+    return new_writer(handle, width, height, fps, key_interval,
+        BWR.MAGIC_COLOR_V2, BWR.PIXEL_FORMAT_PALETTE5_INDEX8)
 end
 
 function Writer:_compress(source)
@@ -479,7 +511,8 @@ function Writer:finish()
         if not written then return nil, err or _("The BWR2 keyframe index could not be written.") end
     end
     local header, header_error = BWR.buildHeaderV2(
-        self.width, self.height, self.fps, self.frames, self.key_interval, index_offset)
+        self.width, self.height, self.fps, self.frames, self.key_interval, index_offset,
+        self.format, self.pixel_format)
     if not header then return nil, header_error end
     local positioned, position_error = self.handle:seek("set", 0)
     if positioned == nil then return nil, position_error or _("The BWR2 header could not be updated.") end
@@ -540,7 +573,7 @@ function BWR.newReader(handle, header)
         cache_index = -1,
         cache_frame = nil,
     }, Reader)
-    if header.format ~= BWR.MAGIC_V2 then return reader end
+    if header.format ~= BWR.MAGIC_V2 and header.format ~= BWR.MAGIC_COLOR_V2 then return reader end
 
     local group_count = math.ceil(header.frames / header.key_interval)
     local file_end, seek_error = handle:seek("end")
@@ -644,7 +677,7 @@ end
 function Reader:readFrame(index)
     index = math.floor(tonumber(index) or -1)
     if index < 0 or index >= self.header.frames then return nil, _("The frame is outside the BWR video.") end
-    if self.header.format ~= BWR.MAGIC_V2 then
+    if self.header.format ~= BWR.MAGIC_V2 and self.header.format ~= BWR.MAGIC_COLOR_V2 then
         self.handle:seek("set", BWR.HEADER_BYTES + index * self.frame_bytes)
         local packed = self.handle:read(self.frame_bytes)
         if not packed or #packed ~= self.frame_bytes then return nil, _("Cannot read a complete BWR1 frame.") end
@@ -718,6 +751,86 @@ function Encoder:packPreDithered(packed, invert)
     return ffi.string(self.target, self.frame_bytes)
 end
 
+-- Indexed color is restricted to the five exact, unmixed colors below. The
+-- lookup table stores the best pair and interpolation threshold for each
+-- 5:5:5 RGB bucket; frame conversion then needs only one lookup per pixel.
+BWR.COLOR_PALETTE = {
+    { 255, 255, 255 }, -- 1 white
+    {   0,   0,   0 }, -- 2 black
+    { 255,   0,   0 }, -- 3 pure red
+    {   0, 255,   0 }, -- 4 pure green
+    {   0,   0, 255 }, -- 5 pure blue
+}
+local COLOR_LUT
+local function buildColorLUT()
+    if COLOR_LUT then return end
+    COLOR_LUT = ffi.new("uint16_t[32768]")
+    for ri = 0, 31 do
+        for gi = 0, 31 do
+            for bi = 0, 31 do
+                local r, g, b = ri * 8 + 4, gi * 8 + 4, bi * 8 + 4
+                local best_a, best_b, best_t, best_error = 1, 2, 0, math.huge
+                for a = 1, 5 do
+                    local ca = BWR.COLOR_PALETTE[a]
+                    for c = a + 1, 5 do
+                        local cb = BWR.COLOR_PALETTE[c]
+                        local dr, dg, db = cb[1]-ca[1], cb[2]-ca[2], cb[3]-ca[3]
+                        local denom = dr*dr + dg*dg + db*db
+                        local t = ((r-ca[1])*dr + (g-ca[2])*dg + (b-ca[3])*db) / denom
+                        t = math.max(0, math.min(1, t))
+                        local er = r - (ca[1] + t*dr)
+                        local eg = g - (ca[2] + t*dg)
+                        local eb = b - (ca[3] + t*db)
+                        local score = er*er + eg*eg + eb*eb
+                        if score < best_error then best_a,best_b,best_t,best_error=a,c,t,score end
+                    end
+                end
+                local threshold = math.floor(best_t * 64 + 0.5)
+                if threshold > 64 then threshold = 64 end
+                local index = ri * 1024 + gi * 32 + bi
+                COLOR_LUT[index] = best_a + best_b * 8 + threshold * 64
+            end
+        end
+    end
+end
+local ColorEncoder = {}
+ColorEncoder.__index = ColorEncoder
+function BWR.newColorEncoder(width, height)
+    local ok, err = BWR.validateGeometry(width, height, 1)
+    if not ok then return nil, err end
+    local size = width * height
+    if size > BWR.MAX_FRAME_BYTES then return nil, _("The color frame exceeds the supported size.") end
+    buildColorLUT()
+    return setmetatable({ width=width, height=height, frame_bytes=size,
+        source=ffi.new("uint8_t[?]", size*3), target=ffi.new("uint8_t[?]", size) }, ColorEncoder)
+end
+function ColorEncoder:pack(rgb, dither)
+    local pixels = self.width * self.height
+    if type(rgb) ~= "string" or #rgb ~= pixels*3 then return nil, _("The RGB frame has the wrong size.") end
+    ffi.copy(self.source, rgb, pixels*3)
+    local source, target = self.source, self.target
+    local output = 0
+    local matrix = BAYER_8
+    local use_dither = dither ~= false
+    for y=0,self.height-1 do
+        local mrow=matrix[(y % 8)+1]
+        for x=0,self.width-1 do
+            local offset=(y*self.width+x)*3
+            local table_index=math.floor(source[offset]/8)*1024 + math.floor(source[offset+1]/8)*32 + math.floor(source[offset+2]/8)
+            local code=tonumber(COLOR_LUT[table_index])
+            local a=code % 8
+            local b=math.floor(code/8) % 8
+            local threshold=math.floor(code/64)
+            local choose_b
+            if use_dither then choose_b=mrow[(x % 8)+1] < threshold
+            else choose_b=threshold >= 32 end
+            target[output]=choose_b and b or a
+            output=output+1
+        end
+    end
+    return ffi.string(target,pixels)
+end
+
 ----------------------------------------------------------------
 -- Decoding
 ----------------------------------------------------------------
@@ -748,6 +861,34 @@ function BWR.expandFrame(packed, width, height)
         destination[output] = EXPAND_FIRST[value]
         destination[output + 1] = EXPAND_SECOND[value]
         output = output + 2
+    end
+    return bb
+end
+
+function BWR.expandColorFrame(packed, width, height)
+    local Blitbuffer = getBlitbuffer()
+    if not Blitbuffer then return nil, _("The E-Ink framebuffer module is unavailable.") end
+    local expected=width*height
+    if type(packed)~="string" or #packed~=expected then return nil, _("Cannot read a complete BRC2 color frame.") end
+    local Device=require("device")
+    local color_screen=Device.screen and Device.screen.isColorEnabled and Device.screen:isColorEnabled()
+    local bb
+    if color_screen and Blitbuffer.TYPE_BBRGB32 then
+        local ok,result=pcall(Blitbuffer.new,width,height,Blitbuffer.TYPE_BBRGB32)
+        if ok then bb=result end
+    end
+    if not bb then bb=Blitbuffer.new(width,height,Blitbuffer.TYPE_BB8); color_screen=false end
+    local destination=ffi.cast("uint32_t*",bb.data)
+    local palette=BWR.COLOR_PALETTE
+    if color_screen then
+        for index=0,expected-1 do
+            local color=palette[packed:byte(index+1)] or palette[1]
+            destination[index]=Blitbuffer.ColorRGB32(color[1],color[2],color[3],0xFF)
+        end
+    else
+        local luminance={255,0,76,150,29}
+        local bytes=ffi.cast("uint8_t*",bb.data)
+        for index=0,expected-1 do bytes[index]=luminance[packed:byte(index+1)] or 255 end
     end
     return bb
 end

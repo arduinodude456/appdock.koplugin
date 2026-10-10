@@ -24,9 +24,10 @@ local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
 local GestureRange = require("ui/gesturerange")
 local HorizontalSpan = require("ui/widget/horizontalspan")
-local InfoMessage = require("ui/widget/infomessage")
+local AppDockDialogs = require("appdock_dialogs")
+local InfoMessage = AppDockDialogs.InfoMessage
 local InputContainer = require("ui/widget/container/inputcontainer")
-local InputDialog = require("ui/widget/inputdialog")
+local InputDialog = AppDockDialogs.InputDialog
 local OverlapGroup = require("ui/widget/overlapgroup")
 local TextWidget = require("ui/widget/textwidget")
 local TextBoxWidget = require("ui/widget/textboxwidget")
@@ -268,11 +269,11 @@ function YouTube.describeDownloadFailure(log)
 end
 
 -- ffmpeg filter chain that letterboxes the source into the BWR2 frame.
-function YouTube.buildFilter(width, height, fps, dithered)
+function YouTube.buildFilter(width, height, fps, dithered, color_mode)
     local chain = string.format(
         "fps=%s,scale=%d:%d:force_original_aspect_ratio=decrease:flags=lanczos,"
-            .. "pad=%d:%d:(ow-iw)/2:(oh-ih)/2:color=white,format=gray",
-        tostring(fps), width, height, width, height
+            .. "pad=%d:%d:(ow-iw)/2:(oh-ih)/2:color=white,format=%s",
+        tostring(fps), width, height, width, height, color_mode and "rgb24" or "gray"
     )
     if dithered then chain = chain .. ",format=monow" end
     return chain
@@ -675,6 +676,8 @@ local DEFAULT_SETTINGS = {
     max_duration = 180,
     max_height = 480,
     dither = "ffmpeg",
+    color_mode = false,
+    color_dither = true,
     audio_video_delay = 0,
 }
 
@@ -1292,9 +1295,10 @@ function YouTube:_startVideoStage(instance, context, job)
     local settings = self:_settings()
     local tools = self:_state(instance).tools
     local width, height = YouTube.frameSize(settings.resolution_percent)
-    local dithered = settings.dither == "ffmpeg"
+    local color_mode = settings.color_mode == true
+    local dithered = not color_mode and settings.dither == "ffmpeg"
 
-    local filter = YouTube.buildFilter(width, height, settings.fps, dithered)
+    local filter = YouTube.buildFilter(width, height, settings.fps, dithered, color_mode)
     local inversion
     if dithered then
         inversion = YouTube._probeMonow(tools.ffmpeg, width, height, filter)
@@ -1306,7 +1310,9 @@ function YouTube:_startVideoStage(instance, context, job)
         end
     end
 
-    local encoder, encoder_error = BWR.newEncoder(width, height)
+    local encoder, encoder_error
+    if color_mode then encoder, encoder_error = BWR.newColorEncoder(width, height)
+    else encoder, encoder_error = BWR.newEncoder(width, height) end
     if not encoder then
         job.stage = "error"
         job.stage_message = encoder_error
@@ -1319,7 +1325,9 @@ function YouTube:_startVideoStage(instance, context, job)
         job.stage_message = _("The target file cannot be written. Choose another output folder.")
         return
     end
-    local writer, writer_error = BWR.newWriter(handle, width, height, settings.fps)
+    local writer, writer_error
+    if color_mode then writer, writer_error = BWR.newColorWriter(handle, width, height, settings.fps)
+    else writer, writer_error = BWR.newWriter(handle, width, height, settings.fps) end
     if not writer then
         handle:close()
         job.stage = "error"
@@ -1333,7 +1341,7 @@ function YouTube:_startVideoStage(instance, context, job)
         .. " -i " .. shellQuote(job.source_file)
         .. (settings.max_duration > 0 and (" -t " .. tostring(settings.max_duration)) or "")
         .. " -an -sn -dn -vf " .. shellQuote(filter)
-        .. " -pix_fmt " .. (dithered and "monow" or "gray")
+        .. " -pix_fmt " .. (color_mode and "rgb24" or (dithered and "monow" or "gray"))
         .. " -f rawvideo - 2>" .. shellQuote(error_log)
     local pipe = io.popen(command, "r")
     if not pipe then
@@ -1352,9 +1360,12 @@ function YouTube:_startVideoStage(instance, context, job)
     job.writer = writer
     job.pipe = pipe
     job.dithered = dithered
+    job.color_mode = color_mode
+    job.color_dither = settings.color_dither ~= false
     job.invert = inversion == true
     job.error_log = error_log
-    job.frame_bytes = dithered and BWR.frameBytes(width, height) or (width * height)
+    job.frame_bytes = color_mode and (width * height * 3)
+        or (dithered and BWR.frameBytes(width, height) or (width * height))
     job.percent = 0
 end
 
@@ -1530,7 +1541,9 @@ function YouTube:_tick(instance, context)
                 break
             end
             local packed, encode_error
-            if job.dithered then
+            if job.color_mode then
+                packed, encode_error = job.encoder:pack(chunk, job.color_dither)
+            elseif job.dithered then
                 packed, encode_error = job.encoder:packPreDithered(chunk, job.invert)
             else
                 packed, encode_error = job.encoder:pack(chunk)
@@ -1885,6 +1898,10 @@ function YouTube:cycleSetting(instance, context, key)
         patch.max_height = YouTube.cycle({ 360, 480, 720 }, settings.max_height)
     elseif key == "dither" then
         patch.dither = settings.dither == "ffmpeg" and "bayer" or "ffmpeg"
+    elseif key == "color_mode" then
+        patch.color_mode = not settings.color_mode
+    elseif key == "color_dither" then
+        patch.color_dither = not settings.color_dither
     elseif key == "audio_video_delay" then
         patch.audio_video_delay = YouTube.cycle(AUDIO_VIDEO_DELAYS, settings.audio_video_delay)
     end
@@ -2439,6 +2456,20 @@ function YouTube:_buildToolsPane(instance, context, state)
                 or _("AppDock Bayer matrix (matches the Snake player)"),
             value = settings.dither == "ffmpeg" and "ffmpeg" or "bayer",
             action = function() self:cycleSetting(instance, context, "dither") end,
+        },
+        {
+            title = _("Color playback"),
+            subtitle = settings.color_mode
+                and _("Pure red, green, blue, black and white; older videos remain unchanged")
+                or _("Optional five-color output for color E-Ink screens"),
+            value = settings.color_mode and _("On") or _("Off"),
+            action = function() self:cycleSetting(instance, context, "color_mode") end,
+        },
+        {
+            title = _("Color dithering"),
+            subtitle = _("Ordered dithering using only the five exact palette colors"),
+            value = settings.color_dither and _("On") or _("Off"),
+            action = function() self:cycleSetting(instance, context, "color_dither") end,
         },
         {
             title = _("Maximum source quality"),

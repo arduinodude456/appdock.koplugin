@@ -216,6 +216,9 @@ assert(filter:find("fps=12", 1, true) and filter:find("scale=632:840", 1, true),
 assert(filter:find("pad=632:840", 1, true) and filter:find("color=white", 1, true), "The filter must letterbox on white")
 assert(not filter:find("monow", 1, true), "The Bayer path must not ask ffmpeg for 1-bit output")
 assert(helpers.buildFilter(632, 840, 12, true):find("format=monow", 1, true), "The ffmpeg path must request monow output")
+local color_filter = helpers.buildFilter(632, 840, 12, false, true)
+assert(color_filter:find("format=rgb24", 1, true) and not color_filter:find("format=gray", 1, true),
+    "The optional color pipeline must preserve RGB instead of greyscaling before dithering")
 
 local frame_width, frame_height = helpers.frameSize(100)
 assert(frame_width == 600 and frame_height == 800, "The full resolution must follow the device screen")
@@ -260,7 +263,7 @@ assert(type(state.tools) == "table", "Tool detection must always produce a resul
 
 local settings = youtube:_settings()
 assert(settings.fps == 12 and settings.dither == "ffmpeg" and settings.resolution_percent == 100
-        and settings.audio_video_delay == 0,
+        and settings.audio_video_delay == 0 and settings.color_mode == false and settings.color_dither == true,
     "Defaults must match the documented values")
 youtube:cycleSetting(instance, context, "fps")
 assert(youtube:_settings().fps == 15, "Cycling the frame rate must move to the next step")
@@ -268,6 +271,14 @@ youtube:cycleSetting(instance, context, "dither")
 assert(youtube:_settings().dither == "bayer", "Cycling the dither mode must switch to Bayer")
 youtube:cycleSetting(instance, context, "dither")
 assert(youtube:_settings().dither == "ffmpeg", "Cycling the dither mode must return to fast ffmpeg")
+youtube:cycleSetting(instance, context, "color_mode")
+assert(youtube:_settings().color_mode == true,
+    "Color output must be an explicit opt-in and cycle on")
+youtube:cycleSetting(instance, context, "color_dither")
+assert(youtube:_settings().color_dither == false,
+    "Color dithering must be independently optional")
+youtube:cycleSetting(instance, context, "color_mode")
+youtube:cycleSetting(instance, context, "color_dither")
 youtube:cycleSetting(instance, context, "audio_video_delay")
 assert(youtube:_settings().audio_video_delay == 0.1,
     "Cycling the audio/video delay must select the first non-zero delay")
@@ -521,12 +532,14 @@ local function drain(instance, timeout_seconds)
     error("The conversion did not settle within the timeout")
 end
 
-local function runConversion(dither_mode, label, seconds)
+local function runConversion(dither_mode, label, seconds, color_mode)
     stored.dither = dither_mode
+    stored.color_mode = color_mode or false
+    stored.color_dither = true
     stored.max_duration = 60
     stored.fps = 12
     stored.resolution_percent = 100
-    stored.output_dir = data_dir .. "/videos-" .. dither_mode
+    stored.output_dir = data_dir .. "/videos-" .. label:gsub("[^%w%-]", "-")
     local local_instance = {}
     local observed_progress_ratio = 0
     local video_fast_rebuild = false
@@ -568,7 +581,8 @@ local function runConversion(dither_mode, label, seconds)
 
     local handle = assert(io.open(entry.path, "rb"))
     local header = assert(BWR.readHeader(handle))
-    assert(header.format == "BWR2", label .. ": new conversions must use the indexed compressed format")
+    assert(header.format == (color_mode and "BRC2" or "BWR2"),
+        label .. ": conversions must select the correct indexed monochrome/color format")
     assert(header.width == 600 and header.height == 800, label .. ": the frame must follow the device screen")
     assert(header.fps == 12, label .. ": the header must keep the configured frame rate")
     local expected = seconds * header.fps
@@ -619,13 +633,18 @@ local function runConversion(dither_mode, label, seconds)
         local packed = assert(engine:readFrame(index))
         for byte_index = 1, #packed do
             local value = packed:byte(byte_index)
+            if color_mode then
+                assert(value >= 1 and value <= 5, label .. ": every pixel must be a valid pure-palette index")
+            end
             if value == 255 then white = white + 1 end
             if value == 0 then black = black + 1 end
             total = total + 1
         end
     end
     assert(white < total and black < total, label .. ": the frames must not be uniformly black or white")
-    local frame = assert(BWR.expandFrame(engine:readFrame(0), header.width, header.height))
+    local frame = assert(color_mode
+        and BWR.expandColorFrame(engine:readFrame(0), header.width, header.height)
+        or BWR.expandFrame(engine:readFrame(0), header.width, header.height))
     assert(frame.width == header.width and frame.height == header.height, label .. ": the frame must expand to the header size")
     engine:close()
     handle:close()
@@ -634,6 +653,8 @@ end
 
 local bayer_entry = runConversion("bayer", "Bayer path", 2)
 assert(bayer_entry.size > 0, "The Bayer conversion must write bytes")
+local color_entry = runConversion("bayer", "five-color path", 2, true)
+assert(color_entry.size > 0, "The opt-in pure five-color conversion must write bytes")
 
 -- Playback view: the pane has to build around the loaded engine, and its
 -- deactivation must release the engine and return to the library.

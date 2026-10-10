@@ -32,6 +32,13 @@ package.preload["pluginloader"] = function() return { loadPlugins = function() r
 package.preload["ui/widget/container/widgetcontainer"] = function() return WidgetContainer end
 package.preload["ui/widget/buttondialog"] = function() return WidgetContainer end
 package.preload["ui/widget/infomessage"] = function() return WidgetContainer end
+package.preload["ffi/blitbuffer"] = function() return { COLOR_WHITE = 1, COLOR_BLACK = 0, COLOR_GRAY_8 = 200 } end
+package.preload["device"] = function() return { screen = { scaleBySize = function(_, n) return n end, getSize = function() return { w = 600, h = 800 } end } } end
+package.preload["ui/font"] = function() return { getFace = function() return {} end } end
+package.preload["ui/geometry"] = function() return { new = function(_, args) return args end } end
+package.preload["ui/gesturerange"] = function() return { new = function(_, args) return args end } end
+package.preload["ui/widget/container/inputcontainer"] = function() return WidgetContainer end
+package.preload["ui/widget/textwidget"] = function() return WidgetContainer end
 package.preload["ui/uimanager"] = function()
     return {
         nextTick = function(_, callback) callback() end,

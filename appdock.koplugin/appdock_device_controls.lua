@@ -1,7 +1,8 @@
 -- AppDock hardware controls: page-key brightness, power actions, and a small
 -- animated e-ink screensaver.
 local Blitbuffer = require("ffi/blitbuffer")
-local ButtonDialog = require("ui/widget/buttondialog")
+local AppDockDialogs = require("appdock_dialogs")
+local ButtonDialog = AppDockDialogs.ButtonDialog
 local CenterContainer = require("ui/widget/container/centercontainer")
 local Device = require("device")
 local Font = require("ui/font")

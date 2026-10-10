@@ -7,7 +7,8 @@ check are required before an individual DApp is installed or updated.
 
 local Blitbuffer = require("ffi/blitbuffer")
 local CenterContainer = require("ui/widget/container/centercontainer")
-local ConfirmBox = require("ui/widget/confirmbox")
+local AppDockDialogs = require("appdock_dialogs")
+local ConfirmBox = AppDockDialogs.ConfirmBox
 local DataStorage = require("datastorage")
 local Device = require("device")
 local DAppLogo = require("appdock_logo")
@@ -20,9 +21,9 @@ local Geom = require("ui/geometry")
 local GestureRange = require("ui/gesturerange")
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local InputContainer = require("ui/widget/container/inputcontainer")
-local InputDialog = require("ui/widget/inputdialog")
+local InputDialog = AppDockDialogs.InputDialog
 local AppDockKeyboard = require("appdock_keyboard")
-local InfoMessage = require("ui/widget/infomessage")
+local InfoMessage = AppDockDialogs.InfoMessage
 local OverlapGroup = require("ui/widget/overlapgroup")
 local TextWidget = require("ui/widget/textwidget")
 local ScrollableContainer = require("ui/widget/container/scrollablecontainer")

@@ -2,7 +2,8 @@
 Scrollable configuration dialog for AppDock.
 --]]--
 
-local ButtonDialog = require("ui/widget/buttondialog")
+local AppDockDialogs = require("appdock_dialogs")
+local ButtonDialog = AppDockDialogs.ButtonDialog
 local UIManager = require("ui/uimanager")
 local _ = require("gettext")
 

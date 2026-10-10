@@ -24,7 +24,8 @@ local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
 local GestureRange = require("ui/gesturerange")
 local HorizontalSpan = require("ui/widget/horizontalspan")
-local InfoMessage = require("ui/widget/infomessage")
+local AppDockDialogs = require("appdock_dialogs")
+local InfoMessage = AppDockDialogs.InfoMessage
 local InputContainer = require("ui/widget/container/inputcontainer")
 local OverlapGroup = require("ui/widget/overlapgroup")
 local TextWidget = require("ui/widget/textwidget")
@@ -256,7 +257,12 @@ function Engine:show(position)
     if index ~= self.frame_index or not self.frame then
         local packed, err = self:readFrame(index)
         if not packed then return nil, err end
-        local frame, expand_error = BWR.expandFrame(packed, self.header.width, self.header.height)
+        local frame, expand_error
+        if self.header.is_color then
+            frame, expand_error = BWR.expandColorFrame(packed, self.header.width, self.header.height)
+        else
+            frame, expand_error = BWR.expandFrame(packed, self.header.width, self.header.height)
+        end
         if not frame then return nil, expand_error end
         if self.frame then self.frame:free() end
         self.frame = frame

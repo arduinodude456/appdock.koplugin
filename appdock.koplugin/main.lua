@@ -3,8 +3,9 @@ AppDock is an in-app homescreen for KOReader.
 It exposes selected KOReader plugin menu actions as configurable app tiles.
 --]]--
 
-local ButtonDialog = require("ui/widget/buttondialog")
-local InfoMessage = require("ui/widget/infomessage")
+local AppDockDialogs = require("appdock_dialogs")
+local ButtonDialog = AppDockDialogs.ButtonDialog
+local InfoMessage = AppDockDialogs.InfoMessage
 local PluginLoader = require("pluginloader")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
@@ -28,6 +29,7 @@ local DEFAULT_SETTINGS = {
         "dapp:file_manager",
         "dapp:app_store",
         "dapp:youtube",
+        "dapp:draw",
         "dapp:analog_clock",
         "dapp:settings",
         "dapp:help",
@@ -74,8 +76,10 @@ local DEFAULT_SETTINGS = {
         max_duration = 180,
         max_height = 480,
         dither = "ffmpeg",
+        color_mode = false,
+        color_dither = true,
     },
-    layout_version = 22,
+    layout_version = 23,
 }
 
 local function copyArray(source)
@@ -114,6 +118,8 @@ local function normalizeYouTubeSettings(stored)
         max_duration = (duration and duration >= 0 and duration <= 3600) and math.floor(duration) or 180,
         max_height = (height and YOUTUBE_HEIGHTS[height]) and height or 480,
         dither = stored.dither == "bayer" and "bayer" or "ffmpeg",
+        color_mode = stored.color_mode == true,
+        color_dither = stored.color_dither ~= false,
         audio_video_delay = (audio_video_delay and YOUTUBE_AUDIO_VIDEO_DELAYS[audio_video_delay])
             and audio_video_delay or 0,
     }
@@ -257,6 +263,20 @@ function AppDock:_loadSettings()
         -- dithering. FFmpeg's native monochrome conversion is materially faster;
         -- users can still switch back to Bayer from YouTube settings.
         self.settings.youtube.dither = "ffmpeg"
+    end
+    if self.settings.layout_version < 23 then
+        -- Offer the new built-in drawing app once without disturbing user order.
+        local pinned_draw = false
+        for _, app_id in ipairs(self.settings.pinned_apps) do
+            if app_id == "dapp:draw" then pinned_draw = true break end
+        end
+        if not pinned_draw then
+            local insert_at
+            for index, app_id in ipairs(self.settings.pinned_apps) do
+                if app_id == "dapp:youtube" then insert_at = index + 1 break end
+            end
+            table.insert(self.settings.pinned_apps, insert_at or (#self.settings.pinned_apps + 1), "dapp:draw")
+        end
     end
     if self.settings.layout_version < DEFAULT_SETTINGS.layout_version then self.settings.layout_version = DEFAULT_SETTINGS.layout_version end
 

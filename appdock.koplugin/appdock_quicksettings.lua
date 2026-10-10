@@ -14,7 +14,8 @@ local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
 local GestureRange = require("ui/gesturerange")
 local HorizontalSpan = require("ui/widget/horizontalspan")
-local InfoMessage = require("ui/widget/infomessage")
+local AppDockDialogs = require("appdock_dialogs")
+local InfoMessage = AppDockDialogs.InfoMessage
 local InputContainer = require("ui/widget/container/inputcontainer")
 local Layout = require("appdock_layout")
 local Motion = require("appdock_motion")
@@ -623,11 +624,7 @@ function QuickSettings:toggleWifi()
     local callback = function()
         self:rebuild(true)
     end
-    if wifi_on then
-        NetworkMgr:toggleWifiOff(callback, true)
-    else
-        NetworkMgr:toggleWifiOn(callback, false, true)
-    end
+    AppDockDialogs.toggleWifi(NetworkMgr, wifi_on, callback)
 end
 
 function QuickSettings:toggleNightMode()
@@ -671,7 +668,7 @@ function QuickSettings:togglePowerSaving()
         local wifi_on, wifi_available = getWifiState()
         if wifi_available and wifi_on then
             local ok, NetworkMgr = pcall(require, "ui/network/manager")
-            if ok and NetworkMgr then NetworkMgr:toggleWifiOff(function() end, true) end
+            if ok and NetworkMgr then AppDockDialogs.toggleWifi(NetworkMgr, true, function() end) end
         end
         local brightness = self:_brightnessState()
         if brightness and brightness.current > brightness.min then pcall(brightness.powerd.toggleFrontlight, brightness.powerd) end

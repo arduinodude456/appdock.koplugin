@@ -5,7 +5,8 @@ usable in a later split-screen host without global-layout rewrites.
 --]]--
 
 local Blitbuffer = require("ffi/blitbuffer")
-local ButtonDialog = require("ui/widget/buttondialog")
+local AppDockDialogs = require("appdock_dialogs")
+local ButtonDialog = AppDockDialogs.ButtonDialog
 local DataStorage = require("datastorage")
 local CenterContainer = require("ui/widget/container/centercontainer")
 local Device = require("device")
@@ -16,7 +17,7 @@ local Geom = require("ui/geometry")
 local GestureRange = require("ui/gesturerange")
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local InputContainer = require("ui/widget/container/inputcontainer")
-local InputDialog = require("ui/widget/inputdialog")
+local InputDialog = AppDockDialogs.InputDialog
 local AppDockKeyboard = require("appdock_keyboard")
 local DAppLogo = require("appdock_logo")
 local Layout = require("appdock_layout")
@@ -26,7 +27,8 @@ local WebBrowser = require("appdock_browser")
 local FileBrowser = require("appdock_filemanager")
 local AppStore = require("appdock_appstore")
 local YouTube = require("appdock_youtube")
-local InfoMessage = require("ui/widget/infomessage")
+local Draw = require("appdock_draw")
+local InfoMessage = AppDockDialogs.InfoMessage
 local OverlapGroup = require("ui/widget/overlapgroup")
 local TextWidget = require("ui/widget/textwidget")
 local ScrollHtmlWidget = require("ui/widget/scrollhtmlwidget")
@@ -976,6 +978,7 @@ function DAppManager:new(appdock)
         file_browser = FileBrowser:new(),
         app_store = AppStore:new(),
         youtube = YouTube:new(appdock),
+        draw = Draw:new(),
         help = Help:new({
             scale = scale, palette = PALETTE, Geom = Geom, Font = Font,
             WidgetContainer = WidgetContainer, FrameContainer = FrameContainer,
@@ -1057,6 +1060,21 @@ function DAppManager:_registerBuiltins()
         end,
         onClose = function()
             if self.youtube and self.youtube.player then self.youtube.player:stop() end
+        end,
+    }
+    self.definitions.draw = {
+        id = "draw",
+        title = _("Draw"),
+        subtitle = _("Fast layered sketching with optional primary-color dithering"),
+        symbol = "D",
+        logo = "draw",
+        file_extensions = { "adraw" },
+        file_handler_title = _("Open drawing in Draw"),
+        openFile = function(instance, path)
+            return self.draw:loadPath(path)
+        end,
+        buildPane = function(instance, context)
+            return self.draw:buildPane(instance, context)
         end,
     }
     self.definitions.settings = {
@@ -2291,11 +2309,7 @@ function DAppManager:toggleWifiFromSettings(context)
         return
     end
     local callback = function() context.requestRebuild("ui") end
-    if wifi_on then
-        NetworkMgr:toggleWifiOff(callback, true)
-    else
-        NetworkMgr:toggleWifiOn(callback, false, true)
-    end
+    AppDockDialogs.toggleWifi(NetworkMgr, wifi_on, callback)
 end
 
 function DAppManager:isKoboLibraColour()

@@ -135,8 +135,8 @@ end
 package.preload["ui/network/manager"] = function()
     return {
         isWifiOn = function() return wifi_on end,
-        toggleWifiOn = function(_, callback) wifi_on = true; callback() end,
-        toggleWifiOff = function(_, callback) wifi_on = false; callback() end,
+        enableWifi = function(_, callback) wifi_on = true; callback(); return true end,
+        disableWifi = function(_, callback) wifi_on = false; callback(); return true end,
     }
 end
 -- The YouTube DApp drives external tools and the BWR1 encoder. Its own test
@@ -425,11 +425,17 @@ assert(appdock:setBetaOption("plugin_custom_logos", true) and appdock:setPluginL
 appdock:setBetaOption("manual_app_spacing", true)
 assert(appdock.settings.beta.manual_app_spacing and appdock:setLauncherLayout({ app_spacing = 21 }) and appdock.settings.layout.app_spacing == 21, "Manual spacing Beta must persist a bounded launcher spacing value through the layout contract")
 local catalog = manager:getCatalogApps()
-assert(#catalog == 7 and catalog[1].id and catalog[2].id and catalog[3].id and catalog[4].id and catalog[5].id and catalog[6].id and catalog[7].id, "DApp registry must expose all built-in catalog apps")
+assert(#catalog == 8 and catalog[1].id and catalog[2].id and catalog[3].id and catalog[4].id and catalog[5].id and catalog[6].id and catalog[7].id and catalog[8].id, "DApp registry must expose all built-in catalog apps")
 for _, entry in ipairs(catalog) do
     if entry.id == "dapp:youtube" then log.youtube_entry = entry end
 end
 assert(log.youtube_entry and log.youtube_entry.logo == "youtube" and log.youtube_entry.kind == "dapp", "The built-in YouTube DApp must be part of the AppDock catalog")
+do
+    local draw_entry
+    for _, entry in ipairs(catalog) do if entry.id == "dapp:draw" then draw_entry = entry end end
+    local handlers = manager:getFileHandlers("sketch.adraw")
+    assert(draw_entry and draw_entry.kind == "dapp" and #handlers == 1 and handlers[1].id == "draw", "The built-in Draw app must be listed and own the editable project file handler")
+end
 local store_saves_before_install = log.store_saved or 0
 local store_fixture = "/tmp/appdock_store_fixture.lua"
 local store_file = assert(io.open(store_fixture, "wb"))

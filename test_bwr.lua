@@ -10,25 +10,33 @@ local ffi = require("ffi")
 package.preload["gettext"] = function() return function(text) return text end end
 
 local frames_allocated = 0
+local color_enabled = true
+local function rgba(r, g, b) return r * 65536 + g * 256 + b end
 package.preload["ffi/blitbuffer"] = function()
     return {
         TYPE_BB8 = 1,
+        TYPE_BBRGB32 = 2,
         COLOR_WHITE = "white", COLOR_BLACK = "black",
         COLOR_DARK_GRAY = "dark", COLOR_LIGHT_GRAY = "light", COLOR_GRAY = "gray",
         COLOR_GRAY_7 = "g7", COLOR_GRAY_8 = "g8",
+        ColorRGB32 = rgba,
         -- KOReader calls this as a module function: Blitbuffer.new(w, h, type)
-        new = function(width, height)
+        new = function(width, height, pixel_type)
             frames_allocated = frames_allocated + 1
             return {
                 width = width,
                 height = height,
-                data = ffi.new("uint8_t[?]", width * height),
+                data = pixel_type == 2 and ffi.new("uint32_t[?]", width * height)
+                    or ffi.new("uint8_t[?]", width * height),
                 getWidth = function(self) return self.width end,
                 getHeight = function(self) return self.height end,
                 free = function() end,
             }
         end,
     }
+end
+package.preload["device"] = function()
+    return { screen = { isColorEnabled = function() return color_enabled end } }
 end
 
 local BWR = dofile(plugin_dir .. "appdock_bwr.lua")
@@ -205,4 +213,41 @@ assert(bwr2_bytes < BWR.HEADER_BYTES + #bwr2_frames * frame_bytes,
 bwr2_file:close()
 os.remove(bwr2_path)
 
-print("AppDock BWR1/BWR2 test: OK")
+----------------------------------------------------------------
+-- BRC2 color mode: only pure RGB primaries, black and white
+----------------------------------------------------------------
+
+local color_encoder = assert(BWR.newColorEncoder(8, 8))
+local red_rgb = string.rep(string.char(255, 0, 0), 64)
+local red_indices = assert(color_encoder:pack(red_rgb, false))
+assert(#red_indices == 64, "The color encoder must return one palette index per pixel")
+for i = 1, #red_indices do assert(red_indices:byte(i) == 3, "Exact red must never become a mixed color") end
+local gray_rgb = string.rep(string.char(128, 128, 128), 64)
+local gray_indices = assert(color_encoder:pack(gray_rgb, true))
+local saw_black, saw_white = false, false
+for i=1,#gray_indices do
+    local index=gray_indices:byte(i)
+    assert(index==1 or index==2, "Neutral grays may dither only between white and black")
+    if index==1 then saw_white=true else saw_black=true end
+end
+assert(saw_black and saw_white, "Color dithering must spatially dither neutral midtones")
+
+local brc_path = os.tmpname()
+local brc_file = assert(io.open(brc_path, "w+b"))
+local color_writer = assert(BWR.newColorWriter(brc_file, 8, 8, 12, 2))
+assert(color_writer:writeFrame(red_indices) and color_writer:writeFrame(gray_indices))
+assert(color_writer:finish(), "BRC2 must finalize the indexed color track")
+brc_file:close()
+brc_file=assert(io.open(brc_path,"rb"))
+local color_header=assert(BWR.readHeader(brc_file))
+assert(color_header.format=="BRC2" and color_header.is_color and color_header.pixel_format==2
+    and color_header.frame_bytes==64, "BRC2 must explicitly identify indexed five-color frames")
+local color_reader=assert(BWR.newReader(brc_file,color_header))
+assert(color_reader:readFrame(0)==red_indices and color_reader:readFrame(1)==gray_indices,
+    "BRC2 seeking must preserve palette indices exactly")
+local rgb_frame=assert(BWR.expandColorFrame(red_indices,8,8))
+assert(ffi.cast("uint32_t*",rgb_frame.data)[0]==rgba(255,0,0),
+    "Color display expansion must write pure red without channel mixing")
+brc_file:close(); os.remove(brc_path)
+
+print("AppDock BWR1/BWR2/BRC2 test: OK")
