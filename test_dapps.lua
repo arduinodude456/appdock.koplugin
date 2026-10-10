@@ -65,6 +65,9 @@ package.preload["device"] = function()
     }
 end
 package.preload["gettext"] = function() return function(text) return text end end
+package.preload["logger"] = function()
+    return { info = function() end, warn = function() end, err = function() end, dbg = function() end }
+end
 package.preload["datastorage"] = function() return { getDataDir = function() return "/tmp/appdock_test_data" end } end
 package.preload["ui/font"] = function() return { getFace = function(_, name, size) return { name = name, size = size or 12 } end } end
 package.preload["ui/geometry"] = function() return { new = function(_, args) return args end } end
@@ -481,11 +484,15 @@ assert(appdock:setBetaOption("plugin_custom_logos", true) and appdock:setPluginL
 appdock:setBetaOption("manual_app_spacing", true)
 assert(appdock.settings.beta.manual_app_spacing and appdock:setLauncherLayout({ app_spacing = 21 }) and appdock.settings.layout.app_spacing == 21, "Manual spacing Beta must persist a bounded launcher spacing value through the layout contract")
 local catalog = manager:getCatalogApps()
-assert(#catalog == 8 and catalog[1].id and catalog[2].id and catalog[3].id and catalog[4].id and catalog[5].id and catalog[6].id and catalog[7].id and catalog[8].id, "DApp registry must expose all built-in catalog apps")
+assert(#catalog == 9, "DApp registry must expose all built-in catalog apps, found " .. tostring(#catalog))
 for _, entry in ipairs(catalog) do
+    assert(entry.id, "Every catalog entry must carry an id")
     if entry.id == "dapp:youtube" then log.youtube_entry = entry end
+    if entry.id == "dapp:youtube_music" then log.youtube_music_entry = entry end
 end
 assert(log.youtube_entry and log.youtube_entry.logo == "youtube" and log.youtube_entry.kind == "dapp", "The built-in YouTube DApp must be part of the AppDock catalog")
+assert(log.youtube_music_entry and log.youtube_music_entry.logo == "youtube_music" and log.youtube_music_entry.kind == "dapp",
+    "The built-in YouTube Music DApp must be part of the AppDock catalog")
 do
     local draw_entry
     for _, entry in ipairs(catalog) do if entry.id == "dapp:draw" then draw_entry = entry end end

@@ -268,6 +268,10 @@ function YouTube.buildDownloadCommand(ytdlp, ffmpeg, source_file, source, max_he
     return shellQuote(ytdlp)
         .. " --no-playlist --newline --no-warnings --no-cache-dir"
         .. " --extractor-args " .. shellQuote(YOUTUBE_PLAYER_CLIENT)
+        -- YouTube serves the selected stream as DASH fragments. Fetching four of
+        -- them at a time is yt-dlp's documented way to use the available
+        -- bandwidth and shortens the download noticeably on reader Wi-Fi.
+        .. " --concurrent-fragments 4"
         .. " --merge-output-format mp4"
         .. " --ffmpeg-location " .. shellQuote(ffmpeg)
         .. " -f " .. shellQuote(format)
@@ -706,6 +710,7 @@ local DEFAULT_SETTINGS = {
     ytdlp_path = "",
     ffmpeg_path = "",
     output_dir = "",
+    music_dir = "",
     resolution_percent = 100,
     fps = 12,
     max_duration = 180,
@@ -965,8 +970,20 @@ local VIDEO_TICK_INTERVAL = 0.01
 -- while the hard CPU budget still returns control frequently on slower Kobo
 -- CPUs and leaves cancellation/progress responsive.
 local VIDEO_TICK_CPU_BUDGET = 0.20
-local VIDEO_MAX_FRAMES_PER_TICK = 32
+-- 32 frames per turn only ever bound the cheap "repeat previous frame" runs;
+-- real footage is still limited by the CPU budget below. The higher cap lets a
+-- static or slow scene be drained in one turn instead of paying the scheduler
+-- gap for every two dozen frames.
+local VIDEO_MAX_FRAMES_PER_TICK = 64
+-- FFmpeg writes several frames into the pipe while the Lua side encodes. Reading
+-- a small batch per call amortizes the Lua/C round trips without delaying the
+-- first frame of a conversion.
+local VIDEO_READ_BATCH_FRAMES = 4
 local PROGRESS_REFRESH_INTERVAL = 0.75
+-- Rebuilding the job pane is the most expensive part of a conversion tick. A
+-- long video does not need a 1.3 Hz progress repaint, so the video stage updates
+-- the bar less often than the download stage, which only parses text.
+local VIDEO_PROGRESS_REFRESH_INTERVAL = 1.5
 
 local function monotonicNow()
     if Player and type(Player.now) == "function" then
@@ -1316,6 +1333,10 @@ function YouTube:_startJob(instance, context, spec)
         job.source_file = spec.source
         job.stage = "video"
         job.stage_message = _("Converting video")
+        -- Both FFmpeg passes read the same source. Running the short audio pass
+        -- next to the frame conversion keeps the total time at max(video, audio)
+        -- instead of video + audio.
+        self:_startAudioStage(instance, context, job)
         self:_startVideoStage(instance, context, job)
     else
         local command = YouTube.buildDownloadCommand(
@@ -1344,7 +1365,16 @@ function YouTube:_startVideoStage(instance, context, job)
     local filter = YouTube.buildFilter(width, height, settings.fps, dithered, color_mode)
     local inversion
     if dithered then
-        inversion = YouTube._probeMonow(tools.ffmpeg, width, height, filter)
+        -- The `monow` bit sense is a property of the FFmpeg build, not of the
+        -- frame geometry, so the probe result is kept per binary. A second
+        -- conversion on the same reader then skips the extra FFmpeg run.
+        local state = self:_state(instance)
+        state.monow_inversion = state.monow_inversion or {}
+        inversion = state.monow_inversion[tools.ffmpeg]
+        if inversion == nil then
+            inversion = YouTube._probeMonow(tools.ffmpeg, width, height, filter)
+            if inversion ~= nil then state.monow_inversion[tools.ffmpeg] = inversion end
+        end
         if inversion == nil then
             -- Unknown bit sense: fall back to the deterministic Bayer path.
             dithered = false
@@ -1409,6 +1439,8 @@ function YouTube:_startVideoStage(instance, context, job)
     job.error_log = error_log
     job.frame_bytes = color_mode and (width * height * 3)
         or (dithered and BWR.frameBytes(width, height) or (width * height))
+    job.read_buffer, job.read_pos = "", 1
+    job.read_batch_bytes = job.frame_bytes * VIDEO_READ_BATCH_FRAMES
     job.percent = 0
 end
 
@@ -1450,9 +1482,26 @@ function YouTube:_finishVideoStage(instance, context, job)
     job.stage_message = _("Extracting audio")
     job.percent = 96
     job.interval = 1
+    -- The audio pass was already started next to the frame conversion. Only a
+    -- process that never started finishes the job here without a companion WAV.
+    self:_pollAudioStage(job)
+    if not job.audio and job.audio_code == nil then
+        self:_finishJob(instance, context, job, true)
+    end
+end
 
+-- Extracts the companion WAV next to the running frame conversion. `ffmpeg`
+-- decodes the source twice in the old sequential pipeline; starting both passes
+-- together keeps the reader's second core busy and removes one full pass from
+-- the wall clock.
+function YouTube:_startAudioStage(instance, context, job)
+    if job.audio or job.audio_code ~= nil then return job.audio end
     local settings = self:_settings()
     local tools = self:_state(instance).tools
+    if not tools or not tools.ffmpeg then
+        job.audio_failed = true
+        return nil
+    end
     local command = shellQuote(tools.ffmpeg)
         .. " -nostdin -hide_banner -loglevel error -y"
         .. " -i " .. shellQuote(job.source_file)
@@ -1465,8 +1514,21 @@ function YouTube:_finishVideoStage(instance, context, job)
     if detached then
         job.audio = detached
     else
-        self:_finishJob(instance, context, job, true)
+        job.audio_failed = true
     end
+    return job.audio
+end
+
+-- Collects the parallel audio pass as soon as it exits, so neither the frame
+-- conversion nor the final stage has to wait for it twice.
+function YouTube:_pollAudioStage(job)
+    if not job.audio then return nil end
+    local code, log = self:_pollDetached(job.audio)
+    if code == nil then return nil end
+    job.audio = nil
+    job.audio_code = code
+    if code ~= 0 then job.log_tail = (log or ""):sub(-300) end
+    return code
 end
 
 function YouTube:_finishJob(instance, context, job, without_audio)
@@ -1513,6 +1575,12 @@ function YouTube:_failJob(instance, context, job, message)
     job.stage = "error"
     job.stage_message = message or _("The conversion failed.")
     job.percent = 0
+    -- The audio pass runs in parallel now, so a failed video stage can leave a
+    -- finished WAV behind for a video that was never written. Stop the pass and
+    -- drop the orphan file; the job stays visible for the error message.
+    self:_killDetached(job.audio)
+    job.audio = nil
+    if job.wav then os.remove(job.wav) end
     if context and context.requestRefresh then context.requestRefresh("ui") end
 end
 
@@ -1578,23 +1646,37 @@ function YouTube:_tick(instance, context)
                 return
             end
             source_handle:close()
+            -- Both FFmpeg passes read the downloaded file. Starting the audio
+            -- pass here overlaps it with the frame conversion instead of adding
+            -- a second full decode to the wall clock.
+            self:_startAudioStage(instance, context, job)
             self:_startVideoStage(instance, context, job)
         end
     elseif job.stage == "video" then
+        -- The audio pass runs in parallel; collect it as soon as it exits.
+        self:_pollAudioStage(job)
         local tick_started = os.clock()
         for _ = 1, VIDEO_MAX_FRAMES_PER_TICK do
-            local chunk = job.pipe:read(job.frame_bytes)
-            if not chunk or #chunk < job.frame_bytes then
-                self:_finishVideoStage(instance, context, job)
-                break
+            local frame
+            if job.read_pos + job.frame_bytes - 1 <= #job.read_buffer then
+                frame = job.read_buffer:sub(job.read_pos, job.read_pos + job.frame_bytes - 1)
+                job.read_pos = job.read_pos + job.frame_bytes
+            else
+                local chunk = job.pipe:read(job.read_batch_bytes or job.frame_bytes)
+                if not chunk or #chunk < job.frame_bytes then
+                    self:_finishVideoStage(instance, context, job)
+                    break
+                end
+                job.read_buffer, job.read_pos = chunk, job.frame_bytes + 1
+                frame = chunk:sub(1, job.frame_bytes)
             end
             local packed, encode_error
             if job.color_mode then
-                packed, encode_error = job.encoder:pack(chunk, job.color_dither)
+                packed, encode_error = job.encoder:pack(frame, job.color_dither)
             elseif job.dithered then
-                packed, encode_error = job.encoder:packPreDithered(chunk, job.invert)
+                packed, encode_error = job.encoder:packPreDithered(frame, job.invert)
             else
-                packed, encode_error = job.encoder:pack(chunk)
+                packed, encode_error = job.encoder:pack(frame)
             end
             if not packed then
                 self:_failJob(instance, context, job, encode_error)
@@ -1620,14 +1702,17 @@ function YouTube:_tick(instance, context)
         end
     elseif job.stage == "audio" then
         if job.audio then
-            local code, log = self:_pollDetached(job.audio)
-            if code ~= nil then
-                job.audio = nil
-                if code ~= 0 then job.log_tail = (log or ""):sub(-300) end
-                self:_finishJob(instance, context, job, code ~= 0)
+            self:_pollAudioStage(job)
+            if not job.audio then
+                self:_finishJob(instance, context, job, job.audio_code ~= 0)
                 return
             end
             job.stage_message = _("Extracting audio")
+        else
+            -- The pass finished while the frames were still converting, or it
+            -- never started. Either way the job can settle now.
+            self:_finishJob(instance, context, job, job.audio_code ~= 0)
+            return
         end
     else
         return
@@ -1638,7 +1723,8 @@ function YouTube:_tick(instance, context)
         job.stage_widget:setText(fitText(job.stage_message or "", job.stage_widget_width or 160, 11))
     end
     local refresh_now = monotonicNow()
-    if not job.last_progress_refresh or refresh_now - job.last_progress_refresh >= PROGRESS_REFRESH_INTERVAL then
+    local refresh_interval = job.stage == "video" and VIDEO_PROGRESS_REFRESH_INTERVAL or PROGRESS_REFRESH_INTERVAL
+    if not job.last_progress_refresh or refresh_now - job.last_progress_refresh >= refresh_interval then
         job.last_progress_refresh = refresh_now
         if hostIsActive(context) then
             -- The progress bar is nested in the DApp pane. Rebuilding at this
@@ -1951,6 +2037,10 @@ local MiniPlayer = InputContainer:extend{
     height = nil,
     callback = nil,
     dimen = nil,
+    -- A MiniPlayer can carry controls inside its own lower edge. An OverlapGroup
+    -- propagates events to the widgets it inserted first, so without this inset
+    -- the player would swallow the taps meant for those controls.
+    gesture_inset_bottom = 0,
 }
 
 function MiniPlayer:init()
@@ -1965,7 +2055,8 @@ end
 function MiniPlayer:paintTo(bb, x, y)
     if self.canvas then self.canvas:paintTo(bb, x, y) end
     local range = self.ges_events.TapMiniPlayer[1].range
-    range.x, range.y, range.w, range.h = x, y, self.width, self.height
+    local inset = math.max(0, math.min(self.height - 1, tonumber(self.gesture_inset_bottom) or 0))
+    range.x, range.y, range.w, range.h = x, y, self.width, math.max(1, self.height - inset)
 end
 
 function MiniPlayer:onTapMiniPlayer()
@@ -2325,6 +2416,9 @@ function YouTube:_buildWatchLikeHome(instance, context, state)
     hero.overlap_offset = { margin, hero_y }
     table.insert(content, hero)
     if selected then
+        -- The play and fullscreen pills sit inside the hero's lower edge. Taps
+        -- there must reach the pills, so the hero stops claiming that strip.
+        hero.gesture_inset_bottom = scale(34)
         local mini_button_width = math.min(scale(92), math.floor((main_w - gap * 3) / 2))
         local mini_play = Pill:new{
             text = inline_active and (self.player.engine.paused and "▶  " .. _("Play") or "Ⅱ  " .. _("Pause"))
