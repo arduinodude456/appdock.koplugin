@@ -265,6 +265,13 @@ for _, case in ipairs(mixed_color_cases) do
         case.name .. " must visibly dither between both matching primary colors")
 end
 
+local three_color_rgb = string.rep(string.char(85, 85, 0), 64)
+local three_color_indices = assert(color_encoder:pack(three_color_rgb, true))
+local three_color_seen = {}
+for i = 1, #three_color_indices do three_color_seen[three_color_indices:byte(i)] = true end
+assert(three_color_seen[2] and three_color_seen[3] and three_color_seen[4],
+    "Error diffusion must mix black, red and green across pixels, not limit every source pixel to one color pair")
+
 local brc_path = os.tmpname()
 local brc_file = assert(io.open(brc_path, "w+b"))
 local color_writer = assert(BWR.newColorWriter(brc_file, 8, 8, 12, 2))

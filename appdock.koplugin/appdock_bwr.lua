@@ -30,8 +30,8 @@ Two dithering paths supply frames to the BWR2 writer:
   player.
 * `Encoder:packPreDithered` accepts frames ffmpeg already reduced to 1 bit; this
   is the default monochrome conversion path because it is substantially faster.
-* `ColorEncoder:pack` maps RGB frames to the five-color palette and can use an
-  ordered matrix to spatially dither between palette entries.
+* `ColorEncoder:pack` maps RGB frames to the five-color palette and can combine
+  multiple palette entries spatially with ordered selection and error diffusion.
 --]]--
 
 local bit = require("bit")
@@ -882,7 +882,8 @@ function BWR.newColorEncoder(width, height)
     buildColorLUT()
     buildColorDitherLUTs()
     return setmetatable({ width=width, height=height, frame_bytes=size,
-        target=ffi.new("uint8_t[?]", size) }, ColorEncoder)
+        target=ffi.new("uint8_t[?]", size),
+        error_buffer=ffi.new("double[?]", (width + 2) * 6) }, ColorEncoder)
 end
 function ColorEncoder:pack(rgb, dither)
     local pixels = self.width * self.height
@@ -893,20 +894,71 @@ function ColorEncoder:pack(rgb, dither)
     local target = self.target
     local width, height = self.width, self.height
     local use_dither = dither ~= false
+    if use_dither then
+        -- Ordered palette selection handles local tone fractions; diffuse the
+        -- quantization residual so adjacent pixels can select different pairs
+        -- and the frame can form mixtures of three or more palette colors.
+        -- The two RGB error rows are frame-local to avoid temporal trails.
+        local errors = self.error_buffer
+        local stride = width + 2
+        local row_bytes = stride * 3
+        for index = 0, row_bytes * 2 - 1 do errors[index] = 0 end
+        local current_base, next_base = 0, row_bytes
+        for y = 0, height - 1 do
+            local dither_row = COLOR_DITHER_LUTS[y % 8]
+            local source_row = y * width * 3
+            local output_row = y * width
+            local reverse = y % 2 == 1
+            local x, stop, step = reverse and (width - 1) or 0,
+                reverse and -1 or width, reverse and -1 or 1
+            while x ~= stop do
+                local pixel = source_row + x * 3
+                local error_pixel = x + 1
+                local r = source[pixel] + errors[current_base + error_pixel]
+                local g = source[pixel + 1] + errors[current_base + stride + error_pixel]
+                local b = source[pixel + 2] + errors[current_base + stride * 2 + error_pixel]
+                if r < 0 then r = 0 elseif r > 255 then r = 255 end
+                if g < 0 then g = 0 elseif g > 255 then g = 255 end
+                if b < 0 then b = 0 elseif b > 255 then b = 255 end
+                local ri, gi, bi = math.floor(r + 0.5), math.floor(g + 0.5), math.floor(b + 0.5)
+                local table_index = COLOR_RED_INDEX[ri]
+                    + COLOR_GREEN_INDEX[gi] + COLOR_BLUE_INDEX[bi]
+                local color_index = dither_row[x % 8][table_index]
+                target[output_row + x] = color_index
+                local palette_color = BWR.COLOR_PALETTE[color_index]
+                local er, eg, eb = r - palette_color[1], g - palette_color[2], b - palette_color[3]
+                local direction = reverse and -1 or 1
+                local same_row = current_base + error_pixel + direction
+                local below_back = next_base + error_pixel - direction
+                local below_forward = next_base + error_pixel + direction
+                for channel = 0, 2 do
+                    local error = channel == 0 and er or (channel == 1 and eg or eb)
+                    local channel_offset = channel * stride
+                    errors[same_row + channel_offset] = errors[same_row + channel_offset] + error * (7 / 16)
+                    errors[below_back + channel_offset] = errors[below_back + channel_offset] + error * (3 / 16)
+                    errors[next_base + error_pixel + channel_offset] = errors[next_base + error_pixel + channel_offset] + error * (5 / 16)
+                    errors[below_forward + channel_offset] = errors[below_forward + channel_offset] + error * (1 / 16)
+                end
+                x = x + step
+            end
+            current_base, next_base = next_base, current_base
+            for channel = 0, 2 do
+                local base = next_base + channel * stride
+                for index = 0, stride - 1 do errors[base + index] = 0 end
+            end
+        end
+        return ffi.string(target, pixels)
+    end
     for y=0,height-1 do
-        local dither_row = use_dither and COLOR_DITHER_LUTS[y % 8] or nil
         local offset = y * width * 3
         local output = y * width
-        local xphase = 0
         for x=0,width-1 do
             local table_index = COLOR_RED_INDEX[source[offset]]
                 + COLOR_GREEN_INDEX[source[offset + 1]]
                 + COLOR_BLUE_INDEX[source[offset + 2]]
-            target[output] = use_dither and dither_row[xphase][table_index] or COLOR_DIRECT_LUT[table_index]
+            target[output] = COLOR_DIRECT_LUT[table_index]
             offset = offset + 3
             output=output+1
-            xphase = xphase + 1
-            if xphase == 8 then xphase = 0 end
         end
     end
     return ffi.string(target,pixels)
