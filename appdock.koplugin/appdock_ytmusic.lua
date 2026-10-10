@@ -26,6 +26,7 @@ local HorizontalSpan = require("ui/widget/horizontalspan")
 local AppDockDialogs = require("appdock_dialogs")
 local InputDialog = AppDockDialogs.InputDialog
 local OverlapGroup = require("ui/widget/overlapgroup")
+local TextBoxWidget = require("ui/widget/textboxwidget")
 local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
@@ -543,8 +544,9 @@ function Music.buildSearchCommand(ytdlp, query)
     query = trim(query)
     if query == "" then return nil end
     return shellQuote(ytdlp)
-        .. " --no-warnings --no-cache-dir --flat-playlist --ignore-errors --skip-download"
+        .. " --no-warnings --no-cache-dir --flat-playlist --skip-download"
         .. " --socket-timeout 20 --retries 1 --extractor-retries 1 --playlist-end 8"
+        .. " --extractor-args " .. shellQuote("youtube:player_client=android")
         .. " --print " .. shellQuote("%(id)s\t%(title)s\t%(duration)s\t%(uploader)s\t%(thumbnail)s")
         .. " " .. shellQuote("ytsearch8:" .. query)
 end
@@ -569,6 +571,7 @@ function Music:startSearch(instance, context, query)
     end
     state.view = "search"
     state.note = string.format(_("Searching YouTube Music for “%s”…"), query)
+    state.search_error = nil
     state.search_handle = handle
     state.search_work = work
     state.search_query = query
@@ -584,8 +587,9 @@ function Music:startSearch(instance, context, query)
                 Music._killDetached(handle)
                 cleanupDirectory(work)
                 state.search_handle, state.search_work = nil, nil
-                state.view = "home"
-                self:_notify(instance, context, _("The search timed out. Check the connection and try again."))
+                state.view = "search_error"
+                state.search_error = _("The search timed out. Check the connection and try again.")
+                state.note = ""
                 if context and context.requestRebuild then context.requestRebuild("ui") end
                 return
             end
@@ -597,13 +601,19 @@ function Music:startSearch(instance, context, query)
         cleanupDirectory(work)
         local results = YouTube.parseSearchOutput(log)
         if #results == 0 then
-            state.view = "home"
-            local detail = trim(log or "")
+            local detail = trim(log or ""):gsub("\27%[[%d;]*[A-Za-z]", "")
             if detail ~= "" then detail = detail:sub(-220):gsub("\r", " "):gsub("\n+", " · ") end
-            self:_notify(instance, context, code ~= 0 and (_("YouTube Music search failed: ") .. (detail ~= "" and detail or _("check the connection and yt-dlp setup."))) or _("No result matched this search."))
+            if code ~= 0 then
+                state.search_error = detail ~= "" and detail or _("yt-dlp returned an error. Check the connection and the yt-dlp version.")
+            else
+                state.search_error = _("yt-dlp returned no results. Check the connection and try another search.")
+            end
+            state.view = "search_error"
+            state.note = ""
         else
             state.results = results
             state.results_page = 1
+            state.search_error = nil
             state.view = "results"
             state.note = code ~= 0 and _("Showing available results; some YouTube results could not be loaded.") or ""
             local youtube = self:_youtube()
@@ -1182,9 +1192,11 @@ end
 function Music:_buildSearchPane(instance, context, state)
     local width, height = context.dimen.w, context.dimen.h
     local margin = scale(18)
+    local gap = scale(8)
     local content = self:_paneShell(width, height)
+    local failed = state.view == "search_error"
     local title = TextWidget:new{
-        text = _("Searching YouTube Music"),
+        text = failed and _("YouTube Music search did not return results") or _("Searching YouTube Music"),
         face = Font:getFace("cfont", scale(17)),
         bold = true,
         fgcolor = Blitbuffer.COLOR_BLACK,
@@ -1192,21 +1204,51 @@ function Music:_buildSearchPane(instance, context, state)
     }
     title.overlap_offset = { margin, scale(24) }
     table.insert(content, title)
-    local bar = ProgressBar:new{
-        width = width - 2 * margin, height = scale(18),
-        indeterminate = true, position = 0.5,
-    }
-    bar.overlap_offset = { margin, scale(60) }
-    table.insert(content, bar)
-    local note = TextWidget:new{
-        text = YouTube.fitText(state.note or "", width - 2 * margin, 10),
-        face = Font:getFace("smallinfofont", scale(10)),
-        fgcolor = Blitbuffer.COLOR_DARK_GRAY,
-        max_width = width - 2 * margin,
-        padding = 0,
-    }
-    note.overlap_offset = { margin, scale(92) }
-    table.insert(content, note)
+    if failed then
+        local diagnostic = TextBoxWidget:new{
+            text = state.search_error or "",
+            face = Font:getFace("smallinfofont", scale(10)),
+            fgcolor = Blitbuffer.COLOR_DARK_GRAY,
+            width = width - 2 * margin,
+            alignment = "left",
+        }
+        diagnostic.overlap_offset = { margin, scale(62) }
+        table.insert(content, diagnostic)
+        local button_width = math.floor((width - 2 * margin - gap) / 2)
+        table.insert(content, Pill:new{
+            text = "‹ " .. _("Back to library"),
+            width = button_width, height = scale(34),
+            background = Blitbuffer.COLOR_GRAY_8,
+            callback = function()
+                state.view, state.search_error = "home", nil
+                if context.requestRebuild then context.requestRebuild("ui") end
+            end,
+            overlap_offset = { margin, scale(152) },
+        })
+        table.insert(content, Pill:new{
+            text = _("Try again"),
+            width = button_width, height = scale(34),
+            background = Blitbuffer.COLOR_LIGHT_GRAY,
+            callback = function() self:startSearch(instance, context, state.search_query or "") end,
+            overlap_offset = { margin + button_width + gap, scale(152) },
+        })
+    else
+        local note = TextWidget:new{
+            text = YouTube.fitText(state.note or "", width - 2 * margin, 10),
+            face = Font:getFace("smallinfofont", scale(10)),
+            fgcolor = Blitbuffer.COLOR_DARK_GRAY,
+            max_width = width - 2 * margin,
+            padding = 0,
+        }
+        note.overlap_offset = { margin, scale(92) }
+        table.insert(content, note)
+        local bar = ProgressBar:new{
+            width = width - 2 * margin, height = scale(18),
+            indeterminate = true, position = 0.5,
+        }
+        bar.overlap_offset = { margin, scale(60) }
+        table.insert(content, bar)
+    end
     return content
 end
 
@@ -1789,7 +1831,7 @@ function Music:buildPane(instance, context)
         content = self:_buildPlayerPane(instance, context, state)
     elseif state.view == "results" then
         content = self:_buildResultsPane(instance, context, state)
-    elseif state.view == "search" then
+    elseif state.view == "search" or state.view == "search_error" then
         content = self:_buildSearchPane(instance, context, state)
     elseif state.view == "job" and state.job then
         content = self:_buildJobPane(instance, context, state)

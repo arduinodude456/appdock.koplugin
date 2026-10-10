@@ -157,6 +157,10 @@ assert(search_command:find("--flat-playlist", 1, true) and search_command:find("
     "Music search must return a bounded list of lightweight search results")
 assert(search_command:find("--skip-download", 1, true),
     "Searching must only fetch metadata; downloading begins only after the user chooses a result")
+assert(not search_command:find("--ignore-errors", 1, true),
+    "Search errors must not be hidden by yt-dlp's ignore-errors mode")
+assert(search_command:find("youtube:player_client=android", 1, true),
+    "Music search must use the same resilient YouTube client as audio downloads")
 assert(search_command:find("--socket-timeout 20", 1, true),
     "Music search must not hang indefinitely on a slow or stalled network")
 assert(helpers.buildSearchCommand("/tools/yt-dlp", "  ") == nil,
@@ -278,6 +282,33 @@ assert(search_state.results[1].uploader == "Daft Punk" and search_state.results[
     "Music search must retain the result artist and title")
 assert(search_state.note:find("available results", 1, true),
     "Partial result sets must be shown with a clear partial-results notice")
+
+-- A failed/empty search must stay on a visible diagnostic pane; the old
+-- behavior returned to the empty library and left only a tiny footer message.
+local failed_search_instance = {}
+local failed_search_state = music:_state(failed_search_instance)
+failed_search_state.tools = { ytdlp = "/tools/yt-dlp", ffmpeg = "/tools/ffmpeg", ready = true }
+local failed_handle = {}
+music._startDetached = function() return failed_handle end
+Music._pollDetached = function(handle)
+    assert(handle == failed_handle, "The failed search must poll its detached process")
+    return 1, "ERROR: [youtube:search] HTTP Error 403: Forbidden\n"
+end
+assert(music:startSearch(failed_search_instance, context, "hallo"), "A normal word must start a Music search")
+table.remove(scheduled, 1)()
+assert(failed_search_state.view == "search_error" and failed_search_state.search_error:find("403", 1, true),
+    "A search failure must preserve the yt-dlp diagnostic in a visible error state")
+local failed_pane = music:buildPane(failed_search_instance, context)
+assert(failed_pane and failed_pane[1], "The failed-search diagnostic pane must remain renderable")
+local failed_content = failed_pane[1]
+local found_retry, found_back = false, false
+for _, widget in ipairs(failed_content) do
+    if widget.text == "Try again" then found_retry = true end
+    if widget.text == "‹ Back to library" then found_back = true end
+end
+assert(found_retry and found_back, "The error pane must expose retry and return-to-library actions")
+music._startDetached = old_start_detached
+Music._pollDetached = old_poll_detached
 
 local library = music:scanLibrary(instance, context)
 assert(type(library) == "table" and #library == 0, "An empty music folder must produce an empty library")

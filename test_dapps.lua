@@ -193,6 +193,7 @@ package.preload["ui/widget/textwidget"] = function()
     end
     return Text
 end
+package.preload["ui/widget/textboxwidget"] = function() return package.preload["ui/widget/textwidget"]() end
 package.preload["ui/uimanager"] = function()
     return {
         show = function(_, widget) table.insert(log.shown, widget) end,
