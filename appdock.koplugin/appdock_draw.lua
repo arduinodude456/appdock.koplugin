@@ -7,9 +7,9 @@ local Font = require("ui/font")
 local Geom = require("ui/geometry")
 local GestureRange = require("ui/gesturerange")
 local InputContainer = require("ui/widget/container/inputcontainer")
+local OverlapGroup = require("ui/widget/overlapgroup")
 local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
-local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local _ = require("gettext")
 local Draw = {}
 Draw.__index = Draw
@@ -297,7 +297,7 @@ function Draw:buildPane(instance,context)
     local canvas_h=math.max(scale(60),h-bar-scale(48)-margin*3)
     local canvas_w=w-margin*2
     local canvas=Canvas:new{app=self,width=self.width,height=self.height}
-    local pane=WidgetContainer:new{}; pane.dimen=Geom:new{w=w,h=h}
+    local pane=OverlapGroup:new{dimen=Geom:new{w=w,h=h},allow_mirroring=false}
     local controls={
         {_("Pen"),function() self.tool="pen" end},{_("Eraser"),function() self.tool="eraser" end},
         {_("Line"),function() self.tool="line" end},{_("Rect"),function() self.tool="rect" end},
