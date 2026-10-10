@@ -610,6 +610,22 @@ end
 manager:activate("analog_clock", "home")
 assert(manager.active_id == "analog_clock" and #manager:getOpenApps() == 1, "Activating a DApp must retain it in the open-app list")
 assert(log.dirties[#log.dirties].widget == manager.active_host and log.dirties[#log.dirties].kind == "ui", "Activating a DApp must request a next-tick redraw for the new host")
+do
+local fullscreen_host = manager.active_host
+local fullscreen_context = manager:_newContext(fullscreen_host, manager.instances.analog_clock)
+assert(fullscreen_context.requestFullscreen(true), "An active DApp host must enter fullscreen on request")
+assert(fullscreen_host.chrome_layout.fullscreen and fullscreen_host.chrome_layout.appbar_height == 0
+    and fullscreen_host.chrome_layout.navigation_height == 0 and not fullscreen_host.chrome_layout.has_navigation_pill,
+    "Fullscreen must remove AppDock's app bar and bottom navigation")
+local full_dimen = fullscreen_host.active_pane.dimen
+local full_offset = fullscreen_host.active_pane.overlap_offset
+assert(full_offset[1] == 0 and full_offset[2] == 0 and full_dimen.w == fullscreen_host.dimen.w
+    and full_dimen.h == fullscreen_host.dimen.h,
+    "Fullscreen DApps must receive the complete screen rectangle")
+assert(fullscreen_context.requestFullscreen(false) and not fullscreen_host.chrome_layout.fullscreen
+    and fullscreen_host.chrome_layout.navigation_height > 0,
+    "Leaving fullscreen must restore the normal AppDock chrome")
+end
 local host_chrome = manager.active_host[1]
 manager.showQuickSettingsFromHost = function(_, host) log.quick_settings_host = host end
 local host_quick_access
@@ -647,6 +663,19 @@ assert(clock_instance.pane and clock_instance.pane.dimen, "Analog Clock must bui
     assert(window_host.is_window and window_host.window_rect and clock_instance.in_window and window_host.key_events.BrightnessUp,
         "The window host must track its own geometry, state and global brightness binding")
     local before_move = { x = window_host.window_rect.x, y = window_host.window_rect.y, w = window_host.window_rect.w, h = window_host.window_rect.h }
+    local window_context = manager:_newContext(window_host, clock_instance)
+    assert(window_context.requestFullscreen(true) and window_host.window_layout.fullscreen
+        and window_host.window_rect.x == 0 and window_host.window_rect.y == 0
+        and window_host.window_rect.w == window_host.dimen.w and window_host.window_rect.h == window_host.dimen.h,
+        "A DApp opened as a beta window must also be able to cover the full screen")
+    local full_window_content = window_host.window_layout.content
+    assert(full_window_content.x == 0 and full_window_content.y == 0
+        and full_window_content.w == window_host.dimen.w and full_window_content.h == window_host.dimen.h,
+        "A fullscreen window must give its DApp the complete screen rectangle")
+    assert(window_context.requestFullscreen(false) and not window_host.window_layout.fullscreen
+        and window_host.window_rect.x == before_move.x and window_host.window_rect.y == before_move.y
+        and window_host.window_rect.w == before_move.w and window_host.window_rect.h == before_move.h,
+        "Exiting fullscreen from a window must restore its previous geometry")
     assert(window_host:onPanWindowMove(nil, { pos = { x = before_move.x + 24, y = before_move.y + 20 } })
         and window_host:onPanReleaseWindowMove(nil, { pos = { x = before_move.x + 56, y = before_move.y + 44 } }),
         "Dragging a window title bar must move the window")
