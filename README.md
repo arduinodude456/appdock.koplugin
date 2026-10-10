@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.9.7** beschleunigt die S/W- und BRC2-Farbkonvertierung, modernisiert AppDock-eigene Dialoge und ergänzt verschiebbare sowie skalierbare DApp-Fenster als Beta. [Details](RELEASE_NOTES_7.9.7.md).
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.9.9** reduziert den Speicherbedarf der YouTube-Begleitspur um etwa 75 % durch 22,05-kHz-Mono-WAV, ohne Player, WAV-Kompatibilität oder Such-/Sprungfunktion aufzugeben. [Details](RELEASE_NOTES_7.9.9.md).
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst Androids Formensprache, nicht dessen Daueranimationen, Unschärfen oder Transparenzeffekte. Auf E-Ink wechseln App-Seiten und Recently-used-Drawer direkt und ohne Zwischenanimation. Damit bleibt die Darstellung auf monochromen Readern kontrastreich, sparsam und frei von unnötigem Ghosting.
 
@@ -28,6 +28,7 @@
 
 > **7.5.0:** Die erste Homescreen-Seite erhielt eine gebrandete **DuckDuckGo-Suchleiste**; der AppStore wurde mit Suchfeld, Empfehlungskarten, Installationsaktionen und unterer Kategorienavigation neu gestaltet. Angezeigt werden weiterhin nur echte Katalogdaten, ohne erfundene Bewertungen oder Screenshots. Details stehen in [`RELEASE_NOTES_7.5.0.md`](RELEASE_NOTES_7.5.0.md).
 
+> **7.9.9:** Reduziert die Speichergröße neuer YouTube-Audiospuren: Statt 44,1-kHz-Stereo wird kompatibles 22,05-kHz-Mono-WAV erzeugt; die Begleitdatei benötigt dadurch rund 75 % weniger Speicher und bleibt im vorhandenen Player abspielbar und durchsuchbar. [Details](RELEASE_NOTES_7.9.9.md).
 > **7.9.8:** Korrigiert den Kontrast der neuen AppDock-Dialoge: Titel, Aktionslabels und Seitennavigation erscheinen mit schwarzer Schrift auf hellen Flächen, damit die Beschriftungen auf allen KOReader-Renderpfaden lesbar bleiben. [Details](RELEASE_NOTES_7.9.8.md).
 > **7.9.7:** Beschleunigt die S/W- und BRC2-Farbkonvertierung, stärkt AppDock-eigene Dialoge und Meldungen, härtet Draw gegen unvollständige Displaywerte und ergänzt verschiebbare sowie skalierbare DApp-Fenster als Beta. Blättertasten ändern die Helligkeit jetzt in allen AppDock-Hauptoberflächen; ihre gedrückt gehaltenen Power-/Bildschirmschoner-Aktionen bleiben erhalten. [Details](RELEASE_NOTES_7.9.7.md).
 > **7.9.6:** Setzt die BWR2/BRC2-Decodierung bei übersprungenen Frames im selben Keyframe-Block am letzten Cache-Frame fort, statt bereits decodierte Pakete erneut zu verarbeiten. [Details](RELEASE_NOTES_7.9.6.md).

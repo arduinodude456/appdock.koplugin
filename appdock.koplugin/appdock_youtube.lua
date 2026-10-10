@@ -314,6 +314,22 @@ function YouTube.buildFilter(width, height, fps, dithered, color_mode)
     return chain
 end
 
+-- Companion WAV stays uncompressed for the lightweight device audio backends,
+-- but speech/video sound does not need CD-rate stereo PCM. 22.05 kHz mono
+-- halves the channel count and sample rate, cutting WAV storage by 75% while
+-- keeping ordinary WAV seeking and playback fully compatible.
+function YouTube.buildAudioCommand(ffmpeg, source_path, max_duration, output_path)
+    local duration = tonumber(max_duration) or 0
+    return shellQuote(ffmpeg)
+        .. " -nostdin -hide_banner -loglevel error -y"
+        .. " -i " .. shellQuote(source_path)
+        .. (duration > 0 and (" -t " .. tostring(duration)) or "")
+        .. " -vn -sn -dn -af " .. shellQuote(
+            "silenceremove=start_periods=1:start_duration=0.05:start_threshold=-50dB,"
+            .. "aresample=async=1:first_pts=0")
+        .. " -c:a pcm_s16le -ar 22050 -ac 1 -f wav " .. shellQuote(output_path)
+end
+
 function YouTube.frameSize(percent)
     local width = Screen:getWidth()
     local height = Screen:getHeight()
@@ -1453,14 +1469,8 @@ function YouTube:_finishVideoStage(instance, context, job)
 
     local settings = self:_settings()
     local tools = self:_state(instance).tools
-    local command = shellQuote(tools.ffmpeg)
-        .. " -nostdin -hide_banner -loglevel error -y"
-        .. " -i " .. shellQuote(job.source_file)
-        .. (settings.max_duration > 0 and (" -t " .. tostring(settings.max_duration)) or "")
-        .. " -vn -sn -dn -af " .. shellQuote(
-            "silenceremove=start_periods=1:start_duration=0.05:start_threshold=-50dB,"
-            .. "aresample=async=1:first_pts=0")
-        .. " -c:a pcm_s16le -ar 44100 -ac 2 -f wav " .. shellQuote(job.wav)
+    local command = YouTube.buildAudioCommand(
+        tools.ffmpeg, job.source_file, settings.max_duration, job.wav)
     local detached = self:_startDetached(command, job.work, "audio")
     if detached then
         job.audio = detached
@@ -2988,6 +2998,7 @@ end
 
 YouTube._test = {
     buildFilter = YouTube.buildFilter,
+    buildAudioCommand = YouTube.buildAudioCommand,
     bootstrapPlan = YouTube.bootstrapPlan,
     buildBootstrapCommand = YouTube.buildBootstrapCommand,
     parseGlibcVersion = YouTube.parseGlibcVersion,
