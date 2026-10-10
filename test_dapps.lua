@@ -165,6 +165,15 @@ package.preload["ui/widget/container/inputcontainer"] = function() return InputC
 package.preload["ui/widget/container/centercontainer"] = function() return CenterContainer end
 package.preload["ui/widget/container/framecontainer"] = function() return FrameContainer end
 package.preload["ui/widget/overlapgroup"] = function() return OverlapGroup end
+package.preload["ui/widget/button"] = function()
+    local Button = InputContainer:extend({})
+    function Button:init()
+        self.dimen = { x = 0, y = 0, w = self.width, h = self.height }
+        self.ges_events = { TapSelectButton = { { range = self.dimen } } }
+    end
+    function Button:paintTo(_, x, y) self.dimen.x, self.dimen.y = x, y end
+    return Button
+end
 package.preload["ui/widget/container/scrollablecontainer"] = function()
     WidgetContainer.getScrollbarWidth = function() return 8 end
     return WidgetContainer
