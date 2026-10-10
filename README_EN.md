@@ -4,7 +4,7 @@
 
 # New releases regulary commited at 3:00 AM CET
 
-**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **7.9.10** improves YouTube color dithering with multi-color error diffusion and reliably stops audio when leaving the app. [Details](RELEASE_NOTES_7.9.10.md).
+**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **7.9.11** significantly speeds up YouTube color conversion and makes Draw toolbar labels easier to read. [Details](RELEASE_NOTES_7.9.11.md).
 
 > **E-Ink approach:** AppDock deliberately borrows the visual language and information structure, not Android's animations, blur, or transparency effects. This keeps updates economical and maintains contrast on monochrome readers.
 
@@ -28,6 +28,7 @@
 
 > **7.5.0:** The first homescreen page gained a branded **DuckDuckGo search bar**; the catalog was redesigned with search, recommendations, install actions, and bottom category navigation. It shows only real catalog data — no invented ratings or screenshots. See [`RELEASE_NOTES_7.5.0.md`](RELEASE_NOTES_7.5.0.md).
 
+> **7.9.11:** Speeds up YouTube color video conversion with precomputed multi-color dither patterns and improves Draw toolbar label readability. [Details](RELEASE_NOTES_7.9.11.md).
 > **7.9.10:** YouTube color videos now combine more than two palette colors through error diffusion; audio stops reliably when leaving the app. [Details](RELEASE_NOTES_7.9.10.md).
 > **7.9.9:** Fixes the Draw startup crash on color devices, improves YouTube mixed-color dithering, and restores the proven raw PCM audio path for Kobo MTK. [Details](RELEASE_NOTES_7.9.9.md).
 > **7.8.32:** Restores the immediate audio/video startup behavior from 7.8.27 and adds a YouTube setting for a delay from immediate to 2 seconds between audio and video startup. [Details](RELEASE_NOTES_7.8.32.md).
