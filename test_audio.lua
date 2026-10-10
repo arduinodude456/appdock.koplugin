@@ -80,13 +80,15 @@ assert(gst_command:find("fdsrc fd=0", 1, true) and not gst_command:find("wavpars
     "The MediaTek backend must use its known-good raw-PCM fdsrc pipeline without wavparse")
 assert(gst_command:find("rate=44100,channels=2,layout=interleaved", 1, true),
     "Raw PCM caps must match the WAV format and specify interleaved channels")
-assert(gst_command:find("setsid", 1, true),
-    "The GStreamer pipeline must run in its own process group for reliable pause and stop")
+assert(not gst_command:find("setsid", 1, true),
+    "The GStreamer launcher must not depend on setsid returning the session leader PID")
+assert(gst_command:find("| exec '/usr/bin/gst-launch-1.0'", 1, true),
+    "GStreamer must be the directly signalled last process in the raw-PCM pipeline")
 local gst_pid = gst.pid
 gst:pause()
-assert(signals[#signals]:find("kill %-STOP %-" .. gst_pid), "GStreamer pause must signal its playback process group")
+assert(signals[#signals]:find("kill %-STOP " .. gst_pid), "GStreamer pause must signal the actual playback PID")
 gst:stop()
-assert(signals[#signals]:find("kill %-TERM %-" .. gst_pid), "GStreamer stop must terminate its playback process group")
+assert(signals[#signals]:find("kill %-TERM " .. gst_pid), "GStreamer stop must terminate the actual playback PID")
 
 Audio.findCommand, io.popen, os.execute = original_find, original_popen, original_execute
 os.remove(wav_path)
