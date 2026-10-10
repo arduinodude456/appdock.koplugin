@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.9.14** reduziert den Spitzen-Speicherbedarf der BWR2-Videowiedergabe, indem doppelte Frame-Arbeitspuffer und temporäre Kopien im Decoder entfallen. [Details](RELEASE_NOTES_7.9.14.md).
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.9.14** bündelt YouTube Music (Audio-only mit Vollfarb-Cover), schnellere YouTube-Konvertierung, Draw als Malprogramm, Fensterrefresh- und Vollbild-Fixes sowie einen reduzierten Spitzen-Speicherbedarf beim Videoabspielen. [Details](RELEASE_NOTES_7.9.14.md).
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst Androids Formensprache, nicht dessen Daueranimationen, Unschärfen oder Transparenzeffekte. Auf E-Ink wechseln App-Seiten und Recently-used-Drawer direkt und ohne Zwischenanimation. Damit bleibt die Darstellung auf monochromen Readern kontrastreich, sparsam und frei von unnötigem Ghosting.
 
@@ -369,6 +369,5 @@ Die Version-1.0-Oberfläche konzentrierte sich auf eine **ruhige, zusammenhänge
 [7] [KOReader: File-Manager-Hilfsfunktionen und Bibliotheksordner](https://github.com/koreader/koreader/blob/master/frontend/apps/filemanager/filemanagerutil.lua)
 
 [8] [KOReader: ReaderUI und sicherer Dokumentstart](https://github.com/koreader/koreader/blob/master/frontend/apps/reader/readerui.lua)
-> **7.9.14:** Senkt den Spitzen-Speicherbedarf beim Abspielen von YouTube-Videos: Der BWR2-Decoder verwendet nur noch einen framegroßen Arbeitsbuffer, dekodiert zlib/RLE direkt aus dem Paketstring und vermeidet eine Kopie bei Wiederholungsframes. [Details](RELEASE_NOTES_7.9.14.md).
-> **7.9.13:** Ergänzt YouTube Music (nur Audio plus Vollfarb-Cover), parallelisiert die YouTube-Audio-/Videokonvertierung, gestaltet Draw als Malprogramm mit Undo/Redo um und behebt das Vollbild-Tap- sowie Fensterrefresh-Verhalten. [Details](RELEASE_NOTES_7.9.13.md).
+> **7.9.14:** Ergänzt YouTube Music mit Audio-only-Downloads und Vollfarb-Covern, beschleunigt YouTube-Konvertierungen, überarbeitet Draw zur Malprogramm-Oberfläche mit Undo/Redo, behebt YouTube-Vollbild-Taps und Fensterrefresh nach Ziehen/Skalieren und reduziert den Spitzen-Speicherbedarf der Videowiedergabe. [Details](RELEASE_NOTES_7.9.14.md).
 > **7.9.11:** Beschleunigt YouTube-Farbvideos mit vorberechneten Mehrfarben-Dithermustern und verbessert die Lesbarkeit der Draw-Schaltflächen. [Details](RELEASE_NOTES_7.9.11.md).
