@@ -1492,6 +1492,7 @@ function YouTube:_finishJob(instance, context, job, without_audio)
                 title = _("YouTube video ready"),
                 message = basename(job.target),
                 source = _("YouTube"),
+                app_id = "dapp:youtube",
             })
         end)
     end

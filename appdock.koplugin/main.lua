@@ -400,6 +400,7 @@ function AppDock:_loadSettings()
                 title = item.title:sub(1, 72),
                 message = item.message:sub(1, 240),
                 source = type(item.source) == "string" and item.source:sub(1, 48) or "AppDock",
+                app_id = type(item.app_id) == "string" and item.app_id ~= "" and item.app_id:sub(1, 96) or nil,
                 priority = item.priority == "high" and "high" or "normal",
                 created_at = tonumber(item.created_at) or os.time(),
                 read = item.read == true,
@@ -819,6 +820,19 @@ function AppDock:getUnreadNotificationCount()
     return count
 end
 
+function AppDock:getUnreadNotificationCountForApp(app_id)
+    if type(app_id) ~= "string" or app_id == "" then return 0 end
+    local count = 0
+    for _, item in ipairs(self.settings.notifications.items or {}) do
+        if not item.read and item.app_id == app_id then count = count + 1 end
+    end
+    return count
+end
+
+function AppDock:_refreshNotificationBadges()
+    if self._home_screen then UIManager:setDirty(self._home_screen, "ui") end
+end
+
 function AppDock:notify(payload)
     if type(payload) ~= "table" then return false, "Notification payload must be a table." end
     local title, message = payload.title, payload.message
@@ -830,6 +844,7 @@ function AppDock:notify(payload)
         title = title:sub(1, 72),
         message = message:sub(1, 240),
         source = type(payload.source) == "string" and payload.source:sub(1, 48) or "AppDock",
+        app_id = type(payload.app_id) == "string" and payload.app_id ~= "" and payload.app_id:sub(1, 96) or nil,
         priority = payload.priority == "high" and "high" or "normal",
         created_at = os.time(),
         read = false,
@@ -837,6 +852,7 @@ function AppDock:notify(payload)
     table.insert(self.settings.notifications.items, 1, notification)
     while #self.settings.notifications.items > 50 do table.remove(self.settings.notifications.items) end
     self:_saveSettings()
+    self:_refreshNotificationBadges()
     local ok, Notifications = pcall(require, "appdock_notifications")
     if ok and Notifications and Notifications.showToast then Notifications.showToast(notification) end
     return true, notification
@@ -847,6 +863,7 @@ function AppDock:markNotificationRead(id)
         if item.id == id then
             item.read = true
             self:_saveSettings()
+            self:_refreshNotificationBadges()
             return true
         end
     end
@@ -856,11 +873,13 @@ end
 function AppDock:markAllNotificationsRead()
     for _, item in ipairs(self.settings.notifications.items or {}) do item.read = true end
     self:_saveSettings()
+    self:_refreshNotificationBadges()
 end
 
 function AppDock:clearNotifications()
     self.settings.notifications.items = {}
     self:_saveSettings()
+    self:_refreshNotificationBadges()
 end
 
 function AppDock:setTheme(theme_id)
