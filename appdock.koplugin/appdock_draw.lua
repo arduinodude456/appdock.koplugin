@@ -142,7 +142,11 @@ function Canvas:paintTo(bb,x,y)
     local layers=app.layers
     bb:paintRect(x,y,self.dimen.w,self.dimen.h,Blitbuffer.COLOR_WHITE)
     for py=0,self.height-1 do
-        local run_color,run_start
+        -- Keep a palette index alongside the BlitBuffer color. On color
+        -- devices ColorRGB32 is FFI cdata; comparing it to the nil sentinel
+        -- at the end of a scanline invokes its __eq metamethod with a missing
+        -- self argument and crashes Draw before the first frame is displayed.
+        local run_color_id,run_color,run_start
         for px=0,self.width do
             local color_id
             if px<self.width then
@@ -154,12 +158,12 @@ function Canvas:paintTo(bb,x,y)
             end
             local c=color_id and palette[color_id] or nil
             local value=c and rgb(c)
-            if px==0 then run_color,run_start=value,0
-            elseif value~=run_color then
+            if px==0 then run_color_id,run_color,run_start=color_id,value,0
+            elseif color_id~=run_color_id then
                 local dx=x+math.floor(run_start*self.dimen.w/self.width)
                 local ex=x+math.floor(px*self.dimen.w/self.width)
                 bb:paintRect(dx,y+math.floor(py*self.dimen.h/self.height),math.max(1,ex-dx),math.max(1,math.ceil(self.dimen.h/self.height)),run_color)
-                run_color,run_start=value,px
+                run_color_id,run_color,run_start=color_id,value,px
             end
         end
     end

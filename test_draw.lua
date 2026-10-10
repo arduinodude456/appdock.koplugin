@@ -12,9 +12,24 @@ local Widget=class()
 function Widget:paintTo() end
 local OverlapGroup=Widget:extend({})
 function OverlapGroup:init() self.is_overlap_group=true end
+local color_enabled = false
+ffi.cdef[[
+typedef struct {
+    uint8_t red;
+    uint8_t green;
+    uint8_t blue;
+    uint8_t alpha;
+} AppDockDrawTestColor;
+]]
+local ColorRGB32 = ffi.metatype("AppDockDrawTestColor", {
+    __eq = function(self, other)
+        return self.red == other.red and self.green == other.green
+            and self.blue == other.blue and self.alpha == other.alpha
+    end,
+})
 package.preload["gettext"]=function() return function(s) return s end end
-package.preload["ffi/blitbuffer"]=function() return {COLOR_WHITE=1,COLOR_BLACK=2,COLOR_GRAY_8=3,ColorRGB32=function(r,g,b) return {r,g,b} end} end
-package.preload["device"]=function() return {screen={getSize=function() return {w=600,h=800} end,scaleBySize=function(_,v) return v end,isColorEnabled=function() return false end}} end
+package.preload["ffi/blitbuffer"]=function() return {COLOR_WHITE=1,COLOR_BLACK=2,COLOR_GRAY_8=3,ColorRGB32=function(r,g,b,a) return ColorRGB32(r,g,b,a or 0xFF) end} end
+package.preload["device"]=function() return {screen={getSize=function() return {w=600,h=800} end,scaleBySize=function(_,v) return v end,isColorEnabled=function() return color_enabled end}} end
 package.preload["ui/font"]=function() return {getFace=function() return {} end} end
 package.preload["ui/geometry"]=function() return {new=function(_,a) return a end} end
 package.preload["ui/gesturerange"]=function() return {new=function(_,a) return a end} end
@@ -71,6 +86,10 @@ assert(first_rect and first_rect.x==paint_x and first_rect.y==paint_y and first_
 local hit_range=canvas.ges_events.Paint[1].range()
 assert(hit_range.x==paint_x and hit_range.y==paint_y,
     "Canvas pan/tap gesture bounds must follow the absolute paint position")
+color_enabled = true
+local color_painted, color_error = pcall(canvas.paintTo, canvas, { paintRect = function() end }, paint_x, paint_y)
+color_enabled = false
+assert(color_painted, "A color canvas must not compare a BlitBuffer ColorRGB32 value with nil: " .. tostring(color_error))
 ;(function()
     local device = require("device")
     local old_size, old_scale = device.screen.getSize, device.screen.scaleBySize
