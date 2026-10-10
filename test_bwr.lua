@@ -6,16 +6,17 @@
 
 local plugin_dir = os.getenv("APPDOCK_PLUGIN_DIR") or "/home/ubuntu/appdock.koplugin/appdock.koplugin/"
 local ffi = require("ffi")
+ffi.cdef[[typedef struct ColorRGB32 { uint8_t r; uint8_t g; uint8_t b; uint8_t alpha; } ColorRGB32;]]
 
 package.preload["gettext"] = function() return function(text) return text end end
 
 local frames_allocated = 0
 local color_enabled = true
-local function rgba(r, g, b) return r * 65536 + g * 256 + b end
+local function rgba(r, g, b, a) return ffi.new("ColorRGB32", { r = r, g = g, b = b, alpha = a or 255 }) end
 package.preload["ffi/blitbuffer"] = function()
     return {
         TYPE_BB8 = 1,
-        TYPE_BBRGB32 = 2,
+        TYPE_BBRGB32 = 5,
         COLOR_WHITE = "white", COLOR_BLACK = "black",
         COLOR_DARK_GRAY = "dark", COLOR_LIGHT_GRAY = "light", COLOR_GRAY = "gray",
         COLOR_GRAY_7 = "g7", COLOR_GRAY_8 = "g8",
@@ -26,7 +27,7 @@ package.preload["ffi/blitbuffer"] = function()
             return {
                 width = width,
                 height = height,
-                data = pixel_type == 2 and ffi.new("uint32_t[?]", width * height)
+                data = pixel_type == 5 and ffi.new("ColorRGB32[?]", width * height)
                     or ffi.new("uint8_t[?]", width * height),
                 getWidth = function(self) return self.width end,
                 getHeight = function(self) return self.height end,
@@ -246,7 +247,8 @@ local color_reader=assert(BWR.newReader(brc_file,color_header))
 assert(color_reader:readFrame(0)==red_indices and color_reader:readFrame(1)==gray_indices,
     "BRC2 seeking must preserve palette indices exactly")
 local rgb_frame=assert(BWR.expandColorFrame(red_indices,8,8))
-assert(ffi.cast("uint32_t*",rgb_frame.data)[0]==rgba(255,0,0),
+local red_pixel=ffi.cast("ColorRGB32*",rgb_frame.data)[0]
+assert(red_pixel.r==255 and red_pixel.g==0 and red_pixel.b==0 and red_pixel.alpha==255,
     "Color display expansion must write pure red without channel mixing")
 brc_file:close(); os.remove(brc_path)
 

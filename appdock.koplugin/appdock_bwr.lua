@@ -885,9 +885,9 @@ function BWR.expandColorFrame(packed, width, height)
         if ok then bb=result end
     end
     if not bb then bb=Blitbuffer.new(width,height,Blitbuffer.TYPE_BB8); color_screen=false end
-    local destination=ffi.cast("uint32_t*",bb.data)
     local palette=BWR.COLOR_PALETTE
     if color_screen then
+        local destination=ffi.cast("ColorRGB32*",bb.data)
         for index=0,expected-1 do
             local color=palette[packed:byte(index+1)] or palette[1]
             destination[index]=Blitbuffer.ColorRGB32(color[1],color[2],color[3],0xFF)

@@ -6,7 +6,8 @@
 - AppDock-eigene Auswahl-, Eingabe-, Bestätigungs- und Statusdialoge verwenden ihre eigene Tap-Geometrie korrekt. Das beseitigt den Absturz beim Zeichnen eines Dialogs, der entstehen konnte, wenn KOReader eine GestureRange-Callbackfunktion als Geometrie behandelte. AppDock-WLAN-Statusmeldungen bleiben im eigenen Overlay.
 - Draw startet auch auf Geräten, deren Screen-API `getSize()` statt `getWidth()`/`getHeight()` anbietet. Außerdem folgen Canvas und Werkzeug-Buttons mit ihren Touch-Bereichen jetzt den tatsächlichen Bildschirmkoordinaten.
 - Die fehlerhafte **Draw**-Schnellkachel ist durch **Rotate** ersetzt. Die neue Kachel wechselt die von KOReader unterstützten Bildschirmausrichtungen; vorhandene gespeicherte Draw-Kacheln werden bei der nächsten Konfiguration einmalig in eine Rotate-Kachel umgewandelt.
+- Farbvideos stürzten beim Schreiben der BRC2-Frames ab, weil ein KOReader-`ColorRGB32`-Struct über einen `uint32_t*` gespeichert wurde. Der Decoder schreibt nun durch den korrekten Struct-Zeigertyp in das RGB32-BlitBuffer; die fünf reinen Palettenfarben bleiben unverändert.
 
 ## Prüfung
 
-Alle 12 Lua-Regressionsdateien liefen erfolgreich. Die Tests enthalten jetzt gezielte Prüfungen für den echten Draw-DApp-Hoststart, getSize-only-Geräte, absolute Touch-Geometrie, eigene Dialogaktionen und Tastatureingabe, die Migration der Kachel sowie den `SetRotationMode`-Event. Alle Lua-Quelldateien lassen sich mit LuaJIT kompilieren; `git diff --check` ist sauber.
+Alle 12 Lua-Regressionsdateien liefen erfolgreich. Die Tests enthalten jetzt gezielte Prüfungen für den echten Draw-DApp-Hoststart, getSize-only-Geräte, absolute Touch-Geometrie, eigene Dialogaktionen und Tastatureingabe, die Migration der Kachel, den `SetRotationMode`-Event sowie das KOReader-`ColorRGB32`-Pixelformat. Alle Lua-Quelldateien lassen sich mit LuaJIT kompilieren; `git diff --check` ist sauber.
