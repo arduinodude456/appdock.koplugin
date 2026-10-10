@@ -2719,7 +2719,7 @@ function YouTube:_buildToolsPane(instance, context, state)
         },
         {
             title = _("Color dithering"),
-            subtitle = _("Ordered dithering using only the five exact palette colors"),
+            subtitle = _("Spatially mixes the five exact colors with ordered dithering and error diffusion"),
             value = settings.color_dither and _("On") or _("Off"),
             action = function() self:cycleSetting(instance, context, "color_dither") end,
         },
