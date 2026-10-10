@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.9.9** behebt den Draw-Absturz auf Farbgeräten, verbessert das YouTube-Farbdithering und stellt die Kobo-MTK-Audiowiedergabe wieder her. [Details](RELEASE_NOTES_7.9.9.md).
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.9.10** verbessert das YouTube-Farbdithering durch Mehrfarben-Fehlerdiffusion und beendet Audio zuverlässig beim Verlassen der App. [Details](RELEASE_NOTES_7.9.10.md).
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst Androids Formensprache, nicht dessen Daueranimationen, Unschärfen oder Transparenzeffekte. Auf E-Ink wechseln App-Seiten und Recently-used-Drawer direkt und ohne Zwischenanimation. Damit bleibt die Darstellung auf monochromen Readern kontrastreich, sparsam und frei von unnötigem Ghosting.
 
@@ -28,6 +28,7 @@
 
 > **7.5.0:** Die erste Homescreen-Seite erhielt eine gebrandete **DuckDuckGo-Suchleiste**; der AppStore wurde mit Suchfeld, Empfehlungskarten, Installationsaktionen und unterer Kategorienavigation neu gestaltet. Angezeigt werden weiterhin nur echte Katalogdaten, ohne erfundene Bewertungen oder Screenshots. Details stehen in [`RELEASE_NOTES_7.5.0.md`](RELEASE_NOTES_7.5.0.md).
 
+> **7.9.10:** YouTube-Farbvideos kombinieren nun durch Fehlerdiffusion mehr als zwei Palettefarben; der Audioprozess wird beim Verlassen der App zuverlässig beendet. [Details](RELEASE_NOTES_7.9.10.md).
 > **7.9.9:** Behebt den Draw-Absturz auf Farbgeräten, verbessert das Dithering für YouTube-Mischfarben und stellt den bewährten rohen PCM-Audiopfad für Kobo-MTK wieder her. [Details](RELEASE_NOTES_7.9.9.md).
 > **7.9.8:** Korrigiert den Kontrast der neuen AppDock-Dialoge: Titel, Aktionslabels und Seitennavigation erscheinen mit schwarzer Schrift auf hellen Flächen, damit die Beschriftungen auf allen KOReader-Renderpfaden lesbar bleiben. [Details](RELEASE_NOTES_7.9.8.md).
 > **7.9.7:** Beschleunigt die S/W- und BRC2-Farbkonvertierung, stärkt AppDock-eigene Dialoge und Meldungen, härtet Draw gegen unvollständige Displaywerte und ergänzt verschiebbare sowie skalierbare DApp-Fenster als Beta. Blättertasten ändern die Helligkeit jetzt in allen AppDock-Hauptoberflächen; ihre gedrückt gehaltenen Power-/Bildschirmschoner-Aktionen bleiben erhalten. [Details](RELEASE_NOTES_7.9.7.md).
