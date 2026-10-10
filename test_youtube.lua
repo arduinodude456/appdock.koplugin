@@ -8,6 +8,7 @@
 local plugin_dir = os.getenv("APPDOCK_PLUGIN_DIR") or "/home/ubuntu/appdock.koplugin/appdock.koplugin/"
 local data_dir = "/tmp/appdock_youtube_test"
 local ffi = require("ffi")
+local blitbuffer_allocations = 0
 local lfs = require("lfs")
 
 os.execute("rm -rf " .. data_dir)
@@ -81,6 +82,7 @@ package.preload["ffi/blitbuffer"] = function()
         COLOR_DARK_GRAY = "dark", COLOR_LIGHT_GRAY = "light", COLOR_GRAY = "gray",
         COLOR_GRAY_7 = "g7", COLOR_GRAY_8 = "g8",
         new = function(width, height)
+            blitbuffer_allocations = blitbuffer_allocations + 1
             return {
                 width = width, height = height,
                 data = ffi.new("uint8_t[?]", width * height),
@@ -595,6 +597,12 @@ local function runConversion(dither_mode, label, seconds, color_mode)
 
     local engine = assert(Player.Engine.open(entry.path, entry.path:gsub("%.bwr$", ".wav"), function() end))
     assert(not engine.error, label .. ": the player must accept the produced file")
+    local allocations_before_frames = blitbuffer_allocations
+    assert(engine:show(0), label .. ": the first frame must display")
+    local reusable_frame = engine.frame
+    assert(engine:show(1 / engine.fps), label .. ": the second frame must display")
+    assert(engine.frame == reusable_frame and blitbuffer_allocations == allocations_before_frames + 1,
+        label .. ": sequential frames must reuse one framebuffer instead of reallocating every time")
     local ui_player = Player:new(appdock)
     local loaded, load_error = ui_player:load({}, {}, entry.path)
     assert(loaded, label .. ": the player UI loader must accept BWR2: " .. tostring(load_error))
@@ -606,6 +614,23 @@ local function runConversion(dither_mode, label, seconds, color_mode)
     local real_clock, simulated_clock = Player.now, 100
     Player.now = function() return simulated_clock end
     engine.anchor_wall, engine.anchor_position = simulated_clock, 0
+    local ui_manager = require("ui/uimanager")
+    local render_started_at = simulated_clock
+    local frame_delay = engine:scheduleNextFrame(render_started_at)
+    assert(math.abs(frame_delay - engine.period) < 0.001,
+        label .. ": an empty frame render must keep the configured frame period")
+    ui_manager:unschedule(engine.tick)
+    simulated_clock = render_started_at + 0.04
+    frame_delay = engine:scheduleNextFrame(render_started_at)
+    assert(math.abs(frame_delay - (engine.period - 0.04)) < 0.001,
+        label .. ": frame rendering time must be subtracted from the next delay")
+    ui_manager:unschedule(engine.tick)
+    simulated_clock = render_started_at + engine.period + 0.1
+    frame_delay = engine:scheduleNextFrame(render_started_at)
+    assert(frame_delay == 0.001,
+        label .. ": an over-budget frame must schedule the next available tick instead of adding another full period")
+    ui_manager:unschedule(engine.tick)
+    simulated_clock = render_started_at
     simulated_clock = simulated_clock + engine.audio_duration / 2
     assert(math.abs(engine:currentTime() - engine.duration / 2) < 0.001,
         label .. ": the video clock must follow the companion audio timeline (scale="

@@ -853,14 +853,14 @@ local function getBlitbuffer()
 end
 
 -- Expands one packed frame into an 8-bit Blitbuffer ready for blitting.
-function BWR.expandFrame(packed, width, height)
+function BWR.expandFrame(packed, width, height, target_buffer)
     local Blitbuffer = getBlitbuffer()
     if not Blitbuffer then return nil, _("The E-Ink framebuffer module is unavailable.") end
     local frame_bytes = BWR.frameBytes(width, height)
     if type(packed) ~= "string" or #packed ~= frame_bytes then
         return nil, _("Cannot read a complete BWR1 frame.")
     end
-    local bb = Blitbuffer.new(width, height, Blitbuffer.TYPE_BB8)
+    local bb = target_buffer or Blitbuffer.new(width, height, Blitbuffer.TYPE_BB8)
     local destination = ffi.cast("uint32_t*", bb.data)
     local output = 0
     for index = 0, frame_bytes - 1 do
@@ -886,19 +886,21 @@ local function getColorRGB32LUT(Blitbuffer)
     return COLOR_RGB32_LUT
 end
 
-function BWR.expandColorFrame(packed, width, height)
+function BWR.expandColorFrame(packed, width, height, target_buffer)
     local Blitbuffer = getBlitbuffer()
     if not Blitbuffer then return nil, _("The E-Ink framebuffer module is unavailable.") end
     local expected=width*height
     if type(packed)~="string" or #packed~=expected then return nil, _("Cannot read a complete BRC2 color frame.") end
     local Device=require("device")
     local color_screen=Device.screen and Device.screen.isColorEnabled and Device.screen:isColorEnabled()
-    local bb
-    if color_screen and Blitbuffer.TYPE_BBRGB32 then
-        local ok,result=pcall(Blitbuffer.new,width,height,Blitbuffer.TYPE_BBRGB32)
-        if ok then bb=result end
+    local bb=target_buffer
+    if not bb then
+        if color_screen and Blitbuffer.TYPE_BBRGB32 then
+            local ok,result=pcall(Blitbuffer.new,width,height,Blitbuffer.TYPE_BBRGB32)
+            if ok then bb=result end
+        end
+        if not bb then bb=Blitbuffer.new(width,height,Blitbuffer.TYPE_BB8); color_screen=false end
     end
-    if not bb then bb=Blitbuffer.new(width,height,Blitbuffer.TYPE_BB8); color_screen=false end
     local source=ffi.cast("const uint8_t*",packed)
     if color_screen then
         local destination=ffi.cast("ColorRGB32*",bb.data)

@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.9.4** beschleunigt die Wiedergabe optionaler BRC2-Farbvideos, ohne die fünf reinen Palettenfarben zu verändern. [Details](RELEASE_NOTES_7.9.4.md).
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.9.5** verbessert die Videowiedergabe durch framezeitbasierte Planung und wiederverwendete Bildpuffer; E-Ink-Hardware kann die erreichbare Framerate weiterhin begrenzen. [Details](RELEASE_NOTES_7.9.5.md).
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst Androids Formensprache, nicht dessen Daueranimationen, Unschärfen oder Transparenzeffekte. Auf E-Ink wechseln App-Seiten und Recently-used-Drawer direkt und ohne Zwischenanimation. Damit bleibt die Darstellung auf monochromen Readern kontrastreich, sparsam und frei von unnötigem Ghosting.
 
@@ -28,6 +28,7 @@
 
 > **7.5.0:** Die erste Homescreen-Seite erhielt eine gebrandete **DuckDuckGo-Suchleiste**; der AppStore wurde mit Suchfeld, Empfehlungskarten, Installationsaktionen und unterer Kategorienavigation neu gestaltet. Angezeigt werden weiterhin nur echte Katalogdaten, ohne erfundene Bewertungen oder Screenshots. Details stehen in [`RELEASE_NOTES_7.5.0.md`](RELEASE_NOTES_7.5.0.md).
 
+> **7.9.5:** Zieht Renderzeit vom nächsten Frameintervall ab und verwendet den Decoder-Framebuffer wieder, statt pro Frame einen neuen anzulegen. [Details](RELEASE_NOTES_7.9.5.md).
 > **7.9.4:** Beschleunigt die BRC2-Farbframe-Expansion durch vorberechnete FFI-Paletteneinträge und direkten Zugriff auf Pixelindizes; Farbpalette und Graustufen-Fallback bleiben unverändert. [Details](RELEASE_NOTES_7.9.4.md).
 > **7.9.3:** Bewahrt das Page-Key-Hold-Verhalten aus 7.8.51; repariert AppDock-eigene Dialoge, Draw-Start/Touchbereiche und BRC2-Farbvideo-Wiedergabe; ersetzt die Draw-Schnellkachel durch **Rotate** und migriert gespeicherte Kacheleinstellungen einmalig. [Details](RELEASE_NOTES_7.9.3.md).
 > **7.9.2:** Korrigiert die Draw-Zeichenfläche: Werkzeugleiste und Canvas werden nun von einem `OverlapGroup` anhand ihrer absoluten Offsets platziert, statt am oberen linken Ursprung zu überlagern. [Details](RELEASE_NOTES_7.9.2.md).

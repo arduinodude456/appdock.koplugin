@@ -239,6 +239,17 @@ function Engine:currentTime()
     return clamp(self.anchor_position + elapsed * (self.clock_scale or 1), 0, self.duration)
 end
 
+-- Pace frames against the start of rendering, not after its work has finished.
+-- Otherwise each frame adds its own decode/paint time on top of the frame period.
+function Engine:scheduleNextFrame(render_started_at)
+    local now = Player.now()
+    local elapsed = math.max(0, now - (tonumber(render_started_at) or now))
+    local delay = math.max(0.001, self.period - elapsed)
+    UIManager:unschedule(self.tick)
+    UIManager:scheduleIn(delay, self.tick)
+    return delay
+end
+
 function Engine:audioTime(video_position)
     local scale_to_video = self.clock_scale or 1
     return clamp((tonumber(video_position) or 0) / scale_to_video, 0,
@@ -259,12 +270,12 @@ function Engine:show(position)
         if not packed then return nil, err end
         local frame, expand_error
         if self.header.is_color then
-            frame, expand_error = BWR.expandColorFrame(packed, self.header.width, self.header.height)
+            frame, expand_error = BWR.expandColorFrame(packed, self.header.width, self.header.height, self.frame)
         else
-            frame, expand_error = BWR.expandFrame(packed, self.header.width, self.header.height)
+            frame, expand_error = BWR.expandFrame(packed, self.header.width, self.header.height, self.frame)
         end
         if not frame then return nil, expand_error end
-        if self.frame then self.frame:free() end
+        if self.frame and self.frame ~= frame then self.frame:free() end
         self.frame = frame
         self.frame_index = index
         if self.canvas then self.canvas:setFrame(frame) end
@@ -296,13 +307,13 @@ function Engine:play()
         self:status(_("Playing without companion audio."))
     end
     self.anchor_position, self.anchor_wall, self.paused = self.position or 0, Player.now(), false
+    local render_started_at = self.anchor_wall
     local ok, err = self:show(self.position or 0)
     if not ok then
         self.paused = true
         return nil, err
     end
-    UIManager:unschedule(self.tick)
-    UIManager:scheduleIn(self.period, self.tick)
+    self:scheduleNextFrame(render_started_at)
     return true
 end
 
@@ -347,6 +358,7 @@ function Engine:jump(seconds)
     end
     local base = self.paused and (self.position or 0) or self:currentTime()
     self.position = clamp(base + (tonumber(seconds) or 0), 0, self.duration)
+    local render_started_at
     if self.paused then
         if self.audio then self.audio:stop() end
     else
@@ -358,10 +370,12 @@ function Engine:jump(seconds)
             end
         end
         self.anchor_position, self.anchor_wall = self.position, Player.now()
+        render_started_at = self.anchor_wall
         UIManager:unschedule(self.tick)
-        UIManager:scheduleIn(self.period, self.tick)
     end
-    return self:show(self.position)
+    local ok, err = self:show(self.position)
+    if render_started_at and ok then self:scheduleNextFrame(render_started_at) end
+    return ok, err
 end
 
 function Engine:restart()
@@ -383,6 +397,7 @@ function Engine:step()
         end
         local position = self.pending_video_start.position
         self.pending_video_start = nil
+        local render_started_at = now
         self.anchor_position, self.anchor_wall, self.paused = position, now, false
         local ok, err = self:show(position)
         if not ok then
@@ -391,11 +406,11 @@ function Engine:step()
             self:status(err)
             return
         end
-        UIManager:unschedule(self.tick)
-        UIManager:scheduleIn(self.period, self.tick)
+        self:scheduleNextFrame(render_started_at)
         return
     end
     if self.paused then return end
+    local render_started_at = Player.now()
     self.position = self:currentTime()
     if self.position >= self.duration then
         self:show(self.duration)
@@ -409,7 +424,7 @@ function Engine:step()
         self:status(err)
         return
     end
-    UIManager:scheduleIn(self.period, self.tick)
+    self:scheduleNextFrame(render_started_at)
 end
 
 function Engine:close()

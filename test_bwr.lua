@@ -159,6 +159,8 @@ for index = 0, (test_width / 8) * test_height - 1 do
             "Expansion must turn bit " .. bit_index .. " of byte " .. index .. " into a full byte")
     end
 end
+assert(BWR.expandFrame(packed, test_width, test_height, expansion) == expansion and frames_allocated == 1,
+    "A supplied BWR framebuffer must be reused without another allocation")
 
 expectError(select(1, BWR.expandFrame("short", test_width, test_height)), select(2, BWR.expandFrame("short", test_width, test_height)), "A short frame must be rejected")
 
@@ -250,6 +252,8 @@ local rgb_frame=assert(BWR.expandColorFrame(red_indices,8,8))
 local red_pixel=ffi.cast("ColorRGB32*",rgb_frame.data)[0]
 assert(red_pixel.r==255 and red_pixel.g==0 and red_pixel.b==0 and red_pixel.alpha==255,
     "Color display expansion must write pure red without channel mixing")
+assert(BWR.expandColorFrame(red_indices,8,8,rgb_frame)==rgb_frame,
+    "A supplied color framebuffer must be reused")
 local palette_frame=assert(BWR.expandColorFrame(string.char(1,2,3,4,5,0,6,3),8,1))
 local expanded=ffi.cast("ColorRGB32*",palette_frame.data)
 local expected_colors={{255,255,255},{0,0,0},{255,0,0},{0,255,0},{0,0,255},{255,255,255},{255,255,255},{255,0,0}}
