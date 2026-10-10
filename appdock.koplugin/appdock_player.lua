@@ -540,7 +540,67 @@ end
 Player.companionFor = companionFor
 
 function Player:new(appdock)
-    return setmetatable({ appdock = appdock, engine = nil, path = nil, note = "" }, Player)
+    return setmetatable({
+        appdock = appdock,
+        engine = nil,
+        path = nil,
+        note = "",
+        color_rendering_saved = false,
+        color_rendering_had_setting = false,
+        color_rendering_previous = nil,
+    }, Player)
+end
+
+function Player:_broadcastColorRendering()
+    local ok, Event = pcall(require, "ui/event")
+    if ok and Event then
+        UIManager:broadcastEvent(Event:new("ColorRenderingUpdate"))
+    end
+end
+
+function Player:_setColorRendering(enabled)
+    local settings = rawget(_G, "G_reader_settings")
+    local ok, CanvasContext = pcall(require, "document/canvascontext")
+    if not settings or not ok or not CanvasContext
+        or type(CanvasContext.setColorRenderingEnabled) ~= "function" then
+        return false
+    end
+    settings:saveSetting("color_rendering", enabled == true)
+    CanvasContext:setColorRenderingEnabled(enabled == true)
+    self:_broadcastColorRendering()
+    return true
+end
+
+function Player:_disableColorRenderingForPlayback()
+    if self.color_rendering_saved then return end
+    local settings = rawget(_G, "G_reader_settings")
+    if not settings then return end
+    self.color_rendering_had_setting = type(settings.has) == "function"
+        and settings:has("color_rendering") or false
+    self.color_rendering_previous = settings:readSetting("color_rendering")
+    if self:_setColorRendering(false) then
+        self.color_rendering_saved = true
+    end
+end
+
+function Player:_restoreColorRendering()
+    if not self.color_rendering_saved then return end
+    local settings = rawget(_G, "G_reader_settings")
+    local ok, CanvasContext = pcall(require, "document/canvascontext")
+    if settings and ok and CanvasContext
+        and type(CanvasContext.setColorRenderingEnabled) == "function" then
+        if self.color_rendering_had_setting then
+            settings:saveSetting("color_rendering", self.color_rendering_previous)
+            CanvasContext:setColorRenderingEnabled(self.color_rendering_previous == true)
+        else
+            settings:delSetting("color_rendering")
+            CanvasContext:setColorRenderingEnabled(false)
+        end
+        self:_broadcastColorRendering()
+    end
+    self.color_rendering_saved = false
+    self.color_rendering_had_setting = false
+    self.color_rendering_previous = nil
 end
 
 function Player:load(instance, context, path)
@@ -568,6 +628,7 @@ function Player:load(instance, context, path)
     end
     self.engine = engine
     self.note = wav and _("Companion WAV audio is used.") or _("No companion WAV file was found.")
+    self:_disableColorRenderingForPlayback()
     return true
 end
 
@@ -576,6 +637,7 @@ function Player:stop()
         self.engine:close()
         self.engine = nil
     end
+    self:_restoreColorRendering()
 end
 
 -- `options.on_back` adds a Library button in the top right corner, so a DApp
