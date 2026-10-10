@@ -639,6 +639,19 @@ function QuickSettings:openManager()
     end)
 end
 
+function QuickSettings:openDraw()
+    local home = self.home
+    UIManager:close(self)
+    UIManager:nextTick(function()
+        local manager = self.appdock and self.appdock.getDAppManager and self.appdock:getDAppManager()
+        if manager and type(manager.activate) == "function" then
+            manager:activate("draw", home)
+        else
+            UIManager:show(InfoMessage:new{ text = _("Draw is unavailable right now.") })
+        end
+    end)
+end
+
 function QuickSettings:onRevealRecentApps()
     if self.appdock:isSimpleModeEnabled("quick_settings") then return false end
     local manager = self.appdock and self.appdock:getDAppManager()
@@ -866,6 +879,11 @@ function QuickSettings:rebuild(refresh)
             subtitle = _("Apps"),
             active = false,
             callback = function() self:openManager() end,
+        },
+        draw = {
+            title = _("Draw"), symbol = "D", icon_kind = "draw",
+            subtitle = _("Sketch"), active = false,
+            callback = function() self:openDraw() end,
         },
         sleep = {
             title = _("Sleep"), symbol = "Z", icon_kind = "timer",

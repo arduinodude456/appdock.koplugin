@@ -809,23 +809,30 @@ function ColorEncoder:pack(rgb, dither)
     if type(rgb) ~= "string" or #rgb ~= pixels*3 then return nil, _("The RGB frame has the wrong size.") end
     ffi.copy(self.source, rgb, pixels*3)
     local source, target = self.source, self.target
-    local output = 0
+    local width, height = self.width, self.height
     local matrix = BAYER_8
     local use_dither = dither ~= false
-    for y=0,self.height-1 do
+    for y=0,height-1 do
         local mrow=matrix[(y % 8)+1]
-        for x=0,self.width-1 do
-            local offset=(y*self.width+x)*3
-            local table_index=math.floor(source[offset]/8)*1024 + math.floor(source[offset+1]/8)*32 + math.floor(source[offset+2]/8)
-            local code=tonumber(COLOR_LUT[table_index])
-            local a=code % 8
-            local b=math.floor(code/8) % 8
-            local threshold=math.floor(code/64)
+        local offset = y * width * 3
+        local output = y * width
+        local xphase = 0
+        for x=0,width-1 do
+            local table_index = bit.rshift(source[offset], 3) * 1024
+                + bit.rshift(source[offset + 1], 3) * 32
+                + bit.rshift(source[offset + 2], 3)
+            local code = COLOR_LUT[table_index]
+            local a = bit.band(code, 7)
+            local b = bit.band(bit.rshift(code, 3), 7)
+            local threshold = bit.rshift(code, 6)
             local choose_b
-            if use_dither then choose_b=mrow[(x % 8)+1] < threshold
+            if use_dither then choose_b=mrow[xphase + 1] < threshold
             else choose_b=threshold >= 32 end
             target[output]=choose_b and b or a
+            offset = offset + 3
             output=output+1
+            xphase = xphase + 1
+            if xphase == 8 then xphase = 0 end
         end
     end
     return ffi.string(target,pixels)

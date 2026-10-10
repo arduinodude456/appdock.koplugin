@@ -214,11 +214,14 @@ assert(helpers.liveLogPreview(string.rep("x", 200)) == string.rep("x", 200),
 local filter = helpers.buildFilter(632, 840, 12, false)
 assert(filter:find("fps=12", 1, true) and filter:find("scale=632:840", 1, true), "The filter must carry rate and size")
 assert(filter:find("pad=632:840", 1, true) and filter:find("color=white", 1, true), "The filter must letterbox on white")
+assert(filter:find("flags=lanczos", 1, true), "Monochrome conversion must retain its high-quality Lanczos scaler")
 assert(not filter:find("monow", 1, true), "The Bayer path must not ask ffmpeg for 1-bit output")
 assert(helpers.buildFilter(632, 840, 12, true):find("format=monow", 1, true), "The ffmpeg path must request monow output")
 local color_filter = helpers.buildFilter(632, 840, 12, false, true)
 assert(color_filter:find("format=rgb24", 1, true) and not color_filter:find("format=gray", 1, true),
     "The optional color pipeline must preserve RGB instead of greyscaling before dithering")
+assert(color_filter:find("flags=fast_bilinear", 1, true),
+    "Color conversion must use FFmpeg's faster scaler before AppDock's palette dithering")
 
 local frame_width, frame_height = helpers.frameSize(100)
 assert(frame_width == 600 and frame_height == 800, "The full resolution must follow the device screen")
@@ -656,8 +659,8 @@ assert(bayer_entry.size > 0, "The Bayer conversion must write bytes")
 local color_entry = runConversion("bayer", "five-color path", 2, true)
 assert(color_entry.size > 0, "The opt-in pure five-color conversion must write bytes")
 
--- Playback view: the pane has to build around the loaded engine, and its
--- deactivation must release the engine and return to the library.
+-- Every video opens in the inline MiniPlayer by default; fullscreen remains an
+-- explicit action and leaving the DApp releases the engine.
 do
     local play_instance = {}
     local play_context = {
@@ -667,18 +670,25 @@ do
     }
     local library_pane = youtube:buildPane(play_instance, play_context)
     assert(youtube:play(play_instance, play_context, bayer_entry.path), "Playing a converted video must succeed")
-    assert(play_instance.youtube.view == "play", "Starting playback must switch to the play view")
+    assert(play_instance.youtube.view == "home" and play_instance.youtube.inline_playing == bayer_entry.path,
+        "Starting any converted video must select and play it in the inline MiniPlayer by default")
     library_pane:onDeactivate()
     assert(youtube.player.engine and not youtube.player.engine.error,
-        "Deactivating the old library pane must not close the engine just loaded for playback")
-    local play_pane = youtube:buildPane(play_instance, play_context)
-    assert(play_pane and play_pane.dimen.w == 600, "The play pane must fill the assigned rectangle")
-    assert(type(play_pane.onDeactivate) == "function", "The play pane must release playback when it is left")
-    assert(youtube.player.engine and not youtube.player.engine.error, "The play pane must hold a usable engine")
-    play_pane:onDeactivate()
+        "Deactivating the old library pane must not close the MiniPlayer engine")
+    local mini_pane = youtube:buildPane(play_instance, play_context)
+    assert(mini_pane and mini_pane.dimen.w == 600, "The inline MiniPlayer pane must fill the assigned rectangle")
+    mini_pane:onDeactivate()
     assert(youtube.player.engine == nil, "Leaving the play pane must close the engine")
     assert(play_instance.youtube.view == "home", "Leaving the play pane must return to the library")
     assert(youtube:buildPane(play_instance, play_context), "The library must build again after playback")
+
+    assert(youtube:play(play_instance, play_context, bayer_entry.path), "The MiniPlayer must be restartable")
+    assert(youtube:openInlineFullscreen(play_instance, play_context, bayer_entry.path),
+        "Fullscreen must remain available as an explicit MiniPlayer action")
+    assert(play_instance.youtube.view == "play", "Only the explicit fullscreen action may enter the play view")
+    local fullscreen_pane = youtube:buildPane(play_instance, play_context)
+    assert(fullscreen_pane and fullscreen_pane.dimen.w == 600, "The explicit fullscreen pane must fill the assigned rectangle")
+    fullscreen_pane:onDeactivate()
 end
 
 -- The ffmpeg path probes this build's monow bit sense, so it has to land on the

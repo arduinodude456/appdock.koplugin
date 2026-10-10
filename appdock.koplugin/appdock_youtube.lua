@@ -16,6 +16,7 @@ Playback is handled by `appdock_player.lua` and stays inside `context.dimen`.
 --]]--
 
 local Blitbuffer = require("ffi/blitbuffer")
+local ffi = require("ffi")
 local CenterContainer = require("ui/widget/container/centercontainer")
 local DataStorage = require("datastorage")
 local Device = require("device")
@@ -23,6 +24,8 @@ local Font = require("ui/font")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
 local GestureRange = require("ui/gesturerange")
+local ImageWidget
+pcall(function() ImageWidget = require("ui/widget/imagewidget") end)
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local AppDockDialogs = require("appdock_dialogs")
 local InfoMessage = AppDockDialogs.InfoMessage
@@ -62,6 +65,12 @@ end
 
 local function basename(path)
     return (path or ""):match("([^/]+)$") or path or ""
+end
+
+local function fileExists(path)
+    local handle = path and io.open(path, "rb")
+    if handle then handle:close(); return true end
+    return false
 end
 
 -- TextWidget wraps at max_width, which would overflow a fixed-height row, so
@@ -195,7 +204,10 @@ end
 function YouTube.parseSearchOutput(text)
     local results = {}
     for line in tostring(text or ""):gmatch("[^\r\n]+") do
-        local id, title, duration, uploader = line:match("^([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)$")
+        local id, title, duration, uploader, thumbnail = line:match("^([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)$")
+        if not id then
+            id, title, duration, uploader = line:match("^([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)$")
+        end
         if id and id:match("^[%w%-_]+$") and #id >= 5 then
             local seconds = tonumber(duration)
             results[#results + 1] = {
@@ -203,11 +215,28 @@ function YouTube.parseSearchOutput(text)
                 title = trim(title) ~= "" and trim(title) or id,
                 duration = seconds and seconds > 0 and seconds or nil,
                 uploader = trim(uploader) ~= "" and trim(uploader) or nil,
+                thumbnail = trim(thumbnail) ~= "" and trim(thumbnail) or nil,
                 url = YouTube.watchUrl(id),
             }
         end
     end
     return results
+end
+
+function YouTube:_cacheThumbnail(result, target_path)
+    if type(result) ~= "table" or not result.id then return nil end
+    local cache = self:_outputDirectory() .. "/.thumbnails"
+    os.execute("mkdir -p " .. shellQuote(cache) .. " >/dev/null 2>&1")
+    local path = target_path or (cache .. "/" .. result.id .. ".jpg")
+    result.thumbnail_path = path
+    if result.thumbnail and not fileExists(path) then
+        local download = "(command -v curl >/dev/null 2>&1 && curl -L --fail --max-time 15 -sS -o "
+            .. shellQuote(path) .. " " .. shellQuote(result.thumbnail)
+            .. " || (command -v wget >/dev/null 2>&1 && wget -q -T 15 -O "
+            .. shellQuote(path) .. " " .. shellQuote(result.thumbnail) .. "))"
+        os.execute("setsid sh -c " .. shellQuote(download) .. " >/dev/null 2>&1 &")
+    end
+    return path
 end
 
 -- Reads the download percentage out of a yt-dlp/youtube-dl progress line.
@@ -270,10 +299,13 @@ end
 
 -- ffmpeg filter chain that letterboxes the source into the BWR2 frame.
 function YouTube.buildFilter(width, height, fps, dithered, color_mode)
+    -- Color conversion already performs palette dithering in AppDock. Use
+    -- ffmpeg's fast scaler for this CPU-heavy path; monochrome keeps Lanczos.
+    local scale_flags = color_mode and "fast_bilinear" or "lanczos"
     local chain = string.format(
-        "fps=%s,scale=%d:%d:force_original_aspect_ratio=decrease:flags=lanczos,"
+        "fps=%s,scale=%d:%d:force_original_aspect_ratio=decrease:flags=%s,"
             .. "pad=%d:%d:(ow-iw)/2:(oh-ih)/2:color=white,format=%s",
-        tostring(fps), width, height, width, height, color_mode and "rgb24" or "gray"
+        tostring(fps), width, height, scale_flags, width, height, color_mode and "rgb24" or "gray"
     )
     if dithered then chain = chain .. ",format=monow" end
     return chain
@@ -363,7 +395,7 @@ function YouTube.toolFolders()
         folders[#folders + 1] = data_dir .. "/appdock/tools"
         folders[#folders + 1] = data_dir .. "/../tools"
     end
-    for _, folder in ipairs(TOOL_FOLDERS) do folders[#folders + 1] = folder end
+    for loop_index, folder in ipairs(TOOL_FOLDERS) do folders[#folders + 1] = folder end
     return folders
 end
 
@@ -372,12 +404,12 @@ function YouTube.locateTool(names, explicit)
         if isExecutable(explicit) then return explicit end
         return nil, _("The configured path does not exist.")
     end
-    for _, name in ipairs(names) do
+    for loop_index, name in ipairs(names) do
         local found = whichCommand(name)
         if found and isExecutable(found) then return found end
     end
-    for _, folder in ipairs(YouTube.toolFolders()) do
-        for _, name in ipairs(names) do
+    for loop_index, folder in ipairs(YouTube.toolFolders()) do
+        for loop_index, name in ipairs(names) do
             local candidate = folder .. "/" .. name
             if isExecutable(candidate) then return candidate end
         end
@@ -796,7 +828,7 @@ function YouTube:scanLibrary(instance, context)
         if name:lower():match("%.bwr$") then names[#names + 1] = name end
     end
     table.sort(names)
-    for _, name in ipairs(names) do
+    for loop_index, name in ipairs(names) do
         local path = directory .. "/" .. name
         local handle = io.open(path, "rb")
         if handle then
@@ -811,10 +843,14 @@ function YouTube:scanLibrary(instance, context)
                     path = path,
                     name = name,
                     title = name:gsub("%.bwr$", ""):gsub("_", " "),
+                    subtitle = string.format("YouTube · %s", formatDuration(BWR.durationSeconds(header))),
                     duration = BWR.durationSeconds(header),
+                    value = formatDuration(BWR.durationSeconds(header)),
                     size = attributes.size or 0,
                     modified = attributes.modification or 0,
                     has_audio = wav ~= nil,
+                    thumbnail_path = path:gsub("%.bwr$", ".jpg"),
+                    video_card = true,
                 }
             end
         end
@@ -1414,7 +1450,10 @@ function YouTube:_finishVideoStage(instance, context, job)
         .. " -nostdin -hide_banner -loglevel error -y"
         .. " -i " .. shellQuote(job.source_file)
         .. (settings.max_duration > 0 and (" -t " .. tostring(settings.max_duration)) or "")
-        .. " -vn -sn -dn -c:a pcm_s16le -ar 44100 -ac 2 -f wav " .. shellQuote(job.wav)
+        .. " -vn -sn -dn -af " .. shellQuote(
+            "silenceremove=start_periods=1:start_duration=0.05:start_threshold=-50dB,"
+            .. "aresample=async=1:first_pts=0")
+        .. " -c:a pcm_s16le -ar 44100 -ac 2 -f wav " .. shellQuote(job.wav)
     local detached = self:_startDetached(command, job.work, "audio")
     if detached then
         job.audio = detached
@@ -1453,6 +1492,7 @@ function YouTube:_finishJob(instance, context, job, without_audio)
     local state = self:_state(instance)
     state.job = nil
     self:scanLibrary(instance, context)
+    state.selected_path = job.target
     -- A rebuild would close the player pane, so a finished job never
     -- interrupts ongoing playback; the library is already up to date.
     if state.view ~= "play" then
@@ -1625,7 +1665,7 @@ function YouTube:startSearch(instance, context, query)
     local work = jobDirectory()
     local command = shellQuote(tools.ytdlp)
         .. " --no-warnings --no-cache-dir --flat-playlist --ignore-errors"
-        .. " --print " .. shellQuote("%(id)s\t%(title)s\t%(duration)s\t%(uploader)s")
+        .. " --print " .. shellQuote("%(id)s\t%(title)s\t%(duration)s\t%(uploader)s\t%(thumbnail)s")
         .. " " .. shellQuote("ytsearch8:" .. query)
     local handle, err = self:_startDetached(command, work, "search")
     if not handle then
@@ -1659,11 +1699,15 @@ function YouTube:startSearch(instance, context, query)
             state.view = "home"
         else
             local results = YouTube.parseSearchOutput(log)
+            for loop_index, result in ipairs(results) do self:_cacheThumbnail(result) end
             state.results = results
             state.results_query = query
             state.result_page = 1
             state.view = #results > 0 and "results" or "home"
             state.note = #results > 0 and "" or _("No results were returned.")
+            if #results > 0 and context and context.requestRebuild then
+                UIManager:scheduleIn(3, function() context.requestRebuild("ui") end)
+            end
         end
         if context and context.requestRebuild then context.requestRebuild("ui") end
     end
@@ -1683,6 +1727,9 @@ function YouTube:startVideo(instance, context, result)
         if index > 50 then break end
     end
     slug = basename(candidate):gsub("%.bwr$", "")
+    if result.thumbnail then
+        self:_cacheThumbnail(result, candidate:gsub("%.bwr$", ".jpg"))
+    end
     return self:_startJob(instance, context, {
         kind = "url",
         source = result.url or YouTube.watchUrl(result.id),
@@ -1734,13 +1781,37 @@ local Row = InputContainer:extend{
     height = nil,
     background = nil,
     bordered = false,
+    video_card = false,
+    thumbnail_text = "▶",
+    thumbnail_path = nil,
+    thumbnail_source_path = nil,
     dimen = nil,
 }
+
+local function fitThumbnailFrame(source, target_width, target_height)
+    local source_width, source_height = source:getWidth(), source:getHeight()
+    local factor = math.min(target_width / source_width, target_height / source_height)
+    local width = math.max(1, math.floor(source_width * factor))
+    local height = math.max(1, math.floor(source_height * factor))
+    local scaled = Blitbuffer.new(width, height, Blitbuffer.TYPE_BB8)
+    local source_data = ffi.cast("uint8_t*", source.data)
+    local scaled_data = ffi.cast("uint8_t*", scaled.data)
+    for y = 0, height - 1 do
+        local source_y = math.min(source_height - 1, math.floor(y * source_height / height))
+        for x = 0, width - 1 do
+            local source_x = math.min(source_width - 1, math.floor(x * source_width / width))
+            scaled_data[y * width + x] = source_data[source_y * source_width + source_x]
+        end
+    end
+    return scaled
+end
 
 function Row:init()
     self.dimen = Geom:new{ w = self.width, h = self.height }
     local padding = scale(8)
-    local text_width = math.max(1, self.width - padding * 2 - scale(46))
+    self.thumbnail_width = self.video_card and math.floor(self.width * 0.34) or 0
+    local text_left = padding + self.thumbnail_width + (self.video_card and padding or 0)
+    local text_width = math.max(1, self.width - text_left - padding - scale(46))
     self.title_widget = TextWidget:new{
         text = fitText(self.title or "", text_width, 12),
         face = Font:getFace("smallinfofont", scale(12)),
@@ -1760,6 +1831,46 @@ function Row:init()
         fgcolor = Blitbuffer.COLOR_DARK_GRAY,
         max_width = scale(44),
     }
+    if self.video_card then
+        local image_ok = false
+        if fileExists(self.thumbnail_source_path) then
+            local ok, frame = pcall(function()
+                local handle = io.open(self.thumbnail_source_path, "rb")
+                if not handle then return nil end
+                local header = BWR.readHeader(handle)
+                if not header then handle:close(); return nil end
+                handle:seek("set", BWR.HEADER_BYTES)
+                local packed = handle:read(header.frame_bytes)
+                handle:close()
+                if not packed or #packed ~= header.frame_bytes then return nil end
+                return BWR.expandFrame(packed, header.width, header.height)
+            end)
+            if ok and frame then
+                self.thumbnail_frame = fitThumbnailFrame(frame, self.thumbnail_width, math.max(1, self.height - padding * 2))
+                frame:free()
+            end
+        elseif ImageWidget and fileExists(self.thumbnail_path) then
+            local ok, image = pcall(ImageWidget.new, ImageWidget, {
+                file = self.thumbnail_path,
+                width = math.max(1, self.thumbnail_width),
+                height = math.max(1, self.height - padding * 2),
+                file_do_cache = false,
+            })
+            if ok and image then
+                self.thumbnail_widget = image
+                self.has_thumbnail_image = true
+                image_ok = true
+            end
+        end
+        if not self.thumbnail_frame and not image_ok then
+            self.thumbnail_widget = TextWidget:new{
+                text = self.thumbnail_text or "▶",
+                face = Font:getFace("cfont", scale(20)),
+                fgcolor = Blitbuffer.COLOR_WHITE,
+                padding = 0,
+            }
+        end
+    end
     local events = { TapRow = { GestureRange:new{ ges = "tap", range = self.dimen } } }
     if self.hold_callback then
         events.HoldRow = { GestureRange:new{ ges = "hold", range = self.dimen } }
@@ -1782,8 +1893,28 @@ function Row:paintTo(bb, x, y)
         bb:paintRect(x + self.width - thickness, y, thickness, self.height, Blitbuffer.COLOR_BLACK)
     end
     local padding = scale(8)
-    self.title_widget:paintTo(bb, x + padding, y + scale(5))
-    self.subtitle_widget:paintTo(bb, x + padding, y + scale(21))
+    if self.video_card then
+        if self.thumbnail_frame then
+            local draw_w, draw_h = self.thumbnail_width, self.height - padding * 2
+            local source_w, source_h = self.thumbnail_frame:getWidth(), self.thumbnail_frame:getHeight()
+            bb:paintRect(x + padding, y + padding, draw_w, draw_h, Blitbuffer.COLOR_BLACK)
+            bb:blitFrom(self.thumbnail_frame,
+                x + padding + math.floor((draw_w - source_w) / 2),
+                y + padding + math.floor((draw_h - source_h) / 2),
+                0, 0, source_w, source_h)
+        elseif not self.has_thumbnail_image then
+            bb:paintRect(x + padding, y + padding, self.thumbnail_width, self.height - padding * 2, Blitbuffer.COLOR_DARK_GRAY)
+        end
+        if not self.thumbnail_frame then
+            local thumb_size = self.thumbnail_widget:getSize()
+            self.thumbnail_widget:paintTo(bb,
+                x + padding + math.floor((self.thumbnail_width - thumb_size.w) / 2),
+                y + math.floor((self.height - thumb_size.h) / 2))
+        end
+    end
+    local text_x = x + padding + self.thumbnail_width + (self.video_card and padding or 0)
+    self.title_widget:paintTo(bb, text_x, y + scale(5))
+    self.subtitle_widget:paintTo(bb, text_x, y + scale(21))
     local value_size = self.value_widget:getSize()
     self.value_widget:paintTo(bb, x + self.width - padding - value_size.w, y + math.floor((self.height - value_size.h) / 2))
     local range = self.ges_events.TapRow[1].range
@@ -1805,6 +1936,34 @@ function Row:onHoldRow()
 end
 
 YouTube.Row = Row
+
+local MiniPlayer = InputContainer:extend{
+    canvas = nil,
+    width = nil,
+    height = nil,
+    callback = nil,
+    dimen = nil,
+}
+
+function MiniPlayer:init()
+    self.dimen = Geom:new{ w = self.width, h = self.height }
+    self.ges_events = { TapMiniPlayer = { GestureRange:new{ ges = "tap", range = self.dimen } } }
+end
+
+function MiniPlayer:getSize()
+    return self.dimen
+end
+
+function MiniPlayer:paintTo(bb, x, y)
+    if self.canvas then self.canvas:paintTo(bb, x, y) end
+    local range = self.ges_events.TapMiniPlayer[1].range
+    range.x, range.y, range.w, range.h = x, y, self.width, self.height
+end
+
+function MiniPlayer:onTapMiniPlayer()
+    if self.callback then self.callback() end
+    return true
+end
 
 ----------------------------------------------------------------
 -- Dialogs
@@ -1885,6 +2044,24 @@ function YouTube:editToolPath(instance, context, key, title, hint)
     end)
 end
 
+function YouTube:editAudioVideoDelay(instance, context)
+    local settings = self:_settings()
+    promptText(
+        _("Video start after audio"),
+        _("Delay in seconds (0–60; decimals allowed)"),
+        string.format("%g", settings.audio_video_delay or 0),
+        function(value)
+            value = trim(value):gsub(",", ".")
+            local delay = tonumber(value)
+            if not delay or delay < 0 or delay > 60 then
+                self:_notify(instance, context, _("Enter a number between 0 and 60 seconds."))
+                return
+            end
+            self:_patchSettings({ audio_video_delay = delay })
+            if context and context.requestRebuild then context.requestRebuild("ui") end
+        end)
+end
+
 function YouTube:cycleSetting(instance, context, key)
     local settings = self:_settings()
     local patch = {}
@@ -1912,9 +2089,9 @@ end
 function YouTube:confirmDelete(instance, context, entry)
     local dialog
     dialog = InputDialog:new{
-        title = _("Delete video"),
+        title = _("Delete this video from the Library?") .. "\n" .. tostring(entry.name or ""),
         input = "",
-        input_hint = _("Delete only removes the converted files, never the source."),
+        input_hint = _("Delete removes only the converted files; the original source is kept."),
         buttons = {
             {
                 { text = _("Cancel"), id = "close", callback = function() UIManager:close(dialog) end },
@@ -1922,10 +2099,17 @@ function YouTube:confirmDelete(instance, context, entry)
                     text = _("Delete"),
                     callback = function()
                         UIManager:close(dialog)
-                        os.remove(entry.path)
-                        if entry.has_audio then os.remove(entry.path:gsub("%.bwr$", ".wav")) end
-                        self:scanLibrary(instance, context)
-                        self:_notify(instance, context, _("Deleted") .. " " .. entry.name)
+                        local video_removed = os.remove(entry.path)
+                        os.remove(entry.path:gsub("%.bwr$", ".wav"))
+                        -- Remove legacy downloaded thumbnails as well; current
+                        -- thumbnails are read directly from the first BWR frame.
+                        os.remove(entry.path:gsub("%.bwr$", ".jpg"))
+                        if not video_removed and fileExists(entry.path) then
+                            self:_notify(instance, context, _("The video could not be deleted."))
+                        else
+                            self:scanLibrary(instance, context)
+                            self:_notify(instance, context, _("Deleted") .. " " .. entry.name)
+                        end
                         if context and context.requestRebuild then context.requestRebuild("ui") end
                     end,
                 },
@@ -1937,12 +2121,57 @@ end
 
 function YouTube:play(instance, context, path)
     local state = self:_state(instance)
-    local ok, err = self.player:load(instance, context, path)
-    if not ok then
-        self:_notify(instance, context, err or _("The video cannot be played."))
+    state.selected_path = path
+    state.view = "home"
+    return self:toggleInline(instance, context, path)
+end
+
+function YouTube:stopInline(instance)
+    local state = self:_state(instance)
+    if state.inline_playing then
+        self.player:stop()
+        state.inline_playing = nil
+    end
+end
+
+function YouTube:toggleInline(instance, context, path)
+    local state = self:_state(instance)
+    if not path then
+        self:promptSearch(instance, context)
         return false
     end
+    if state.inline_playing ~= path or not self.player.engine then
+        self:stopInline(instance)
+        local ok, err = self.player:load(instance, context, path)
+        if not ok then
+            self:_notify(instance, context, err or _("The video cannot be played."))
+            return false
+        end
+        state.inline_playing = path
+        local started, start_error = self.player.engine:play()
+        if not started then
+            self:stopInline(instance)
+            self:_notify(instance, context, start_error or _("The video cannot be played."))
+            return false
+        end
+    else
+        self.player.engine:toggle()
+    end
+    state.selected_path = path
+    state.view = "home"
+    state.inline_rebuild = true
+    if context and context.requestRebuild then context.requestRebuild("ui") end
+    return true
+end
+
+function YouTube:openInlineFullscreen(instance, context, path)
+    local state = self:_state(instance)
+    if not state.inline_playing or state.inline_playing ~= path or not self.player.engine then
+        if not self:toggleInline(instance, context, path) then return false end
+    end
     state.playing = path
+    state.inline_playing = nil
+    state.inline_rebuild = false
     state.view = "play"
     if context and context.requestRebuild then context.requestRebuild("ui") end
     return true
@@ -1979,7 +2208,7 @@ local function listPager(width, height, page, total_pages, on_prev, on_next)
     return widgets
 end
 
-local function buildList(content, entries, page, per_page, offset_y, row_height, gap, on_tap, on_hold)
+local function buildList(content, entries, page, per_page, offset_y, row_height, gap, on_tap, on_hold, offset_x, list_width)
     local start_index = (page - 1) * per_page + 1
     for slot = 1, per_page do
         local entry = entries[start_index + slot - 1]
@@ -1991,23 +2220,32 @@ local function buildList(content, entries, page, per_page, offset_y, row_height,
             title = entry.title,
             subtitle = subtitle,
             value = entry.value,
-            width = content.dimen.w - 2 * scale(12),
+            width = list_width or content.dimen.w - 2 * scale(12),
             height = row_height,
             bordered = entry.highlight == true,
+            video_card = entry.video_card == true,
+            thumbnail_text = entry.thumbnail_text or "▶",
+            thumbnail_path = entry.thumbnail_path,
+            thumbnail_source_path = entry.path,
             callback = function() if on_tap then on_tap(entry) end end,
             hold_callback = on_hold and function() on_hold(entry) end or nil,
         }
-        row.overlap_offset = { scale(12), offset_y + (slot - 1) * (row_height + gap) }
+        row.overlap_offset = { offset_x or scale(12), offset_y + (slot - 1) * (row_height + gap) }
         table.insert(content, row)
     end
 end
 
-function YouTube:_buildHomePane(instance, context, state)
+-- Landscape KOReader panes get the same information hierarchy as the supplied
+-- YouTube reference: a dominant watch surface, metadata/actions underneath,
+-- and an Up-next rail on the right. The content remains local/E-Ink friendly.
+function YouTube:_buildWatchLikeHome(instance, context, state)
     local width, height = context.dimen.w, context.dimen.h
-    local margin, gap = scale(12), scale(6)
-    local settings = self:_settings()
-    local tools = state.tools or YouTube.detectTools(settings)
-
+    local margin, gap = scale(12), scale(8)
+    local landscape = width > height * 1.2
+    local header_h, footer_h = scale(46), scale(34)
+    local rail_w = landscape and math.floor(width * 0.30) or (width - 2 * margin)
+    local main_w = landscape and (width - rail_w - margin * 3) or (width - 2 * margin)
+    local rail_x = margin * 2 + main_w
     local content = OverlapGroup:new{
         dimen = Geom:new{ w = width, h = height },
         allow_mirroring = false,
@@ -2017,177 +2255,175 @@ function YouTube:_buildHomePane(instance, context, state)
             emptySizedWidget(width, height),
         },
     }
-
-    local bar_height = scale(46)
-    local mark_size = scale(26)
-    local mark = DAppLogo:new{
-        kind = "youtube",
-        size = mark_size,
-        ink = Blitbuffer.COLOR_BLACK,
+    table.insert(content, FrameContainer:new{
+        width = width, height = header_h, padding = 0, bordersize = 0,
+        background = Blitbuffer.COLOR_BLACK,
+        emptySizedWidget(width, header_h),
+    })
+    local logo = DAppLogo:new{ kind = "youtube", size = scale(25), ink = Blitbuffer.COLOR_WHITE }
+    logo.overlap_offset = { margin, math.floor((header_h - scale(25)) / 2) }
+    table.insert(content, logo)
+    local brand = TextWidget:new{
+        text = "YouTube", face = Font:getFace("cfont", scale(17)), bold = true,
+        fgcolor = Blitbuffer.COLOR_WHITE, padding = 0,
     }
-    mark.overlap_offset = { margin, math.floor((bar_height - mark_size) / 2) }
-    table.insert(content, mark)
-
-    local title = TextWidget:new{
-        text = "YouTube",
-        face = Font:getFace("cfont", scale(18)),
-        bold = true,
-        fgcolor = Blitbuffer.COLOR_BLACK,
-        padding = 0,
+    brand.overlap_offset = { margin + scale(33), math.floor((header_h - brand:getSize().h) / 2) }
+    table.insert(content, brand)
+    local search = Pill:new{
+        text = "⌕  " .. (state.query ~= "" and state.query or _("Search")),
+        width = math.min(scale(260), math.floor(width * 0.30)), height = scale(30),
+        background = Blitbuffer.COLOR_LIGHT_GRAY,
+        callback = function() self:promptSearch(instance, context) end,
+        overlap_offset = { math.floor(width * 0.42), math.floor((header_h - scale(30)) / 2) },
     }
-    title.overlap_offset = { margin + mark_size + scale(8), math.max(scale(4), math.floor((bar_height - title:getSize().h) / 2)) }
-    table.insert(content, title)
-
-    local chip_width = scale(78)
+    table.insert(content, search)
+    local tools = state.tools or YouTube.detectTools(self:_settings())
     local tools_chip = Pill:new{
-        text = tools.ready and _("Tools ready") or _("Set up tools"),
-        width = chip_width,
-        height = scale(28),
-        background = tools.ready and Blitbuffer.COLOR_GRAY_8 or Blitbuffer.COLOR_GRAY_6,
-        callback = function()
-            state.view = "tools"
-            context.requestRebuild("ui")
-        end,
-        overlap_offset = { width - margin - chip_width, math.floor((bar_height - scale(28)) / 2) },
+        text = tools.ready and "⋮" or _("Tools"),
+        width = scale(54), height = scale(30), background = Blitbuffer.COLOR_GRAY_8,
+        callback = function() state.view = "tools"; context.requestRebuild("ui") end,
+        overlap_offset = { width - margin - scale(54), math.floor((header_h - scale(30)) / 2) },
     }
     table.insert(content, tools_chip)
 
-    local search_height = scale(40)
-    local search_y = bar_height + scale(2)
-    local search = Pill:new{
-        text = state.query ~= "" and (_("Search: ") .. state.query) or _("Search YouTube"),
-        width = width - 2 * margin,
-        height = search_height,
-        background = Blitbuffer.COLOR_LIGHT_GRAY,
-        bold = false,
-        callback = function() self:promptSearch(instance, context) end,
-        overlap_offset = { margin, search_y },
-    }
-    table.insert(content, search)
-
-    local link_height = scale(32)
-    local link_y = search_y + search_height + gap
-    local link = Pill:new{
-        text = _("Paste a video link"),
-        width = width - 2 * margin,
-        height = link_height,
-        background = Blitbuffer.COLOR_GRAY_8,
-        bold = false,
-        callback = function() self:promptLink(instance, context) end,
-        overlap_offset = { margin, link_y },
-    }
-    table.insert(content, link)
-
-    local file_y = link_y + link_height + gap
-    local file_pill = Pill:new{
-        text = _("Convert a local video file"),
-        width = width - 2 * margin,
-        height = link_height,
-        background = Blitbuffer.COLOR_GRAY_8,
-        bold = false,
-        callback = function() self:promptLocalFile(instance, context) end,
-        overlap_offset = { margin, file_y },
-    }
-    table.insert(content, file_pill)
-
-    local chips_y = file_y + link_height + gap
-    local chip_gap = scale(6)
-    local settings_width = math.floor((width - 2 * margin - 2 * chip_gap) / 3)
-    local settings_chips = {
-        { text = YouTube.resolutionLabel(settings.resolution_percent), key = "resolution_percent" },
-        { text = string.format("%g fps", settings.fps), key = "fps" },
-        { text = YouTube.durationLabel(settings.max_duration), key = "max_duration" },
-    }
-    for index, chip in ipairs(settings_chips) do
-        table.insert(content, Pill:new{
-            text = chip.text,
-            width = settings_width,
-            height = scale(28),
-            background = Blitbuffer.COLOR_LIGHT_GRAY,
-            bold = false,
-            callback = function() self:cycleSetting(instance, context, chip.key) end,
-            overlap_offset = { margin + (index - 1) * (settings_width + chip_gap), chips_y },
-        })
-    end
-
     local library = state.library or self:scanLibrary(instance, context)
-    local heading_y = chips_y + scale(28) + gap
-    local heading = TextWidget:new{
-        text = string.format(_("Library · %d video(s)"), #library),
-        face = Font:getFace("smallinfofont", scale(11)),
-        bold = true,
-        fgcolor = Blitbuffer.COLOR_BLACK,
-        padding = 0,
-    }
-    heading.overlap_offset = { margin, heading_y }
-    table.insert(content, heading)
-
-    local pager_height = scale(30)
-    local footer_y = height - pager_height - scale(6)
-    local row_height = scale(40)
-    local refresh_width = scale(88)
-    -- The pager shares the footer with the Refresh button, so it only gets the
-    -- width that is left over.
-    local pager_width = math.max(scale(120), width - 2 * margin - refresh_width - gap)
-    local per_page = math.max(1, math.floor((footer_y - (heading_y + scale(20)) - scale(4)) / (row_height + gap)))
-
-    if #library > 0 then
-        local total_pages = math.max(1, math.ceil(#library / per_page))
-        state.library_page = clamp(state.library_page or 1, 1, total_pages)
-        buildList(content, library, state.library_page, per_page, heading_y + scale(20), row_height, gap,
-            function(entry) self:play(instance, context, entry.path) end,
-            function(entry) self:confirmDelete(instance, context, entry) end)
-        local pager = listPager(pager_width, pager_height, state.library_page, total_pages,
-            function()
-                state.library_page = math.max(1, state.library_page - 1)
-                context.requestRebuild("ui")
-            end,
-            function()
-                state.library_page = math.min(total_pages, state.library_page + 1)
-                context.requestRebuild("ui")
-            end)
-        for _, widget in ipairs(pager) do
-            widget.overlap_offset = { margin + widget.overlap_offset[1], footer_y + widget.overlap_offset[2] }
-            table.insert(content, widget)
+    local hero_y = header_h + gap
+    local hero_h = math.min(math.floor(main_w * 0.52), height - header_h - footer_h - (landscape and scale(126) or scale(260)))
+    hero_h = math.max(scale(100), hero_h)
+    local selected
+    local selected_path = state.inline_playing or state.selected_path
+    if selected_path then
+        for _, entry in ipairs(library) do
+            if entry.path == selected_path then selected = entry; break end
         end
-    else
-        local hint = TextWidget:new{
-            text = _("No converted video yet. Search, paste a link or convert a local file."),
-            face = Font:getFace("smallinfofont", scale(10)),
-            fgcolor = Blitbuffer.COLOR_DARK_GRAY,
-            max_width = width - 2 * margin,
-            padding = 0,
-        }
-        hint.overlap_offset = { margin, heading_y + scale(24) }
-        table.insert(content, hint)
     end
-
-    local refresh = Pill:new{
-        text = _("Refresh"),
-        width = refresh_width,
-        height = pager_height,
-        background = Blitbuffer.COLOR_GRAY_8,
+    selected = selected or library[1]
+    local inline_active = selected and state.inline_playing == selected.path and self.player.engine
+    local hero_canvas = Player.Canvas:new{ width = main_w, height = hero_h }
+    if inline_active then
+        self.player.engine:setCanvas(hero_canvas)
+        self.player.engine:show(self.player.engine.position or 0)
+    end
+    local hero = MiniPlayer:new{
+        canvas = hero_canvas,
+        width = main_w,
+        height = hero_h,
         callback = function()
-            self:scanLibrary(instance, context)
-            context.requestRebuild("ui")
+            self:toggleInline(instance, context, selected and selected.path)
         end,
-        overlap_offset = { width - margin - refresh_width, height - pager_height - scale(6) },
     }
-    table.insert(content, refresh)
-
-    if state.note ~= "" then
-        local note = TextWidget:new{
-            text = fitText(state.note, width - 2 * margin - refresh_width - scale(8), 9),
-            face = Font:getFace("smallinfofont", scale(9)),
-            fgcolor = Blitbuffer.COLOR_DARK_GRAY,
-            max_width = width - 2 * margin - refresh_width - scale(8),
-            padding = 0,
+    hero.overlap_offset = { margin, hero_y }
+    table.insert(content, hero)
+    if selected then
+        local mini_button_width = math.min(scale(92), math.floor((main_w - gap * 3) / 2))
+        local mini_play = Pill:new{
+            text = inline_active and (self.player.engine.paused and "▶  " .. _("Play") or "Ⅱ  " .. _("Pause"))
+                or "▶  " .. _("Play"),
+            width = mini_button_width,
+            height = scale(26),
+            background = Blitbuffer.COLOR_LIGHT_GRAY,
+            callback = function() self:toggleInline(instance, context, selected.path) end,
+            overlap_offset = { margin + gap, hero_y + hero_h - scale(32) },
         }
-        note.overlap_offset = { margin, height - pager_height + scale(6) }
-        table.insert(content, note)
+        local fullscreen = Pill:new{
+            text = "⛶  " .. _("Fullscreen"),
+            width = mini_button_width,
+            height = scale(26),
+            background = Blitbuffer.COLOR_LIGHT_GRAY,
+            callback = function() self:openInlineFullscreen(instance, context, selected.path) end,
+            overlap_offset = { margin + main_w - mini_button_width - gap, hero_y + hero_h - scale(32) },
+        }
+        table.insert(content, mini_play)
+        table.insert(content, fullscreen)
     end
-
+    if not inline_active then
+        local hero_icon = TextWidget:new{
+            text = "▶", face = Font:getFace("cfont", scale(36)),
+            fgcolor = Blitbuffer.COLOR_WHITE, padding = 0,
+        }
+        hero_icon.overlap_offset = {
+            margin + math.floor((main_w - hero_icon:getSize().w) / 2),
+            hero_y + math.floor((hero_h - hero_icon:getSize().h) / 2),
+        }
+        table.insert(content, hero_icon)
+    end
+    local hero_title = TextWidget:new{
+        text = fitText(selected and selected.title or _("Your YouTube videos"), main_w, 16),
+        face = Font:getFace("cfont", scale(16)), bold = true, fgcolor = Blitbuffer.COLOR_BLACK,
+        max_width = main_w, padding = 0,
+    }
+    hero_title.overlap_offset = { margin, hero_y + hero_h + gap }
+    table.insert(content, hero_title)
+    local hero_meta = TextWidget:new{
+        text = selected and (selected.subtitle or "YouTube") or _("Search YouTube or paste a link to start"),
+        face = Font:getFace("smallinfofont", scale(10)), fgcolor = Blitbuffer.COLOR_DARK_GRAY,
+        max_width = main_w, padding = 0,
+    }
+    hero_meta.overlap_offset = { margin, hero_y + hero_h + gap + scale(22) }
+    table.insert(content, hero_meta)
+    local actions_y = hero_y + hero_h + scale(48)
+    local action_w = math.floor((main_w - gap * 2) / 3)
+    for index, action in ipairs({
+        { text = "▶  " .. _("Play"), callback = function() self:toggleInline(instance, context, selected and selected.path) end },
+        { text = "↗  " .. _("Share"), callback = function() self:promptLink(instance, context) end },
+        { text = "⇩  " .. _("Download"), callback = function() self:promptSearch(instance, context) end },
+    }) do
+        local pill = Pill:new{ text = action.text, width = action_w, height = scale(28), background = Blitbuffer.COLOR_LIGHT_GRAY, callback = action.callback }
+        pill.overlap_offset = { margin + (index - 1) * (action_w + gap), actions_y }
+        table.insert(content, pill)
+    end
+    local rail_y = landscape and hero_y or (actions_y + scale(42))
+    local rail_title = TextWidget:new{
+        text = _("Up next"), face = Font:getFace("cfont", scale(15)), bold = true,
+        fgcolor = Blitbuffer.COLOR_BLACK, padding = 0,
+    }
+    rail_title.overlap_offset = { landscape and rail_x or margin, rail_y }
+    table.insert(content, rail_title)
+    local rail_entries = {}
+    for index = 1, math.min(#library, 4) do rail_entries[#rail_entries + 1] = library[index] end
+    if #rail_entries == 0 then
+        rail_entries[1] = { title = _("No videos yet"), subtitle = _("Search or paste a link"), value = "", video_card = true }
+    end
+    local rail_row_h = math.max(scale(56), math.floor((height - rail_y - footer_h - scale(24)) / #rail_entries) - gap)
+    buildList(content, rail_entries, 1, #rail_entries, rail_y + scale(28), rail_row_h, gap,
+        function(entry) if entry.path then self:play(instance, context, entry.path) end end,
+        nil, landscape and rail_x or margin, rail_w)
+    local footer = FrameContainer:new{
+        width = width, height = footer_h, padding = 0, bordersize = 0,
+        background = Blitbuffer.COLOR_BLACK,
+        emptySizedWidget(width, footer_h),
+    }
+    footer.overlap_offset = { 0, height - footer_h }
+    table.insert(content, footer)
+    local nav_width = math.floor((width - 2 * margin - gap * 2) / 3)
+    local navigation = {
+        { text = "⌂  " .. _("Home"), callback = function()
+            state.library_mode = false; state.view = "home"; context.requestRebuild("ui")
+        end },
+        { text = "▣  " .. _("Subscriptions"), callback = function()
+            self:_notify(instance, context, _("Subscriptions are not available in the offline DApp."))
+        end },
+        { text = "▤  " .. _("Library"), callback = function()
+            self:stopInline(instance)
+            state.library = self:scanLibrary(instance, context)
+            state.library_mode = true; state.result_page = 1; state.view = "results"
+            context.requestRebuild("ui")
+        end },
+    }
+    for index, item in ipairs(navigation) do
+        local button = Pill:new{
+            text = item.text, width = nav_width, height = scale(28),
+            background = Blitbuffer.COLOR_BLACK, foreground = Blitbuffer.COLOR_WHITE,
+            callback = item.callback,
+            overlap_offset = { margin + (index - 1) * (nav_width + gap), height - footer_h + scale(3) },
+        }
+        table.insert(content, button)
+    end
     return content
+end
+
+function YouTube:_buildHomePane(instance, context, state)
+    return self:_buildWatchLikeHome(instance, context, state)
 end
 
 function YouTube:_buildSearchPane(instance, context, state)
@@ -2235,7 +2471,7 @@ function YouTube:_buildResultsPane(instance, context, state)
             emptySizedWidget(width, height),
         },
     }
-    local results = state.results or {}
+    local results = state.library_mode and (state.library or {}) or (state.results or {})
     local back_width = scale(76)
     local back = Pill:new{
         text = "‹ " .. _("Back"),
@@ -2243,6 +2479,7 @@ function YouTube:_buildResultsPane(instance, context, state)
         height = scale(30),
         background = Blitbuffer.COLOR_GRAY_8,
         callback = function()
+            state.library_mode = false
             state.view = "home"
             context.requestRebuild("ui")
         end,
@@ -2250,7 +2487,8 @@ function YouTube:_buildResultsPane(instance, context, state)
     }
     table.insert(content, back)
     local title = TextWidget:new{
-        text = string.format(_("%d result(s) for \"%s\""), #results, state.results_query or ""),
+        text = state.library_mode and (_("Library") .. string.format(" · %d video(s)", #results))
+            or string.format(_("%d result(s) for \"%s\""), #results, state.results_query or ""),
         face = Font:getFace("smallinfofont", scale(11)),
         bold = true,
         fgcolor = Blitbuffer.COLOR_BLACK,
@@ -2261,7 +2499,7 @@ function YouTube:_buildResultsPane(instance, context, state)
     table.insert(content, title)
 
     local entries = {}
-    for _, result in ipairs(results) do
+    for loop_index, result in ipairs(results) do
         entries[#entries + 1] = {
             title = result.title,
             subtitle = table.concat({
@@ -2269,6 +2507,10 @@ function YouTube:_buildResultsPane(instance, context, state)
                 result.duration and formatDuration(result.duration) or "",
             }, " · "),
             value = result.duration and formatDuration(result.duration) or "",
+            video_card = true,
+            thumbnail_text = "▶",
+            thumbnail_path = result.thumbnail_path,
+            path = result.path,
             result = result,
         }
     end
@@ -2281,8 +2523,11 @@ function YouTube:_buildResultsPane(instance, context, state)
     local total_pages = math.max(1, math.ceil(#entries / per_page))
     state.result_page = clamp(state.result_page or 1, 1, total_pages)
     buildList(content, entries, state.result_page, per_page, top, row_height, gap, function(entry)
-        self:startVideo(instance, context, entry.result)
-    end)
+        if state.library_mode then self:play(instance, context, entry.result.path)
+        else self:startVideo(instance, context, entry.result) end
+    end, state.library_mode and function(entry)
+        self:confirmDelete(instance, context, entry.result)
+    end or nil)
     local pager = listPager(width - 2 * margin, pager_height, state.result_page, total_pages,
         function()
             state.result_page = math.max(1, state.result_page - 1)
@@ -2292,7 +2537,7 @@ function YouTube:_buildResultsPane(instance, context, state)
             state.result_page = math.min(total_pages, state.result_page + 1)
             context.requestRebuild("ui")
         end)
-    for _, widget in ipairs(pager) do
+    for loop_index, widget in ipairs(pager) do
         widget.overlap_offset = { margin + widget.overlap_offset[1], footer_y + widget.overlap_offset[2] }
         table.insert(content, widget)
     end
@@ -2490,10 +2735,10 @@ function YouTube:_buildToolsPane(instance, context, state)
             action = function() self:cycleSetting(instance, context, "fps") end,
         },
         {
-            title = _("Video start delay"),
-            subtitle = _("Wait this long after audio starts"),
-            value = YouTube.audioVideoDelayLabel(settings.audio_video_delay),
-            action = function() self:cycleSetting(instance, context, "audio_video_delay") end,
+            title = _("Video start after audio"),
+            subtitle = _("Positive value delays the video after audio starts"),
+            value = string.format("%g s", settings.audio_video_delay or 0),
+            action = function() self:editAudioVideoDelay(instance, context) end,
         },
         {
             title = _("Maximum length"),
@@ -2538,7 +2783,7 @@ function YouTube:_buildToolsPane(instance, context, state)
                 state.tools_page = math.min(total_pages, state.tools_page + 1)
                 context.requestRebuild("ui")
             end)
-        for _, widget in ipairs(pager) do
+        for loop_index, widget in ipairs(pager) do
             widget.overlap_offset = { margin + widget.overlap_offset[1], footer_y + widget.overlap_offset[2] }
             table.insert(content, widget)
         end
@@ -2722,8 +2967,14 @@ function YouTube:buildPane(instance, context)
     pane.onDeactivate = function()
         -- `play()` loads the engine before requesting the host rebuild. The
         -- outgoing library pane is deactivated during that rebuild, so only
-        -- stop here when navigation is not transitioning into the player.
-        if state.view ~= "play" then self.player:stop() end
+        -- stop here when navigation is not transitioning into the player or
+        -- refreshing the inline mini-player.
+        if state.inline_rebuild then
+            state.inline_rebuild = false
+        elseif state.view ~= "play" then
+            self.player:stop()
+            state.inline_playing = nil
+        end
     end
     return pane
 end

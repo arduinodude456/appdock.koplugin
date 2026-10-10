@@ -317,7 +317,7 @@ local parsed_design = assert(AppStoreParser:_parseDesign("id=forest\ntitle=Fores
 assert(parsed_design.id == "forest" and parsed_design.wallpaper == "designs/wallpapers/forest.png", "A declarative design must parse only its allowed appearance values")
 assert(not AppStoreParser:_parseDesign("id=forest\ntitle=Forest\nhighlight=#A5D6A7\nbackground=#122219\nbutton=#2D6745\ntext=#EFF8E9\ndropdown=#183125\nwallpaper=../forest.png"), "A design must reject traversal paths in its optional wallpaper")
 local appdock = {
-    settings = { widgets = { clock = true, status = true, reading_hint = true, store = {}, store_order = {} }, theme = { selected = "lavender", custom = {} }, design = { active_id = nil, installed = {} }, plugin_logos = {}, layout = { app_spacing = 12, logo_shape = "rounded", search_enabled = false }, store = { installed = {} }, workspace = { restore_enabled = false, session = nil }, accessibility = { text_scale = 1, high_contrast = false }, dapp_permissions = {}, widget_generator = { items = {}, next_id = 0 }, setup_assistant = { offered_version = "", completed_version = "" }, beta = { plugin_dapp_host = false, black_borders = false, keep_wallpaper_original_in_night = false, manual_app_spacing = false, plugin_custom_logos = false }, simple_mode = { homescreen = false, quick_settings = false, focus_apps = false }, quick_settings = { tiles = { "wifi", "night", "refresh", "edit", "sleep", "power_saving" } }, notifications = { items = {} }, power_saving = false },
+    settings = { widgets = { clock = true, status = true, reading_hint = true, store = {}, store_order = {} }, theme = { selected = "lavender", custom = {} }, design = { active_id = nil, installed = {} }, plugin_logos = {}, layout = { app_spacing = 12, logo_shape = "rounded", search_enabled = false }, store = { installed = {} }, workspace = { restore_enabled = false, session = nil }, accessibility = { text_scale = 1, high_contrast = false }, dapp_permissions = {}, widget_generator = { items = {}, next_id = 0 }, setup_assistant = { offered_version = "", completed_version = "" }, beta = { black_borders = false, keep_wallpaper_original_in_night = false, plugin_dapp_host = false, manual_app_spacing = false, plugin_custom_logos = false }, simple_mode = { homescreen = false, quick_settings = false, focus_apps = false }, quick_settings = { tiles = { "wifi", "night", "refresh", "edit", "draw", "sleep", "power_saving" } }, notifications = { items = {} }, power_saving = false },
     toggleWidget = function(self, id) self.settings.widgets[id] = not self.settings.widgets[id] end,
     showHome = function(_, skip_lock) log.home = (log.home or 0) + 1; log.last_home_skip_lock = skip_lock end,
     showManager = function() log.manager = (log.manager or 0) + 1 end,
@@ -350,7 +350,7 @@ local appdock = {
         return not self:isSimpleModeEnabled("homescreen") and not self:isSimpleModeEnabled("quick_settings") and not self:isSimpleModeEnabled("focus_apps")
     end,
     setSimpleModeOption = function(self, option, enabled) self.settings.simple_mode[option] = enabled == true; self:_saveSettings(); return true end,
-    getQuickSettingsTiles = function(self) return self:isSimpleModeEnabled("quick_settings") and { "wifi", "night", "power_saving" } or self.settings.quick_settings.tiles end,
+    getQuickSettingsTiles = function(self) return self:isSimpleModeEnabled("quick_settings") and { "wifi", "night", "power_saving", "draw" } or self.settings.quick_settings.tiles end,
     getNotifications = function() return {} end,
     getUnreadNotificationCount = function() return 0 end,
     movePinned = function() log.moved_app = true; return true end,
@@ -730,7 +730,7 @@ assert(not simple_home._widget_tick, "Simple homescreen must not schedule hidden
 assert(not (simple_home.ges_events or {}).SwipeHomePage and not (simple_home.ges_events or {}).RevealRecentApps, "Simple homescreen must retain its previous gesture surface without animated paging or the Recent Apps drawer")
 local QuickSettings = dofile(plugin_dir .. "appdock_quicksettings.lua")
 local simple_quick_settings = QuickSettings:new{ appdock = appdock, home = simple_home }
-assert(simple_quick_settings.layout.simple_mode and simple_quick_settings.layout.tile_count == 3 and simple_quick_settings.layout.tile_icon_count == 3 and not simple_quick_settings.layout.show_notifications, "Simple quick settings must contain three icon tiles, brightness, and no notifications")
+assert(simple_quick_settings.layout.simple_mode and simple_quick_settings.layout.tile_count == 4 and simple_quick_settings.layout.tile_icon_count == 4 and not simple_quick_settings.layout.show_notifications, "Simple quick settings must include the three core toggles plus the Draw shortcut, brightness, and no notifications")
 assert(not simple_quick_settings.layout.expressive and simple_quick_settings.sheet_height < 400, "Simple quick settings must retain its existing compact non-expressive layout")
 assert(simple_quick_settings.layout.has_close_button and not simple_quick_settings.layout.has_grab_handle and simple_quick_settings.layout.slider_has_thumb, "Simple Quick Settings must retain a close action and a visible brightness thumb without expressive extras")
 assert(not simple_quick_settings.ges_events.RevealRecentApps, "Simple quick settings must not add the expressive Recent Apps drawer gesture")
@@ -861,8 +861,10 @@ local expressive_close_button, expressive_icon_tiles = nil, 0
 walk_tree(expressive_quick_settings[1], function(node)
     if type(node.onTapCloseQuickSettings) == "function" then expressive_close_button = node end
     if node.icon_kind then expressive_icon_tiles = expressive_icon_tiles + 1 end
+    if node.title == "Draw" and type(node.onTapQuickTile) == "function" then log.draw_quick_tile = node end
 end)
 assert(expressive_close_button and expressive_icon_tiles == expressive_quick_settings.layout.tile_count, "Every normal Quick Settings tile must render its semantic icon, with an actionable close control")
+assert(log.draw_quick_tile and log.draw_quick_tile.icon_kind == "draw", "Quick Settings must expose Draw as a semantic-icon tile")
 local brightness_test = QuickSettings:new{ appdock = appdock, home = expressive_home }
 brightness_test._brightnessState = function() return { min = 0, max = 100, current = 50 } end
 brightness_test.setBrightness = function(self, value) self.test_brightness = value end
@@ -881,6 +883,13 @@ end
 assert(recent_drawer.sheet_layer.overlap_offset[2] == recent_drawer.sheet_y and recent_drawer.sheet_y > 0 and recent_drawer.sheet_y < recent_drawer.dimen.h, "The Recently used drawer must settle at its bounded sheet position in the lower screen area")
 assert(drawer_motions == 0, "The Recently used drawer must switch instantly instead of animating on E-Ink")
 assert(expressive_close_button:onTapCloseQuickSettings(), "Tapping the visible close control must dismiss Quick Settings")
+log.original_get_dapp_manager = appdock.getDAppManager
+appdock.getDAppManager = function()
+    return { activate = function(_, app_id) log.draw_tile_activation = app_id end }
+end
+assert(log.draw_quick_tile:onTapQuickTile() and log.draw_tile_activation == "draw",
+    "Tapping the Draw quick tile must activate the built-in Draw DApp")
+appdock.getDAppManager = log.original_get_dapp_manager
 
 local recents = {}
 manager:showDAppActions("analog_clock", recents)

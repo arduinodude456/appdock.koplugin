@@ -57,7 +57,7 @@ local DEFAULT_SETTINGS = {
     wallpaper = { enabled = false, path = "" },
     lockscreen = { enabled = false, method = "swipe", secret_hash = nil, profile_name = "", profile_image_path = "" },
     beta = { black_borders = false, keep_wallpaper_original_in_night = false, plugin_dapp_host = false, manual_app_spacing = false, plugin_custom_logos = false },
-    quick_settings = { tiles = { "wifi", "night", "refresh", "edit", "sleep", "power_saving", "wallpaper" } },
+    quick_settings = { tiles = { "wifi", "night", "refresh", "edit", "draw", "sleep", "power_saving", "wallpaper" } },
     simple_mode = { homescreen = false, quick_settings = false, focus_apps = false },
     workspace = { restore_enabled = false, session = nil },
     accessibility = { text_scale = 1, high_contrast = false },
@@ -120,7 +120,7 @@ local function normalizeYouTubeSettings(stored)
         dither = stored.dither == "bayer" and "bayer" or "ffmpeg",
         color_mode = stored.color_mode == true,
         color_dither = stored.color_dither ~= false,
-        audio_video_delay = (audio_video_delay and YOUTUBE_AUDIO_VIDEO_DELAYS[audio_video_delay])
+        audio_video_delay = (audio_video_delay and audio_video_delay >= 0 and audio_video_delay <= 60)
             and audio_video_delay or 0,
     }
 end
@@ -661,14 +661,23 @@ function AppDock:setRefreshInterval(seconds)
     return seconds
 end
 
-local QUICK_TILE_IDS = { wifi = true, night = true, refresh = true, edit = true, sleep = true, power_saving = true, wallpaper = true }
+local QUICK_TILE_IDS = { wifi = true, night = true, refresh = true, edit = true, draw = true, sleep = true, power_saving = true, wallpaper = true }
 
 function AppDock:getQuickSettingsTiles()
     if self:isSimpleModeEnabled("quick_settings") then
-        return { "wifi", "night", "power_saving" }
+        return { "wifi", "night", "power_saving", "draw" }
+    end
+    local tile_settings = self.settings.quick_settings
+    if tile_settings.draw_tile_migrated ~= true then
+        local has_draw = false
+        for _, tile_id in ipairs(tile_settings.tiles or {}) do
+            if tile_id == "draw" then has_draw = true; break end
+        end
+        if not has_draw then table.insert(tile_settings.tiles, "draw") end
+        tile_settings.draw_tile_migrated = true
     end
     local tiles, seen = {}, {}
-    for _, tile_id in ipairs(self.settings.quick_settings.tiles or {}) do
+    for _, tile_id in ipairs(tile_settings.tiles or {}) do
         if QUICK_TILE_IDS[tile_id] and not seen[tile_id] then
             tiles[#tiles + 1] = tile_id
             seen[tile_id] = true
