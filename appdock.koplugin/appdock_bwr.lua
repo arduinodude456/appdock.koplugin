@@ -769,6 +769,9 @@ end
 -- Indexed color is restricted to the five exact, unmixed colors below. The
 -- lookup table stores the best pair and interpolation threshold for each
 -- 5:5:5 RGB bucket; frame conversion then needs only one lookup per pixel.
+-- Compare candidate mixtures in YUV rather than raw RGB: weighting chroma
+-- keeps vivid hues on the matching primary pair (e.g. yellow on red/green)
+-- instead of a visually incorrect white/red mixture with similar RGB error.
 BWR.COLOR_PALETTE = {
     { 255, 255, 255 }, -- 1 white
     {   0,   0,   0 }, -- 2 black
@@ -783,26 +786,37 @@ local COLOR_GREEN_INDEX
 local COLOR_BLUE_INDEX
 local COLOR_DITHER_LUTS
 
+local function rgbToYuv(r, g, b)
+    return 0.299*r + 0.587*g + 0.114*b,
+        -0.14713*r - 0.28886*g + 0.436*b,
+        0.615*r - 0.51499*g - 0.10001*b
+end
+
 local function buildColorLUT()
     if COLOR_LUT then return end
     COLOR_LUT = ffi.new("uint16_t[32768]")
+    local palette_yuv = {}
+    for index, color in ipairs(BWR.COLOR_PALETTE) do
+        palette_yuv[index] = { rgbToYuv(color[1], color[2], color[3]) }
+    end
     for ri = 0, 31 do
         for gi = 0, 31 do
             for bi = 0, 31 do
                 local r, g, b = ri * 8 + 4, gi * 8 + 4, bi * 8 + 4
+                local y, u, v = rgbToYuv(r, g, b)
                 local best_a, best_b, best_t, best_error = 1, 2, 0, math.huge
                 for a = 1, 5 do
-                    local ca = BWR.COLOR_PALETTE[a]
+                    local ca = palette_yuv[a]
                     for c = a + 1, 5 do
-                        local cb = BWR.COLOR_PALETTE[c]
-                        local dr, dg, db = cb[1]-ca[1], cb[2]-ca[2], cb[3]-ca[3]
-                        local denom = dr*dr + dg*dg + db*db
-                        local t = ((r-ca[1])*dr + (g-ca[2])*dg + (b-ca[3])*db) / denom
+                        local cb = palette_yuv[c]
+                        local dy, du, dv = cb[1]-ca[1], cb[2]-ca[2], cb[3]-ca[3]
+                        local denom = dy*dy + 3*(du*du + dv*dv)
+                        local t = ((y-ca[1])*dy + 3*(u-ca[2])*du + 3*(v-ca[3])*dv) / denom
                         t = math.max(0, math.min(1, t))
-                        local er = r - (ca[1] + t*dr)
-                        local eg = g - (ca[2] + t*dg)
-                        local eb = b - (ca[3] + t*db)
-                        local score = er*er + eg*eg + eb*eb
+                        local ey = y - (ca[1] + t*dy)
+                        local eu = u - (ca[2] + t*du)
+                        local ev = v - (ca[3] + t*dv)
+                        local score = ey*ey + 3*(eu*eu + ev*ev)
                         if score < best_error then best_a,best_b,best_t,best_error=a,c,t,score end
                     end
                 end

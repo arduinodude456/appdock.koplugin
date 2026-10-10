@@ -246,6 +246,25 @@ for i=1,#gray_indices do
 end
 assert(saw_black and saw_white, "Color dithering must spatially dither neutral midtones")
 
+local mixed_color_cases = {
+    { name = "yellow", rgb = string.char(255, 255, 0), first = 3, second = 4 },
+    { name = "cyan", rgb = string.char(0, 255, 255), first = 4, second = 5 },
+    { name = "magenta", rgb = string.char(255, 0, 255), first = 3, second = 5 },
+}
+for _, case in ipairs(mixed_color_cases) do
+    local mixed_rgb = string.rep(case.rgb, 64)
+    local mixed_indices = assert(color_encoder:pack(mixed_rgb, true))
+    local first_count, second_count = 0, 0
+    for i = 1, #mixed_indices do
+        local index = mixed_indices:byte(i)
+        assert(index == case.first or index == case.second,
+            case.name .. " must be synthesized by dithering its matching primary colors")
+        if index == case.first then first_count = first_count + 1 else second_count = second_count + 1 end
+    end
+    assert(first_count > 0 and second_count > 0,
+        case.name .. " must visibly dither between both matching primary colors")
+end
+
 local brc_path = os.tmpname()
 local brc_file = assert(io.open(brc_path, "w+b"))
 local color_writer = assert(BWR.newColorWriter(brc_file, 8, 8, 12, 2))
