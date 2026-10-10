@@ -582,6 +582,7 @@ local Pill = InputContainer:extend{
     height = nil,
     background = nil,
     foreground = nil,
+    font_size = nil,
     bold = nil,
     align = "center",
     dimen = nil,
@@ -590,8 +591,8 @@ local Pill = InputContainer:extend{
 function Pill:init()
     self.dimen = Geom:new{ w = self.width, h = self.height }
     self.text_widget = TextWidget:new{
-        text = fitText(self.text or "", math.max(1, self.width - scale(12)), 11),
-        face = Font:getFace("smallinfofont", scale(11)),
+        text = fitText(self.text or "", math.max(1, self.width - scale(12)), self.font_size or 11),
+        face = Font:getFace("smallinfofont", scale(self.font_size or 11)),
         bold = self.bold ~= false,
         fgcolor = self.foreground or Blitbuffer.COLOR_BLACK,
         max_width = math.max(1, self.width - scale(12)),
@@ -619,7 +620,7 @@ end
 function Pill:setText(text)
     self.text = text
     if self.text_widget then
-        self.text_widget:setText(fitText(text or "", math.max(1, self.width - scale(12)), 11))
+        self.text_widget:setText(fitText(text or "", math.max(1, self.width - scale(12)), self.font_size or 11))
     end
 end
 
@@ -648,6 +649,9 @@ local ProgressBar = InputContainer:extend{
     indeterminate = false,
     position = 0,
     segment_ratio = 0.2,
+    background_color = nil,
+    foreground_color = nil,
+    border_color = nil,
     width = nil,
     height = nil,
     dimen = nil,
@@ -663,21 +667,24 @@ end
 
 function ProgressBar:paintTo(bb, x, y)
     local border = math.max(1, scale(1))
-    bb:paintRect(x, y, self.width, self.height, Blitbuffer.COLOR_WHITE)
-    bb:paintRect(x, y, self.width, border, Blitbuffer.COLOR_BLACK)
-    bb:paintRect(x, y + self.height - border, self.width, border, Blitbuffer.COLOR_BLACK)
-    bb:paintRect(x, y, border, self.height, Blitbuffer.COLOR_BLACK)
-    bb:paintRect(x + self.width - border, y, border, self.height, Blitbuffer.COLOR_BLACK)
+    local background = self.background_color or Blitbuffer.COLOR_WHITE
+    local foreground = self.foreground_color or Blitbuffer.COLOR_BLACK
+    local outline = self.border_color or Blitbuffer.COLOR_BLACK
+    bb:paintRect(x, y, self.width, self.height, background)
+    bb:paintRect(x, y, self.width, border, outline)
+    bb:paintRect(x, y + self.height - border, self.width, border, outline)
+    bb:paintRect(x, y, border, self.height, outline)
+    bb:paintRect(x + self.width - border, y, border, self.height, outline)
     local inner_w = math.max(0, self.width - 2 * border)
     if self.indeterminate then
         local filled = math.max(1, math.floor(inner_w * clamp(self.segment_ratio or 0.2, 0.05, 1) + 0.5))
         local travel = math.max(0, inner_w - filled)
         local offset = math.floor(travel * clamp(self.position or 0, 0, 1) + 0.5)
-        bb:paintRect(x + border + offset, y + border, filled, self.height - 2 * border, Blitbuffer.COLOR_BLACK)
+        bb:paintRect(x + border + offset, y + border, filled, self.height - 2 * border, foreground)
     else
         local filled = math.floor(inner_w * clamp(self.ratio or 0, 0, 1) + 0.5)
         if filled > 0 then
-            bb:paintRect(x + border, y + border, filled, self.height - 2 * border, Blitbuffer.COLOR_BLACK)
+            bb:paintRect(x + border, y + border, filled, self.height - 2 * border, foreground)
         end
     end
 end

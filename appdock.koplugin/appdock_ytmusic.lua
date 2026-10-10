@@ -326,6 +326,10 @@ function Music:coverPathFor(path)
     return (path or ""):gsub("%.[Ww][Aa][Vv]$", ".jpg")
 end
 
+function Music:artistPathFor(path)
+    return (path or ""):gsub("%.[Ww][Aa][Vv]$", ".artist")
+end
+
 ----------------------------------------------------------------
 -- Library
 ----------------------------------------------------------------
@@ -344,6 +348,7 @@ function Music:scanLibrary(instance, context)
                 entries[#entries + 1] = {
                     path = path,
                     title = titleFromFile(name),
+                    artist = trim(readFile(self:artistPathFor(path)) or ""),
                     duration = Audio.durationOf(path),
                     cover = cover,
                     has_cover = fileExists(cover),
@@ -364,6 +369,7 @@ function Music:scanLibrary(instance, context)
                     entries[#entries + 1] = {
                         path = path,
                         title = titleFromFile(name),
+                        artist = trim(readFile(self:artistPathFor(path)) or ""),
                         duration = Audio.durationOf(path),
                         cover = cover,
                         has_cover = fileExists(cover),
@@ -419,12 +425,20 @@ function Music:playEntry(instance, context, path, start_seconds)
     state.play = {
         path = path,
         title = titleFromFile(basename(path)),
+        artist = "",
         audio = audio,
         offset = offset,
         started_at = monotonicNow(),
         paused = false,
         duration = Audio.durationOf(path),
     }
+    for _, entry in ipairs(self:_library(instance, context)) do
+        if entry.path == path then
+            state.play.title = entry.title or state.play.title
+            state.play.artist = entry.artist or ""
+            break
+        end
+    end
     state.selected_path = path
     state.view = "player"
     self:_schedulePlayTick(instance, context)
@@ -488,12 +502,16 @@ function Music:_schedulePlayTick(instance, context)
         local elapsed = self:_elapsed(play, now)
         local duration = play.duration or 0
         if duration > 0 and elapsed >= duration then
-            self:stopPlayback(instance)
-            if context and context.requestRebuild then context.requestRebuild("ui") end
+            if state.repeat_track then
+                self:playEntry(instance, context, play.path, 0)
+            else
+                self:stopPlayback(instance)
+                if context and context.requestRebuild then context.requestRebuild("ui") end
+            end
             return
         end
         if play.time_widget and play.time_widget.setText then
-            play.time_widget:setText(Music.formatPosition(elapsed, duration))
+            play.time_widget:setText(Music.formatPosition(elapsed))
         end
         setBarRatio(play.progress_widget, duration > 0 and elapsed / duration or 0)
         local manager = context and context.manager
@@ -521,6 +539,16 @@ end
 -- Search and download
 ----------------------------------------------------------------
 
+function Music.buildSearchCommand(ytdlp, query)
+    query = trim(query)
+    if query == "" then return nil end
+    return shellQuote(ytdlp)
+        .. " --no-warnings --no-cache-dir --flat-playlist --ignore-errors --skip-download"
+        .. " --socket-timeout 20 --retries 1 --extractor-retries 1 --playlist-end 8"
+        .. " --print " .. shellQuote("%(id)s\t%(title)s\t%(duration)s\t%(uploader)s\t%(thumbnail)s")
+        .. " " .. shellQuote("ytsearch8:" .. query)
+end
+
 function Music:startSearch(instance, context, query)
     local state = self:_state(instance)
     local tools = state.tools or YouTube.detectTools(self:_settings())
@@ -532,10 +560,7 @@ function Music:startSearch(instance, context, query)
     query = trim(query)
     if query == "" then return false end
     local work = jobDirectory()
-    local command = shellQuote(tools.ytdlp)
-        .. " --no-warnings --no-cache-dir --flat-playlist --ignore-errors"
-        .. " --print " .. shellQuote("%(id)s\t%(title)s\t%(duration)s\t%(uploader)s\t%(thumbnail)s")
-        .. " " .. shellQuote("ytsearch8:" .. query)
+    local command = Music.buildSearchCommand(tools.ytdlp, query)
     local handle, start_error = self:_startDetached(command, work, "search")
     if not handle then
         cleanupDirectory(work)
@@ -546,26 +571,44 @@ function Music:startSearch(instance, context, query)
     state.note = string.format(_("Searching YouTube Music for “%s”…"), query)
     state.search_handle = handle
     state.search_work = work
+    state.search_query = query
+    state.search_started = os.time()
+    state.results = nil
     if context and context.requestRebuild then context.requestRebuild("ui") end
     local tick
     tick = function()
         if self:_state(instance).search_handle ~= handle then return end
         local code, log = Music._pollDetached(handle)
         if code == nil then
+            if os.time() - (state.search_started or os.time()) >= 90 then
+                Music._killDetached(handle)
+                cleanupDirectory(work)
+                state.search_handle, state.search_work = nil, nil
+                state.view = "home"
+                self:_notify(instance, context, _("The search timed out. Check the connection and try again."))
+                if context and context.requestRebuild then context.requestRebuild("ui") end
+                return
+            end
             UIManager:scheduleIn(1, tick)
             return
         end
         state.search_handle = nil
+        state.search_work = nil
         cleanupDirectory(work)
-        if code ~= 0 or trim(log) == "" then
+        local results = YouTube.parseSearchOutput(log)
+        if #results == 0 then
             state.view = "home"
-            self:_notify(instance, context, _("The search returned no usable results. Check the network connection and try again."))
+            local detail = trim(log or "")
+            if detail ~= "" then detail = detail:sub(-220):gsub("\r", " "):gsub("\n+", " · ") end
+            self:_notify(instance, context, code ~= 0 and (_("YouTube Music search failed: ") .. (detail ~= "" and detail or _("check the connection and yt-dlp setup."))) or _("No result matched this search."))
         else
-            state.results = YouTube.parseSearchOutput(log)
+            state.results = results
             state.results_page = 1
-            state.view = #state.results > 0 and "results" or "home"
-            if #state.results == 0 then
-                self:_notify(instance, context, _("No result matched this search."))
+            state.view = "results"
+            state.note = code ~= 0 and _("Showing available results; some YouTube results could not be loaded.") or ""
+            local youtube = self:_youtube()
+            if youtube and type(youtube._cacheThumbnail) == "function" then
+                for _, result in ipairs(results) do pcall(youtube._cacheThumbnail, youtube, result) end
             end
         end
         if context and context.requestRebuild then context.requestRebuild("ui") end
@@ -636,6 +679,7 @@ function Music:_startJob(instance, context, spec)
         kind = spec.kind,
         source = spec.source,
         title = spec.title or slug,
+        artist = trim(spec.artist or ""),
         slug = slug,
         video_id = spec.video_id,
         thumbnail = spec.thumbnail,
@@ -678,6 +722,7 @@ function Music:startDownload(instance, context, result)
         kind = "url",
         source = result.url,
         title = result.title or result.id,
+        artist = result.uploader,
         video_id = result.id,
         thumbnail = result.thumbnail,
         duration = result.duration,
@@ -769,6 +814,9 @@ function Music:_finishJob(instance, context, job)
     local state = self:_state(instance)
     self:_cleanupJob(job)
     state.job = nil
+    if trim(job.artist or "") ~= "" then
+        writeFile(self:artistPathFor(job.target), trim(job.artist))
+    end
     self:scanLibrary(instance, context)
     state.selected_path = job.target
     local duration = Audio.durationOf(job.target)
@@ -1055,6 +1103,7 @@ function Music:_buildHomePane(instance, context, state)
                                     if state.play and state.play.path == entry.path then self:stopPlayback(instance) end
                                     os.remove(entry.path)
                                     os.remove(entry.cover)
+                                    os.remove(self:artistPathFor(entry.path))
                                     self:scanLibrary(instance, context)
                                     self:_notify(instance, context, _("Track deleted."))
                                     if context.requestRebuild then context.requestRebuild("ui") end
@@ -1177,7 +1226,8 @@ function Music:_buildResultsPane(instance, context, state)
     }
     table.insert(content, back)
     local title = TextWidget:new{
-        text = _("Results"),
+        text = YouTube.fitText((state.search_query and state.search_query ~= "")
+            and (_("Results: ") .. state.search_query) or _("Results"), width - 2 * margin - scale(92), 14),
         face = Font:getFace("cfont", scale(17)),
         bold = true,
         fgcolor = Blitbuffer.COLOR_BLACK,
@@ -1314,106 +1364,233 @@ function Music:_buildJobPane(instance, context, state)
     return content
 end
 
+function Music:skipTrack(instance, context, direction)
+    local state = self:_state(instance)
+    local play = state.play
+    local library = self:_library(instance, context)
+    if #library == 0 then return false end
+    local current = 1
+    for index, entry in ipairs(library) do
+        if play and entry.path == play.path then current = index; break end
+    end
+    if state.shuffle and #library > 1 and (tonumber(direction) or 1) > 0 then
+        local next_index = current
+        while next_index == current do next_index = math.random(1, #library) end
+        return self:playEntry(instance, context, library[next_index].path, 0)
+    end
+    local next_index = ((current - 1 + (tonumber(direction) or 1)) % #library) + 1
+    return self:playEntry(instance, context, library[next_index].path, 0)
+end
+
 function Music:_buildPlayerPane(instance, context, state)
     local width, height = context.dimen.w, context.dimen.h
-    local margin, gap = scale(14), scale(8)
-    local content = self:_paneShell(width, height)
+    local margin, gap = scale(18), scale(8)
+    local dark = height >= scale(500)
+    local content = OverlapGroup:new{
+        dimen = Geom:new{ w = width, h = height },
+        allow_mirroring = false,
+        FrameContainer:new{
+            width = width, height = height, padding = 0, bordersize = 0,
+            background = Blitbuffer.COLOR_BLACK,
+            emptySizedWidget(width, height),
+        },
+    }
     local play = state.play
     local entry
     for _, candidate in ipairs(self:_library(instance, context)) do
         if candidate.path == (play and play.path) then entry = candidate break end
     end
-
+    local white = Blitbuffer.COLOR_WHITE
+    local dim = Blitbuffer.COLOR_GRAY_8
     local back = Pill:new{
-        text = "‹ " .. _("Library"),
-        width = scale(104), height = scale(30),
-        background = Blitbuffer.COLOR_GRAY_8,
+        text = "⌄", width = scale(42), height = scale(34), font_size = 18,
+        background = Blitbuffer.COLOR_BLACK, foreground = white,
         callback = function()
-            self:stopPlayback(instance)
             state.view = "home"
             if context.requestRebuild then context.requestRebuild("ui") end
         end,
-        overlap_offset = { margin, scale(10) },
+        overlap_offset = { margin, scale(5) },
     }
     table.insert(content, back)
+    local header = TextWidget:new{
+        text = "YouTube Music",
+        face = Font:getFace("cfont", scale(14)),
+        fgcolor = white,
+        padding = 0,
+    }
+    header.overlap_offset = { margin + scale(48), scale(13) }
+    table.insert(content, header)
+    local mode = TextWidget:new{
+        text = "♫  AUDIO",
+        face = Font:getFace("smallinfofont", scale(10)),
+        bold = true,
+        fgcolor = white,
+        padding = 0,
+    }
+    local mode_size = mode:getSize()
+    mode.overlap_offset = { math.floor((width - mode_size.w) / 2), scale(14) }
+    table.insert(content, mode)
+    local tools = Pill:new{
+        text = "⋮", width = scale(36), height = scale(34), font_size = 18,
+        background = Blitbuffer.COLOR_BLACK, foreground = white,
+        callback = function()
+            state.view = "tools"
+            if context.requestRebuild then context.requestRebuild("ui") end
+        end,
+        overlap_offset = { width - margin - scale(36), scale(5) },
+    }
+    table.insert(content, tools)
 
-    local cover_height = math.max(scale(120), math.floor(height * 0.34))
-    local cover_width = math.min(math.floor(width - 2 * margin), math.floor(cover_height * 16 / 9))
-    local cover = self:_buildCover(entry and entry.cover or self:coverPathFor(play and play.path), cover_width, cover_height)
-    cover.overlap_offset = { math.floor((width - cover_width) / 2), scale(50) }
+    local cover_top = scale(48)
+    local cover_size
+    if dark then
+        cover_size = math.min(width - 2 * margin, math.floor(height * 0.41), height - scale(360))
+    else
+        cover_size = math.min(width - 2 * margin, math.floor(height * 0.30))
+    end
+    cover_size = math.max(scale(90), cover_size)
+    local cover = self:_buildCover(entry and entry.cover or self:coverPathFor(play and play.path), cover_size, cover_size)
+    cover.overlap_offset = { math.floor((width - cover_size) / 2), cover_top }
     table.insert(content, cover)
 
+    local title_y = cover_top + cover_size + scale(14)
     local title = TextWidget:new{
-        text = YouTube.fitText(play and play.title or "", width - 2 * margin, 15),
-        face = Font:getFace("cfont", scale(15)),
+        text = YouTube.fitText(play and play.title or "", width - 2 * margin, 16),
+        face = Font:getFace("cfont", scale(16)),
         bold = true,
-        fgcolor = Blitbuffer.COLOR_BLACK,
+        fgcolor = white,
         max_width = width - 2 * margin,
         padding = 0,
     }
-    title.overlap_offset = { margin, scale(50) + cover_height + scale(10) }
+    title.overlap_offset = { margin, title_y }
     table.insert(content, title)
-
-    local time_widget = TextWidget:new{
-        text = Music.formatPosition(self:_elapsed(play, monotonicNow()), play and play.duration),
-        face = Font:getFace("smallinfofont", scale(11)),
-        fgcolor = Blitbuffer.COLOR_DARK_GRAY,
+    local artist = TextWidget:new{
+        text = YouTube.fitText(play and play.artist ~= "" and play.artist or (entry and entry.artist or "YouTube Music"), width - 2 * margin, 12),
+        face = Font:getFace("smallinfofont", scale(12)),
+        fgcolor = dim,
+        max_width = width - 2 * margin,
         padding = 0,
     }
-    time_widget.overlap_offset = { margin, scale(50) + cover_height + scale(32) }
-    table.insert(content, time_widget)
-    if play then play.time_widget = time_widget end
+    artist.overlap_offset = { margin, title_y + scale(25) }
+    table.insert(content, artist)
 
-    local bar_y = scale(50) + cover_height + scale(52)
+    local info_y = title_y + scale(48)
+    if dark then
+        local chip_gap = scale(8)
+        local chip_width = math.floor((width - 2 * margin - 2 * chip_gap) / 3)
+        local like_key = play and play.path or ""
+        local liked = state.liked_paths and state.liked_paths[like_key]
+        table.insert(content, Pill:new{
+            text = liked and "♥  Liked" or "♡  Like", width = chip_width, height = scale(32),
+            background = dim, foreground = white,
+            callback = function()
+                state.liked_paths = state.liked_paths or {}
+                state.liked_paths[like_key] = not state.liked_paths[like_key]
+                if context.requestRebuild then context.requestRebuild("ui") end
+            end,
+            overlap_offset = { margin, info_y },
+        })
+        table.insert(content, Pill:new{
+            text = "▤  Saved", width = chip_width, height = scale(32),
+            background = dim, foreground = white,
+            callback = function()
+                UIManager:show(AppDockDialogs.InfoMessage:new{
+                    text = (play and play.title or "") .. "\n\n" .. (play and play.path or ""),
+                })
+            end,
+            overlap_offset = { margin + chip_width + chip_gap, info_y },
+        })
+        table.insert(content, Pill:new{
+            text = "⋯  More", width = chip_width, height = scale(32),
+            background = dim, foreground = white,
+            callback = function()
+                UIManager:show(AppDockDialogs.InfoMessage:new{
+                    text = (play and play.title or "") .. "\n\n" .. (play and play.artist or "YouTube Music"),
+                })
+            end,
+            overlap_offset = { margin + 2 * (chip_width + chip_gap), info_y },
+        })
+    end
+
+    local bar_y = info_y + (dark and scale(44) or scale(10))
     local bar = ProgressBar:new{
         ratio = play and play.duration and play.duration > 0
             and clamp(self:_elapsed(play, monotonicNow()) / play.duration, 0, 1) or 0,
-        width = width - 2 * margin, height = scale(14),
+        width = width - 2 * margin, height = scale(10),
+        background_color = dim, foreground_color = white, border_color = dim,
     }
     bar.overlap_offset = { margin, bar_y }
     table.insert(content, bar)
     if play then play.progress_widget = bar end
-
-    local controls_y = bar_y + scale(26)
-    local control_width = math.floor((width - 2 * margin - 3 * gap) / 4)
-    local paused = play and play.paused
-    table.insert(content, Pill:new{
-        text = paused and ("▶  " .. _("Play")) or ("Ⅱ  " .. _("Pause")),
-        width = control_width, height = scale(36),
-        background = Blitbuffer.COLOR_LIGHT_GRAY,
-        callback = function() self:togglePlayback(instance, context) end,
-        overlap_offset = { margin, controls_y },
-    })
-    table.insert(content, Pill:new{
-        text = "−15 s", width = control_width, height = scale(36),
-        background = Blitbuffer.COLOR_GRAY_8,
-        callback = function() self:seek(instance, context, -15) end,
-        overlap_offset = { margin + control_width + gap, controls_y },
-    })
-    table.insert(content, Pill:new{
-        text = "+15 s", width = control_width, height = scale(36),
-        background = Blitbuffer.COLOR_GRAY_8,
-        callback = function() self:seek(instance, context, 15) end,
-        overlap_offset = { margin + 2 * (control_width + gap), controls_y },
-    })
-    table.insert(content, Pill:new{
-        text = "↺  " .. _("Restart"), width = control_width, height = scale(36),
-        background = Blitbuffer.COLOR_GRAY_8,
-        callback = function()
-            if play then self:playEntry(instance, context, play.path, 0) end
-        end,
-        overlap_offset = { margin + 3 * (control_width + gap), controls_y },
-    })
-
-    local hint = TextWidget:new{
-        text = _("Seeking prepares a short clip of the track, which takes a moment on slow storage."),
-        face = Font:getFace("smallinfofont", scale(9)),
-        fgcolor = Blitbuffer.COLOR_DARK_GRAY,
-        max_width = width - 2 * margin,
+    local time_widget = TextWidget:new{
+        text = Music.formatPosition(self:_elapsed(play, monotonicNow())),
+        face = Font:getFace("smallinfofont", scale(10)),
+        fgcolor = dim,
         padding = 0,
     }
-    hint.overlap_offset = { margin, controls_y + scale(46) }
-    table.insert(content, hint)
+    time_widget.overlap_offset = { margin, bar_y + scale(14) }
+    table.insert(content, time_widget)
+    if play then play.time_widget = time_widget end
+    local duration_widget = TextWidget:new{
+        text = play and play.duration and Music.formatPosition(play.duration) or "0:00",
+        face = Font:getFace("smallinfofont", scale(10)),
+        fgcolor = dim,
+        padding = 0,
+    }
+    local duration_size = duration_widget:getSize()
+    duration_widget.overlap_offset = { width - margin - duration_size.w, bar_y + scale(14) }
+    table.insert(content, duration_widget)
+
+    local controls_y = bar_y + scale(38)
+    local control_gap = scale(6)
+    local control_width = math.floor((width - 2 * margin - 4 * control_gap) / 5)
+    local paused = play and play.paused
+    local controls = {
+        { text = "⤨", callback = function() state.shuffle = not state.shuffle end },
+        { text = "|◀", callback = function() self:skipTrack(instance, context, -1) end },
+        { text = paused and "▶" or "Ⅱ", primary = true, callback = function() self:togglePlayback(instance, context) end },
+        { text = "▶|", callback = function() self:skipTrack(instance, context, 1) end },
+        { text = state.repeat_track and "↻ 1" or "↻", callback = function() state.repeat_track = not state.repeat_track end },
+    }
+    for index, control in ipairs(controls) do
+        local button = control
+        table.insert(content, Pill:new{
+            text = button.text,
+            width = button.primary and scale(52) or control_width,
+            height = button.primary and scale(52) or scale(42),
+            font_size = button.primary and 23 or 17,
+            background = button.primary and white or Blitbuffer.COLOR_BLACK,
+            foreground = button.primary and Blitbuffer.COLOR_BLACK or white,
+            callback = function()
+                button.callback()
+                if context.requestRebuild then context.requestRebuild("ui") end
+            end,
+            overlap_offset = {
+                button.primary and math.floor((width - scale(52)) / 2) or (margin + (index - 1) * (control_width + control_gap)),
+                controls_y,
+            },
+        })
+    end
+
+    if dark then
+        local footer_y = height - scale(34)
+        local divider = FrameContainer:new{
+            width = width - 2 * margin, height = scale(1), padding = 0, bordersize = 0,
+            background = dim, emptySizedWidget(width - 2 * margin, scale(1)),
+        }
+        divider.overlap_offset = { margin, footer_y - scale(8) }
+        table.insert(content, divider)
+        local mix = TextWidget:new{
+            text = YouTube.fitText("Mix — " .. (play and play.title or "YouTube Music"), width - 2 * margin, 11),
+            face = Font:getFace("smallinfofont", scale(11)),
+            fgcolor = white,
+            max_width = width - 2 * margin,
+            padding = 0,
+        }
+        local mix_size = mix:getSize()
+        mix.overlap_offset = { math.floor((width - mix_size.w) / 2), footer_y + scale(2) }
+        table.insert(content, mix)
+    end
     return content
 end
 
@@ -1644,10 +1821,12 @@ function Music:onDAppClose(instance)
         Music._killDetached(state.search_handle)
         state.search_handle = nil
         if state.search_work then cleanupDirectory(state.search_work) end
+        state.search_work = nil
     end
 end
 
 Music._test = {
+    buildSearchCommand = Music.buildSearchCommand,
     buildAudioDownloadCommand = Music.buildAudioDownloadCommand,
     buildWavCommand = Music.buildWavCommand,
     coverUrls = Music.coverUrls,
