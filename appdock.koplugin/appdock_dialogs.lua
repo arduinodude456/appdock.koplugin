@@ -114,6 +114,10 @@ function Modal:close()
 end
 function Modal:onCloseWidget() self._closed=true; if self._auto_close then if UIManager.unschedule then UIManager:unschedule(self._auto_close) end; self._auto_close=nil end end
 function Modal:onCloseAppDockModal() self:close(); return true end
+-- A held physical page key may keep repeating after a power modal is opened.
+-- Consume those repeats here instead of letting KOReader dispatch them through
+-- a newly replaced widget tree.
+function Modal:onKeyRepeat() return true end
 function Modal:_buttonCallback(button)
     if not button or button.enabled == false or button.disabled then return true end
     local callback=button.callback

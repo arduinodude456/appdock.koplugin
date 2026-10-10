@@ -145,6 +145,7 @@ function HappyReaderScreen:onShow()
     UIManager:scheduleIn(.75, self._tick)
     return true
 end
+function HappyReaderScreen:onKeyRepeat() return true end
 function HappyReaderScreen:onCloseWidget()
     if self._tick then UIManager:unschedule(self._tick); self._tick = nil end
     restoreFrontlight(self._saved_frontlight)

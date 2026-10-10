@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.9.2** korrigiert den Aufbau der Draw-Zeichenfläche, damit Werkzeugleiste und Canvas an den vorgesehenen Positionen erscheinen. [Details](RELEASE_NOTES_7.9.2.md).
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.9.3** stabilisiert langes Halten der physischen Blättertasten, indem Power- und Screensaver-Ansicht erst nach Ende der Tastenwiederholung geöffnet werden. [Details](RELEASE_NOTES_7.9.3.md).
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst Androids Formensprache, nicht dessen Daueranimationen, Unschärfen oder Transparenzeffekte. Auf E-Ink wechseln App-Seiten und Recently-used-Drawer direkt und ohne Zwischenanimation. Damit bleibt die Darstellung auf monochromen Readern kontrastreich, sparsam und frei von unnötigem Ghosting.
 
@@ -28,6 +28,7 @@
 
 > **7.5.0:** Die erste Homescreen-Seite erhielt eine gebrandete **DuckDuckGo-Suchleiste**; der AppStore wurde mit Suchfeld, Empfehlungskarten, Installationsaktionen und unterer Kategorienavigation neu gestaltet. Angezeigt werden weiterhin nur echte Katalogdaten, ohne erfundene Bewertungen oder Screenshots. Details stehen in [`RELEASE_NOTES_7.5.0.md`](RELEASE_NOTES_7.5.0.md).
 
+> **7.9.3:** Bewahrt das Page-Key-Hold-Verhalten aus 7.8.51 und verschiebt den UI-Wechsel aus dem laufenden KOReader-Tastenwiederholungs-Callback. AppDock-Dialog und Screensaver verbrauchen verbliebene Wiederholungen der gehaltenen Taste. [Details](RELEASE_NOTES_7.9.3.md).
 > **7.9.2:** Korrigiert die Draw-Zeichenfläche: Werkzeugleiste und Canvas werden nun von einem `OverlapGroup` anhand ihrer absoluten Offsets platziert, statt am oberen linken Ursprung zu überlagern. [Details](RELEASE_NOTES_7.9.2.md).
 > **7.9.1:** Stellt die YouTube-Oberfläche aus 7.8.51 mit MiniPlayer für alle Videos als Standard wieder her; Vollbild bleibt eine bewusste Aktion. Die Farbkonvertierung verwendet für schnellere Skalierung `fast_bilinear`, ohne den reinen Fünf-Farben-Ausgabepfad oder die eingestellte Auflösung/FPS zu ändern. Draw erhält eine konfigurierbare Quick-Settings-Kachel, die bei vorhandenen Installationen einmalig ergänzt wird. [Details](RELEASE_NOTES_7.9.1.md).
 > **7.9.0:** Ergänzt **Draw** als integrierte DApp und optionales YouTube-Video in reinen RGB-Farben. Auswahl-, Eingabe-, Bestätigungs- und Statusdialoge der AppDock-Oberfläche verwenden jetzt eigene AppDock-Overlays; WLAN-Statusfenster stammen ebenfalls aus AppDock. [Details](RELEASE_NOTES_7.9.0.md).

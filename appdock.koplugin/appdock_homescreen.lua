@@ -743,11 +743,16 @@ function AppDockHomeScreen:_pageKeyRepeat(direction)
     self._page_hold_shown = self._page_hold_shown or { up = false, down = false }
     if self._page_hold_shown[direction] then return true end
     self._page_hold_shown[direction] = true
-    if direction == "up" then
-        DeviceControls.showPowerMenu()
-    else
-        DeviceControls.showScreensaver()
-    end
+    -- Do not replace the active UI tree while KOReader is still dispatching a
+    -- hardware key-repeat. The 7.8.51 hold behavior is preserved; only the
+    -- resulting overlay/saver is deferred until the event dispatch has ended.
+    UIManager:nextTick(function()
+        if direction == "up" then
+            DeviceControls.showPowerMenu()
+        else
+            DeviceControls.showScreensaver()
+        end
+    end)
     return true
 end
 function AppDockHomeScreen:onKeyRepeat(key)
