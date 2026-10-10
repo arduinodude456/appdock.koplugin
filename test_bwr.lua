@@ -250,6 +250,22 @@ local rgb_frame=assert(BWR.expandColorFrame(red_indices,8,8))
 local red_pixel=ffi.cast("ColorRGB32*",rgb_frame.data)[0]
 assert(red_pixel.r==255 and red_pixel.g==0 and red_pixel.b==0 and red_pixel.alpha==255,
     "Color display expansion must write pure red without channel mixing")
+local palette_frame=assert(BWR.expandColorFrame(string.char(1,2,3,4,5,0,6,3),8,1))
+local expanded=ffi.cast("ColorRGB32*",palette_frame.data)
+local expected_colors={{255,255,255},{0,0,0},{255,0,0},{0,255,0},{0,0,255},{255,255,255},{255,255,255},{255,0,0}}
+for index,expected_color in ipairs(expected_colors) do
+    local pixel=expanded[index-1]
+    assert(pixel.r==expected_color[1] and pixel.g==expected_color[2] and pixel.b==expected_color[3]
+        and pixel.alpha==255, "Fast color expansion must preserve palette index "..(index-1))
+end
+color_enabled=false
+local grey_frame=assert(BWR.expandColorFrame(string.char(1,2,3,4,5,0,6,3),8,1))
+local grey_pixels=ffi.cast("uint8_t*",grey_frame.data)
+local expected_luminance={255,0,76,150,29,255,255,76}
+for index,expected_value in ipairs(expected_luminance) do
+    assert(grey_pixels[index-1]==expected_value, "Fast monochrome expansion must preserve palette luminance")
+end
+color_enabled=true
 brc_file:close(); os.remove(brc_path)
 
 print("AppDock BWR1/BWR2/BRC2 test: OK")

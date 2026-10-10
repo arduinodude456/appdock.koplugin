@@ -872,6 +872,20 @@ function BWR.expandFrame(packed, width, height)
     return bb
 end
 
+local COLOR_RGB32_LUT
+local COLOR_LUMINANCE_LUT = ffi.new("uint8_t[6]", { 255, 255, 0, 76, 150, 29 })
+
+local function getColorRGB32LUT(Blitbuffer)
+    if not COLOR_RGB32_LUT then
+        local colors = ffi.new("ColorRGB32[6]")
+        for index, color in ipairs(BWR.COLOR_PALETTE) do
+            colors[index] = Blitbuffer.ColorRGB32(color[1], color[2], color[3], 0xFF)
+        end
+        COLOR_RGB32_LUT = colors
+    end
+    return COLOR_RGB32_LUT
+end
+
 function BWR.expandColorFrame(packed, width, height)
     local Blitbuffer = getBlitbuffer()
     if not Blitbuffer then return nil, _("The E-Ink framebuffer module is unavailable.") end
@@ -885,17 +899,22 @@ function BWR.expandColorFrame(packed, width, height)
         if ok then bb=result end
     end
     if not bb then bb=Blitbuffer.new(width,height,Blitbuffer.TYPE_BB8); color_screen=false end
-    local palette=BWR.COLOR_PALETTE
+    local source=ffi.cast("const uint8_t*",packed)
     if color_screen then
         local destination=ffi.cast("ColorRGB32*",bb.data)
+        local colors=getColorRGB32LUT(Blitbuffer)
         for index=0,expected-1 do
-            local color=palette[packed:byte(index+1)] or palette[1]
-            destination[index]=Blitbuffer.ColorRGB32(color[1],color[2],color[3],0xFF)
+            local color_index=source[index]
+            if color_index < 1 or color_index > 5 then color_index=1 end
+            destination[index]=colors[color_index]
         end
     else
-        local luminance={255,0,76,150,29}
         local bytes=ffi.cast("uint8_t*",bb.data)
-        for index=0,expected-1 do bytes[index]=luminance[packed:byte(index+1)] or 255 end
+        for index=0,expected-1 do
+            local color_index=source[index]
+            if color_index < 1 or color_index > 5 then color_index=0 end
+            bytes[index]=COLOR_LUMINANCE_LUT[color_index]
+        end
     end
     return bb
 end
