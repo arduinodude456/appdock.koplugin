@@ -283,6 +283,36 @@ assert(search_state.results[1].uploader == "Daft Punk" and search_state.results[
 assert(search_state.note:find("available results", 1, true),
     "Partial result sets must be shown with a clear partial-results notice")
 
+-- A missing ffmpeg must not hide search results behind the shared tool setup
+-- pane: yt-dlp is sufficient to search and display results; ffmpeg is only
+-- required after the user selects a track for conversion.
+local setup_pane_built = false
+appdock.getDAppManager = function()
+    return { youtube = {
+        _state = function() return { bootstrap_attempted = true } end,
+        _buildSetupPane = function() setup_pane_built = true; return emptySizedWidget(600, 748) end,
+    } }
+end
+local partial_tools_instance = {}
+local partial_tools_state = music:_state(partial_tools_instance)
+partial_tools_state.tools = { ytdlp = "/tools/yt-dlp", ffmpeg = nil, ready = false }
+partial_tools_state.view = "results"
+partial_tools_state.search_query = "Daft Punk"
+partial_tools_state.results = {
+    { id = "abc12345678", title = "Daft Punk - One More Time", uploader = "Daft Punk", duration = 320 },
+}
+local partial_tools_pane = music:buildPane(partial_tools_instance, context)
+assert(not setup_pane_built,
+    "Missing ffmpeg must not replace the active search-results pane with tool setup")
+local visible_result_row
+for _, widget in ipairs(partial_tools_pane[1]) do
+    if widget.title == "Daft Punk - One More Time" then visible_result_row = widget; break end
+end
+assert(visible_result_row and visible_result_row.dimen.w > 0 and visible_result_row.dimen.h > 0
+        and visible_result_row.overlap_offset and visible_result_row.overlap_offset[2] > 0,
+    "The results pane must contain a laid-out, visible row even when ffmpeg is unavailable")
+appdock.getDAppManager = function() return nil end
+
 -- A failed/empty search must stay on a visible diagnostic pane; the old
 -- behavior returned to the empty library and left only a tiny footer message.
 local failed_search_instance = {}
