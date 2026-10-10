@@ -1994,9 +1994,9 @@ end
 function YouTube:confirmDelete(instance, context, entry)
     local dialog
     dialog = InputDialog:new{
-        title = _("Delete video"),
+        title = _("Delete this video from the Library?") .. "\n" .. tostring(entry.name or ""),
         input = "",
-        input_hint = _("Delete only removes the converted files, never the source."),
+        input_hint = _("Delete removes only the converted files; the original source is kept."),
         buttons = {
             {
                 { text = _("Cancel"), id = "close", callback = function() UIManager:close(dialog) end },
@@ -2004,10 +2004,17 @@ function YouTube:confirmDelete(instance, context, entry)
                     text = _("Delete"),
                     callback = function()
                         UIManager:close(dialog)
-                        os.remove(entry.path)
-                        if entry.has_audio then os.remove(entry.path:gsub("%.bwr$", ".wav")) end
-                        self:scanLibrary(instance, context)
-                        self:_notify(instance, context, _("Deleted") .. " " .. entry.name)
+                        local video_removed = os.remove(entry.path)
+                        os.remove(entry.path:gsub("%.bwr$", ".wav"))
+                        -- Remove legacy downloaded thumbnails as well; current
+                        -- thumbnails are read directly from the first BWR frame.
+                        os.remove(entry.path:gsub("%.bwr$", ".jpg"))
+                        if not video_removed and fileExists(entry.path) then
+                            self:_notify(instance, context, _("The video could not be deleted."))
+                        else
+                            self:scanLibrary(instance, context)
+                            self:_notify(instance, context, _("Deleted") .. " " .. entry.name)
+                        end
                         if context and context.requestRebuild then context.requestRebuild("ui") end
                     end,
                 },
@@ -2330,7 +2337,9 @@ function YouTube:_buildResultsPane(instance, context, state)
     buildList(content, entries, state.result_page, per_page, top, row_height, gap, function(entry)
         if state.library_mode then self:play(instance, context, entry.result.path)
         else self:startVideo(instance, context, entry.result) end
-    end)
+    end, state.library_mode and function(entry)
+        self:confirmDelete(instance, context, entry.result)
+    end or nil)
     local pager = listPager(width - 2 * margin, pager_height, state.result_page, total_pages,
         function()
             state.result_page = math.max(1, state.result_page - 1)
