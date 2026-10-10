@@ -28,15 +28,21 @@ local ColorRGB32 = ffi.metatype("AppDockDrawTestColor", {
     end,
 })
 package.preload["gettext"]=function() return function(s) return s end end
-package.preload["ffi/blitbuffer"]=function() return {COLOR_WHITE=1,COLOR_BLACK=2,COLOR_GRAY_8=3,ColorRGB32=function(r,g,b,a) return ColorRGB32(r,g,b,a or 0xFF) end} end
+package.preload["ffi/blitbuffer"]=function() return {COLOR_WHITE=1,COLOR_BLACK=2,COLOR_GRAY_8=3,COLOR_LIGHT_GRAY=4,ColorRGB32=function(r,g,b,a) return ColorRGB32(r,g,b,a or 0xFF) end} end
 package.preload["device"]=function() return {screen={getSize=function() return {w=600,h=800} end,scaleBySize=function(_,v) return v end,isColorEnabled=function() return color_enabled end}} end
-package.preload["ui/font"]=function() return {getFace=function() return {} end} end
 package.preload["ui/geometry"]=function() return {new=function(_,a) return a end} end
 package.preload["ui/gesturerange"]=function() return {new=function(_,a) return a end} end
 package.preload["ui/widget/container/inputcontainer"]=function() return Widget end
 package.preload["ui/widget/container/widgetcontainer"]=function() return Widget end
 package.preload["ui/widget/overlapgroup"]=function() return OverlapGroup end
-package.preload["ui/widget/textwidget"]=function() return Widget end
+local Button=Widget:extend{}
+function Button:init()
+    self.dimen={x=0,y=0,w=self.width,h=self.height}
+    self.ges_events={TapSelectButton={{range=self.dimen}}}
+end
+function Button:paintTo(_,x,y) self.dimen.x,self.dimen.y=x,y end
+function Button:onTapSelectButton() if self.callback then self.callback() end; return true end
+package.preload["ui/widget/button"]=function() return Button end
 package.preload["ui/uimanager"]=function() return {} end
 local Draw=dofile(plugin_dir.."appdock_draw.lua")
 for _,v in ipairs({0,1,127,254,255}) do
@@ -70,14 +76,19 @@ assert(pane.is_overlap_group and pane.dimen.w==600 and pane.dimen.h==800,
 local canvas,pen
 for _,child in ipairs(pane) do
     if child.app==app then canvas=child end
-    if child.label=="Pen" then pen=child end
+    if child.text=="Pen" then pen=child end
 end
 assert(canvas and canvas.overlap_offset[1]>0 and canvas.overlap_offset[2]>0,
     "The Draw canvas must be positioned below the toolbar instead of at the top-left origin")
 assert(pen,"The Draw pane must construct an actionable toolbar button")
+assert(pen.background==4 and pen.text_font_bold and pen.text_font_size>=14,
+    "Draw toolbar labels must use a high-contrast surface and a larger bold native button font")
 pen:paintTo({paintRect=function() end},11,57)
-assert(pen.ges_events.TapToolButton[1].range().x==11 and pen.ges_events.TapToolButton[1].range().y==57,
+assert(pen.ges_events.TapSelectButton[1].range.x==11 and pen.ges_events.TapSelectButton[1].range.y==57,
     "Toolbar hit geometry must follow its actual screen-space paint coordinates")
+app.tool="eraser"
+assert(pen:onTapSelectButton() and app.tool=="pen",
+    "The native Draw toolbar button must still invoke its tool action")
 local first_rect
 local paint_x,paint_y=13,153
 canvas:paintTo({paintRect=function(_,x,y,w,h,color) if not first_rect then first_rect={x=x,y=y,w=w,h=h,color=color} end end},paint_x,paint_y)

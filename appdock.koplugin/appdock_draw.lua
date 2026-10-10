@@ -3,12 +3,11 @@
 local Blitbuffer = require("ffi/blitbuffer")
 local ffi = require("ffi")
 local Device = require("device")
-local Font = require("ui/font")
 local Geom = require("ui/geometry")
 local GestureRange = require("ui/gesturerange")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local OverlapGroup = require("ui/widget/overlapgroup")
-local TextWidget = require("ui/widget/textwidget")
+local Button = require("ui/widget/button")
 local UIManager = require("ui/uimanager")
 local _ = require("gettext")
 local Draw = {}
@@ -174,16 +173,6 @@ function Canvas:refreshFast()
     UIManager:setDirty(nil,"fast",Geom:new{x=self.origin_x,y=self.origin_y,w=self.dimen.w,h=self.dimen.h})
     if UIManager.forceRePaint then UIManager:forceRePaint() end
     if UIManager.yieldToEPDC then UIManager:yieldToEPDC() end
-end
-local ToolButton=InputContainer:extend{label=nil,callback=nil,width=nil,height=nil,dimen=nil}
-function ToolButton:init() self.dimen=Geom:new{w=self.width,h=self.height}; self.ges_events={TapToolButton={GestureRange:new{ges="tap",range=function() return self.dimen end}}} end
-function ToolButton:onTapToolButton() if self.callback then self.callback() end; return true end
-function ToolButton:paintTo(bb,x,y)
-    self.dimen.x,self.dimen.y=x,y
-    local fg=Blitbuffer.COLOR_BLACK
-    bb:paintRect(x,y,self.width,self.height,Blitbuffer.COLOR_GRAY_8)
-    local t=TextWidget:new{text=self.label,face=Font:getFace("smallinfofont",scale(11)),fgcolor=fg,align="center",max_width=self.width-4}
-    t:paintTo(bb,x+2,y+math.floor((self.height-scale(14))/2))
 end
 local function u16(n) return string.char(n%256,math.floor(n/256)%256) end
 function Draw:new() return setmetatable({layers={},active=1,color=2,tool="pen",brush_size=2,color_dither=false,pressure_enabled=true},self) end
@@ -359,7 +348,22 @@ function Draw:buildPane(instance,context)
     local cols=math.max(1,math.floor(w/safeScale(76))); local bw=math.floor((w-margin*2)/cols); local bh=safeScale(34)
     for i,item in ipairs(controls) do
         local x=margin+((i-1)%cols)*bw; local y=margin+math.floor((i-1)/cols)*bh
-        if y+bh<=bar+safeScale(36) then pane[#pane+1]=ToolButton:new{label=item[1],callback=function() item[2](); if context.requestRebuild then context.requestRebuild("ui") end end,width=math.max(1,bw-safeScale(3)),height=math.max(1,bh-safeScale(3)),overlap_offset={x,y}} end
+        if y+bh<=bar+safeScale(36) then
+            pane[#pane+1]=Button:new{
+                text=item[1],
+                callback=function() item[2](); if context.requestRebuild then context.requestRebuild("ui") end end,
+                width=math.max(1,bw-safeScale(3)),
+                height=math.max(1,bh-safeScale(3)),
+                background=Blitbuffer.COLOR_LIGHT_GRAY,
+                text_font_face="cfont",
+                text_font_size=safeScale(15),
+                text_font_bold=true,
+                bordersize=safeScale(1),
+                padding_h=safeScale(2),
+                padding_v=0,
+                overlap_offset={x,y},
+            }
+        end
     end
     local cy=bar+safeScale(38)
     canvas.dimen=Geom:new{x=margin,y=cy,w=canvas_w,h=canvas_h}
