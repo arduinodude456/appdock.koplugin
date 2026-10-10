@@ -446,9 +446,12 @@ function Writer:writeFrame(frame)
         return nil, _("The packed frame has the wrong size for BWR2.")
     end
     if self.frames >= BWR.MAX_FRAMES then return nil, _("The BWR2 frame limit was reached.") end
-    local offset, seek_error = self.handle:seek("cur")
-    if offset == nil or offset > 4294967295 then
-        return nil, seek_error or _("The BWR2 file exceeded its 32-bit offset limit.")
+    -- Packets are always appended, so the tracked byte count is the exact file
+    -- offset. Asking the file for it would cost one syscall per frame, which is
+    -- measurable while converting a long video on a reader.
+    local offset = self.bytes_written
+    if offset > 4294967295 then
+        return nil, _("The BWR2 file exceeded its 32-bit offset limit.")
     end
 
     local frame_index = self.frames

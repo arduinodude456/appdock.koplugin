@@ -221,7 +221,7 @@ local EXTENDED_KINDS = {
     "dictionary", "document", "download", "gallery", "location", "mail", "map", "music", "palette",
     "notes", "podcast", "reading", "rss", "search", "security", "sync", "tasks", "terminal",
     "timer", "translate", "upload", "weather", "battery", "dchat", "dockupdate", "minecraft", "rotation",
-    "youtube",
+    "youtube", "youtube_music", "draw",
 }
 
 function DAppLogo.availableKinds()
@@ -311,6 +311,25 @@ function DAppLogo:_paintExtended(bb, x, y, size, kind)
             local width = triangle_width * (1 - math.abs(2 * position - 1))
             rect(triangle_left, triangle_top + row, math.max(1, math.floor(width + 0.5)), 1)
         end
+    elseif kind == "youtube_music" then
+        -- The same rounded screen as the YouTube mark, but with a note instead
+        -- of a play triangle: audio-only tracks stay recognisably related.
+        hollow(x + math.floor(size * 0.08), y + math.floor(size * 0.24),
+            math.floor(size * 0.84), math.floor(size * 0.52), stroke)
+        line(bb, x + math.floor(size * 0.60), y + math.floor(size * 0.34),
+            x + math.floor(size * 0.60), y + math.floor(size * 0.60), stroke, self.ink)
+        line(bb, x + math.floor(size * 0.60), y + math.floor(size * 0.34),
+            x + math.floor(size * 0.74), y + math.floor(size * 0.38), stroke, self.ink)
+        rect(x + math.floor(size * 0.48), y + math.floor(size * 0.56), math.floor(size * 0.16), math.floor(size * 0.13))
+        rect(x + math.floor(size * 0.30), y + math.floor(size * 0.60), math.floor(size * 0.16), math.floor(size * 0.13))
+    elseif kind == "draw" then
+        -- A pencil above the stroke it just drew.
+        local tip_x, tip_y = x + math.floor(size * 0.26), y + math.floor(size * 0.70)
+        local top_x, top_y = x + math.floor(size * 0.70), y + math.floor(size * 0.26)
+        line(bb, tip_x, tip_y, top_x, top_y, stroke, self.ink)
+        line(bb, tip_x + stroke, tip_y - stroke, top_x + stroke, top_y - stroke, thin, self.ink)
+        line(bb, x + math.floor(size * 0.16), y + math.floor(size * 0.86),
+            x + math.floor(size * 0.76), y + math.floor(size * 0.86), thin, self.ink)
     elseif kind == "palette" then
         hollow(left, top, right - left, bottom - top, stroke)
         local swatch = math.max(thin * 2, math.floor(size * 0.18))

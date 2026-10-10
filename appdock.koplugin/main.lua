@@ -29,6 +29,7 @@ local DEFAULT_SETTINGS = {
         "dapp:file_manager",
         "dapp:app_store",
         "dapp:youtube",
+        "dapp:youtube_music",
         "dapp:draw",
         "dapp:analog_clock",
         "dapp:settings",
@@ -71,6 +72,7 @@ local DEFAULT_SETTINGS = {
         ytdlp_path = "",
         ffmpeg_path = "",
         output_dir = "",
+        music_dir = "",
         resolution_percent = 100,
         fps = 12,
         max_duration = 180,
@@ -79,7 +81,7 @@ local DEFAULT_SETTINGS = {
         color_mode = false,
         color_dither = true,
     },
-    layout_version = 24,
+    layout_version = 25,
 }
 
 local function copyArray(source)
@@ -113,6 +115,9 @@ local function normalizeYouTubeSettings(stored)
         ytdlp_path = boundedText(stored.ytdlp_path, 360),
         ffmpeg_path = boundedText(stored.ffmpeg_path, 360),
         output_dir = boundedText(stored.output_dir, 360),
+        -- The YouTube Music DApp keeps its tracks in their own folder; the tool
+        -- paths and the length limit above are shared with the video DApp.
+        music_dir = boundedText(stored.music_dir, 360),
         resolution_percent = (resolution and YOUTUBE_RESOLUTIONS[resolution]) and resolution or 100,
         fps = (frame_rate and YOUTUBE_FRAME_RATES[frame_rate]) and frame_rate or 12,
         max_duration = (duration and duration >= 0 and duration <= 3600) and math.floor(duration) or 180,
@@ -276,6 +281,21 @@ function AppDock:_loadSettings()
                 if app_id == "dapp:youtube" then insert_at = index + 1 break end
             end
             table.insert(self.settings.pinned_apps, insert_at or (#self.settings.pinned_apps + 1), "dapp:draw")
+        end
+    end
+    if self.settings.layout_version < 25 then
+        -- Offer the new audio-only YouTube Music DApp once. It shares yt-dlp and
+        -- ffmpeg with the YouTube DApp, so it costs no additional setup.
+        local pinned_music = false
+        for _, app_id in ipairs(self.settings.pinned_apps) do
+            if app_id == "dapp:youtube_music" then pinned_music = true break end
+        end
+        if not pinned_music then
+            local insert_at
+            for index, app_id in ipairs(self.settings.pinned_apps) do
+                if app_id == "dapp:youtube" or app_id == "dapp:draw" then insert_at = index + 1 break end
+            end
+            table.insert(self.settings.pinned_apps, insert_at or (#self.settings.pinned_apps + 1), "dapp:youtube_music")
         end
     end
     if self.settings.layout_version < DEFAULT_SETTINGS.layout_version then self.settings.layout_version = DEFAULT_SETTINGS.layout_version end

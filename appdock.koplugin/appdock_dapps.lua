@@ -28,6 +28,7 @@ local WebBrowser = require("appdock_browser")
 local FileBrowser = require("appdock_filemanager")
 local AppStore = require("appdock_appstore")
 local YouTube = require("appdock_youtube")
+local YouTubeMusic = require("appdock_ytmusic")
 local Draw = require("appdock_draw")
 local InfoMessage = AppDockDialogs.InfoMessage
 local OverlapGroup = require("ui/widget/overlapgroup")
@@ -1017,6 +1018,7 @@ function DAppManager:new(appdock)
         file_browser = FileBrowser:new(),
         app_store = AppStore:new(),
         youtube = YouTube:new(appdock),
+        youtube_music = YouTubeMusic:new(appdock),
         draw = Draw:new(),
         help = Help:new({
             scale = scale, palette = PALETTE, Geom = Geom, Font = Font,
@@ -1099,6 +1101,21 @@ function DAppManager:_registerBuiltins()
         end,
         onClose = function()
             if self.youtube and self.youtube.player then self.youtube.player:stop() end
+        end,
+    }
+    self.definitions.youtube_music = {
+        id = "youtube_music",
+        title = _("YouTube Music"),
+        subtitle = _("Audio-only downloads with full-color cover art"),
+        symbol = "M",
+        logo = "youtube_music",
+        buildPane = function(instance, context)
+            return self.youtube_music:buildPane(instance, context)
+        end,
+        onClose = function(instance)
+            if self.youtube_music and self.youtube_music.onDAppClose then
+                self.youtube_music:onDAppClose(instance)
+            end
         end,
     }
     self.definitions.draw = {
@@ -3771,8 +3788,19 @@ function DAppWindowHost:_updateWindow(position, resize, persist)
         self.manager:_persistWindowGeometry(self.dapp_id, self.window_rect)
     end
     self:rebuild(true)
-    UIManager:setDirty(self, persist and "ui" or "fast")
-    if not persist and UIManager.forceRePaint then UIManager:forceRePaint() end
+    if persist then
+        -- Moving and resizing a window leaves the previous frame outline behind
+        -- on E-Ink: the regional fast refreshes during the gesture cannot clear
+        -- it. The gesture therefore ends with one full screen refresh of the
+        -- window host, which repaints the whole surface without leftovers.
+        UIManager:setDirty(self, "full")
+        if UIManager.forceRePaint then UIManager:forceRePaint() end
+        if UIManager.yieldToEPDC then UIManager:yieldToEPDC() end
+    else
+        UIManager:setDirty(self, "fast")
+        if UIManager.forceRePaint then UIManager:forceRePaint() end
+        if UIManager.yieldToEPDC then UIManager:yieldToEPDC() end
+    end
     return true
 end
 
