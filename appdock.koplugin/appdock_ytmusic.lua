@@ -1813,7 +1813,11 @@ function Music:buildPane(instance, context)
 
     -- Missing tools reuse the YouTube setup flow: it installs the same two
     -- executables and reports its live progress with the same pane.
-    if not tools.ready and state.view ~= "tools" then
+    -- Search results only require yt-dlp. Do not replace an active search,
+    -- its diagnostics, or the results list with the shared setup pane merely
+    -- because ffmpeg is unavailable; ffmpeg is needed only when a result is
+    -- selected for conversion.
+    if not tools.ready and (state.view == "home" or state.view == "tools") then
         local youtube = self:_youtube()
         if youtube and youtube._buildSetupPane then
             local youtube_state = youtube:_state(instance)
