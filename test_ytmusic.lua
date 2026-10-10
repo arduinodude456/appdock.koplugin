@@ -150,6 +150,18 @@ local helpers = Music._test
 -- Audio-only download contract
 ----------------------------------------------------------------
 
+local search_command = helpers.buildSearchCommand("/tools/yt-dlp", "Daft Punk discovery")
+assert(search_command:find("ytsearch8:Daft Punk discovery", 1, true),
+    "Music search must pass the complete query as a yt-dlp search expression")
+assert(search_command:find("--flat-playlist", 1, true) and search_command:find("--playlist-end 8", 1, true),
+    "Music search must return a bounded list of lightweight search results")
+assert(search_command:find("--skip-download", 1, true),
+    "Searching must only fetch metadata; downloading begins only after the user chooses a result")
+assert(search_command:find("--socket-timeout 20", 1, true),
+    "Music search must not hang indefinitely on a slow or stalled network")
+assert(helpers.buildSearchCommand("/tools/yt-dlp", "  ") == nil,
+    "An empty search query must not start yt-dlp")
+
 local download = helpers.buildAudioDownloadCommand(
     "/tools/yt-dlp", "/tmp/source.media", "https://www.youtube.com/watch?v=abc12345678")
 assert(download:find("bestaudio", 1, true), "Music downloads must ask for the audio-only stream")
@@ -235,6 +247,38 @@ local home_pane = music:buildPane(instance, context)
 assert(home_pane and home_pane[1], "The music home pane must build")
 assert(state.view == "home", "A DApp without tools must land on its library, not on setup")
 
+-- yt-dlp can return a non-zero status after YouTube has already yielded some
+-- usable search rows (for example, one blocked result in an otherwise valid
+-- result page). Keep and display those rows rather than reporting total failure.
+local search_instance = {}
+local search_state = music:_state(search_instance)
+search_state.tools = { ytdlp = "/tools/yt-dlp", ffmpeg = "/tools/ffmpeg", ready = true }
+local captured_search_command, fake_handle = nil, {}
+local old_start_detached = music._startDetached
+local old_poll_detached = Music._pollDetached
+music._startDetached = function(_, command, _, tag)
+    captured_search_command = command
+    assert(tag == "search", "Search must use its own detached result log")
+    return fake_handle
+end
+Music._pollDetached = function(handle)
+    assert(handle == fake_handle, "Search polling must inspect the started search process")
+    return 1, "abc12345678\tDaft Punk - One More Time\t320\tDaft Punk\thttps://i.ytimg.com/vi/abc12345678/hqdefault.jpg\n"
+end
+assert(music:startSearch(search_instance, context, "Daft Punk"), "Music search must start")
+assert(captured_search_command and captured_search_command:find("ytsearch8:Daft Punk", 1, true),
+    "The detached search must receive the user's actual query")
+assert(#scheduled > 0, "A running Music search must schedule result polling")
+table.remove(scheduled, 1)()
+music._startDetached = old_start_detached
+Music._pollDetached = old_poll_detached
+assert(search_state.view == "results" and #search_state.results == 1,
+    "Usable YouTube search results must survive a non-zero yt-dlp exit status")
+assert(search_state.results[1].uploader == "Daft Punk" and search_state.results[1].title == "Daft Punk - One More Time",
+    "Music search must retain the result artist and title")
+assert(search_state.note:find("available results", 1, true),
+    "Partial result sets must be shown with a clear partial-results notice")
+
 local library = music:scanLibrary(instance, context)
 assert(type(library) == "table" and #library == 0, "An empty music folder must produce an empty library")
 
@@ -295,6 +339,30 @@ assert(track.duration and math.abs(track.duration - 2) < 0.4,
     "The converted track must keep the source duration, found " .. tostring(track.duration))
 assert(track.size > 44, "The converted track must contain audio data")
 assert(not track.path:match("%.bwr$"), "Music must never produce a converted video file")
+
+local artist_file = assert(io.open(music:artistPathFor(track.path), "wb"))
+artist_file:write("Test Artist")
+artist_file:close()
+tracks = music:scanLibrary(local_instance, context)
+track = tracks[1]
+assert(track.artist == "Test Artist", "The library must restore the saved artist for the player screen")
+state.play = {
+    path = track.path,
+    title = track.title,
+    artist = track.artist,
+    paused = true,
+    offset = 0,
+    started_at = os.time(),
+    duration = track.duration,
+}
+local player_pane = music:_buildPlayerPane(local_instance, context, state)
+assert(player_pane[1].background == "black", "The now-playing screen must use YouTube Music's dark full-player treatment")
+local found_artist, found_mix = false, false
+for _, widget in ipairs(player_pane) do
+    if widget.text == "Test Artist" then found_artist = true end
+    if widget.text and widget.text:find("Mix —", 1, true) then found_mix = true end
+end
+assert(found_artist and found_mix, "The player must show artist attribution and a compact mix footer")
 
 local handle = assert(io.open(track.path, "rb"))
 local info = assert(Audio.readWavInfo(handle))
