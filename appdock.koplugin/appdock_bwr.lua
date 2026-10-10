@@ -534,10 +534,14 @@ end
 local Reader = {}
 Reader.__index = Reader
 
-local function rle_decode(data, output, expected_bytes)
-    local input_index, output_index = 1, 0
-    while input_index <= #data do
-        local control = data:byte(input_index)
+local function rle_decode(data, data_offset, data_length, output, expected_bytes)
+    -- Read directly from the packet string. Calling data:sub() for every
+    -- literal run used to allocate a new Lua string while decoding every
+    -- frame, which creates avoidable memory pressure during long playback.
+    local source = ffi.cast("const uint8_t*", data) + data_offset
+    local input_index, output_index = 0, 0
+    while input_index < data_length do
+        local control = source[input_index]
         input_index = input_index + 1
         local count
         if control < 128 then
@@ -546,8 +550,8 @@ local function rle_decode(data, output, expected_bytes)
             ffi.fill(output + output_index, count, 0)
         else
             count = control - 127
-            if output_index + count > expected_bytes or input_index + count - 1 > #data then return nil end
-            ffi.copy(output + output_index, data:sub(input_index, input_index + count - 1), count)
+            if output_index + count > expected_bytes or input_index + count > data_length then return nil end
+            ffi.copy(output + output_index, source + input_index, count)
             input_index = input_index + count
         end
         output_index = output_index + count
@@ -558,9 +562,12 @@ end
 
 local function xor_delta(reader, previous)
     if not previous then return nil, _("A BWR2 delta frame has no previous frame.") end
-    ffi.copy(reader.previous, previous, reader.frame_bytes)
+    local source = ffi.cast("const uint8_t*", previous)
     for index = 0, reader.frame_bytes - 1 do
-        reader.output[index] = bit.bxor(reader.delta[index], reader.previous[index])
+        -- Inflate/RLE decode already wrote the delta into output. XOR it in
+        -- place against the cached Lua frame instead of copying both inputs to
+        -- separate full-frame scratch arrays.
+        reader.output[index] = bit.bxor(reader.output[index], source[index])
     end
     return ffi.string(reader.output, reader.frame_bytes)
 end
@@ -601,23 +608,25 @@ function BWR.newReader(handle, header)
     end
     reader.file_end = file_end
     reader.zlib_available = zlib ~= nil
+    -- Playback needs one decompression/output buffer. The previous decoded
+    -- frame is already retained as a Lua string in cache_frame, so separate
+    -- frame-sized `delta` and `previous` FFI arrays only duplicated memory.
     reader.output = ffi.new("uint8_t[?]", header.frame_bytes)
-    reader.delta = ffi.new("uint8_t[?]", header.frame_bytes)
-    reader.previous = ffi.new("uint8_t[?]", header.frame_bytes)
     if zlib then
-        reader.z_input = ffi.new("uint8_t[?]", header.frame_bytes + 1024)
         reader.z_output_length = ffi.new("appdock_z_uLong[1]")
     end
     handle:seek("set", BWR.HEADER_BYTES)
     return reader
 end
 
-function Reader:_inflate(payload)
+function Reader:_inflate(packet, payload_offset, payload_length)
     if not zlib then return nil, _("This BWR2 video needs the system zlib library to decode a frame.") end
-    if #payload > self.frame_bytes + 1024 then return nil, _("The BWR2 compressed frame is too large.") end
-    ffi.copy(self.z_input, payload, #payload)
+    if payload_length > self.frame_bytes + 1024 then return nil, _("The BWR2 compressed frame is too large.") end
+    local source = ffi.cast("const appdock_z_Bytef*", packet) + payload_offset
     self.z_output_length[0] = self.frame_bytes
-    local status = zlib.uncompress(self.output, self.z_output_length, self.z_input, #payload)
+    -- zlib's input argument is const. Point it directly at the packet string
+    -- instead of copying up to a whole decoded frame into another FFI buffer.
+    local status = zlib.uncompress(self.output, self.z_output_length, source, payload_length)
     if status ~= 0 or tonumber(self.z_output_length[0]) ~= self.frame_bytes then
         return nil, _("The BWR2 compressed frame is invalid.")
     end
@@ -639,38 +648,37 @@ function Reader:_readPacket(previous, keyframe)
     end
     local packet = self.handle:read(length)
     if not packet or #packet ~= length then return nil, _("The BWR2 frame packet is truncated.") end
-    local codec = packet:byte(1)
-    local payload = packet:sub(2)
+    local source = ffi.cast("const uint8_t*", packet)
+    local codec = source[0]
+    local payload_length = length - 1
     local packed
     if codec == 0 then
-        if #payload ~= self.frame_bytes then return nil, _("The raw BWR2 frame has the wrong size.") end
-        ffi.copy(self.output, payload, self.frame_bytes)
+        if payload_length ~= self.frame_bytes then return nil, _("The raw BWR2 frame has the wrong size.") end
+        ffi.copy(self.output, source + 1, self.frame_bytes)
         packed = ffi.string(self.output, self.frame_bytes)
     elseif codec == 1 then
         if not keyframe then return nil, _("A BWR2 keyframe appeared outside the keyframe index.") end
-        local ok, err = self:_inflate(payload)
+        local ok, err = self:_inflate(packet, 1, payload_length)
         if not ok then return nil, err end
         packed = ffi.string(self.output, self.frame_bytes)
     elseif codec == 2 then
         if keyframe or not previous then return nil, _("A BWR2 delta cannot begin a keyframe group.") end
-        local ok, err = self:_inflate(payload)
+        local ok, err = self:_inflate(packet, 1, payload_length)
         if not ok then return nil, err end
-        ffi.copy(self.delta, self.output, self.frame_bytes)
         packed, err = xor_delta(self, previous)
         if not packed then return nil, err end
     elseif codec == 3 then
         if keyframe or not previous then return nil, _("A BWR2 delta cannot begin a keyframe group.") end
-        if not rle_decode(payload, self.delta, self.frame_bytes) then
+        if not rle_decode(packet, 1, payload_length, self.output, self.frame_bytes) then
             return nil, _("The BWR2 zero-run frame is invalid.")
         end
         packed = xor_delta(self, previous)
         if not packed then return nil, _("The BWR2 delta frame is invalid.") end
     elseif codec == 4 then
-        if keyframe or not previous or #payload ~= 0 then
+        if keyframe or not previous or payload_length ~= 0 then
             return nil, _("The BWR2 repeated frame is invalid.")
         end
         packed = previous
-        ffi.copy(self.output, packed, self.frame_bytes)
     else
         return nil, _("Unknown BWR2 frame codec.")
     end

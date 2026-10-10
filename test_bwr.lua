@@ -207,6 +207,8 @@ assert(bwr2_header.format == "BWR2" and bwr2_header.version == 2, "The new write
 assert(bwr2_header.key_interval == 4 and bwr2_header.frames == #bwr2_frames,
     "BWR2 must preserve frame count and keyframe interval")
 local reader = assert(BWR.newReader(bwr2_file, bwr2_header))
+assert(reader.output and not reader.delta and not reader.previous and not reader.z_input,
+    "BWR2 playback must use one frame-sized decode buffer, not several duplicate frame buffers")
 for _, index in ipairs({ 0, 1, 3, 4, 7, 8, 17, 23, 10, 11, 2, 15 }) do
     local decoded, decode_error = reader:readFrame(index)
     assert(decoded == bwr2_frames[index + 1], "BWR2 seek/decode must reproduce frame " .. index .. ": " .. tostring(decode_error))
