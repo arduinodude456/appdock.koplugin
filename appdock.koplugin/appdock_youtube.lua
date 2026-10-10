@@ -18,6 +18,7 @@ Playback is handled by `appdock_player.lua` and stays inside `context.dimen`.
 --]]--
 
 local Blitbuffer = require("ffi/blitbuffer")
+local ffi = require("ffi")
 local CenterContainer = require("ui/widget/container/centercontainer")
 local DataStorage = require("datastorage")
 local Device = require("device")
@@ -1744,6 +1745,24 @@ local Row = InputContainer:extend{
     dimen = nil,
 }
 
+local function fitThumbnailFrame(source, target_width, target_height)
+    local source_width, source_height = source:getWidth(), source:getHeight()
+    local factor = math.min(target_width / source_width, target_height / source_height)
+    local width = math.max(1, math.floor(source_width * factor))
+    local height = math.max(1, math.floor(source_height * factor))
+    local scaled = Blitbuffer.new(width, height, Blitbuffer.TYPE_BB8)
+    local source_data = ffi.cast("uint8_t*", source.data)
+    local scaled_data = ffi.cast("uint8_t*", scaled.data)
+    for y = 0, height - 1 do
+        local source_y = math.min(source_height - 1, math.floor(y * source_height / height))
+        for x = 0, width - 1 do
+            local source_x = math.min(source_width - 1, math.floor(x * source_width / width))
+            scaled_data[y * width + x] = source_data[source_y * source_width + source_x]
+        end
+    end
+    return scaled
+end
+
 function Row:init()
     self.dimen = Geom:new{ w = self.width, h = self.height }
     local padding = scale(8)
@@ -1771,7 +1790,23 @@ function Row:init()
     }
     if self.video_card then
         local image_ok = false
-        if ImageWidget and fileExists(self.thumbnail_path) then
+        if fileExists(self.thumbnail_source_path) then
+            local ok, frame = pcall(function()
+                local handle = io.open(self.thumbnail_source_path, "rb")
+                if not handle then return nil end
+                local header = BWR.readHeader(handle)
+                if not header then handle:close(); return nil end
+                handle:seek("set", BWR.HEADER_BYTES)
+                local packed = handle:read(header.frame_bytes)
+                handle:close()
+                if not packed or #packed ~= header.frame_bytes then return nil end
+                return BWR.expandFrame(packed, header.width, header.height)
+            end)
+            if ok and frame then
+                self.thumbnail_frame = fitThumbnailFrame(frame, self.thumbnail_width, math.max(1, self.height - padding * 2))
+                frame:free()
+            end
+        elseif ImageWidget and fileExists(self.thumbnail_path) then
             local ok, image = pcall(ImageWidget.new, ImageWidget, {
                 file = self.thumbnail_path,
                 width = math.max(1, self.thumbnail_width),
@@ -1784,21 +1819,7 @@ function Row:init()
                 image_ok = true
             end
         end
-        if not image_ok and fileExists(self.thumbnail_source_path) then
-            local ok, frame = pcall(function()
-                local handle = io.open(self.thumbnail_source_path, "rb")
-                if not handle then return nil end
-                local header = BWR.readHeader(handle)
-                if not header then handle:close(); return nil end
-                handle:seek("set", BWR.HEADER_BYTES)
-                local packed = handle:read(header.frame_bytes)
-                handle:close()
-                if not packed or #packed ~= header.frame_bytes then return nil end
-                return BWR.expandFrame(packed, header.width, header.height)
-            end)
-            if ok and frame then self.thumbnail_frame = frame end
-        end
-        if not image_ok then
+        if not self.thumbnail_frame and not image_ok then
             self.thumbnail_widget = TextWidget:new{
                 text = self.thumbnail_text or "▶",
                 face = Font:getFace("cfont", scale(20)),
@@ -1833,14 +1854,11 @@ function Row:paintTo(bb, x, y)
         if self.thumbnail_frame then
             local draw_w, draw_h = self.thumbnail_width, self.height - padding * 2
             local source_w, source_h = self.thumbnail_frame:getWidth(), self.thumbnail_frame:getHeight()
-            local copy_w = math.min(draw_w, source_w)
-            local copy_h = math.min(draw_h, source_h)
             bb:paintRect(x + padding, y + padding, draw_w, draw_h, Blitbuffer.COLOR_BLACK)
             bb:blitFrom(self.thumbnail_frame,
-                x + padding + math.floor((draw_w - copy_w) / 2),
-                y + padding + math.floor((draw_h - copy_h) / 2),
-                math.floor((source_w - copy_w) / 2),
-                math.floor((source_h - copy_h) / 2), copy_w, copy_h)
+                x + padding + math.floor((draw_w - source_w) / 2),
+                y + padding + math.floor((draw_h - source_h) / 2),
+                0, 0, source_w, source_h)
         elseif not self.has_thumbnail_image then
             bb:paintRect(x + padding, y + padding, self.thumbnail_width, self.height - padding * 2, Blitbuffer.COLOR_DARK_GRAY)
         end
@@ -1875,6 +1893,34 @@ function Row:onHoldRow()
 end
 
 YouTube.Row = Row
+
+local MiniPlayer = InputContainer:extend{
+    canvas = nil,
+    width = nil,
+    height = nil,
+    callback = nil,
+    dimen = nil,
+}
+
+function MiniPlayer:init()
+    self.dimen = Geom:new{ w = self.width, h = self.height }
+    self.ges_events = { TapMiniPlayer = { GestureRange:new{ ges = "tap", range = self.dimen } } }
+end
+
+function MiniPlayer:getSize()
+    return self.dimen
+end
+
+function MiniPlayer:paintTo(bb, x, y)
+    if self.canvas then self.canvas:paintTo(bb, x, y) end
+    local range = self.ges_events.TapMiniPlayer[1].range
+    range.x, range.y, range.w, range.h = x, y, self.width, self.height
+end
+
+function MiniPlayer:onTapMiniPlayer()
+    if self.callback then self.callback() end
+    return true
+end
 
 ----------------------------------------------------------------
 -- Dialogs
@@ -2037,6 +2083,50 @@ function YouTube:play(instance, context, path)
     return true
 end
 
+function YouTube:stopInline(instance)
+    local state = self:_state(instance)
+    if state.inline_playing then
+        self.player:stop()
+        state.inline_playing = nil
+    end
+end
+
+function YouTube:toggleInline(instance, context, path)
+    local state = self:_state(instance)
+    if not path then
+        self:promptSearch(instance, context)
+        return false
+    end
+    if state.inline_playing ~= path or not self.player.engine then
+        self:stopInline(instance)
+        local ok, err = self.player:load(instance, context, path)
+        if not ok then
+            self:_notify(instance, context, err or _("The video cannot be played."))
+            return false
+        end
+        state.inline_playing = path
+        self.player.engine:show(self.player.engine.position or 0)
+    else
+        self.player.engine:toggle()
+    end
+    state.inline_rebuild = true
+    if context and context.requestRebuild then context.requestRebuild("ui") end
+    return true
+end
+
+function YouTube:openInlineFullscreen(instance, context, path)
+    local state = self:_state(instance)
+    if not state.inline_playing or state.inline_playing ~= path or not self.player.engine then
+        if not self:toggleInline(instance, context, path) then return false end
+    end
+    state.playing = path
+    state.inline_playing = nil
+    state.inline_rebuild = false
+    state.view = "play"
+    if context and context.requestRebuild then context.requestRebuild("ui") end
+    return true
+end
+
 ----------------------------------------------------------------
 -- Pane
 ----------------------------------------------------------------
@@ -2150,16 +2240,56 @@ function YouTube:_buildWatchLikeHome(instance, context, state)
     local hero_y = header_h + gap
     local hero_h = math.min(math.floor(main_w * 0.52), height - header_h - footer_h - (landscape and scale(126) or scale(260)))
     hero_h = math.max(scale(100), hero_h)
-    local hero = FrameContainer:new{
-        width = main_w, height = hero_h, padding = 0, bordersize = 0,
-        background = Blitbuffer.COLOR_BLACK,
-        CenterContainer:new{ dimen = Geom:new{ w = main_w, h = hero_h },
-            TextWidget:new{ text = "▶", face = Font:getFace("cfont", scale(36)), fgcolor = Blitbuffer.COLOR_WHITE, padding = 0 },
-        },
+    local selected = library[1]
+    local inline_active = selected and state.inline_playing == selected.path and self.player.engine
+    local hero_canvas = Player.Canvas:new{ width = main_w, height = hero_h }
+    if inline_active then
+        self.player.engine:setCanvas(hero_canvas)
+        self.player.engine:show(self.player.engine.position or 0)
+    end
+    local hero = MiniPlayer:new{
+        canvas = hero_canvas,
+        width = main_w,
+        height = hero_h,
+        callback = function()
+            self:toggleInline(instance, context, selected and selected.path)
+        end,
     }
     hero.overlap_offset = { margin, hero_y }
     table.insert(content, hero)
-    local selected = library[1]
+    if selected then
+        local mini_button_width = math.min(scale(92), math.floor((main_w - gap * 3) / 2))
+        local mini_play = Pill:new{
+            text = inline_active and (self.player.engine.paused and "▶  " .. _("Play") or "Ⅱ  " .. _("Pause"))
+                or "▶  " .. _("Play"),
+            width = mini_button_width,
+            height = scale(26),
+            background = Blitbuffer.COLOR_LIGHT_GRAY,
+            callback = function() self:toggleInline(instance, context, selected.path) end,
+            overlap_offset = { margin + gap, hero_y + hero_h - scale(32) },
+        }
+        local fullscreen = Pill:new{
+            text = "⛶  " .. _("Fullscreen"),
+            width = mini_button_width,
+            height = scale(26),
+            background = Blitbuffer.COLOR_LIGHT_GRAY,
+            callback = function() self:openInlineFullscreen(instance, context, selected.path) end,
+            overlap_offset = { margin + main_w - mini_button_width - gap, hero_y + hero_h - scale(32) },
+        }
+        table.insert(content, mini_play)
+        table.insert(content, fullscreen)
+    end
+    if not inline_active then
+        local hero_icon = TextWidget:new{
+            text = "▶", face = Font:getFace("cfont", scale(36)),
+            fgcolor = Blitbuffer.COLOR_WHITE, padding = 0,
+        }
+        hero_icon.overlap_offset = {
+            margin + math.floor((main_w - hero_icon:getSize().w) / 2),
+            hero_y + math.floor((hero_h - hero_icon:getSize().h) / 2),
+        }
+        table.insert(content, hero_icon)
+    end
     local hero_title = TextWidget:new{
         text = fitText(selected and selected.title or _("Your YouTube videos"), main_w, 16),
         face = Font:getFace("cfont", scale(16)), bold = true, fgcolor = Blitbuffer.COLOR_BLACK,
@@ -2177,7 +2307,7 @@ function YouTube:_buildWatchLikeHome(instance, context, state)
     local actions_y = hero_y + hero_h + scale(48)
     local action_w = math.floor((main_w - gap * 2) / 3)
     for index, action in ipairs({
-        { text = "▶  " .. _("Play"), callback = function() if selected then self:play(instance, context, selected.path) else self:promptSearch(instance, context) end end },
+        { text = "▶  " .. _("Play"), callback = function() self:toggleInline(instance, context, selected and selected.path) end },
         { text = "↗  " .. _("Share"), callback = function() self:promptLink(instance, context) end },
         { text = "⇩  " .. _("Download"), callback = function() self:promptSearch(instance, context) end },
     }) do
@@ -2217,6 +2347,7 @@ function YouTube:_buildWatchLikeHome(instance, context, state)
             self:_notify(instance, context, _("Subscriptions are not available in the offline DApp."))
         end },
         { text = "▤  " .. _("Library"), callback = function()
+            self:stopInline(instance)
             state.library = self:scanLibrary(instance, context)
             state.library_mode = true; state.result_page = 1; state.view = "results"
             context.requestRebuild("ui")
@@ -2765,8 +2896,14 @@ function YouTube:buildPane(instance, context)
     pane.onDeactivate = function()
         -- `play()` loads the engine before requesting the host rebuild. The
         -- outgoing library pane is deactivated during that rebuild, so only
-        -- stop here when navigation is not transitioning into the player.
-        if state.view ~= "play" then self.player:stop() end
+        -- stop here when navigation is not transitioning into the player or
+        -- refreshing the inline mini-player.
+        if state.inline_rebuild then
+            state.inline_rebuild = false
+        elseif state.view ~= "play" then
+            self.player:stop()
+            state.inline_playing = nil
+        end
     end
     return pane
 end
