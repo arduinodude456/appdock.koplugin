@@ -299,9 +299,12 @@ end
 
 -- ffmpeg filter chain that letterboxes the source into the BWR2 frame.
 function YouTube.buildFilter(width, height, fps, dithered, color_mode)
-    -- Color conversion already performs palette dithering in AppDock. Use
-    -- ffmpeg's fast scaler for this CPU-heavy path; monochrome keeps Lanczos.
-    local scale_flags = color_mode and "fast_bilinear" or "lanczos"
+    -- The normal monochrome path immediately reduces the scaled image to one
+    -- bit, so Lanczos detail is discarded by the next filter while consuming a
+    -- large part of the conversion time. Keep Lanczos only for the explicitly
+    -- selected Snake-compatible Bayer path; FFmpeg's monow and BRC2 RGB paths
+    -- use its much faster scaler without changing their output contracts.
+    local scale_flags = (color_mode or dithered) and "fast_bilinear" or "lanczos"
     local chain = string.format(
         "fps=%s,scale=%d:%d:force_original_aspect_ratio=decrease:flags=%s,"
             .. "pad=%d:%d:(ow-iw)/2:(oh-ih)/2:color=white,format=%s",
@@ -957,8 +960,12 @@ YouTube._writeFile = writeFile
 -- limiting conversion to 2 fps regardless of encoder speed. Use bounded batches
 -- and short video ticks while keeping each UI-thread turn time-limited.
 local VIDEO_TICK_INTERVAL = 0.01
-local VIDEO_TICK_CPU_BUDGET = 0.16
-local VIDEO_MAX_FRAMES_PER_TICK = 12
+-- Conversion runs between E-Ink UI turns. A slightly longer bounded turn and
+-- larger batch stop the UI scheduler from throttling fast FFmpeg/FFI paths,
+-- while the hard CPU budget still returns control frequently on slower Kobo
+-- CPUs and leaves cancellation/progress responsive.
+local VIDEO_TICK_CPU_BUDGET = 0.20
+local VIDEO_MAX_FRAMES_PER_TICK = 32
 local PROGRESS_REFRESH_INTERVAL = 0.75
 
 local function monotonicNow()

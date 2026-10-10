@@ -56,7 +56,7 @@ local DEFAULT_SETTINGS = {
     notifications = { items = {}, next_id = 0 },
     wallpaper = { enabled = false, path = "" },
     lockscreen = { enabled = false, method = "swipe", secret_hash = nil, profile_name = "", profile_image_path = "" },
-    beta = { black_borders = false, keep_wallpaper_original_in_night = false, plugin_dapp_host = false, manual_app_spacing = false, plugin_custom_logos = false },
+    beta = { black_borders = false, keep_wallpaper_original_in_night = false, plugin_dapp_host = false, windows = false, manual_app_spacing = false, plugin_custom_logos = false },
     quick_settings = { tiles = { "wifi", "night", "refresh", "edit", "rotate", "sleep", "power_saving", "wallpaper" } },
     simple_mode = { homescreen = false, quick_settings = false, focus_apps = false },
     workspace = { restore_enabled = false, session = nil },
@@ -188,7 +188,7 @@ function AppDock:_loadSettings()
         notifications = stored.notifications or { items = {}, next_id = 0 },
         wallpaper = stored.wallpaper or { enabled = false, path = "" },
         lockscreen = stored.lockscreen or { enabled = false, method = "swipe", secret_hash = nil, profile_name = "", profile_image_path = "" },
-        beta = stored.beta or { black_borders = false, keep_wallpaper_original_in_night = false, plugin_dapp_host = false, manual_app_spacing = false, plugin_custom_logos = false },
+        beta = stored.beta or { black_borders = false, keep_wallpaper_original_in_night = false, plugin_dapp_host = false, windows = false, manual_app_spacing = false, plugin_custom_logos = false },
         quick_settings = stored.quick_settings or { tiles = copyArray(DEFAULT_SETTINGS.quick_settings.tiles) },
         simple_mode = stored.simple_mode or { homescreen = false, quick_settings = false, focus_apps = false },
         workspace = stored.workspace or { restore_enabled = false, session = nil },
@@ -347,6 +347,7 @@ function AppDock:_loadSettings()
     self.settings.beta.black_borders = self.settings.beta.black_borders == true
     self.settings.beta.keep_wallpaper_original_in_night = self.settings.beta.keep_wallpaper_original_in_night == true
     self.settings.beta.plugin_dapp_host = self.settings.beta.plugin_dapp_host == true
+    self.settings.beta.windows = self.settings.beta.windows == true
     self.settings.beta.manual_app_spacing = self.settings.beta.manual_app_spacing == true
     self.settings.beta.plugin_custom_logos = self.settings.beta.plugin_custom_logos == true
     self.settings.quick_settings = self.settings.quick_settings or {}
@@ -592,7 +593,7 @@ function AppDock:uninstallStoreDesign(id)
 end
 
 function AppDock:setBetaOption(key, enabled)
-    if key ~= "black_borders" and key ~= "keep_wallpaper_original_in_night" and key ~= "plugin_dapp_host" and key ~= "manual_app_spacing" and key ~= "plugin_custom_logos" then return false end
+    if key ~= "black_borders" and key ~= "keep_wallpaper_original_in_night" and key ~= "plugin_dapp_host" and key ~= "windows" and key ~= "manual_app_spacing" and key ~= "plugin_custom_logos" then return false end
     self.settings.beta[key] = enabled == true
     self:_saveSettings()
     return true

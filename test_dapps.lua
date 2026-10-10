@@ -623,6 +623,37 @@ assert(home_closed, "DApp activation must close the homescreen host")
 local clock_instance = manager.instances.analog_clock
 assert(clock_instance.pane and clock_instance.pane.dimen, "Analog Clock must build a pane within its assigned context")
 
+-- Beta windows reuse the split-screen pane contract, but are moved and resized
+-- independently and retain their geometry for the next launch.
+;(function()
+    Device.input = { group = { Back = "back", PgBack = "pgback", PgFwd = "pgfwd" } }
+    local original_has_keys = Device.hasKeys
+    Device.hasKeys = function() return true end
+    assert(appdock:setBetaOption("windows", true), "The movable-window beta option must persist")
+    manager:showDAppActions("analog_clock")
+    local window_actions = log.shown[#log.shown]
+    assert(window_actions.buttons[2][1].text == "Open as window · Beta", "Open Apps long-press must expose the beta window action")
+    assert(manager:openWindow("analog_clock"), "An ordinary DApp must open through the window host when Beta is enabled")
+    local window_host = manager.active_host
+    assert(window_host.is_window and window_host.window_rect and clock_instance.in_window and window_host.key_events.BrightnessUp,
+        "The window host must track its own geometry, state and global brightness binding")
+    local before_move = { x = window_host.window_rect.x, y = window_host.window_rect.y, w = window_host.window_rect.w, h = window_host.window_rect.h }
+    assert(window_host:onPanWindowMove(nil, { pos = { x = before_move.x + 24, y = before_move.y + 20 } })
+        and window_host:onPanReleaseWindowMove(nil, { pos = { x = before_move.x + 56, y = before_move.y + 44 } }),
+        "Dragging a window title bar must move the window")
+    assert(appdock.settings.layout.window_geometries.analog_clock and window_host.window_rect.x ~= before_move.x,
+        "Releasing a window drag must persist its bounded geometry")
+    local before_resize = { w = window_host.window_rect.w, h = window_host.window_rect.h }
+    assert(window_host:onPanWindowResize(nil, { pos = { x = window_host.window_rect.x + before_resize.w - 40, y = window_host.window_rect.y + before_resize.h - 34 } })
+        and window_host:onPanReleaseWindowResize(nil, { pos = { x = window_host.window_rect.x + before_resize.w + 24, y = window_host.window_rect.y + before_resize.h + 20 } }),
+        "Dragging the lower-right grip must resize a window")
+    assert(window_host.window_rect.w >= before_resize.w and window_host.window_rect.h >= before_resize.h
+        and clock_instance.pane.dimen.w < Device.screen:getSize().w,
+        "Window content must receive a smaller flexible local pane rectangle")
+    manager:activate("analog_clock")
+    Device.hasKeys = original_has_keys
+end)()
+
 manager:showRecents()
 assert(#manager:getOpenApps() == 1, "Opening recents must not close a DApp")
 manager:activate("settings")

@@ -13,10 +13,10 @@ local _ = require("gettext")
 local Screen = Device.screen
 local function scale(n) return Screen:scaleBySize(n) end
 local function clamp(n, lo, hi) return math.max(lo, math.min(hi, n)) end
-local function textWidget(text, width, size, bold)
+local function textWidget(text, width, size, bold, foreground)
     return TextWidget:new{
         text = tostring(text or ""), face = Font:getFace(bold and "cfont" or "smallinfofont", scale(size)),
-        fgcolor = Blitbuffer.COLOR_BLACK, bold = bold or false, padding = 0, max_width = width,
+        fgcolor = foreground or Blitbuffer.COLOR_BLACK, bold = bold or false, padding = 0, max_width = width,
     }
 end
 local Modal = InputContainer:extend{ mode=nil, title=nil, text=nil, buttons=nil, duration=nil }
@@ -28,10 +28,10 @@ function Modal:init()
             h=(Screen.getHeight and Screen:getHeight() or Screen.height or 800) }
     self.screen_w, self.screen_h = screen.w, screen.h
     self.dimen = Geom:new{ x=0, y=0, w=screen.w, h=screen.h }
-    self.margin = scale(16)
-    self.card_w = math.min(screen.w - self.margin * 2, scale(560))
+    self.margin = math.max(scale(10), math.min(scale(18), math.floor(screen.w / 12)))
+    self.card_w = math.max(1, math.min(math.max(1, screen.w - self.margin * 2), scale(560)))
     self.card_x = math.floor((screen.w - self.card_w) / 2)
-    self.max_card_h = screen.h - self.margin * 2
+    self.max_card_h = math.max(scale(120), screen.h - self.margin * 2)
     self.title_h = self.title and scale(42) or scale(14)
     self.body_widget = self.text and textWidget(self.text, self.card_w - scale(36), 14, false) or nil
     local body_dims
@@ -83,7 +83,14 @@ function Modal:_normalizeRows(rows)
                 if type(button) == "table" then cells[#cells+1] = button end
             end
         end
-        if #cells > 0 then normalized[#normalized+1] = cells end
+        -- The renderer intentionally has at most two columns. Splitting wider
+        -- caller-provided rows prevents overlapping labels and keeps each
+        -- choice finger-sized on smaller E-Ink readers.
+        for first = 1, #cells, 2 do
+            local normalized_row = { cells[first] }
+            if cells[first + 1] then normalized_row[#normalized_row + 1] = cells[first + 1] end
+            if normalized_row[1] then normalized[#normalized + 1] = normalized_row end
+        end
     end
     return normalized
 end
@@ -139,8 +146,8 @@ function Modal:onTapAppDockModal(_, event)
     if x<self.card_x or x>self.card_x+self.card_w or y<self.card_y or y>self.card_y+self.card_h then self:close() end
     return true
 end
-function Modal:_paintText(bb, text, x, y, width, size, bold)
-    local widget=textWidget(text,width,size,bold)
+function Modal:_paintText(bb, text, x, y, width, size, bold, foreground)
+    local widget=textWidget(text,width,size,bold,foreground)
     local dims=widget.getSize and widget:getSize() or { h=scale(size+4) }
     widget:paintTo(bb,x,y)
     return dims.h
@@ -148,8 +155,11 @@ end
 function Modal:paintTo(bb, x, y)
     x,y=0,0
     self._hits={}
-    -- A quiet full-screen veil and a high-contrast rounded-card treatment.
-    bb:paintRect(0,0,self.screen_w,self.screen_h,Blitbuffer.COLOR_WHITE)
+    -- A soft E-Ink veil, subtle offset shadow, and a strong title band give
+    -- AppDock-owned dialogs a coherent visual hierarchy without animation or
+    -- low-contrast translucent layers.
+    bb:paintRect(0,0,self.screen_w,self.screen_h,Blitbuffer.COLOR_LIGHT_GRAY)
+    bb:paintRect(self.card_x + scale(3),self.card_y + scale(4),self.card_w,self.card_h,Blitbuffer.COLOR_GRAY_8)
     bb:paintRect(self.card_x,self.card_y,self.card_w,self.card_h,Blitbuffer.COLOR_WHITE)
     local border=math.max(1,scale(2))
     bb:paintRect(self.card_x,self.card_y,self.card_w,border,Blitbuffer.COLOR_BLACK)
@@ -158,7 +168,11 @@ function Modal:paintTo(bb, x, y)
     bb:paintRect(self.card_x+self.card_w-border,self.card_y,border,self.card_h,Blitbuffer.COLOR_BLACK)
     local pad=scale(18)
     local text_y=self.card_y+self.margin
-    if self.title then self:_paintText(bb,self.title,self.card_x+pad,text_y,self.card_w-pad*2,18,true) end
+    if self.title then
+        local band_h = math.min(self.card_h - border * 2, self.title_h + self.margin)
+        bb:paintRect(self.card_x + border,self.card_y + border,self.card_w - border * 2,band_h,Blitbuffer.COLOR_BLACK)
+        self:_paintText(bb,self.title,self.card_x+pad,text_y,self.card_w-pad*2,18,true,Blitbuffer.COLOR_WHITE)
+    end
     local y0=self.card_y+self.top_h
     if self.mode=="input" then
         local input_y=y0
@@ -184,12 +198,15 @@ function Modal:paintTo(bb, x, y)
             local inner_w=self.card_w-pad*2
             local w=cols==1 and inner_w or math.floor((inner_w-gap)/2)
             local bx=self.card_x+pad+(cols==1 and 0 or (col-1)*(w+gap))
-            local bg=(button.is_default or button.is_enter_default) and Blitbuffer.COLOR_GRAY_8 or Blitbuffer.COLOR_WHITE
+            local disabled = button.enabled == false or button.disabled
+            local primary = button.is_default or button.is_enter_default
+            local bg = disabled and Blitbuffer.COLOR_LIGHT_GRAY or (primary and Blitbuffer.COLOR_BLACK or Blitbuffer.COLOR_GRAY_8)
+            local fg = primary and Blitbuffer.COLOR_WHITE or Blitbuffer.COLOR_BLACK
             bb:paintRect(bx,row_y,w,self.row_h-scale(4),bg)
             bb:paintRect(bx,row_y,w,scale(1),Blitbuffer.COLOR_BLACK)
             bb:paintRect(bx,row_y+self.row_h-scale(5),w,scale(1),Blitbuffer.COLOR_BLACK)
             local title=tostring(button.text or "")
-            self:_paintText(bb,title,bx+scale(7),row_y+scale(12),w-scale(14),13,true)
+            self:_paintText(bb,title,bx+scale(7),row_y+scale(12),w-scale(14),13,true,fg)
             self._hits[#self._hits+1]={x=bx,y=row_y,w=w,h=self.row_h,button=button}
         end
         rows_drawn=rows_drawn+1
@@ -197,9 +214,20 @@ function Modal:paintTo(bb, x, y)
     if self.pages>1 then
         local footer_y=self.card_y+self.card_h-self.footer_h
         local label=string.format(_("Page %d of %d"),self.page,self.pages)
-        self:_paintText(bb,label,self.card_x+pad,footer_y+scale(15),self.card_w-pad*2,12,false)
-        if self.page>1 then self._hits[#self._hits+1]={x=self.card_x+pad,y=footer_y,w=scale(60),h=self.footer_h,action=function() self.page=self.page-1; UIManager:setDirty(self,"ui"); return true end} end
-        if self.page<self.pages then self._hits[#self._hits+1]={x=self.card_x+self.card_w-pad-scale(60),y=footer_y,w=scale(60),h=self.footer_h,action=function() self.page=self.page+1; UIManager:setDirty(self,"ui"); return true end} end
+        local button_w, button_h = scale(76), scale(32)
+        self:_paintText(bb,label,self.card_x+math.floor((self.card_w-scale(88))/2),footer_y+scale(10),scale(88),12,false)
+        if self.page>1 then
+            local bx = self.card_x + pad
+            bb:paintRect(bx,footer_y+scale(7),button_w,button_h,Blitbuffer.COLOR_GRAY_8)
+            self:_paintText(bb,_('‹ Previous'),bx+scale(6),footer_y+scale(16),button_w-scale(12),11,true)
+            self._hits[#self._hits+1]={x=bx,y=footer_y,w=button_w,h=self.footer_h,action=function() self.page=self.page-1; UIManager:setDirty(self,"ui"); return true end}
+        end
+        if self.page<self.pages then
+            local bx = self.card_x+self.card_w-pad-button_w
+            bb:paintRect(bx,footer_y+scale(7),button_w,button_h,Blitbuffer.COLOR_GRAY_8)
+            self:_paintText(bb,_('Next ›'),bx+scale(11),footer_y+scale(16),button_w-scale(16),11,true)
+            self._hits[#self._hits+1]={x=bx,y=footer_y,w=button_w,h=self.footer_h,action=function() self.page=self.page+1; UIManager:setDirty(self,"ui"); return true end}
+        end
     end
 end
 local ButtonDialog={}

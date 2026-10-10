@@ -27,6 +27,27 @@ local palette = {
 }
 local function clamp(v, lo, hi) return math.max(lo, math.min(hi, v)) end
 local function scale(v) return Screen:scaleBySize(v) end
+local function safeScale(value)
+    local ok, scaled = pcall(scale, value)
+    scaled = ok and tonumber(scaled) or nil
+    if not scaled or scaled ~= scaled or scaled == math.huge or scaled == -math.huge or scaled <= 0 then
+        return math.max(1, math.floor(tonumber(value) or 1))
+    end
+    return math.max(1, math.floor(scaled + .5))
+end
+local function safeDimension(value, fallback, maximum)
+    value = tonumber(value)
+    if not value or value ~= value or value == math.huge or value == -math.huge or value < 1 then value = fallback end
+    return clamp(math.floor(value), 1, maximum or 4096)
+end
+local function screenMetric(method, field, fallback)
+    local value
+    if type(Screen[method]) == "function" then
+        local ok, result = pcall(Screen[method], Screen)
+        if ok then value = result end
+    end
+    return safeDimension(value or Screen[field], fallback)
+end
 local function rgb(c)
     if Screen:isColorEnabled() then return Blitbuffer.ColorRGB32(c[1], c[2], c[3], 0xFF) end
     local y = math.floor((c[1] * 299 + c[2] * 587 + c[3] * 114) / 1000)
@@ -169,11 +190,15 @@ function Draw:ensure()
             local ok, result = pcall(Screen.getSize, Screen)
             if ok and type(result) == "table" then size = result end
         end
-        local screen_w = tonumber(size and size.w) or (Screen.getWidth and tonumber(Screen:getWidth())) or tonumber(Screen.width) or 600
-        local screen_h = tonumber(size and size.h) or (Screen.getHeight and tonumber(Screen:getHeight())) or tonumber(Screen.height) or 800
-        local step = math.max(1, scale(2))
-        local w=clamp(math.floor((screen_w-scale(24))/step),64,480)
-        local h=clamp(math.floor((screen_h-scale(180))/step),64,640)
+        local screen_w = safeDimension(size and size.w, screenMetric("getWidth", "width", 600))
+        local screen_h = safeDimension(size and size.h, screenMetric("getHeight", "height", 800))
+        -- Some device adapters return zero or nil for small scale requests
+        -- during early display initialization. Never use such a value as a
+        -- divisor or FFI allocation input; Draw must still open with a bounded
+        -- fallback canvas.
+        local step = safeScale(2)
+        local w=clamp(math.floor((screen_w-safeScale(24))/step),64,480)
+        local h=clamp(math.floor((screen_h-safeScale(180))/step),64,640)
         self.width,self.height=w,h
         local base=ffi.new("uint8_t[?]",w*h); ffi.fill(base,w*h,1); self.layers={{name=_('Layer 1'),width=w,height=h,pixels=base}}
     end
@@ -303,8 +328,17 @@ function Draw:exportJPEG()
 end
 function Draw:buildPane(instance,context)
     self:ensure()
-    local dim=context.dimen; local w,h=dim.w,dim.h; local bar=scale(48); local margin=scale(4)
-    local canvas_h=math.max(scale(60),h-bar-scale(48)-margin*3)
+    context = type(context) == "table" and context or {}
+    local fallback_size = {}
+    if type(Screen.getSize) == "function" then
+        local size_ok, size = pcall(Screen.getSize, Screen)
+        if size_ok and type(size) == "table" then fallback_size = size end
+    end
+    local dim = type(context.dimen) == "table" and context.dimen or fallback_size
+    local w = safeDimension(dim.w, self.width * safeScale(2), 4096)
+    local h = safeDimension(dim.h, self.height * safeScale(2), 4096)
+    local bar, margin = safeScale(48), safeScale(4)
+    local canvas_h=math.max(safeScale(60),h-bar-safeScale(48)-margin*3)
     local canvas_w=w-margin*2
     local canvas=Canvas:new{app=self,width=self.width,height=self.height}
     local pane=OverlapGroup:new{dimen=Geom:new{w=w,h=h},allow_mirroring=false}
@@ -318,12 +352,12 @@ function Draw:buildPane(instance,context)
         {_("Layer +"),function() self:addLayer() end},{_("Layer →"),function() self:nextLayer() end},{_("Load"),function() local path,err=self:loadLatestProject(); context.notify{title=_("Draw"),message=path or tostring(err)} end},{_("Save"),function() local path,err=self:saveProject(); context.notify{title=_("Draw"),message=path or tostring(err)} end},
         {_("JPEG"),function() local path,err=self:exportJPEG(); context.notify{title=_("Draw"),message=path or tostring(err)} end},
     }
-    local cols=math.max(1,math.floor(w/scale(76))); local bw=math.floor((w-margin*2)/cols); local bh=scale(34)
+    local cols=math.max(1,math.floor(w/safeScale(76))); local bw=math.floor((w-margin*2)/cols); local bh=safeScale(34)
     for i,item in ipairs(controls) do
         local x=margin+((i-1)%cols)*bw; local y=margin+math.floor((i-1)/cols)*bh
-        if y+bh<=bar+scale(36) then pane[#pane+1]=ToolButton:new{label=item[1],callback=function() item[2](); context.requestRebuild("ui") end,width=bw-scale(3),height=bh-scale(3),overlap_offset={x,y}} end
+        if y+bh<=bar+safeScale(36) then pane[#pane+1]=ToolButton:new{label=item[1],callback=function() item[2](); if context.requestRebuild then context.requestRebuild("ui") end end,width=math.max(1,bw-safeScale(3)),height=math.max(1,bh-safeScale(3)),overlap_offset={x,y}} end
     end
-    local cy=bar+scale(38)
+    local cy=bar+safeScale(38)
     canvas.dimen=Geom:new{x=margin,y=cy,w=canvas_w,h=canvas_h}
     canvas.ges_events.Paint[1].range=function() return canvas.dimen end
     canvas.ges_events.PaintTap[1].range=function() return canvas.dimen end

@@ -18,6 +18,7 @@ local GestureRange = require("ui/gesturerange")
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local InputDialog = AppDockDialogs.InputDialog
+local DeviceControls = require("appdock_device_controls")
 local AppDockKeyboard = require("appdock_keyboard")
 local DAppLogo = require("appdock_logo")
 local Layout = require("appdock_layout")
@@ -64,6 +65,20 @@ local DAppHost = InputContainer:extend{
     covers_fullscreen = true,
 }
 
+-- A dedicated host keeps windowing deliberately bounded: ordinary DApps get
+-- the same flexible local-pane contract as split screen, while plugin hosts
+-- and the regular full-screen lifecycle remain untouched.
+local DAppWindowHost = InputContainer:extend{
+    manager = nil,
+    dapp_id = nil,
+    dapp_ids = nil,
+    is_window = true,
+    dimen = nil,
+    window_rect = nil,
+    active_panes = nil,
+    covers_fullscreen = true,
+}
+
 local DAppRecents = InputContainer:extend{
     manager = nil,
     dimen = nil,
@@ -82,6 +97,22 @@ local RecentDrawer = InputContainer:extend{
     sheet_y = nil,
     covers_fullscreen = false,
 }
+
+local function bindGlobalPageKeys(widget)
+    if not Device:hasKeys() or not Device.input or not Device.input.group then return end
+    widget.key_events = widget.key_events or {}
+    widget.key_events.Close = { { Device.input.group.Back } }
+    local up, down = DeviceControls.pageKeyGroups()
+    if up then widget.key_events.BrightnessUp = { { up } } end
+    if down then widget.key_events.BrightnessDown = { { down } } end
+end
+
+local function handleGlobalPageKeyRepeat(widget, key)
+    local up, down = DeviceControls.pageKeyGroups()
+    if up and key == up then DeviceControls.showPowerMenu(); return true end
+    if down and key == down then DeviceControls.showScreensaver(); return true end
+    return InputContainer.onKeyRepeat and InputContainer.onKeyRepeat(widget, key) or false
+end
 
 local ActionChip = InputContainer:extend{
     title = nil,
@@ -565,13 +596,17 @@ end
 function RecentDrawer:init()
     applyTheme(self.manager.appdock)
     self.dimen = Screen:getSize()
-    if Device:hasKeys() then self.key_events.Close = { { Device.input.group.Back } } end
+    bindGlobalPageKeys(self)
     self:build()
     self.ges_events = {
         TapOutsideRecentDrawer = { GestureRange:new{ ges = "tap", range = self.dimen } },
         DismissRecentDrawer = { GestureRange:new{ ges = "swipe", direction = "south", range = self.dimen } },
     }
 end
+
+function RecentDrawer:onBrightnessUp() return DeviceControls.setBrightness(10) ~= nil end
+function RecentDrawer:onBrightnessDown() return DeviceControls.setBrightness(-10) ~= nil end
+function RecentDrawer:onKeyRepeat(key) return handleGlobalPageKeyRepeat(self, key) end
 
 function RecentDrawer:build()
     local width, height = self.dimen.w, self.dimen.h
@@ -1498,7 +1533,7 @@ function DAppManager:getOpenApps()
             table.insert(apps, {
                 id = id,
                 title = instance.definition.title,
-                subtitle = is_plugin_host and _("Plugin host · Beta") or (instance.in_split and _("In split screen") or (instance.visible and _("Active") or _("Open"))),
+                subtitle = is_plugin_host and _("Plugin host · Beta") or (instance.in_window and _("Floating window · Beta") or (instance.in_split and _("In split screen") or (instance.visible and _("Active") or _("Open")))),
                 symbol = instance.definition.symbol,
                 logo = instance.definition.logo,
                 last_active = instance.last_active,
@@ -2048,6 +2083,63 @@ function DAppManager:runPermittedBackgroundTasks()
     end
 end
 
+local function windowNumber(value, fallback)
+    value = tonumber(value)
+    if not value or value ~= value or value == math.huge or value == -math.huge then return fallback end
+    return math.floor(value)
+end
+
+function DAppManager:_windowGeometry(id, screen)
+    screen = screen or Screen:getSize()
+    local layout = self.appdock.settings.layout or {}
+    local saved = type(layout.window_geometries) == "table" and layout.window_geometries[id] or {}
+    local margin = math.max(scale(8), 4)
+    local min_w = math.min(math.max(scale(180), 120), math.max(1, screen.w - margin * 2))
+    local min_h = math.min(math.max(scale(150), 100), math.max(1, screen.h - margin * 2))
+    local default_w = math.max(min_w, math.floor(screen.w * .84))
+    local default_h = math.max(min_h, math.floor(screen.h * .72))
+    local width = math.max(min_w, math.min(screen.w - margin * 2, windowNumber(saved.w, default_w)))
+    local height = math.max(min_h, math.min(screen.h - margin * 2, windowNumber(saved.h, default_h)))
+    local x = windowNumber(saved.x, (screen.w - width) / 2)
+    local y = windowNumber(saved.y, math.max(margin, (screen.h - height) / 3))
+    x = math.max(margin, math.min(math.max(margin, screen.w - margin - width), x))
+    y = math.max(margin, math.min(math.max(margin, screen.h - margin - height), y))
+    return { x = x, y = y, w = width, h = height }
+end
+
+function DAppManager:_persistWindowGeometry(id, rect)
+    if type(id) ~= "string" or type(rect) ~= "table" then return false end
+    self.appdock.settings.layout = self.appdock.settings.layout or {}
+    local geometries = self.appdock.settings.layout.window_geometries
+    if type(geometries) ~= "table" then geometries = {}; self.appdock.settings.layout.window_geometries = geometries end
+    geometries[id] = { x = math.floor(rect.x), y = math.floor(rect.y), w = math.floor(rect.w), h = math.floor(rect.h) }
+    if self.appdock._saveSettings then self.appdock:_saveSettings() end
+    return true
+end
+
+function DAppManager:openWindow(id, source)
+    local beta = self.appdock.settings.beta or {}
+    local instance = self:_instanceFor(id)
+    if beta.windows ~= true or not instance or instance.definition.host_kind == "plugin" then
+        return false
+    end
+    if source then UIManager:close(source) end
+    if self.active_host then UIManager:close(self.active_host) end
+    self.active_id = id
+    instance.last_active = os.time()
+    instance.visible, instance.in_split, instance.in_window = true, false, true
+    self:_touchOpen(id)
+    self:captureWorkspace()
+    local host = DAppWindowHost:new{ manager = self, dapp_id = id, dapp_ids = { id } }
+    self.active_host = host
+    UIManager:show(host)
+    UIManager:nextTick(function()
+        UIManager:setDirty(host, "ui")
+        if UIManager.forceRePaint then UIManager:forceRePaint() end
+    end)
+    return true
+end
+
 function DAppManager:activate(id, home)
     local instance = self:_instanceFor(id)
     if not instance then return end
@@ -2057,7 +2149,7 @@ function DAppManager:activate(id, home)
     instance.last_active = os.time()
     instance.visible = true
     self:_touchOpen(id)
-    instance.in_split = false
+    instance.in_split, instance.in_window = false, false
     self:captureWorkspace()
     local host = DAppHost:new{ manager = self, dapp_id = id, dapp_ids = { id }, split = false }
     self.active_host = host
@@ -2115,33 +2207,46 @@ function DAppManager:showDAppActions(id, recents)
         UIManager:show(dialog)
         return
     end
+    local beta = self.appdock.settings.beta or {}
     local dialog
-    dialog = ButtonDialog:new{
-        title = instance.definition.title,
-        buttons = {
+    local buttons = {
+        {
             {
-                {
-                    text = _("Splitscreen"),
-                    callback = function()
-                        UIManager:close(dialog)
-                        UIManager:nextTick(function() self:beginSplitSelection(id, recents) end)
-                    end,
-                },
-            },
-            {
-                {
-                    text = _("Close app"),
-                    callback = function()
-                        UIManager:close(dialog)
-                        self:closeDApp(id)
-                        if recents then
-                            recents:build()
-                            UIManager:setDirty(recents, "ui")
-                        end
-                    end,
-                },
+                text = _("Splitscreen"),
+                callback = function()
+                    UIManager:close(dialog)
+                    UIManager:nextTick(function() self:beginSplitSelection(id, recents) end)
+                end,
             },
         },
+    }
+    if beta.windows == true then
+        buttons[#buttons + 1] = {
+            {
+                text = _("Open as window · Beta"),
+                callback = function()
+                    UIManager:close(dialog)
+                    UIManager:nextTick(function() self:openWindow(id, recents) end)
+                end,
+            },
+        }
+    end
+    buttons[#buttons + 1] = {
+        {
+            text = _("Close app"),
+            callback = function()
+                UIManager:close(dialog)
+                self:closeDApp(id)
+                if recents then
+                    recents:build()
+                    UIManager:setDirty(recents, "ui")
+                end
+            end,
+        },
+    }
+    dialog = ButtonDialog:new{
+        title = instance.definition.title,
+        buttons = buttons,
         rows_per_page = { 5, 6, 7 },
     }
     UIManager:show(dialog)
@@ -2226,6 +2331,7 @@ function DAppManager:detachHost(host)
         if instance then
             instance.visible = false
             instance.in_split = false
+            instance.in_window = false
             instance.pane = nil
         end
     end
@@ -2906,6 +3012,7 @@ function DAppManager:showBetaFeatures(instance, context)
         title = _("Beta features"),
         buttons = {
             { { text = (beta.plugin_dapp_host and "✓ " or "") .. _("Run plugin tiles in AppDock hosts (Beta · no split screen)"), callback = function() toggle("plugin_dapp_host") end } },
+            { { text = (beta.windows and "✓ " or "") .. _("Open apps as movable, resizable windows"), callback = function() toggle("windows") end } },
             { { text = (beta.manual_app_spacing and "✓ " or "") .. _("Manual app spacing"), callback = function() toggle("manual_app_spacing") end } },
             { { text = (beta.plugin_custom_logos and "✓ " or "") .. _("Custom logos for non-DApp plugins"), callback = function() toggle("plugin_custom_logos") end } },
             { { text = _("Cancel"), callback = function() UIManager:close(dialog) end } },
@@ -3239,7 +3346,7 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("Beta features"),
-                subtitle = (beta_settings.manual_app_spacing and _("manual spacing") or _("fixed spacing")) .. " · " .. (beta_settings.plugin_custom_logos and _("plugin logos") or _("standard logos")),
+                subtitle = (beta_settings.windows and _("windows") or _("full screen")) .. " · " .. (beta_settings.manual_app_spacing and _("manual spacing") or _("fixed spacing")) .. " · " .. (beta_settings.plugin_custom_logos and _("plugin logos") or _("standard logos")),
                 show_state = false,
                 callback = function() self:showBetaFeatures(instance, context) end,
             },
@@ -3558,6 +3665,163 @@ function DAppManager:_buildSettingsPane(instance, context)
     return pane
 end
 
+local function hostShowBrightness(host, state)
+    local indicator = DeviceControls.buildIndicator(state)
+    if not indicator then return end
+    host._brightness_indicator = indicator
+    host._brightness_generation = (host._brightness_generation or 0) + 1
+    local generation = host._brightness_generation
+    host:rebuild(true)
+    UIManager:setDirty(host, "ui")
+    UIManager:scheduleIn(1.1, function()
+        if host._brightness_generation == generation then
+            host._brightness_indicator = nil
+            host:rebuild(true)
+            UIManager:setDirty(host, "ui")
+        end
+    end)
+end
+
+local function adjustHostBrightness(host, direction)
+    local state = DeviceControls.setBrightness((direction or 1) * 10)
+    if state then hostShowBrightness(host, state); return true end
+    return false
+end
+
+local function repeatHostPageKey(host, key)
+    local up, down = DeviceControls.pageKeyGroups()
+    if up and key == up then DeviceControls.showPowerMenu(); return true end
+    if down and key == down then DeviceControls.showScreensaver(); return true end
+    return false
+end
+
+local function addHostPageKeyEvents(host)
+    bindGlobalPageKeys(host)
+end
+
+function DAppWindowHost:init()
+    self.dimen = Screen:getSize()
+    self.dapp_ids = { self.dapp_id }
+    self.window_rect = self.manager:_windowGeometry(self.dapp_id, self.dimen)
+    self.ges_events = {
+        PanWindowMove = { GestureRange:new{ ges = "pan", range = function() return self._window_title_range end } },
+        PanReleaseWindowMove = { GestureRange:new{ ges = "pan_release", range = function() return self._window_title_range end } },
+        PanWindowResize = { GestureRange:new{ ges = "pan", range = function() return self._window_resize_range end } },
+        PanReleaseWindowResize = { GestureRange:new{ ges = "pan_release", range = function() return self._window_resize_range end } },
+    }
+    addHostPageKeyEvents(self)
+    self:rebuild()
+end
+
+function DAppWindowHost:_clampWindowRect(rect)
+    local screen = self.dimen
+    local margin = math.max(scale(8), 4)
+    local min_w = math.min(math.max(scale(180), 120), math.max(1, screen.w - margin * 2))
+    local min_h = math.min(math.max(scale(150), 100), math.max(1, screen.h - margin * 2))
+    rect.w = math.max(min_w, math.min(math.max(min_w, screen.w - margin * 2), math.floor(rect.w)))
+    rect.h = math.max(min_h, math.min(math.max(min_h, screen.h - margin * 2), math.floor(rect.h)))
+    rect.x = math.max(margin, math.min(math.max(margin, screen.w - margin - rect.w), math.floor(rect.x)))
+    rect.y = math.max(margin, math.min(math.max(margin, screen.h - margin - rect.h), math.floor(rect.y)))
+    return rect
+end
+
+function DAppWindowHost:_updateWindow(position, resize, persist)
+    if not position or not self.window_rect then return false end
+    local rect = { x = self.window_rect.x, y = self.window_rect.y, w = self.window_rect.w, h = self.window_rect.h }
+    if resize then
+        rect.w = position.x - rect.x + scale(8)
+        rect.h = position.y - rect.y + scale(8)
+    else
+        if not self._window_drag_offset then
+            self._window_drag_offset = { x = position.x - rect.x, y = position.y - rect.y }
+        end
+        rect.x = position.x - self._window_drag_offset.x
+        rect.y = position.y - self._window_drag_offset.y
+    end
+    self.window_rect = self:_clampWindowRect(rect)
+    if persist then
+        self._window_drag_offset = nil
+        self.manager:_persistWindowGeometry(self.dapp_id, self.window_rect)
+    end
+    self:rebuild(true)
+    UIManager:setDirty(self, persist and "ui" or "fast")
+    if not persist and UIManager.forceRePaint then UIManager:forceRePaint() end
+    return true
+end
+
+function DAppWindowHost:onPanWindowMove(_, event)
+    return self:_updateWindow(event and event.pos, false, false)
+end
+function DAppWindowHost:onPanReleaseWindowMove(_, event)
+    return self:_updateWindow(event and event.pos, false, true)
+end
+function DAppWindowHost:onPanWindowResize(_, event)
+    return self:_updateWindow(event and event.pos, true, false)
+end
+function DAppWindowHost:onPanReleaseWindowResize(_, event)
+    return self:_updateWindow(event and event.pos, true, true)
+end
+function DAppWindowHost:onBrightnessUp() return adjustHostBrightness(self, 1) end
+function DAppWindowHost:onBrightnessDown() return adjustHostBrightness(self, -1) end
+function DAppWindowHost:onKeyRepeat(key)
+    if repeatHostPageKey(self, key) then return true end
+    return InputContainer.onKeyRepeat and InputContainer.onKeyRepeat(self, key) or false
+end
+
+function DAppWindowHost:rebuild(preserve_active)
+    applyTheme(self.manager.appdock)
+    self.dimen = Screen:getSize()
+    self.window_rect = self:_clampWindowRect(self.window_rect or self.manager:_windowGeometry(self.dapp_id, self.dimen))
+    local rect = self.window_rect
+    local instance = self.manager:_instanceFor(self.dapp_id)
+    if not instance then return end
+    if not preserve_active then
+        for _, pane in ipairs(self.active_panes or {}) do if pane.onDeactivate then pane:onDeactivate() end end
+    end
+    self.active_panes = {}
+    local border, title_h = math.max(scale(2), 1), math.max(scale(40), scale(36))
+    local content = Geom:new{ x = rect.x + border, y = rect.y + title_h, w = math.max(1, rect.w - border * 2), h = math.max(1, rect.h - title_h - border) }
+    local context = self.manager:_newContext(self, instance, content)
+    if instance.workspace_state ~= nil and instance.definition.restoreState and not instance._workspace_state_applied then
+        pcall(instance.definition.restoreState, instance, instance.workspace_state, context)
+        instance._workspace_state_applied, instance.workspace_state = true, nil
+    end
+    local pane = instance.definition.buildPane(instance, context)
+    instance.pane, instance.visible, instance.in_split, instance.in_window = pane, true, false, true
+    pane.overlap_offset = { content.x, content.y }
+    self.active_panes[1], self.active_pane = pane, pane
+    local title = TextWidget:new{
+        text = instance.definition.title, face = Font:getFace("smallinfofont", scale(16)), fgcolor = PALETTE.on_primary,
+        bold = true, max_width = math.max(1, rect.w - scale(100)), padding = 0,
+        overlap_offset = { rect.x + scale(14), rect.y + math.floor((title_h - scale(16)) / 2) },
+    }
+    local chrome = OverlapGroup:new{
+        dimen = self.dimen, allow_mirroring = false,
+        FrameContainer:new{ width = self.dimen.w, height = self.dimen.h, padding = 0, bordersize = 0, background = PALETTE.background, emptySizedWidget(self.dimen.w, self.dimen.h) },
+        FrameContainer:new{ width = rect.w, height = rect.h, padding = 0, bordersize = border, color = PALETTE.on_surface, background = PALETTE.surface, emptySizedWidget(rect.w, rect.h), overlap_offset = { rect.x, rect.y } },
+        FrameContainer:new{ width = rect.w - border * 2, height = title_h - border, padding = 0, bordersize = 0, background = PALETTE.primary, emptySizedWidget(rect.w - border * 2, title_h - border), overlap_offset = { rect.x + border, rect.y + border } },
+        title,
+        pane,
+    }
+    table.insert(chrome, ActionChip:new{ title = "", symbol = "□", width = scale(28), height = scale(28), background = PALETTE.surface_variant, foreground = PALETTE.on_variant, callback = function() self.manager:showRecentsFromHost(self) end, overlap_offset = { rect.x + rect.w - scale(64), rect.y + math.floor((title_h - scale(28)) / 2) } })
+    table.insert(chrome, ActionChip:new{ title = "", symbol = "×", width = scale(28), height = scale(28), background = PALETTE.surface_variant, foreground = PALETTE.on_variant, callback = function() self.manager:closeDApp(self.dapp_id); UIManager:nextTick(function() self.manager:showRecents() end) end, overlap_offset = { rect.x + rect.w - scale(32), rect.y + math.floor((title_h - scale(28)) / 2) } })
+    table.insert(chrome, TextWidget:new{ text = "↘", face = Font:getFace("cfont", scale(16)), fgcolor = PALETTE.on_surface, padding = 0, overlap_offset = { rect.x + rect.w - scale(23), rect.y + rect.h - scale(23) } })
+    if self._brightness_indicator then table.insert(chrome, self._brightness_indicator) end
+    self._window_title_range = Geom:new{ x = rect.x, y = rect.y, w = rect.w - scale(68), h = title_h }
+    self._window_resize_range = Geom:new{ x = rect.x + rect.w - scale(36), y = rect.y + rect.h - scale(36), w = scale(36), h = scale(36) }
+    self:clear()
+    self[1] = chrome
+end
+
+function DAppWindowHost:onCloseWidget()
+    self.manager:detachHost(self)
+    UIManager:setDirty("all", "ui")
+end
+function DAppWindowHost:onClose()
+    UIManager:close(self)
+    return true
+end
+
 function DAppHost:init()
     self.dimen = Screen:getSize()
     self.split_ratio = self:_initialSplitRatio()
@@ -3568,8 +3832,15 @@ function DAppHost:init()
     if not self.manager.appdock:isSimpleModeEnabled("focus_apps") then
         self.ges_events.RevealRecentApps = { GestureRange:new{ ges = "swipe", direction = "north", range = function() return bottomSwipeRange(self.dimen) end } }
     end
-    if Device:hasKeys() then self.key_events.Close = { { Device.input.group.Back } } end
+    addHostPageKeyEvents(self)
     self:rebuild()
+end
+
+function DAppHost:onBrightnessUp() return adjustHostBrightness(self, 1) end
+function DAppHost:onBrightnessDown() return adjustHostBrightness(self, -1) end
+function DAppHost:onKeyRepeat(key)
+    if repeatHostPageKey(self, key) then return true end
+    return InputContainer.onKeyRepeat and InputContainer.onKeyRepeat(self, key) or false
 end
 
 function DAppHost:_initialSplitRatio()
@@ -3793,6 +4064,7 @@ function DAppHost:rebuild(preserve_active)
         navigation_height = navigation_height,
         has_navigation_pill = expressive,
     }
+    if self._brightness_indicator then table.insert(chrome, self._brightness_indicator) end
     self:clear()
     self[1] = chrome
 end
@@ -3809,7 +4081,7 @@ end
 
 function DAppRecents:init()
     self.dimen = Screen:getSize()
-    if Device:hasKeys() then self.key_events.Close = { { Device.input.group.Back } } end
+    bindGlobalPageKeys(self)
     if not self.manager.appdock:isSimpleModeEnabled("focus_apps") then
         self.ges_events = {
             RevealRecentApps = { GestureRange:new{ ges = "swipe", direction = "north", range = function() return bottomSwipeRange(self.dimen) end } },
@@ -3817,6 +4089,10 @@ function DAppRecents:init()
     end
     self:build()
 end
+
+function DAppRecents:onBrightnessUp() return DeviceControls.setBrightness(10) ~= nil end
+function DAppRecents:onBrightnessDown() return DeviceControls.setBrightness(-10) ~= nil end
+function DAppRecents:onKeyRepeat(key) return handleGlobalPageKeyRepeat(self, key) end
 
 function DAppRecents:build()
     local width, height = self.dimen.w, self.dimen.h
@@ -3834,7 +4110,7 @@ function DAppRecents:build()
         padding = 0,
     }
     local heading_subtitle = TextWidget:new{
-        text = _("Hold an app to start split screen"),
+        text = _("Hold an app for split screen and window actions"),
         face = Font:getFace("smallinfofont", expressive and scale(11) or scale(12)),
         fgcolor = PALETTE.on_variant,
         max_width = card_width,

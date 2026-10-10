@@ -752,7 +752,15 @@ function Encoder:packPreDithered(packed, invert)
     end
     if not invert then return packed end
     ffi.copy(self.target, packed, self.frame_bytes)
-    for index = 0, self.frame_bytes - 1 do
+    -- Monow bit sense differs between FFmpeg builds. Invert whole words when
+    -- possible: this is the only Lua-side work on the normal monochrome path,
+    -- so byte-at-a-time inversion noticeably slowed larger reader frames.
+    local words = math.floor(self.frame_bytes / 4)
+    local target_words = ffi.cast("uint32_t*", self.target)
+    for index = 0, words - 1 do
+        target_words[index] = bit.bnot(target_words[index])
+    end
+    for index = words * 4, self.frame_bytes - 1 do
         self.target[index] = bit.band(bit.bnot(self.target[index]), 0xFF)
     end
     return ffi.string(self.target, self.frame_bytes)
@@ -769,6 +777,12 @@ BWR.COLOR_PALETTE = {
     {   0,   0, 255 }, -- 5 pure blue
 }
 local COLOR_LUT
+local COLOR_DIRECT_LUT
+local COLOR_RED_INDEX
+local COLOR_GREEN_INDEX
+local COLOR_BLUE_INDEX
+local COLOR_DITHER_LUTS
+
 local function buildColorLUT()
     if COLOR_LUT then return end
     COLOR_LUT = ffi.new("uint16_t[32768]")
@@ -799,7 +813,51 @@ local function buildColorLUT()
             end
         end
     end
+    -- Component lookups remove three shifts and two multiplications per pixel
+    -- in the RGB hot loop. The direct table covers colour conversion without
+    -- ordered dithering and preserves the old threshold >= 32 tie-break.
+    COLOR_RED_INDEX = ffi.new("uint16_t[256]")
+    COLOR_GREEN_INDEX = ffi.new("uint16_t[256]")
+    COLOR_BLUE_INDEX = ffi.new("uint16_t[256]")
+    COLOR_DIRECT_LUT = ffi.new("uint8_t[32768]")
+    for value = 0, 255 do
+        local bucket = bit.rshift(value, 3)
+        COLOR_RED_INDEX[value] = bucket * 1024
+        COLOR_GREEN_INDEX[value] = bucket * 32
+        COLOR_BLUE_INDEX[value] = bucket
+    end
+    for index = 0, 32767 do
+        local code = COLOR_LUT[index]
+        local a = bit.band(code, 7)
+        local b = bit.band(bit.rshift(code, 3), 7)
+        COLOR_DIRECT_LUT[index] = bit.rshift(code, 6) >= 32 and b or a
+    end
 end
+
+-- A phase-specific output table keeps the established 8x8 Bayer threshold and
+-- palette tie-breaks byte-for-byte while replacing per-pixel Lua arithmetic
+-- with one indexed FFI load. It costs 2 MiB once per process, well below a
+-- decoded RGB frame, and eliminates the dominant BRC2 conversion hot loop.
+local function buildColorDitherLUTs()
+    if COLOR_DITHER_LUTS then return end
+    COLOR_DITHER_LUTS = {}
+    for row_phase = 0, 7 do
+        local row = {}
+        for column_phase = 0, 7 do
+            local threshold_at_phase = BAYER_8[row_phase + 1][column_phase + 1]
+            local output = ffi.new("uint8_t[32768]")
+            for index = 0, 32767 do
+                local code = COLOR_LUT[index]
+                local a = bit.band(code, 7)
+                local b = bit.band(bit.rshift(code, 3), 7)
+                output[index] = threshold_at_phase < bit.rshift(code, 6) and b or a
+            end
+            row[column_phase] = output
+        end
+        COLOR_DITHER_LUTS[row_phase] = row
+    end
+end
+
 local ColorEncoder = {}
 ColorEncoder.__index = ColorEncoder
 function BWR.newColorEncoder(width, height)
@@ -808,34 +866,29 @@ function BWR.newColorEncoder(width, height)
     local size = width * height
     if size > BWR.MAX_FRAME_BYTES then return nil, _("The color frame exceeds the supported size.") end
     buildColorLUT()
+    buildColorDitherLUTs()
     return setmetatable({ width=width, height=height, frame_bytes=size,
-        source=ffi.new("uint8_t[?]", size*3), target=ffi.new("uint8_t[?]", size) }, ColorEncoder)
+        target=ffi.new("uint8_t[?]", size) }, ColorEncoder)
 end
 function ColorEncoder:pack(rgb, dither)
     local pixels = self.width * self.height
     if type(rgb) ~= "string" or #rgb ~= pixels*3 then return nil, _("The RGB frame has the wrong size.") end
-    ffi.copy(self.source, rgb, pixels*3)
-    local source, target = self.source, self.target
+    -- LuaJIT can safely view a Lua string for this synchronous conversion. This
+    -- avoids copying 3 * width * height bytes before every BRC2 frame.
+    local source = ffi.cast("const uint8_t*", rgb)
+    local target = self.target
     local width, height = self.width, self.height
-    local matrix = BAYER_8
     local use_dither = dither ~= false
     for y=0,height-1 do
-        local mrow=matrix[(y % 8)+1]
+        local dither_row = use_dither and COLOR_DITHER_LUTS[y % 8] or nil
         local offset = y * width * 3
         local output = y * width
         local xphase = 0
         for x=0,width-1 do
-            local table_index = bit.rshift(source[offset], 3) * 1024
-                + bit.rshift(source[offset + 1], 3) * 32
-                + bit.rshift(source[offset + 2], 3)
-            local code = COLOR_LUT[table_index]
-            local a = bit.band(code, 7)
-            local b = bit.band(bit.rshift(code, 3), 7)
-            local threshold = bit.rshift(code, 6)
-            local choose_b
-            if use_dither then choose_b=mrow[xphase + 1] < threshold
-            else choose_b=threshold >= 32 end
-            target[output]=choose_b and b or a
+            local table_index = COLOR_RED_INDEX[source[offset]]
+                + COLOR_GREEN_INDEX[source[offset + 1]]
+                + COLOR_BLUE_INDEX[source[offset + 2]]
+            target[output] = use_dither and dither_row[xphase][table_index] or COLOR_DIRECT_LUT[table_index]
             offset = offset + 3
             output=output+1
             xphase = xphase + 1
