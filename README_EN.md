@@ -4,7 +4,7 @@
 
 # New releases regulary commited at 3:00 AM CET
 
-**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **7.9.11** significantly speeds up YouTube color conversion and makes Draw toolbar labels easier to read. [Details](RELEASE_NOTES_7.9.11.md).
+**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **7.9.12** adds genuine full-screen YouTube playback with on-screen controls and a return to the still-playing MiniPlayer. [Details](RELEASE_NOTES_7.9.12.md).
 
 > **E-Ink approach:** AppDock deliberately borrows the visual language and information structure, not Android's animations, blur, or transparency effects. This keeps updates economical and maintains contrast on monochrome readers.
 
@@ -283,3 +283,5 @@ The first six pinned apps occupy the current 3×2 page. Further apps appear on a
 [7] [KOReader: File Manager helpers and library folder](https://github.com/koreader/koreader/blob/master/frontend/apps/filemanager/filemanagerutil.lua)
 
 [8] [KOReader: ReaderUI and safe document startup](https://github.com/koreader/koreader/blob/master/frontend/apps/reader/readerui.lua)
+> **7.9.12:** YouTube playback now uses the full AppDock display with transport controls and returns to the MiniPlayer without interrupting playback. [Details](RELEASE_NOTES_7.9.12.md).
+> **7.9.11:** Speeds up YouTube color video conversion with precomputed multi-color dither patterns and improves Draw toolbar label readability. [Details](RELEASE_NOTES_7.9.11.md).
