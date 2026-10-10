@@ -32,6 +32,7 @@ Audio.findCommand = function(name)
     if name == "aplay" then return "/usr/bin/aplay" end
     if audio_mode == "gst" and name == "gst-launch-1.0" then return "/usr/bin/gst-launch-1.0" end
     if audio_mode == "gst" and name == "gst-inspect-1.0" then return "/usr/bin/gst-inspect-1.0" end
+    if audio_mode == "gst" and name == "setsid" then return "/usr/bin/setsid" end
     return nil
 end
 io.popen = function(command)
@@ -73,15 +74,19 @@ local gst = Audio.new(wav_path)
 assert(gst.command_name == "mtk-gstreamer", "The MediaTek sink must remain preferred when detected")
 assert(gst:startFrom(0), "GStreamer playback must start")
 local gst_command = spawned[#spawned]
-assert(gst_command:find("filesrc", 1, true) and gst_command:find("wavparse", 1, true),
-    "GStreamer must read the WAV directly rather than relying on a shell pipeline")
-assert(gst_command:find('location="' .. wav_path .. '"', 1, true),
-    "GStreamer must preserve a WAV path containing spaces")
+assert(gst_command:find("tail %-c %+69", 1),
+    "GStreamer must skip the RIFF and LIST chunks to reach the actual PCM payload")
+assert(gst_command:find("fdsrc fd=0", 1, true) and not gst_command:find("wavparse", 1, true),
+    "The MediaTek backend must use its known-good raw-PCM fdsrc pipeline without wavparse")
+assert(gst_command:find("rate=44100,channels=2,layout=interleaved", 1, true),
+    "Raw PCM caps must match the WAV format and specify interleaved channels")
+assert(gst_command:find("setsid", 1, true),
+    "The GStreamer pipeline must run in its own process group for reliable pause and stop")
 local gst_pid = gst.pid
 gst:pause()
-assert(signals[#signals]:find("kill %-STOP " .. gst_pid), "GStreamer pause must signal its actual process")
+assert(signals[#signals]:find("kill %-STOP %-" .. gst_pid), "GStreamer pause must signal its playback process group")
 gst:stop()
-assert(signals[#signals]:find("kill %-TERM " .. gst_pid), "GStreamer stop must signal its actual process")
+assert(signals[#signals]:find("kill %-TERM %-" .. gst_pid), "GStreamer stop must terminate its playback process group")
 
 Audio.findCommand, io.popen, os.execute = original_find, original_popen, original_execute
 os.remove(wav_path)

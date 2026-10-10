@@ -10,9 +10,9 @@ player hands the companion WAV file to whatever the device already provides:
 * `tinyplay`.
 
 The same backend choices are used by the `videoplayer.koplugin` "Snake" release.
-Playback backends run as direct child processes so pause, stop and seek signals
-reach the process that owns audio; RIFF chunks are parsed rather than assuming a
-fixed 44-byte WAV header.
+RIFF chunks are parsed rather than assuming a fixed 44-byte WAV header. The
+MediaTek GStreamer backend streams just the WAV's PCM data into `fdsrc`, matching
+the working Kobo playback path without requiring the optional `wavparse` plugin.
 --]]--
 
 local logger = require("logger")
@@ -153,6 +153,7 @@ function Audio.new(path)
         paused = false,
         command = nil,
         command_name = nil,
+        process_group = false,
     }, Audio)
 
     local gst_launch = Audio.findCommand("gst-launch-1.0")
@@ -239,15 +240,31 @@ function Audio:startFrom(seconds)
 
     local command
     if self.command_name == "mtk-gstreamer" then
-        -- Run gst-launch directly so its PID is the process that actually owns
-        -- playback. The old tail | shell | gst pipeline was signalled as a
-        -- process group, while aplay/tinyplay were not group leaders at all.
-        -- Keep quotes inside the filesrc property for paths containing spaces.
-        local location = 'location="' .. tostring(self.clip_path)
-            :gsub("\\", "\\\\"):gsub('"', '\\"') .. '"'
-        command = shellQuote(self.command) .. " -q filesrc " .. shellQuote(location)
-            .. " ! wavparse ! audioconvert ! audioresample"
-            .. " ! audio/x-raw,format=S16LE,rate=44100,channels=2 ! mtkbtmwrpcaudiosink"
+        local input = io.open(self.clip_path, "rb")
+        local info = input and Audio.readWavInfo(input) or nil
+        if input then input:close() end
+        if not info or info.format ~= 1 or info.bits_per_sample ~= 16 then
+            return nil, _("The companion WAV must contain 16-bit PCM for the MediaTek audio output.")
+        end
+        -- The Kobo MTK sink worked with raw PCM through fdsrc in 7.8.51.
+        -- Using wavparse here silently fails on some device builds where that
+        -- optional GStreamer parser is absent. Skip the RIFF chunks precisely
+        -- (including LIST/JUNK metadata) and feed the PCM with its real caps.
+        local pipeline = "tail -c +" .. tostring(info.data_offset + 1) .. " "
+            .. shellQuote(self.clip_path)
+            .. " | exec " .. shellQuote(self.command)
+            .. " fdsrc fd=0 ! audio/x-raw,format=S16LE,rate=" .. tostring(info.sample_rate)
+            .. ",channels=" .. tostring(info.channels)
+            .. ",layout=interleaved"
+            .. " ! audioconvert ! audioresample ! mtkbtmwrpcaudiosink"
+        local setsid = Audio.findCommand("setsid")
+        if setsid then
+            command = shellQuote(setsid) .. " sh -c " .. shellQuote(pipeline)
+            self.process_group = true
+        else
+            command = "sh -c " .. shellQuote(pipeline)
+            self.process_group = false
+        end
     elseif self.command_name == "aplay" then
         command = shellQuote(self.command) .. " -q " .. shellQuote(self.clip_path)
     else
@@ -265,23 +282,27 @@ end
 
 function Audio:pause()
     if self.pid and not self.paused then
-        os.execute("kill -STOP " .. tostring(self.pid) .. " 2>/dev/null")
+        os.execute("kill -STOP " .. (self.process_group and "-" or "")
+            .. tostring(self.pid) .. " 2>/dev/null")
         self.paused = true
     end
 end
 
 function Audio:resume()
     if self.pid and self.paused then
-        os.execute("kill -CONT " .. tostring(self.pid) .. " 2>/dev/null")
+        os.execute("kill -CONT " .. (self.process_group and "-" or "")
+            .. tostring(self.pid) .. " 2>/dev/null")
         self.paused = false
     end
 end
 
 function Audio:stop()
     if self.pid then
-        os.execute("kill -TERM " .. tostring(self.pid) .. " 2>/dev/null")
+        os.execute("kill -TERM " .. (self.process_group and "-" or "")
+            .. tostring(self.pid) .. " 2>/dev/null")
         self.pid = nil
     end
+    self.process_group = false
     if self.clip_path and self.clip_path ~= self.path then
         os.remove(self.clip_path)
     end
