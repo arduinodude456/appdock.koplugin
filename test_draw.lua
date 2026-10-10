@@ -71,4 +71,15 @@ assert(first_rect and first_rect.x==paint_x and first_rect.y==paint_y and first_
 local hit_range=canvas.ges_events.Paint[1].range()
 assert(hit_range.x==paint_x and hit_range.y==paint_y,
     "Canvas pan/tap gesture bounds must follow the absolute paint position")
+;(function()
+    local device = require("device")
+    local old_size, old_scale = device.screen.getSize, device.screen.scaleBySize
+    device.screen.getSize = function() return { w = 0, h = 0 } end
+    device.screen.scaleBySize = function() return nil end
+    local guarded = Draw:new()
+    local started, guarded_pane = pcall(guarded.buildPane, guarded, {}, { dimen = { w = 0, h = 0 } })
+    assert(started and guarded_pane and guarded.width >= 64 and guarded.height >= 64,
+        "Draw must use bounded fallback dimensions when display scale or size is not ready")
+    device.screen.getSize, device.screen.scaleBySize = old_size, old_scale
+end)()
 print("AppDock Draw tests passed")

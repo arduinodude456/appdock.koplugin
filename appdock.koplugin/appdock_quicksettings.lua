@@ -16,6 +16,7 @@ local GestureRange = require("ui/gesturerange")
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local AppDockDialogs = require("appdock_dialogs")
 local InfoMessage = AppDockDialogs.InfoMessage
+local DeviceControls = require("appdock_device_controls")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local Layout = require("appdock_layout")
 local Motion = require("appdock_motion")
@@ -561,7 +562,11 @@ function QuickSettings:init()
     applyTheme(self.appdock)
     self.dimen = Screen:getSize()
     if Device:hasKeys() then
+        self.key_events = self.key_events or {}
         self.key_events.Close = { { Device.input.group.Back } }
+        local up, down = DeviceControls.pageKeyGroups()
+        if up then self.key_events.BrightnessUp = { { up } } end
+        if down then self.key_events.BrightnessDown = { { down } } end
     end
     self:rebuild(false)
     self.ges_events = {
@@ -574,6 +579,23 @@ function QuickSettings:init()
             GestureRange:new{ ges = "swipe", direction = "north", range = function() return bottomSwipeRange(self.dimen) end },
         }
     end
+end
+
+function QuickSettings:onBrightnessUp()
+    local state = DeviceControls.setBrightness(10)
+    if state then self:rebuild(true); return true end
+    return false
+end
+function QuickSettings:onBrightnessDown()
+    local state = DeviceControls.setBrightness(-10)
+    if state then self:rebuild(true); return true end
+    return false
+end
+function QuickSettings:onKeyRepeat(key)
+    local up, down = DeviceControls.pageKeyGroups()
+    if up and key == up then DeviceControls.showPowerMenu(); return true end
+    if down and key == down then DeviceControls.showScreensaver(); return true end
+    return InputContainer.onKeyRepeat and InputContainer.onKeyRepeat(self, key) or false
 end
 
 function QuickSettings:_refresh(refreshtype, region, force)

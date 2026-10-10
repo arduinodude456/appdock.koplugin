@@ -38,9 +38,11 @@ end
 
 function Toast:init()
     local screen = Screen:getSize()
-    local margin, height = scale(16), scale(72)
-    local width = math.max(scale(180), screen.w - 2 * margin)
-    self.dimen = Geom:new{ x = margin, y = screen.h - height - margin, w = width, h = height }
+    local margin = math.max(scale(10), math.min(scale(16), math.floor(screen.w / 12)))
+    local height = math.min(math.max(scale(76), scale(82)), math.max(scale(76), screen.h - margin * 2))
+    local width = math.max(1, screen.w - 2 * margin)
+    local x = math.max(0, math.floor((screen.w - width) / 2))
+    self.dimen = Geom:new{ x = x, y = math.max(0, screen.h - height - margin), w = width, h = height }
     local notification = self.notification or {}
     local title = tostring(notification.title or "AppDock")
     local message = tostring(notification.message or "")
@@ -48,9 +50,14 @@ function Toast:init()
         dimen = self.dimen,
         allow_mirroring = false,
         FrameContainer:new{
-            width = width, height = height, padding = 0, bordersize = 0,
-            radius = scale(15), background = Blitbuffer.COLOR_GRAY_8,
+            width = width, height = height, padding = 0, bordersize = math.max(1, scale(1)),
+            color = Blitbuffer.COLOR_BLACK, radius = scale(15), background = Blitbuffer.COLOR_WHITE,
             emptySizedWidget(width, height),
+        },
+        FrameContainer:new{
+            width = width - scale(2), height = scale(28), padding = 0, bordersize = 0,
+            radius = scale(12), background = Blitbuffer.COLOR_BLACK,
+            emptySizedWidget(width - scale(2), scale(28)), overlap_offset = { scale(1), scale(1) },
         },
         TextWidget:new{
             text = title,
@@ -58,20 +65,20 @@ function Toast:init()
             fgcolor = Blitbuffer.COLOR_WHITE,
             bold = true,
             max_width = width - scale(46),
-            overlap_offset = { scale(14), scale(12) },
+            overlap_offset = { scale(14), scale(8) },
         },
         TextWidget:new{
             text = message,
             face = Font:getFace("smallinfofont", scale(11)),
-            fgcolor = Blitbuffer.COLOR_WHITE,
+            fgcolor = Blitbuffer.COLOR_BLACK,
             max_width = width - scale(46),
-            overlap_offset = { scale(14), scale(33) },
+            overlap_offset = { scale(14), scale(40) },
         },
         TextWidget:new{
             text = "×",
             face = Font:getFace("cfont", scale(19)),
             fgcolor = Blitbuffer.COLOR_WHITE,
-            overlap_offset = { width - scale(27), scale(10) },
+            overlap_offset = { width - scale(27), scale(6) },
         },
     }
     self.ges_events = { TapDismissNotification = { GestureRange:new{ ges = "tap", range = self.dimen } } }
