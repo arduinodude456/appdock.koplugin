@@ -686,17 +686,24 @@ function Reader:readFrame(index)
     if index == self.cache_index then return self.cache_frame end
 
     local first, previous
-    if index == self.cache_index + 1 and index % self.header.key_interval ~= 0 then
-        first = index
+    local key_interval = self.header.key_interval
+    local can_advance_cache = self.cache_index >= 0
+        and index > self.cache_index
+        and math.floor(index / key_interval) == math.floor(self.cache_index / key_interval)
+    if can_advance_cache then
+        -- Playback can skip frames when decoding or display work runs late. Keep
+        -- the last decoded frame and advance from it instead of replaying the
+        -- already-decoded prefix of this keyframe group on every skip.
+        first = self.cache_index + 1
         previous = self.cache_frame
     else
-        local group = math.floor(index / self.header.key_interval)
-        first = group * self.header.key_interval
+        local group = math.floor(index / key_interval)
+        first = group * key_interval
         self.handle:seek("set", self.key_offsets[group + 1])
     end
     local packed, decode_error
     for frame_index = first, index do
-        packed, decode_error = self:_readPacket(previous, frame_index % self.header.key_interval == 0)
+        packed, decode_error = self:_readPacket(previous, frame_index % key_interval == 0)
         if not packed then
             return nil, _("Cannot decode BWR2 frame ") .. tostring(frame_index) .. ": " .. tostring(decode_error)
         end

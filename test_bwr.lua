@@ -211,6 +211,17 @@ for _, index in ipairs({ 0, 1, 3, 4, 7, 8, 17, 23, 10, 11, 2, 15 }) do
     local decoded, decode_error = reader:readFrame(index)
     assert(decoded == bwr2_frames[index + 1], "BWR2 seek/decode must reproduce frame " .. index .. ": " .. tostring(decode_error))
 end
+local skip_reader = assert(BWR.newReader(bwr2_file, bwr2_header))
+local decoded_packets = 0
+local read_packet = skip_reader._readPacket
+skip_reader._readPacket = function(self, ...)
+    decoded_packets = decoded_packets + 1
+    return read_packet(self, ...)
+end
+assert(skip_reader:readFrame(8) == bwr2_frames[9], "A fresh cache must read its keyframe")
+assert(skip_reader:readFrame(10) == bwr2_frames[11], "A skipped-frame read must still return the requested image")
+assert(decoded_packets == 3,
+    "A forward skip inside one keyframe group must advance from the cached frame, not decode the prefix twice")
 assert(bwr2_bytes < BWR.HEADER_BYTES + #bwr2_frames * frame_bytes,
     "Repeated and near-static frames must compress materially below the BWR1 raw size")
 bwr2_file:close()
