@@ -142,6 +142,7 @@ package.preload["ui/uimanager"] = function()
 end
 
 local BWR = dofile(plugin_dir .. "appdock_bwr.lua")
+local Audio = dofile(plugin_dir .. "appdock_audio.lua")
 local Player = dofile(plugin_dir .. "appdock_player.lua")
 local YouTube = dofile(plugin_dir .. "appdock_youtube.lua")
 
@@ -224,6 +225,14 @@ assert(color_filter:find("format=rgb24", 1, true) and not color_filter:find("for
     "The optional color pipeline must preserve RGB instead of greyscaling before dithering")
 assert(color_filter:find("flags=fast_bilinear", 1, true),
     "Color conversion must use FFmpeg's faster scaler before AppDock's palette dithering")
+local audio_command = helpers.buildAudioCommand("/tools/ffmpeg", "/tmp/source file.mp4", 180, "/tmp/output file.wav")
+assert(audio_command:find("-ar 22050 -ac 1", 1, true)
+    and audio_command:find("-c:a pcm_s16le", 1, true)
+    and audio_command:find("-f wav", 1, true),
+    "Companion audio must remain seekable PCM WAV while using 22.05 kHz mono to reduce storage")
+assert(audio_command:find("'/tmp/source file.mp4'", 1, true)
+    and audio_command:find("'/tmp/output file.wav'", 1, true),
+    "The compact audio command must still safely quote paths with spaces")
 
 local frame_width, frame_height = helpers.frameSize(100)
 assert(frame_width == 600 and frame_height == 800, "The full resolution must follow the device screen")
@@ -583,6 +592,15 @@ local function runConversion(dither_mode, label, seconds, color_mode)
     assert(#library == 1, label .. ": exactly one converted video must appear in the library")
     local entry = library[1]
     assert(entry.has_audio, label .. ": a companion WAV file must exist")
+    local wav_path = entry.path:gsub("%.bwr$", ".wav")
+    local wav_handle = assert(io.open(wav_path, "rb"))
+    local wav_info = Audio.readWavInfo(wav_handle)
+    wav_handle:close()
+    assert(wav_info and wav_info.sample_rate == 22050 and wav_info.channels == 1,
+        label .. ": companion audio must use the storage-saving 22.05 kHz mono WAV profile")
+    local wav_attributes = assert(lfs.attributes(wav_path))
+    assert(wav_attributes.size <= seconds * 44100 + 2048,
+        label .. ": the compact WAV must stay near 44.1 KB per second, not 176.4 KB/s stereo PCM")
 
     local handle = assert(io.open(entry.path, "rb"))
     local header = assert(BWR.readHeader(handle))
