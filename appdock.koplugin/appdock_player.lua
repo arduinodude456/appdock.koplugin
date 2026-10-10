@@ -398,7 +398,11 @@ function Engine:step()
         local ready, start_error = self.audio:isPlaybackReady()
         if not self.pending_start.clock_ready and ready then
             self.pending_start.clock_ready = true
-            self.pending_start.deadline = now + self.audio:startupLatency()
+            -- The MTK sink reports its clock only after the audio process has
+            -- started. Keep the user-configured video offset from this point;
+            -- startupLatency() is only an optional hardware baseline and must
+            -- never replace the setting with zero.
+            self.pending_start.deadline = now + self.video_delay + self.audio:startupLatency()
             self:status(_("Audio clock active; waiting for audible output…"))
             UIManager:scheduleIn(AUDIO_START_POLL_INTERVAL, self.tick)
             return
