@@ -656,13 +656,14 @@ local function runConversion(dither_mode, label, seconds, color_mode)
     engine.audio = original_audio
     Player.now = real_clock
     engine.anchor_wall, engine.position = nil, 0
-    local white, black, total = 0, 0, 0
+    local white, black, chromatic, total = 0, 0, 0, 0
     for _, index in ipairs({ 0, math.floor(header.frames / 2), header.frames - 1 }) do
         local packed = assert(engine:readFrame(index))
         for byte_index = 1, #packed do
             local value = packed:byte(byte_index)
             if color_mode then
                 assert(value >= 1 and value <= 5, label .. ": every pixel must be a valid pure-palette index")
+                if value >= 3 then chromatic = chromatic + 1 end
             end
             if value == 255 then white = white + 1 end
             if value == 0 then black = black + 1 end
@@ -670,6 +671,10 @@ local function runConversion(dither_mode, label, seconds, color_mode)
         end
     end
     assert(white < total and black < total, label .. ": the frames must not be uniformly black or white")
+    if color_mode then
+        assert(chromatic > total * 0.25,
+            label .. ": ordered color dithering must preserve substantial red, green, and blue detail")
+    end
     local frame = assert(color_mode
         and BWR.expandColorFrame(engine:readFrame(0), header.width, header.height)
         or BWR.expandFrame(engine:readFrame(0), header.width, header.height))
