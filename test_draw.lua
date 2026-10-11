@@ -13,7 +13,7 @@ local Widget=class()
 function Widget:paintTo() end
 local OverlapGroup=Widget:extend({})
 function OverlapGroup:init() self.is_overlap_group=true end
-local color_enabled = false
+local color_enabled, color_screen = false, false
 ffi.cdef[[
 typedef struct {
     uint8_t red;
@@ -30,7 +30,7 @@ local ColorRGB32 = ffi.metatype("AppDockDrawTestColor", {
 })
 package.preload["gettext"]=function() return function(s) return s end end
 package.preload["ffi/blitbuffer"]=function() return {COLOR_WHITE=1,COLOR_BLACK=2,COLOR_GRAY_8=3,COLOR_LIGHT_GRAY=4,ColorRGB32=function(r,g,b,a) return ColorRGB32(r,g,b,a or 0xFF) end} end
-package.preload["device"]=function() return {screen={getSize=function() return {w=600,h=800} end,scaleBySize=function(_,v) return v end,isColorEnabled=function() return color_enabled end}} end
+package.preload["device"]=function() return {screen={getSize=function() return {w=600,h=800} end,scaleBySize=function(_,v) return v end,isColorEnabled=function() return color_enabled end,isColorScreen=function() return color_screen end}} end
 package.preload["ui/geometry"]=function() return {new=function(_,a) return a end} end
 package.preload["ui/gesturerange"]=function() return {new=function(_,a) return a end} end
 package.preload["ui/font"]=function() return {getFace=function(_,name,size) return {name=name,size=size or 12} end} end
@@ -46,13 +46,31 @@ end
 package.preload["ui/widget/container/inputcontainer"]=function() return Widget end
 package.preload["ui/widget/container/widgetcontainer"]=function() return Widget end
 package.preload["ui/widget/overlapgroup"]=function() return OverlapGroup end
-package.preload["ui/uimanager"]=function() return {} end
+local visible_dialog
+local UIManager={
+    show=function(_,widget) visible_dialog=widget end,
+    close=function(_,widget) if visible_dialog==widget then visible_dialog=nil end end,
+}
+package.preload["ui/uimanager"]=function() return UIManager end
+package.preload["appdock_keyboard"]=function()
+    return {attach=function(dialog)
+        dialog.appdock_keyboard_attached=true
+        dialog.onShowKeyboard=function() return true end
+        return true
+    end}
+end
 local Draw=dofile(plugin_dir.."appdock_draw.lua")
 for _,v in ipairs({0,1,127,254,255}) do
     local c=Draw.ditherChannel(v,3,5)
     assert(c==0 or c==255,"ordered dithering must emit binary channel values only")
 end
 assert(Draw.ditherChannel(0,0,0)==0 and Draw.ditherChannel(255,0,0)==255,"extremes are stable")
+local parsed_r,parsed_g,parsed_b=Draw.parseRGB("#12A0FF")
+assert(parsed_r==18 and parsed_g==160 and parsed_b==255,"hex RGB input must parse exact channel values")
+parsed_r,parsed_g,parsed_b=Draw.parseRGB("18, 160, 255")
+assert(parsed_r==18 and parsed_g==160 and parsed_b==255,"comma-separated RGB input must parse exact channel values")
+assert(Draw.parseRGB("256,0,0")==nil and Draw.parseRGB("#12GGFF")==nil,
+    "invalid RGB channels and hex digits must be rejected")
 for r=0,255,17 do for g=0,255,17 do for b=0,255,17 do
     local id=Draw.paletteIndex(r,g,b,7,3,true)
     assert(id>=1 and id<=5,"the color reducer must use only white, black, red, green or blue")
@@ -65,11 +83,22 @@ app:stamp(4,3,3,1)
 assert(app.layers[2].pixels[3*12+4]==3,"brush writes to the active layer")
 app:floodFill(0,0,2)
 assert(app.layers[2].pixels[0]==2 and app.layers[2].pixels[3*12+4]==3,"fill replaces only the connected region")
+local custom_color=app:setRGBColor(18,160,255)
+assert(custom_color==6 and app.palette[custom_color][1]==18 and app.palette[custom_color][2]==160
+    and app.palette[custom_color][3]==255,"RGB color selection must add an exact custom palette entry")
+app:stamp(9,6,custom_color,1)
 local bytes=app:projectBytes()
 local restored=Draw:new()
 assert(restored:loadBytes(bytes),"a well-formed editable drawing must load")
 assert(restored.width==12 and restored.height==8 and #restored.layers==2 and restored.active==2,"project metadata and layer count round-trip")
 assert(restored.layers[2].pixels[3*12+4]==3,"layer pixels round-trip exactly")
+assert(restored.layers[2].pixels[6*12+9]==custom_color and restored.palette[custom_color][1]==18
+        and restored.palette[custom_color][2]==160 and restored.palette[custom_color][3]==255
+        and restored.color==custom_color,
+    "ADRAW2 projects must round-trip custom RGB palette colors and the selected color")
+local legacy_bytes="ADRAW1\0"..string.char(12,0,8,0,1,1)..string.rep(string.char(1),96)
+assert(restored:loadBytes(legacy_bytes) and #restored.palette==5 and restored.color==2,
+    "legacy ADRAW1 palette projects must remain loadable")
 local broken,err=restored:loadBytes("ADRAW1\0\1")
 assert(not broken and type(err)=="string","truncated project files must be rejected safely")
 assert(not restored:loadBytes("not a drawing"),"unrecognized files must be rejected")
@@ -118,7 +147,8 @@ assert(app:statusText():find("Line",1,true) and app:statusText():find("Layer",1,
 -- Pane
 ----------------------------------------------------------------
 
-local pane=app:buildPane({}, {dimen={w=600,h=800},requestRebuild=function() end,notify=function() end})
+local draw_notice
+local pane=app:buildPane({}, {dimen={w=600,h=800},requestRebuild=function() end,notify=function(message) draw_notice=message end})
 assert(pane.is_overlap_group and pane.dimen.w==600 and pane.dimen.h==800,
     "The Draw pane must position its toolbar and canvas in a screen-sized OverlapGroup")
 local canvas,pen,chips,active_tool_button
@@ -156,6 +186,20 @@ for _,child in ipairs(pane) do
 end
 assert(swatch,"The options row must offer a swatch per palette color")
 assert(swatch:onTapSwatch() and app.color==3,"A swatch must select its color")
+local rgb_picker
+for _,child in ipairs(pane) do if child.text=="RGB" then rgb_picker=child end end
+assert(rgb_picker and rgb_picker.ges_events and rgb_picker.ges_events.TapChip,
+    "The options row must provide a tappable RGB color picker")
+rgb_picker:onTapChip()
+assert(visible_dialog and visible_dialog.title=="RGB color" and visible_dialog.appdock_keyboard_attached,
+    "Tapping RGB must open the custom RGB input dialog and keyboard")
+assert(visible_dialog.buttons[1][2].is_enter_default,
+    "The RGB dialog must let the keyboard Enter action apply the selected color")
+visible_dialog:setInputText("#00CC80")
+visible_dialog.buttons[1][2].callback()
+assert(app.color==6 and app.palette[6][1]==0 and app.palette[6][2]==204 and app.palette[6][3]==128,
+    "Applying the RGB dialog must select the exact custom color")
+assert(app:statusText():find("RGB #00CC80",1,true),"The status line must identify a selected custom RGB color")
 
 local first_rect
 local paint_x,paint_y=13,153
@@ -225,10 +269,21 @@ assert(row_count==1,"A partial repaint must touch only the requested canvas row"
 assert(total_width<canvas.dimen.w,
     "A partial repaint must cover less than the full canvas width instead of repainting everything")
 
-color_enabled = true
-local color_painted, color_error = pcall(canvas.paintTo, canvas, { paintRect = function() end }, paint_x, paint_y)
-color_enabled = false
+local rendered_rgb_id=app:setRGBColor(12,34,56)
+app:stamp(10,6,rendered_rgb_id,1)
+local observed_custom_rgb=false
+color_enabled, color_screen = false, true
+local color_painted, color_error = pcall(canvas.paintTo, canvas, {
+    paintRect=function(_,_,_,_,_,color)
+        if type(color)=="cdata" and color.red==12 and color.green==34 and color.blue==56 then
+            observed_custom_rgb=true
+        end
+    end,
+}, paint_x, paint_y)
+color_enabled, color_screen = false, false
 assert(color_painted, "A color canvas must not compare a BlitBuffer ColorRGB32 value with nil: " .. tostring(color_error))
+assert(observed_custom_rgb,
+    "A color-capable screen must paint custom RGB even when KOReader's global color-rendering preference is off")
 ;(function()
     local device = require("device")
     local old_size, old_scale = device.screen.getSize, device.screen.scaleBySize

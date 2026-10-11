@@ -26,12 +26,15 @@ local InputContainer = require("ui/widget/container/inputcontainer")
 local OverlapGroup = require("ui/widget/overlapgroup")
 local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
+local AppDockDialogs = require("appdock_dialogs")
+local AppDockKeyboard = require("appdock_keyboard")
 local _ = require("gettext")
 
 local Draw = {}
 Draw.__index = Draw
 local Screen = Device.screen
-local MAGIC = "ADRAW1\0"
+local MAGIC_V1 = "ADRAW1\0"
+local MAGIC = "ADRAW2\0"
 local save_sequence = 0
 local MAX_HISTORY = 8
 local Bayer = {
@@ -53,6 +56,28 @@ Draw.brushSizes = { 1, 2, 4, 7 }
 
 local function clamp(v, lo, hi) return math.max(lo, math.min(hi, v)) end
 local function scale(v) return Screen:scaleBySize(v) end
+local function copyPalette(source)
+    local copied = {}
+    for index, color in ipairs(source or palette) do
+        copied[index] = { color[1], color[2], color[3] }
+    end
+    return copied
+end
+local function colorPalette(app) return app and app.palette or palette end
+local function hasColorScreen()
+    -- isColorEnabled() is a user preference (Gear > Screen > Color rendering),
+    -- not a hardware capability. Use the physical screen capability so Paint
+    -- keeps its RGB output even when KOReader's document rendering is disabled.
+    if type(Screen.isColorScreen) == "function" then
+        local ok, enabled = pcall(Screen.isColorScreen, Screen)
+        if ok then return enabled == true end
+    end
+    if type(Screen.isColorEnabled) == "function" then
+        local ok, enabled = pcall(Screen.isColorEnabled, Screen)
+        if ok then return enabled == true end
+    end
+    return false
+end
 local function safeScale(value)
     local ok, scaled = pcall(scale, value)
     scaled = ok and tonumber(scaled) or nil
@@ -75,7 +100,7 @@ local function screenMetric(method, field, fallback)
     return safeDimension(value or Screen[field], fallback)
 end
 local function rgb(c)
-    if Screen:isColorEnabled() then return Blitbuffer.ColorRGB32(c[1], c[2], c[3], 0xFF) end
+    if hasColorScreen() then return Blitbuffer.ColorRGB32(c[1], c[2], c[3], 0xFF) end
     local y = math.floor((c[1] * 299 + c[2] * 587 + c[3] * 114) / 1000)
     return y > 127 and Blitbuffer.COLOR_WHITE or Blitbuffer.COLOR_BLACK
 end
@@ -110,8 +135,8 @@ local function monotonicNow()
     return ok and tonumber(value) or os.time()
 end
 
--- Public deterministic threshold helper; the output channel is always a pure
--- primary or zero, so the only rendered colors are RGB, black and white.
+-- Public deterministic threshold and legacy primary-color quantizer. The
+-- project palette itself can also contain arbitrary RGB colors.
 function Draw.ditherChannel(value, x, y)
     local t = Bayer[(y % 8)+1][(x % 8)+1] * 4 + 2
     return value > t and 255 or 0
@@ -126,6 +151,19 @@ function Draw.paletteIndex(r, g, b, x, y, enabled)
     if rr == 255 then return 3 end
     if gg == 255 then return 4 end
     return 5
+end
+
+function Draw.parseRGB(text)
+    if type(text) ~= "string" then return nil end
+    text = text:match("^%s*(.-)%s*$") or ""
+    local hex = text:match("^#?(%x%x%x%x%x%x)$")
+    if hex then
+        return tonumber(hex:sub(1, 2), 16), tonumber(hex:sub(3, 4), 16), tonumber(hex:sub(5, 6), 16)
+    end
+    local r, g, b = text:match("^(%d+)%s*[,;]%s*(%d+)%s*[,;]%s*(%d+)$")
+    r, g, b = tonumber(r), tonumber(g), tonumber(b)
+    if not r or not g or not b or r > 255 or g > 255 or b > 255 then return nil end
+    return r, g, b
 end
 
 ----------------------------------------------------------------
@@ -317,7 +355,8 @@ function ColorSwatch:setActive(active) self.active = active and true or false en
 
 function ColorSwatch:paintTo(bb, x, y)
     local w, h = self.width, self.height
-    local entry = palette[clamp(tonumber(self.color_id) or 1, 1, #palette)]
+    local colors = self.palette or palette
+    local entry = colors[clamp(tonumber(self.color_id) or 1, 1, #colors)]
     local border = self.active and math.max(2, safeScale(2)) or math.max(1, safeScale(1))
     bb:paintRect(x, y, w, h, self.active and Blitbuffer.COLOR_BLACK or Blitbuffer.COLOR_LIGHT_GRAY)
     bb:paintRect(x + border, y + border, w - border * 2, h - border * 2, rgb(entry))
@@ -335,6 +374,7 @@ end
 local Chip = InputContainer:extend{
     text = nil,
     symbol = nil,
+    color = nil,
     active = false,
     callback = nil,
     width = nil,
@@ -344,7 +384,10 @@ local Chip = InputContainer:extend{
 
 function Chip:init()
     self.dimen = Geom:new{ x = 0, y = 0, w = self.width, h = self.height }
-    local text_width = math.max(1, self.width - safeScale(16) - (self.symbol and safeScale(16) or 0))
+    self.color_size = self.color and math.min(safeScale(18), math.max(1, self.width - safeScale(22))) or 0
+    local text_width = math.max(1, self.width - safeScale(16)
+        - (self.symbol and safeScale(16) or 0)
+        - (self.color and self.color_size + safeScale(4) or 0))
     self.text_widget = TextWidget:new{
         text = tostring(self.text or ""),
         face = Font:getFace("smallinfofont", safeScale(12)),
@@ -373,9 +416,23 @@ function Chip:paintTo(bb, x, y)
     if self.symbol and icon_size > 4 then
         paintGlyph(bb, x + safeScale(4), y + math.floor((h - icon_size) / 2), icon_size, icon_size, self.symbol, ink)
     end
+    if self.color and self.color_size > 0 then
+        local color_x, color_y = x + safeScale(4), y + math.floor((h - self.color_size) / 2)
+        bb:paintRect(color_x, color_y, self.color_size, self.color_size, Blitbuffer.COLOR_BLACK)
+        if self.color_size > 2 then
+            bb:paintRect(color_x + 1, color_y + 1, self.color_size - 2, self.color_size - 2, rgb(self.color))
+        end
+    end
     if self.text_widget then
         local size = self.text_widget:getSize()
-        local text_x = self.symbol and (x + safeScale(6) + icon_size) or math.floor(x + (w - size.w) / 2)
+        local text_x
+        if self.symbol then
+            text_x = x + safeScale(6) + icon_size
+        elseif self.color then
+            text_x = x + safeScale(4) + self.color_size + safeScale(4)
+        else
+            text_x = math.floor(x + (w - size.w) / 2)
+        end
         self.text_widget:paintTo(bb, text_x, y + math.floor((h - size.h) / 2))
     end
     self.dimen.x, self.dimen.y, self.dimen.w, self.dimen.h = x, y, w, h
@@ -638,7 +695,7 @@ function Canvas:paintRegionTo(bb, x, y, sx0, sy0, sx1, sy1)
                 end
                 color_id = color_id or 1
             end
-            local entry = color_id and palette[color_id] or nil
+            local entry = color_id and colorPalette(app)[color_id] or nil
             local value = entry and rgb(entry)
             if px == sx0 then
                 run_id, run_color, run_start = color_id, value, px
@@ -674,11 +731,13 @@ function Draw:new()
     return setmetatable({
         layers = {}, active = 1, color = 2, tool = "pen", brush_size = 2,
         color_dither = false, pressure_enabled = true,
+        palette = copyPalette(palette),
         history = {}, redo_stack = {},
     }, self)
 end
 
 function Draw:ensure()
+    self.palette = self.palette or copyPalette(palette)
     if #self.layers==0 then
         local size
         if Screen.getSize then
@@ -703,6 +762,25 @@ end
 
 function Draw:layer()
     return self.layers[self.active]
+end
+
+function Draw:setRGBColor(r, g, b)
+    r, g, b = tonumber(r), tonumber(g), tonumber(b)
+    if not r or not g or not b or r < 0 or g < 0 or b < 0 or r > 255 or g > 255 or b > 255 then
+        return nil, _("RGB channels must be between 0 and 255.")
+    end
+    r, g, b = math.floor(r + 0.5), math.floor(g + 0.5), math.floor(b + 0.5)
+    self.palette = self.palette or copyPalette(palette)
+    for index, color in ipairs(self.palette) do
+        if color[1] == r and color[2] == g and color[3] == b then
+            self.color = index
+            return index
+        end
+    end
+    if #self.palette >= 255 then return nil, _("The drawing already contains 255 distinct colors.") end
+    self.palette[#self.palette + 1] = { r, g, b }
+    self.color = #self.palette
+    return self.color
 end
 
 function Draw:stamp(x,y,color_id,radius)
@@ -834,8 +912,14 @@ end
 
 function Draw:statusText()
     local label = TOOL_LABELS[self.tool] or _("Pen")
+    local color_id = clamp(self.color or 1, 1, #(self.palette or palette))
+    local color_name = COLOR_NAMES[color_id]
+    if not color_name then
+        local color = colorPalette(self)[color_id] or palette[1]
+        color_name = string.format("RGB #%02X%02X%02X", color[1], color[2], color[3])
+    end
     return string.format("%s · %d px · %s · %s", label, self.brush_size or 1,
-        COLOR_NAMES[clamp(self.color or 1, 1, #COLOR_NAMES)],
+        color_name,
         string.format(_("Layer %d/%d"), self.active or 1, #self.layers))
 end
 
@@ -845,25 +929,52 @@ end
 
 function Draw:projectBytes()
     self:ensure()
-    local out={MAGIC,u16(self.width),u16(self.height),string.char(#self.layers,self.active)}
+    local selected_color = clamp(self.color or 1, 1, #self.palette)
+    local out={MAGIC,u16(self.width),u16(self.height),string.char(#self.layers,self.active,#self.palette,selected_color)}
+    for _, color in ipairs(self.palette) do
+        out[#out+1] = string.char(color[1], color[2], color[3])
+    end
     for _,layer in ipairs(self.layers) do out[#out+1]=ffi.string(layer.pixels,self.width*self.height) end
     return table.concat(out)
 end
 
 function Draw:loadBytes(bytes)
-    if type(bytes)~="string" or #bytes < #MAGIC + 6 or bytes:sub(1,#MAGIC)~=MAGIC then return nil,_('Not an AppDock Draw project.') end
+    if type(bytes)~="string" or #bytes < #MAGIC_V1 + 6 then return nil,_('Not an AppDock Draw project.') end
+    local version2 = bytes:sub(1,#MAGIC) == MAGIC
+    if not version2 and bytes:sub(1,#MAGIC_V1) ~= MAGIC_V1 then return nil,_('Not an AppDock Draw project.') end
     local i=#MAGIC+1; local w=bytes:byte(i)+(bytes:byte(i+1) or 0)*256; i=i+2
     local h=bytes:byte(i)+(bytes:byte(i+1) or 0)*256; i=i+2
-    local count=bytes:byte(i); local active=bytes:byte(i+1); i=i+2
+    local count=bytes:byte(i); local active=bytes:byte(i+1)
+    local palette_count, selected_color, loaded_palette
+    if version2 then
+        palette_count, selected_color = bytes:byte(i+2), bytes:byte(i+3)
+        i = i + 4
+        if not palette_count or palette_count < #palette or palette_count > 255
+            or not selected_color or selected_color < 1 or selected_color > palette_count then
+            return nil,_('The drawing file has an invalid color palette.')
+        end
+        loaded_palette = {}
+        for color_id = 1, palette_count do
+            local r, g, b = bytes:byte(i, i + 2)
+            if not r or not g or not b then return nil,_('The drawing file is damaged or too large.') end
+            loaded_palette[color_id] = { r, g, b }
+            i = i + 3
+        end
+    else
+        i = i + 2
+        loaded_palette, selected_color = copyPalette(palette), 2
+        palette_count = #loaded_palette
+    end
     if w<1 or h<1 or w>480 or h>640 or not count or count<1 or count>6 or not active or active<1 or active>count or #bytes-i+1~=w*h*count then return nil,_('The drawing file is damaged or too large.') end
     local layers={}
     for n=1,count do
         local raw=bytes:sub(i,i+w*h-1)
-        for index=1,#raw do if raw:byte(index)>5 then return nil,_('The drawing file contains an invalid color index.') end end
+        for index=1,#raw do if raw:byte(index)>palette_count then return nil,_('The drawing file contains an invalid color index.') end end
         local pixels=ffi.new("uint8_t[?]",w*h); ffi.copy(pixels,raw,w*h)
         layers[n]={name=_('Layer ')..n,width=w,height=h,pixels=pixels,empty=false}; i=i+w*h
     end
     self.width,self.height,self.layers,self.active=w,h,layers,clamp(active or 1,1,count)
+    self.palette, self.color = loaded_palette, selected_color
     self.history,self.redo_stack={},{}
     return true
 end
@@ -900,7 +1011,7 @@ function Draw:loadPath(path)
     if type(path)~="string" or #path>4096 or not path:lower():match("%.adraw$") then return nil,_('Choose an .adraw project file.') end
     local f,err=io.open(path,"rb"); if not f then return nil,err end
     local size=f:seek("end")
-    if not size or size>480*640*6+#MAGIC+6 then f:close(); return nil,_('The drawing file is too large.') end
+    if not size or size>480*640*6+#MAGIC+8+255*3 then f:close(); return nil,_('The drawing file is too large.') end
     f:seek("set",0); local bytes=f:read("*a"); f:close()
     return self:loadBytes(bytes)
 end
@@ -917,7 +1028,7 @@ function Draw:exportJPEG()
     for y=0,self.height-1 do for x=0,self.width-1 do
         local id=1
         for li=#self.layers,1,-1 do local v=self.layers[li].pixels[y*self.width+x]; if v and v~=0 then id=v; break end end
-        local p=palette[id] or palette[1]
+        local p=colorPalette(self)[id] or palette[1]
         local r,g,b=p[1],p[2],p[3]
         if self.color_dither then r,g,b=Draw.ditherChannel(r,x,y),Draw.ditherChannel(g,x,y),Draw.ditherChannel(b,x,y) end
         f:write(string.char(r,g,b))
@@ -970,6 +1081,42 @@ function Draw:buildPane(instance, context)
 
     local function rebuild()
         if context.requestRebuild then context.requestRebuild("ui") end
+    end
+
+    local function openRGBPicker()
+        local current = colorPalette(self)[clamp(self.color or 1, 1, #colorPalette(self))] or palette[1]
+        local dialog
+        dialog = AppDockDialogs.InputDialog:new{
+            title = _("RGB color"),
+            text = _("Enter a six-digit hex color or three RGB channel values."),
+            input = string.format("#%02X%02X%02X", current[1], current[2], current[3]),
+            input_hint = _("#RRGGBB or R,G,B"),
+            buttons = {
+                {
+                    { text = _("Cancel") },
+                    {
+                        text = _("Apply"),
+                        is_enter_default = true,
+                        callback = function()
+                            local r, g, b = Draw.parseRGB(dialog:getInputText())
+                            if r == nil then
+                                if context.notify then context.notify(_("Use #RRGGBB or three channel values such as 128,64,255.")) end
+                                return
+                            end
+                            local color_id, err = self:setRGBColor(r, g, b)
+                            if not color_id then
+                                if context.notify then context.notify(err) end
+                                return
+                            end
+                            rebuild()
+                        end,
+                    },
+                },
+            },
+        }
+        AppDockKeyboard.attach(dialog)
+        UIManager:show(dialog)
+        dialog:onShowKeyboard()
     end
 
     -- Tool strip ------------------------------------------------------------
@@ -1043,7 +1190,19 @@ function Draw:buildPane(instance, context)
         pane[#pane + 1] = swatch
     end
 
-    local size_x = margin + #palette * (swatch_size + gap) + gap
+    local picker_x = margin + #palette * (swatch_size + gap) + gap
+    local picker_width = math.max(safeScale(46), math.min(safeScale(60), swatch_size + safeScale(26)))
+    pane[#pane + 1] = Chip:new{
+        text = "RGB",
+        color = colorPalette(self)[clamp(self.color or 1, 1, #colorPalette(self))],
+        active = self.color > #palette,
+        width = picker_width,
+        height = swatch_size,
+        callback = openRGBPicker,
+        overlap_offset = { picker_x, option_y },
+    }
+
+    local size_x = picker_x + picker_width + gap
     local size_button = math.max(safeScale(20), math.floor(swatch_size * 0.8))
     local size_center_y = option_y + math.floor((swatch_size - size_button) / 2)
     pane[#pane + 1] = ToolButton:new{
