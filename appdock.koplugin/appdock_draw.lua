@@ -657,7 +657,13 @@ function Canvas:_continue(ev, final)
         box[1] = math.min(box[1], x0); box[2] = math.min(box[2], y0)
         box[3] = math.max(box[3], x1); box[4] = math.max(box[4], y1)
     end
-    local pad = math.max(1, math.floor(stroke.brush / 2) + 1)
+    -- Pressure can change during a contact. Recompute the brush for every raw
+    -- stylus sample instead of freezing the width at pen-down.
+    local brush = self:_brushFor(ev)
+    if ev and (ev.pointer_type == "stylus" or ev.tool == "stylus" or ev.stylus == true) then
+        stroke.brush = brush
+    end
+    local pad = math.max(1, math.floor(brush / 2) + 1)
 
     if isShapeTool(stroke.tool) then
         local layer = app.layers[stroke.snapshot_layer]
@@ -667,7 +673,7 @@ function Canvas:_continue(ev, final)
         end
         extend(math.min(stroke.x0, x) - pad, math.min(stroke.y0, y) - pad,
             math.max(stroke.x0, x) + pad, math.max(stroke.y0, y) + pad)
-        self:_paintShape(stroke, x, y, stroke.color, stroke.brush)
+        self:_paintShape(stroke, x, y, stroke.color, brush)
     else
         local previous = stroke.last
         extend(math.min(previous[1], x) - pad, math.min(previous[2], y) - pad,
@@ -676,7 +682,7 @@ function Canvas:_continue(ev, final)
         local n = math.max(math.abs(dx), math.abs(dy), 1)
         for i = 0, n do
             app:stamp(math.floor(previous[1] + dx * i / n + .5), math.floor(previous[2] + dy * i / n + .5),
-                stroke.color, stroke.brush)
+                stroke.color, brush)
         end
     end
     stroke.last = { x, y }

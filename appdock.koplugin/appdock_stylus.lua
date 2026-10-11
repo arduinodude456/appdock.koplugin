@@ -71,6 +71,13 @@ end
 function Stylus:_callback(input, slot)
     local canvas = self.canvas
     if not canvas then return false end
+    -- KOReader routes the lift through the stylus callback as the same slot
+    -- with id == -1. It has no meaningful drawing point and must never enter
+    -- handleStylusSample, otherwise a lift can be mistaken for a new point.
+    if type(slot) == "table" and slot.id == -1 then
+        if type(canvas.finishStylus) == "function" then canvas:finishStylus() end
+        return true
+    end
     local sample = self:_sample(input, slot)
     if not sample then return false end
     if type(canvas.handleStylusSample) ~= "function" then return false end

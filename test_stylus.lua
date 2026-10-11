@@ -57,6 +57,9 @@ emit({}, { id = 103, x = 320, y = 360, tool = "eraser", pressure = .5 })
 assert(samples[3].sample.eraser, "A parsed eraser tool must also be accepted")
 assert(samples[3].sample.pressure == .5, "Already normalized pressure must remain unchanged")
 
+assert(registered_callback({}, { id = -1, slot = 0 }), "The KOReader lift slot must be consumed")
+assert(#finished == 1, "A stylus lift must finish the active stroke instead of becoming a new point")
+
 assert(Stylus:deactivate(canvas), "Leaving Draw must unregister the stylus callback")
 assert(unregistered == 1 and not registered_callback, "KOReader stylus callback must be removed on pane deactivation")
 print("AppDock stylus callback tests passed")
