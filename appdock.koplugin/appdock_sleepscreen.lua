@@ -20,7 +20,7 @@ function SleepScreen:init()
     local children = {
         TextWidget:new{ text = "AppDock", face = Font:getFace("cfont", scale(28)), fgcolor = Blitbuffer.COLOR_BLACK, bold = true, padding = 0 },
         VerticalSpan:new{ width = scale(8) },
-        TextWidget:new{ text = _("Sleeping"), face = Font:getFace("infofont", scale(18)), fgcolor = Blitbuffer.COLOR_BLACK, padding = 0 },
+        TextWidget:new{ text = _("by Quin and @arduinodude456"), face = Font:getFace("infofont", scale(18)), fgcolor = Blitbuffer.COLOR_BLACK, padding = 0 },
     }
     self[1] = FrameContainer:new{
         width = self.dimen.w,
