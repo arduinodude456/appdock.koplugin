@@ -25,6 +25,7 @@ package.preload["ui/widget/overlapgroup"] = widgetModule
 package.preload["ui/widget/scrollhtmlwidget"] = widgetModule
 package.preload["ui/widget/textwidget"] = widgetModule
 package.preload["ui/uimanager"] = function() return { show = function() end, close = function() end } end
+package.preload["appdock_dialogs"] = function() return { InputDialog = WidgetContainer, InfoMessage = WidgetContainer } end
 package.preload["appdock_keyboard"] = function() return {} end
 package.preload["ui/widget/container/widgetcontainer"] = function() return WidgetContainer end
 package.preload["appdock_theme"] = function() return { fitLabel = function(value) return value end } end
@@ -71,4 +72,16 @@ local google_results = Browser._test.extractGoogleResults(google_html, "https://
 assert(#google_results == 1 and google_results[1].title == "KOReader" and google_results[1].url == "https://koreader.rocks/", "Browser must present external Google result links as direct readable targets")
 assert(Browser._test.googleBlocked("Please enable JavaScript and complete CAPTCHA") and Browser._test.googleBlocked("<a href=\"/httpservice/retry/enablejs?sei=abc\">Continue</a>"), "Browser must identify Google verification and JavaScript-gate responses rather than attempting to bypass them")
 assert(Browser._test.renderGoogleResults("KOReader", google_results):find("koreader.rocks", 1, true), "Browser must render Google results as browser-owned readable HTML cards")
+local duck_url = Browser._test.buildDuckDuckGoApiUrl("KOReader books")
+assert(Browser._test.isDuckDuckGoApiUrl(duck_url) and duck_url:find("api.duckduckgo.com", 1, true), "DuckDuckGo searches must use the dedicated HTTPS API endpoint")
+local duck_results = Browser._test.extractDuckDuckGoResults({
+    AbstractText = "A reader", AbstractURL = "https://koreader.rocks/",
+    RelatedTopics = {
+        { Text = "Project website", FirstURL = "https://koreader.rocks/" },
+        { Name = "More", Topics = { { Text = "Documentation", FirstURL = "https://github.com/koreader/koreader" } } },
+        { Text = "Unsafe", FirstURL = "javascript:alert(1)" },
+    },
+})
+assert(#duck_results == 2 and duck_results[1].url == "https://koreader.rocks/" and duck_results[2].url:find("github.com", 1, true), "DuckDuckGo API results must flatten topic groups, de-duplicate URLs, and reject unsafe targets")
+assert(Browser._test.renderDuckDuckGoResults("KOReader", duck_results):find("DuckDuckGo", 1, true), "DuckDuckGo API results must render as browser-owned readable cards")
 print("Browser test: OK")

@@ -734,17 +734,36 @@ function YouTube:new(appdock)
     return setmetatable({ appdock = appdock, player = Player:new(appdock) }, YouTube)
 end
 
+local function normalizeSettings(values)
+    local allowed_resolutions = { [100] = true, [75] = true, [50] = true, [35] = true }
+    local allowed_fps = { [7.5] = true, [10] = true, [12] = true, [15] = true }
+    local allowed_heights = { [360] = true, [480] = true, [720] = true }
+    values.output_dir = type(values.output_dir) == "string" and trim(values.output_dir):sub(1, 360) or ""
+    values.music_dir = type(values.music_dir) == "string" and trim(values.music_dir):sub(1, 360) or ""
+    values.ytdlp_path = type(values.ytdlp_path) == "string" and trim(values.ytdlp_path):sub(1, 360) or ""
+    values.ffmpeg_path = type(values.ffmpeg_path) == "string" and trim(values.ffmpeg_path):sub(1, 360) or ""
+    local resolution, fps = tonumber(values.resolution_percent), tonumber(values.fps)
+    local duration, height, delay = tonumber(values.max_duration), tonumber(values.max_height), tonumber(values.audio_video_delay)
+    values.resolution_percent = allowed_resolutions[resolution] and resolution or DEFAULT_SETTINGS.resolution_percent
+    values.fps = allowed_fps[fps] and fps or DEFAULT_SETTINGS.fps
+    values.max_duration = duration and duration >= 0 and duration <= 3600 and math.floor(duration) or DEFAULT_SETTINGS.max_duration
+    values.max_height = allowed_heights[height] and height or DEFAULT_SETTINGS.max_height
+    values.audio_video_delay = delay and delay >= 0 and delay <= 60 and delay or DEFAULT_SETTINGS.audio_video_delay
+    values.dither = values.dither == "bayer" and "bayer" or "ffmpeg"
+    values.color_mode = values.color_mode == true
+    values.color_dither = values.color_dither ~= false
+    return values
+end
+
 function YouTube:_settings()
     local values = {}
     for key, value in pairs(DEFAULT_SETTINGS) do values[key] = value end
     local appdock = self.appdock
     if appdock and type(appdock.getYouTubeSettings) == "function" then
         local stored = appdock:getYouTubeSettings()
-        for key, value in pairs(type(stored) == "table" and stored or {}) do
-            values[key] = value
-        end
+        for key, value in pairs(type(stored) == "table" and stored or {}) do values[key] = value end
     end
-    return values
+    return normalizeSettings(values)
 end
 
 function YouTube:_patchSettings(patch)
@@ -839,18 +858,26 @@ function YouTube:scanLibrary(instance, context)
         return state.library
     end
     local names = {}
-    for name in lfs.dir(directory) do
-        if name:lower():match("%.bwr$") then names[#names + 1] = name end
+    local listed = pcall(function()
+        for name in lfs.dir(directory) do
+            if type(name) == "string" and name:lower():match("%.bwr$") then names[#names + 1] = name end
+        end
+    end)
+    if not listed then
+        state.library = {}
+        state.note = _("The video folder cannot be read.")
+        return state.library
     end
     table.sort(names)
     for loop_index, name in ipairs(names) do
         local path = directory .. "/" .. name
-        local handle = io.open(path, "rb")
-        if handle then
-            local header = BWR.readHeader(handle)
-            handle:close()
-            if header then
-                local attributes = lfs.attributes(path) or {}
+        local opened, handle = pcall(io.open, path, "rb")
+        if opened and handle then
+            local header_ok, header = pcall(BWR.readHeader, handle)
+            pcall(function() handle:close() end)
+            if header_ok and header then
+                local attributes_ok, attributes = pcall(lfs.attributes, path)
+                attributes = attributes_ok and attributes or {}
                 local wav = path:gsub("%.bwr$", ".wav")
                 local wav_handle = io.open(wav, "rb")
                 if wav_handle then wav_handle:close() else wav = nil end
@@ -919,8 +946,10 @@ function YouTube:_startDetached(command, work_dir, tag)
         .. " </dev/null >/dev/null 2>&1 & fi; echo $!"
     local pipe = io.popen(launch, "r")
     if not pipe then return nil, _("The command could not be started.") end
-    local pid = tonumber(pipe:read("*l"))
-    pipe:close()
+    local read_ok, line = pcall(function() return pipe:read("*l") end)
+    pcall(function() pipe:close() end)
+    local pid = read_ok and tonumber(line) or nil
+    if not pid or pid <= 0 then return nil, _("The command could not be started.") end
     return { pid = pid, log = log_path, exit = exit_path }
 end
 
@@ -948,7 +977,11 @@ function YouTube:_pollDetached(handle)
     if not handle then return nil end
     local marker = readFile(handle.exit)
     if marker == nil then return nil end
-    local code = tonumber(trim(marker)) or 1
+    -- The marker is written by a background process. Ignore a partially written
+    -- file instead of turning it into a false failure while it is still open.
+    local code_text = marker:match("^%s*([%-]?%d+)%s*\n$")
+    local code = code_text and tonumber(code_text) or nil
+    if code == nil then return nil end
     return code, readFile(handle.log) or ""
 end
 
@@ -1000,18 +1033,24 @@ local function monotonicNow()
     return os.time()
 end
 
+local job_sequence = 0
 local function jobDirectory()
     local ok, lfs = pcall(require, "libs/libkoreader-lfs")
     if not ok then ok, lfs = pcall(require, "lfs") end
     local base = os.getenv("TMPDIR") or "/tmp"
-    local name = string.format("appdock-yt-%d-%d", os.time(), math.random(1000, 9999))
-    local path = base .. "/" .. name
-    if ok and lfs then
-        pcall(lfs.mkdir, path)
-    else
-        os.execute("mkdir -p " .. shellQuote(path))
+    for attempt = 1, 8 do
+        job_sequence = job_sequence + 1
+        local name = string.format("appdock-yt-%d-%d-%d", os.time(), job_sequence, math.random(1000, 9999))
+        local path = base .. "/" .. name
+        if ok and lfs then
+            pcall(lfs.mkdir, path)
+            if lfs.attributes(path, "mode") == "directory" then return path end
+        else
+            local created = os.execute("mkdir " .. shellQuote(path) .. " >/dev/null 2>&1")
+            if created == true or created == 0 then return path end
+        end
     end
-    return path
+    return nil, _("A temporary video folder could not be created.")
 end
 
 local function cleanupDirectory(path)
@@ -1179,7 +1218,13 @@ function YouTube:_startToolBootstrap(instance, context, defer_rebuild)
         if not defer_rebuild and context and context.requestRebuild then context.requestRebuild("ui") end
         return false
     end
-    local work = jobDirectory()
+    local work, work_error = jobDirectory()
+    if not work then
+        state.bootstrap_attempted = true
+        state.bootstrap = { error = work_error }
+        state.view = "setup"
+        return false
+    end
     local command, command_error = YouTube.buildBootstrapCommand(
         tool_dir, work, plan, state.tools.ytdlp == nil, state.tools.ffmpeg == nil)
     if not command then
@@ -1273,6 +1318,7 @@ end
 -- ffmpeg build writes `monow`. Returns true when bit 1 means black.
 function YouTube._probeMonow(ffmpeg, width, height, filter)
     local directory = jobDirectory()
+    if not directory then return nil end
     local input_path = directory .. "/probe.gray"
     local output_path = directory .. "/probe.mono"
     local ok_input = writeFile(input_path, string.rep("\255", 64 * 64))
@@ -1297,6 +1343,19 @@ end
 
 function YouTube:_startJob(instance, context, spec)
     local state = self:_state(instance)
+    if type(spec) ~= "table" or (spec.kind ~= "file" and spec.kind ~= "url")
+        or trim(spec.source) == "" or trim(spec.slug) == "" or tostring(spec.slug):find("/", 1, true) then
+        self:_notify(instance, context, _("The selected video is incomplete. Please search again and retry."))
+        return nil
+    end
+    if state.job then
+        self:_notify(instance, context, _("A video conversion is already running."))
+        return nil
+    end
+    if spec.kind == "file" and not fileExists(spec.source) then
+        self:_notify(instance, context, _("The video file cannot be opened."))
+        return nil
+    end
     local settings = self:_settings()
     local tools = state.tools or YouTube.detectTools(settings)
     state.tools = tools
@@ -1310,8 +1369,20 @@ function YouTube:_startJob(instance, context, spec)
         return nil
     end
 
-    local work = jobDirectory()
-    local target = self:_outputDirectory() .. "/" .. spec.slug .. ".bwr"
+    local output_directory = self:_outputDirectory()
+    local output_probe = io.open(output_directory .. "/.appdock-write-probe", "wb")
+    if not output_probe then
+        self:_notify(instance, context, _("The video folder cannot be written. Choose another output folder."))
+        return nil
+    end
+    output_probe:close()
+    os.remove(output_directory .. "/.appdock-write-probe")
+    local work, work_error = jobDirectory()
+    if not work then
+        self:_notify(instance, context, work_error or _("A temporary video folder could not be created."))
+        return nil
+    end
+    local target = output_directory .. "/" .. spec.slug .. ".bwr"
     local job = {
         kind = spec.kind,
         source = spec.source,
@@ -1320,6 +1391,7 @@ function YouTube:_startJob(instance, context, spec)
         duration = spec.duration,
         work = work,
         target = target,
+        partial_target = target .. ".part",
         wav = target:gsub("%.bwr$", ".wav"),
         source_file = work .. "/source.media",
         stage = "download",
@@ -1332,6 +1404,7 @@ function YouTube:_startJob(instance, context, spec)
         started = os.time(),
         log_tail = "",
     }
+    os.remove(job.partial_target)
     state.job = job
     state.view = "job"
     state.note = ""
@@ -1399,7 +1472,7 @@ function YouTube:_startVideoStage(instance, context, job)
         return
     end
 
-    local handle = io.open(job.target, "wb")
+    local handle = io.open(job.partial_target, "wb")
     if not handle then
         job.stage = "error"
         job.stage_message = _("The target file cannot be written. Choose another output folder.")
@@ -1455,24 +1528,31 @@ function YouTube:_finishVideoStage(instance, context, job)
     local handle = job.handle
     local frame_count = job.frames
     if job.pipe then
-        job.pipe:close()
+        pcall(function() job.pipe:close() end)
         job.pipe = nil
     end
     if handle then
         if frame_count > 0 then
-            local finalized, finalize_error
-            if job.writer then finalized, finalize_error = job.writer:finish() end
-            if not finalized then
-                handle:close()
+            local finished_ok, finalized, finalize_error = pcall(function()
+                return job.writer and job.writer:finish()
+            end)
+            if not finished_ok or not finalized then
+                pcall(function() handle:close() end)
                 job.handle, job.writer = nil, nil
                 job.stage = "error"
-                job.stage_message = finalize_error or _("The BWR2 video index could not be finalized.")
+                job.stage_message = (finished_ok and finalize_error) or _("The BWR2 video index could not be finalized.")
                 return
             end
         else
-            os.remove(job.target)
+            os.remove(job.partial_target)
         end
-        handle:close()
+        local closed = pcall(function() handle:close() end)
+        if not closed then
+            job.handle, job.writer, job.encoder = nil, nil, nil
+            job.stage = "error"
+            job.stage_message = _("The BWR2 video file could not be closed safely.")
+            return
+        end
     end
     job.handle = nil
     job.writer = nil
@@ -1485,6 +1565,11 @@ function YouTube:_finishVideoStage(instance, context, job)
         return
     end
 
+    if not os.rename(job.partial_target, job.target) then
+        job.stage = "error"
+        job.stage_message = _("The converted video could not be installed safely.")
+        return
+    end
     job.stage = "audio"
     job.stage_message = _("Extracting audio")
     job.percent = 96
@@ -1549,7 +1634,8 @@ function YouTube:_finishJob(instance, context, job, without_audio)
     job.stage = "done"
     job.stage_message = _("Finished")
     local frame_count = job.frames
-    local seconds = frame_count > 0 and (frame_count / self:_settings().fps) or 0
+    local fps = tonumber(self:_settings().fps) or DEFAULT_SETTINGS.fps
+    local seconds = frame_count > 0 and (frame_count / math.max(1, fps)) or 0
     self:_notify(instance, context, string.format(
         _("Saved %s · %d frames · %s"),
         basename(job.target), frame_count, formatDuration(seconds)
@@ -1588,6 +1674,7 @@ function YouTube:_failJob(instance, context, job, message)
     self:_killDetached(job.audio)
     job.audio = nil
     if job.wav then os.remove(job.wav) end
+    if job.partial_target then os.remove(job.partial_target) end
     if context and context.requestRefresh then context.requestRefresh("ui") end
 end
 
@@ -1595,13 +1682,14 @@ function YouTube:_cleanupJob(job)
     self:_killDetached(job.download)
     self:_killDetached(job.audio)
     if job.pipe then
-        job.pipe:close()
+        pcall(function() job.pipe:close() end)
         job.pipe = nil
     end
     if job.handle then
-        job.handle:close()
+        pcall(function() job.handle:close() end)
         job.handle = nil
     end
+    if job.partial_target then os.remove(job.partial_target) end
     cleanupDirectory(job.work)
 end
 
@@ -1647,12 +1735,13 @@ function YouTube:_tick(instance, context)
         if code ~= nil then
             job.download = nil
             local source_handle = io.open(job.source_file, "rb")
-            if code ~= 0 or not source_handle then
+            local source_size = source_handle and source_handle:seek("end") or 0
+            if source_handle then source_handle:close() end
+            if code ~= 0 or not source_handle or not source_size or source_size <= 0 then
                 job.log_tail = trim((log or ""):sub(-700))
                 self:_failJob(instance, context, job, YouTube.describeDownloadFailure(log))
                 return
             end
-            source_handle:close()
             -- Both FFmpeg passes read the downloaded file. Starting the audio
             -- pass here overlaps it with the frame conversion instead of adding
             -- a second full decode to the wall clock.
@@ -1662,6 +1751,10 @@ function YouTube:_tick(instance, context)
     elseif job.stage == "video" then
         -- The audio pass runs in parallel; collect it as soon as it exits.
         self:_pollAudioStage(job)
+        if state.job ~= job or not job.pipe or not job.encoder or not job.writer or not job.frame_bytes then
+            self:_failJob(instance, context, job, _("The video converter stopped unexpectedly."))
+            return
+        end
         local tick_started = os.clock()
         for _ = 1, VIDEO_MAX_FRAMES_PER_TICK do
             local frame
@@ -1669,7 +1762,11 @@ function YouTube:_tick(instance, context)
                 frame = job.read_buffer:sub(job.read_pos, job.read_pos + job.frame_bytes - 1)
                 job.read_pos = job.read_pos + job.frame_bytes
             else
-                local chunk = job.pipe:read(job.read_batch_bytes or job.frame_bytes)
+                local read_ok, chunk = pcall(function() return job.pipe:read(job.read_batch_bytes or job.frame_bytes) end)
+                if not read_ok then
+                    self:_failJob(instance, context, job, _("The video converter stopped unexpectedly."))
+                    return
+                end
                 if not chunk or #chunk < job.frame_bytes then
                     self:_finishVideoStage(instance, context, job)
                     break
@@ -1678,20 +1775,23 @@ function YouTube:_tick(instance, context)
                 frame = chunk:sub(1, job.frame_bytes)
             end
             local packed, encode_error
-            if job.color_mode then
-                packed, encode_error = job.encoder:pack(frame, job.color_dither)
-            elseif job.dithered then
-                packed, encode_error = job.encoder:packPreDithered(frame, job.invert)
-            else
-                packed, encode_error = job.encoder:pack(frame)
+            local packed_ok, packed_result, packed_message = pcall(function()
+                if job.color_mode then return job.encoder:pack(frame, job.color_dither) end
+                if job.dithered then return job.encoder:packPreDithered(frame, job.invert) end
+                return job.encoder:pack(frame)
+            end)
+            if not packed_ok then
+                self:_failJob(instance, context, job, _("The video frame encoder failed."))
+                return
             end
+            packed, encode_error = packed_result, packed_message
             if not packed then
                 self:_failJob(instance, context, job, encode_error)
                 return
             end
-            local written, write_error = job.writer:writeFrame(packed)
-            if not written then
-                self:_failJob(instance, context, job, write_error)
+            local write_ok, written, write_error = pcall(function() return job.writer:writeFrame(packed) end)
+            if not write_ok or not written then
+                self:_failJob(instance, context, job, write_ok and write_error or _("The video output could not be written."))
                 return
             end
             job.frames = job.frames + 1
@@ -1763,7 +1863,11 @@ function YouTube:startSearch(instance, context, query)
     end
     query = trim(query)
     if query == "" then return false end
-    local work = jobDirectory()
+    local work, work_error = jobDirectory()
+    if not work then
+        self:_notify(instance, context, work_error or _("A temporary search folder could not be created."))
+        return false
+    end
     local command = shellQuote(tools.ytdlp)
         .. " --no-warnings --no-cache-dir --flat-playlist --ignore-errors"
         .. " --print " .. shellQuote("%(id)s\t%(title)s\t%(duration)s\t%(uploader)s\t%(thumbnail)s")
@@ -1816,17 +1920,25 @@ function YouTube:startSearch(instance, context, query)
     return true
 end
 
+local function availableOutputPath(directory, slug)
+    for index = 1, 50 do
+        local suffix = index == 1 and "" or "-" .. tostring(index)
+        local candidate = directory .. "/" .. slug .. suffix .. ".bwr"
+        local handle = io.open(candidate, "rb")
+        if not handle then return candidate end
+        handle:close()
+    end
+    return directory .. "/" .. slug .. "-" .. tostring(os.time()) .. ".bwr"
+end
+
 function YouTube:startVideo(instance, context, result)
-    local state = self:_state(instance)
+    if type(result) ~= "table" or trim(result.id) == "" then
+        self:_notify(instance, context, _("This video result is incomplete. Please search again."))
+        return nil
+    end
     local slug = YouTube.slugify(result.title, result.id)
     local directory = self:_outputDirectory()
-    local candidate = directory .. "/" .. slug .. ".bwr"
-    local index = 2
-    while io.open(candidate, "rb") do
-        candidate = directory .. "/" .. slug .. "-" .. index .. ".bwr"
-        index = index + 1
-        if index > 50 then break end
-    end
+    local candidate = availableOutputPath(directory, slug)
     slug = basename(candidate):gsub("%.bwr$", "")
     if result.thumbnail then
         self:_cacheThumbnail(result, candidate:gsub("%.bwr$", ".jpg"))
@@ -1852,13 +1964,7 @@ function YouTube:startLocalFile(instance, context, path)
     handle:close()
     local slug = YouTube.slugify(basename(path):gsub("%.[%w]+$", ""), "video")
     local directory = self:_outputDirectory()
-    local candidate = directory .. "/" .. slug .. ".bwr"
-    local index = 2
-    while io.open(candidate, "rb") do
-        candidate = directory .. "/" .. slug .. "-" .. index .. ".bwr"
-        index = index + 1
-        if index > 50 then break end
-    end
+    local candidate = availableOutputPath(directory, slug)
     return self:_startJob(instance, context, {
         kind = "file",
         source = path,
@@ -3126,6 +3232,8 @@ YouTube._test = {
     cycle = YouTube.cycle,
     durationLabel = YouTube.durationLabel,
     frameSize = YouTube.frameSize,
+    normalizeSettings = normalizeSettings,
+    availableOutputPath = availableOutputPath,
 }
 
 return YouTube

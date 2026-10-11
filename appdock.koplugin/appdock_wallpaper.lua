@@ -31,6 +31,17 @@ function Wallpaper.buildPath(path, width, height, keep_original)
     return ok and image or nil
 end
 
+-- Decode a small preview before persisting a downloaded design background.
+-- A suffix and a successful HTTP response alone do not prove that the file is an
+-- image; without this guard an HTML error page can silently remove a theme's
+-- background.
+function Wallpaper.isUsableImage(path)
+    local image = Wallpaper.buildPath(path, 16, 16, true)
+    if not image then return false end
+    if type(image.free) == "function" then pcall(function() image:free() end) end
+    return true
+end
+
 function Wallpaper.build(appdock, width, height)
     local active_design = appdock and appdock.getActiveDesign and appdock:getActiveDesign() or nil
     if active_design and type(active_design.wallpaper_file) == "string" and active_design.wallpaper_file ~= "" then

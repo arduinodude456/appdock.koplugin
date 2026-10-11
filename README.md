@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.9.16** verbessert die YouTube-Music-Suche und zeigt Suchfehler direkt mit Diagnose und Wiederholungsaktion an. [Details](RELEASE_NOTES_7.9.16.md).
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.9.30** verbessert Theme-Kontrast, Lockscreen, YouTube-Stabilität, Files-Sortierung und die DuckDuckGo-API-Suche. [Details](RELEASE_NOTES_7.9.30.md).
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst Androids Formensprache, nicht dessen Daueranimationen, Unschärfen oder Transparenzeffekte. Auf E-Ink wechseln App-Seiten und Recently-used-Drawer direkt und ohne Zwischenanimation. Damit bleibt die Darstellung auf monochromen Readern kontrastreich, sparsam und frei von unnötigem Ghosting.
 
@@ -97,7 +97,7 @@
 | Zone | Android-inspirierte Umsetzung in AppDock |
 |---|---|
 | Systemzeile | Uhrzeit links, optionaler Akkustand rechts und direkter Zugang zu den Schnelleinstellungen. |
-| DuckDuckGo-Suche | Eine breite, einzeilige Such-Pill liegt direkt unter der Statuszeile auf der **ersten** Seite. Sie zeigt die aktuelle Suchanfrage, öffnet die AppDock-Tastatur und übergibt den Text an den Web Browser, der die Ergebnisse über `html.duckduckgo.com` lädt. |
+| DuckDuckGo-Suche | Eine breite, einzeilige Such-Pill liegt direkt unter der Statuszeile auf der **ersten** Seite. Sie zeigt die aktuelle Suchanfrage, öffnet die AppDock-Tastatur und übergibt den Text an den Web Browser, der sichere Instant-Answer-Ergebnisse über die DuckDuckGo-JSON-API lädt. |
 | Blickfang-Karten | **Device** und **Continue reading** erscheinen als ruhige, abgerundete Karten nebeneinander. Sie werden während der Bearbeitung vorübergehend ausgeblendet, damit Store-Widgets Platz haben. |
 | Store-Widgets | Ein einzelnes Widget kann die Zeile füllen; mehrere Widgets ordnen sich zweispaltig an. Wird eines vergrößert, kann es die ganze Zeile einnehmen und die übrigen Widgets fließen darunter weiter. |
 | Apps | Einheitliches 3-Spalten-Iconraster mit großen, abgerundeten Symbolflächen und kurzen Labels. |

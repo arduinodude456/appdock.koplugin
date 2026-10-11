@@ -38,7 +38,7 @@ local MAX_CSS_BYTES = 192 * 1024
 local MAX_STYLESHEETS = 3
 local REQUEST_TIMEOUT = 12
 local REQUEST_MAX_TIME = 30
-local DUCKDUCKGO_HTML = "https://html.duckduckgo.com/html/?q="
+local DUCKDUCKGO_API = "https://api.duckduckgo.com/?format=json&no_html=1&skip_disambig=1&q="
 local GOOGLE_SEARCH = "https://www.google.com/search?gbv=1&filter=0&num=10&hl=de&q="
 local BROWSER_USER_AGENT = "Mozilla/5.0 (Linux; Android 12; eReader) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
 
@@ -98,6 +98,9 @@ local BROWSER_CSS = [[
   .appdock-google-result { border: 1px solid #777777; padding: 0.35em 0.5em; margin: 0.45em 0; }
   .appdock-google-result small { color: #555555; word-break: break-all; }
   .appdock-google-notice { border-left: 0.35em solid #777777; padding-left: 0.6em; color: #444444; }
+  .appdock-search-result { border: 1px solid #777777; padding: 0.45em 0.55em; margin: 0.5em 0; }
+  .appdock-search-result small { color: #555555; word-break: break-all; }
+  .appdock-search-notice { border-left: 0.35em solid #777777; padding-left: 0.6em; color: #444444; }
   .appdock-main { max-width: 100%; }
   .appdock-details { border: 1px solid #999999; padding: 0.25em 0.5em; margin: 0.55em 0; }
   .appdock-details-title { margin-top: 0.2em; }
@@ -383,6 +386,96 @@ local function renderGoogleResults(query, results, notice)
     return table.concat(parts, "\n")
 end
 
+-- DuckDuckGo's API is deliberately separate from general-page navigation. The
+-- browser never tries to interpret an HTML result page as a search response.
+local function buildDuckDuckGoApiUrl(query)
+    return DUCKDUCKGO_API .. util.urlEncode(query or "")
+end
+
+local function isDuckDuckGoApiUrl(url)
+    local parsed = require("socket.url").parse(url)
+    return parsed and parsed.scheme == "https" and type(parsed.host) == "string"
+        and parsed.host:lower() == "api.duckduckgo.com"
+end
+
+local function extractDuckDuckGoResults(payload)
+    local results, seen = {}, {}
+    local function add(text, url)
+        if type(text) ~= "string" or type(url) ~= "string" or text:match("^%s*$") or not isHttpUrl(url) or seen[url] then return end
+        seen[url] = true
+        results[#results + 1] = { title = text:gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", ""), url = url }
+    end
+    if type(payload) ~= "table" then return results end
+    add(payload.AbstractText, payload.AbstractURL)
+    local function visit(topics)
+        if type(topics) ~= "table" or #results >= 12 then return end
+        for _, topic in ipairs(topics) do
+            if type(topic) == "table" then
+                if type(topic.Topics) == "table" then visit(topic.Topics)
+                else add(topic.Text, topic.FirstURL) end
+                if #results >= 12 then return end
+            end
+        end
+    end
+    visit(payload.RelatedTopics)
+    return results
+end
+
+local function renderDuckDuckGoResults(query, results)
+    local parts = { "<h1>DuckDuckGo</h1>", "<p><b>Search:</b> " .. escapeHtml(query or "") .. "</p>" }
+    if #results == 0 then
+        parts[#parts + 1] = "<p class=\"appdock-search-notice\">No DuckDuckGo Instant Answer was returned for this search.</p>"
+    end
+    for index, item in ipairs(results) do
+        parts[#parts + 1] = "<section class=\"appdock-search-result\"><p><b>" .. index .. ".</b> <a href=\"" .. escapeHtml(item.url) .. "\">" .. escapeHtml(item.title) .. "</a><br/><small>" .. escapeHtml(item.url) .. "</small></p></section>"
+    end
+    return table.concat(parts, "\n")
+end
+
+local function decodeDuckDuckGoJson(body)
+    local ok_json, JSON = pcall(require, "json")
+    if not ok_json or type(JSON) ~= "table" or type(JSON.decode) ~= "function" then return nil, _("JSON support is unavailable in this KOReader installation.") end
+    local ok, decoded = pcall(JSON.decode, body, JSON.decode.simple)
+    if not ok or type(decoded) ~= "table" then return nil, _("DuckDuckGo returned invalid search data.") end
+    return decoded
+end
+
+local function fetchDuckDuckGo(query)
+    local url = buildDuckDuckGoApiUrl(query)
+    if not isDuckDuckGoApiUrl(url) then return nil, nil, _("The DuckDuckGo API address is invalid.") end
+    local socket = require("socket")
+    local socketutil = require("socketutil")
+    local https = require("ssl.https")
+    local chunks, received = {}, 0
+    local started_at = os.time()
+    local function sink(chunk)
+        if os.time() - started_at > REQUEST_MAX_TIME then return nil, "response timed out" end
+        if chunk then
+            received = received + #chunk
+            if received > MAX_BODY_BYTES then return nil, "response too large" end
+            chunks[#chunks + 1] = chunk
+        end
+        return 1
+    end
+    socketutil:set_timeout(REQUEST_TIMEOUT, REQUEST_MAX_TIME)
+    local ok, code, headers, status = pcall(function()
+        return socket.skip(1, https.request{
+            url = url, method = "GET", sink = sink,
+            headers = { ["user-agent"] = BROWSER_USER_AGENT, ["accept"] = "application/json,application/x-javascript;q=0.9,text/javascript;q=0.8" },
+        })
+    end)
+    socketutil:reset_timeout()
+    if not ok then return nil, url, _("DuckDuckGo could not be reached.") end
+    if not headers then return nil, url, status or _("DuckDuckGo is unavailable.") end
+    if not code or code < 200 or code > 299 then return nil, url, status or _("DuckDuckGo returned an error.") end
+    local content_type = (headers["content-type"] or ""):lower()
+    if content_type ~= "" and not content_type:find("json", 1, true) and not content_type:find("javascript", 1, true) then
+        return nil, url, _("DuckDuckGo did not return search data.")
+    end
+    local decoded, err = decodeDuckDuckGoJson(table.concat(chunks))
+    return decoded, url, err
+end
+
 local function extractSimpleForms(html, page_url)
     local socket_url = require("socket.url")
     local forms = {}
@@ -651,6 +744,7 @@ function Browser:_ensureState(instance)
         forms = {},
         page_css = BROWSER_CSS,
         google_query = nil,
+        duckduckgo_query = nil,
     }
     return instance.browser
 end
@@ -711,10 +805,37 @@ function Browser:showGoogleSearchDialog(instance, context)
 end
 
 function Browser:search(instance, context, query)
-    local util = require("util")
+    local state = self:_ensureState(instance)
     query = (query or ""):gsub("^%s+", ""):gsub("%s+$", "")
-    if query == "" then return end
-    self:navigate(instance, context, DUCKDUCKGO_HTML .. util.urlEncode(query), true)
+    if query == "" then
+        state.error = _("Enter a DuckDuckGo search term.")
+        if context and context.requestRebuild then context.requestRebuild("ui") end
+        return false
+    end
+    clearImages(state)
+    state.html, state.error, state.forms = nil, nil, {}
+    state.page_css, state.google_query = BROWSER_CSS, nil
+    local payload, url, err = fetchDuckDuckGo(query)
+    if not payload then
+        state.url, state.duckduckgo_query = url, nil
+        state.error = tostring(err or _("DuckDuckGo search failed."))
+        state.is_home = false
+        state.title = "DuckDuckGo"
+        if context and context.requestRebuild then context.requestRebuild("ui") end
+        return false
+    end
+    if state.url and state.url ~= url then
+        table.insert(state.history, state.url)
+        if #state.history > 20 then table.remove(state.history, 1) end
+    end
+    state.url = url
+    state.duckduckgo_query = query
+    state.html = renderDuckDuckGoResults(query, extractDuckDuckGoResults(payload))
+    state.error = nil
+    state.is_home = false
+    state.title = "DuckDuckGo"
+    if context and context.requestRebuild then context.requestRebuild("ui") end
+    return true
 end
 
 function Browser:googleSearch(instance, context, query)
@@ -725,7 +846,8 @@ end
 
 function Browser:reload(instance, context)
     local state = self:_ensureState(instance)
-    if state.url then self:navigate(instance, context, state.url, false) end
+    if state.duckduckgo_query then self:search(instance, context, state.duckduckgo_query)
+    elseif state.url then self:navigate(instance, context, state.url, false) end
 end
 
 function Browser:goHome(instance, context)
@@ -739,6 +861,7 @@ function Browser:goHome(instance, context)
     state.forms = {}
     state.page_css = BROWSER_CSS
     state.google_query = nil
+    state.duckduckgo_query = nil
     state.loading_query = nil
     context.requestRebuild("ui")
 end
@@ -755,6 +878,7 @@ function Browser:beginQuery(instance, query)
     state.forms = {}
     state.page_css = BROWSER_CSS
     state.google_query = nil
+    state.duckduckgo_query = nil
     state.title = _("Web Browser")
     state.is_home = true
     state.loading_query = type(query) == "string" and query or nil
@@ -806,6 +930,7 @@ end
 function Browser:navigate(instance, context, target, add_history)
     local state = self:_ensureState(instance)
     state.loading_query = nil
+    state.duckduckgo_query = nil
     local socket_url = require("socket.url")
     local url
     local has_explicit_scheme = type(target) == "string" and target:match("^[%a][%w+.-]*:")
@@ -969,7 +1094,7 @@ function Browser:buildPane(instance, context)
             overlap_offset = { margin, toolbar_height + scale(46) },
         })
         table.insert(content, TextWidget:new{
-            text = _("Fetching readable HTML results over HTTPS. No JavaScript, no tracking scripts."),
+            text = _("Fetching DuckDuckGo search data over HTTPS. No HTML result page is used."),
             face = Font:getFace("smallinfofont", scale(12)),
             fgcolor = PALETTE.on_variant,
             max_width = width - 2 * margin,
@@ -1027,6 +1152,10 @@ Browser._test = {
     extractGoogleResults = extractGoogleResults,
     googleBlocked = googleBlocked,
     renderGoogleResults = renderGoogleResults,
+    buildDuckDuckGoApiUrl = buildDuckDuckGoApiUrl,
+    extractDuckDuckGoResults = extractDuckDuckGoResults,
+    renderDuckDuckGoResults = renderDuckDuckGoResults,
+    isDuckDuckGoApiUrl = isDuckDuckGoApiUrl,
 }
 
 return Browser

@@ -238,69 +238,98 @@ function FileBrowser:_ensureState(instance)
     instance.file_browser.sort_mode = instance.file_browser.sort_mode == true
     return instance.file_browser
 end
+function FileBrowser:_entryFromAttributes(fullpath, name, attributes)
+    if type(fullpath) ~= "string" or type(name) ~= "string" or type(attributes) ~= "table" then return nil end
+    if attributes.mode ~= "directory" and attributes.mode ~= "file" then return nil end
+    local is_file = attributes.mode == "file"
+    local supported = false
+    if is_file then
+        local ok, value = pcall(DocumentRegistry.hasProvider, DocumentRegistry, fullpath)
+        supported = ok and value == true
+    end
+    local lower = fullpath:lower()
+    return {
+        name = name, path = fullpath, is_dir = not is_file, size = tonumber(attributes.size) or 0,
+        supported = supported,
+        is_lua = is_file and lower:match("%.lua$") ~= nil,
+        is_markup = is_file and (lower:match("%.md$") or lower:match("%.markdown$") or lower:match("%.mdown$") or lower:match("%.mkdn$")) ~= nil,
+        is_dreader = is_file and (lower:match("%.epub$") or lower:match("%.html$") or lower:match("%.htm$") or lower:match("%.xhtml$") or lower:match("%.md$") or lower:match("%.markdown$")) ~= nil,
+    }
+end
+
 function FileBrowser:_readEntries(path)
+    if type(path) ~= "string" or path == "" then return nil, _("This folder cannot be read.") end
     local entries = {}
     local ok, iterator, directory_object = pcall(lfs.dir, path)
-    if not ok then return nil, _("This folder cannot be read.") end
+    if not ok or not iterator then return nil, _("This folder cannot be read.") end
     for name in iterator, directory_object do
         if name ~= "." and name ~= ".." then
             local fullpath = path == "/" and ("/" .. name) or (path .. "/" .. name)
             local attributes_ok, attributes = pcall(lfs.attributes, fullpath)
-            if attributes_ok and attributes and (attributes.mode == "directory" or attributes.mode == "file") then
-                table.insert(entries, {
-                    name = name, path = fullpath, is_dir = attributes.mode == "directory", size = attributes.size,
-                    supported = attributes.mode == "file" and DocumentRegistry:hasProvider(fullpath),
-                    is_lua = attributes.mode == "file" and fullpath:lower():match("%.lua$") ~= nil,
-                    is_markup = attributes.mode == "file" and (fullpath:lower():match("%.md$") or fullpath:lower():match("%.markdown$") or fullpath:lower():match("%.mdown$") or fullpath:lower():match("%.mkdn$")) ~= nil,
-                    is_dreader = attributes.mode == "file" and (fullpath:lower():match("%.epub$") or fullpath:lower():match("%.html$") or fullpath:lower():match("%.htm$") or fullpath:lower():match("%.xhtml$") or fullpath:lower():match("%.md$") or fullpath:lower():match("%.markdown$")) ~= nil,
-                })
+            if attributes_ok and attributes then
+                local entry = self:_entryFromAttributes(fullpath, name, attributes)
+                if entry then table.insert(entries, entry) end
             end
         end
     end
     sortEntries(entries)
     return entries
 end
+
 function FileBrowser:_readSortedEntries(root, limit)
+    if type(root) ~= "string" or (root ~= STORAGE_ROOT and root:sub(1, #STORAGE_ROOT + 1) ~= STORAGE_ROOT .. "/") then
+        return nil, _("This folder cannot be read.")
+    end
     local entries, visited = {}, {}
-    limit = limit or 500
-    local function visit(path)
-        if #entries >= limit or visited[path] then return end
+    limit = math.max(1, math.floor(tonumber(limit) or 500))
+    local function visit(path, required)
+        if #entries >= limit or visited[path] then return true end
         visited[path] = true
         local ok, iterator, directory_object = pcall(lfs.dir, path)
-        if not ok or not iterator then return end
+        if not ok or not iterator then
+            return not required
+        end
         for name in iterator, directory_object do
             if #entries >= limit then break end
             if name ~= "." and name ~= ".." then
                 local fullpath = path == "/" and ("/" .. name) or (path .. "/" .. name)
-                local attributes_ok, attributes = pcall(lfs.attributes, fullpath)
-                if attributes_ok and attributes then
-                    if attributes.mode == "directory" then
-                        visit(fullpath)
-                    elseif attributes.mode == "file" then
-                        local entry = self:_readEntries(path)
-                        -- Read the single file's metadata without changing the
-                        -- visible filesystem; this also keeps handler flags in
-                        -- one place for the normal and virtual views.
-                        local found
-                        for _, candidate in ipairs(entry or {}) do if candidate.path == fullpath then found = candidate; break end end
-                        if found then
-                            found.name = basename(fullpath)
-                            found.sort_category = categoryFor(found)
-                            found.virtual_path = fullpath
-                            table.insert(entries, found)
+                local link = lfs.symlinkattributes and lfs.symlinkattributes(fullpath) or nil
+                if not link or link.mode ~= "link" then
+                    local attributes_ok, attributes = pcall(lfs.attributes, fullpath)
+                    if attributes_ok and attributes then
+                        if attributes.mode == "directory" then
+                            -- A virtual sort never follows symlinks. This keeps a
+                            -- reader's storage tree bounded and prevents cycles.
+                            visit(fullpath, false)
+                        elseif attributes.mode == "file" then
+                            local entry = self:_entryFromAttributes(fullpath, name, attributes)
+                            if entry then
+                                entry.sort_category = categoryFor(entry)
+                                entry.virtual_path = fullpath
+                                table.insert(entries, entry)
+                            end
                         end
                     end
                 end
             end
         end
+        return true
     end
-    visit(root)
-    table.sort(entries, function(a, b) return (a.sort_category or ""):lower() .. a.name:lower() < (b.sort_category or ""):lower() .. b.name:lower() end)
+    if not visit(root, true) then return nil, _("This folder cannot be read.") end
+    table.sort(entries, function(a, b)
+        local left = (a.sort_category or ""):lower()
+        local right = (b.sort_category or ""):lower()
+        if left ~= right then return left < right end
+        local left_name, right_name = (a.name or ""):lower(), (b.name or ""):lower()
+        if left_name ~= right_name then return left_name < right_name end
+        return (a.path or "") < (b.path or "")
+    end)
     return entries
 end
+
 function FileBrowser:refresh(instance, context)
     local state = self:_ensureState(instance)
-    if state.sort_mode then state.entries, state.error = self:_readSortedEntries(STORAGE_ROOT), nil
+    if state.sort_mode then state.entries, state.error = self:_readSortedEntries(STORAGE_ROOT)
     else state.entries, state.error = self:_readEntries(state.path) end
     context.requestRebuild("ui")
 end
@@ -533,7 +562,7 @@ function FileBrowser:buildPane(instance, context)
     applyTheme(context.manager and context.manager.appdock)
     local state = self:_ensureState(instance)
     if not state.entries and not state.error then
-        if state.sort_mode then state.entries, state.error = self:_readSortedEntries(STORAGE_ROOT), nil
+        if state.sort_mode then state.entries, state.error = self:_readSortedEntries(STORAGE_ROOT)
         else state.entries, state.error = self:_readEntries(state.path) end
     end
     local pane = WidgetContainer:new{ dimen = Geom:new{ w = context.dimen.w, h = context.dimen.h } }
