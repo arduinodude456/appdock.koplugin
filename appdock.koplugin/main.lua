@@ -20,7 +20,7 @@ local AppDock = WidgetContainer:extend{
 
 -- Bump this only when a new AppDock release should offer the optional guide.
 -- It is intentionally not a remote update check: all assistant state stays local.
-local SETUP_ASSISTANT_VERSION = "6.0.7"
+local SETUP_ASSISTANT_VERSION = "7.9.34"
 local MODULE_DIR = (debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "")
 
 local DEFAULT_SETTINGS = {
@@ -163,10 +163,13 @@ function AppDock:init()
             and manager.restoreWorkspace and manager:restoreWorkspace()
         if self.settings.launch_on_start and not restored then self:showHome() end
         if self:shouldOfferSetupAssistant() and manager and manager.showSetupAssistant then
-            -- Record the offer first, so closing the dialog does not repeatedly
-            -- interrupt later KOReader starts for this same AppDock version.
+            -- The same startup tick may still be rebuilding the homescreen/host.
+            -- Showing a modal here lets that rebuild close it immediately. Record
+            -- the offer now, but display it on the following UI tick instead.
             self:markSetupAssistantOffered()
-            manager:showSetupAssistant(nil, nil, true)
+            UIManager:nextTick(function()
+                manager:showSetupAssistant(nil, nil, true)
+            end)
         end
     end)
 end
