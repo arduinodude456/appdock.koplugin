@@ -58,6 +58,7 @@ package.preload["ui/uimanager"] = function() return ui end
 package.preload["ui/widget/verticalgroup"] = function() return VerticalGroup end
 package.preload["ui/widget/verticalspan"] = function() return Widget end
 package.preload["gettext"] = function() return function(text) return text end end
+package.preload["appdock_suggestions"] = function() error("database unavailable during boot") end
 
 local Keyboard = dofile(plugin_dir .. "appdock_keyboard.lua")
 local keyboard = Keyboard:new{}
@@ -65,6 +66,7 @@ assert(keyboard.width == 900 and keyboard.dimen.w == 900, "Keyboard spans the fu
 assert(keyboard.dimen.x == 0 and keyboard.dimen.y + keyboard.dimen.h == 1200, "Keyboard is anchored to the bottom edge")
 assert(keyboard.shift and keyboard.letter_keys[1].key.label == "Q", "Shift starts active and displays uppercase labels")
 assert(keyboard.letter_keys[1].key.height == 64 and keyboard.caps_key, "Keyboard uses larger keys and exposes Caps Lock")
+assert(keyboard.suggestion_keys[1].label ~= "…", "Keyboard must fall back safely when the database is unavailable")
 assert(keyboard.dimen.h > 0 and #keyboard.suggestion_keys == 3, "Alphabetic keyboard must show three suggestion buttons")
 keyboard:_press("A")
 assert(keyboard.suggestion_keys[1].label ~= "…", "Database suggestions update with the typed prefix")

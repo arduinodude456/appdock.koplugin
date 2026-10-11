@@ -14,7 +14,10 @@ local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
 local _ = require("gettext")
-local SuggestionDatabase = require("appdock_suggestions")
+-- The dictionary is optional at boot. It is required lazily only when a
+-- keyboard is actually created, so a missing/broken database cannot prevent
+-- AppDock from opening.
+local SuggestionDatabase
 
 local Screen = Device.screen
 local function scale(n) return Screen:scaleBySize(n) end
@@ -35,7 +38,18 @@ end
 
 -- Suggestions are loaded from the bilingual offline database. A caller can
 -- still pass a small context-specific list through `suggestions`.
-
+local FALLBACK_SUGGESTIONS = { "AppDock", "Einstellungen", "Settings", "Search", "Browser", "Dateien" }
+local function loadSuggestions(language)
+    if not SuggestionDatabase then
+        local ok, loaded = pcall(require, "appdock_suggestions")
+        if ok and type(loaded) == "table" then SuggestionDatabase = loaded end
+    end
+    if SuggestionDatabase and type(SuggestionDatabase.get) == "function" then
+        local ok, result = pcall(SuggestionDatabase.get, language)
+        if ok and type(result) == "table" then return result end
+    end
+    return FALLBACK_SUGGESTIONS
+end
 local function removeLastUTF8Character(value)
     local index = #value
     if index == 0 then return value end
@@ -125,7 +139,7 @@ function Keyboard:init()
     self.symbols_page = false
     self.letter_keys = {}
     self.suggestion_keys = {}
-    self.suggestion_source = self.suggestions or SuggestionDatabase.get(self.language)
+    self.suggestion_source = self.suggestions or loadSuggestions(self.language)
     self.numeric_rows = {
         { "1", "2", "3" },
         { "4", "5", "6" },

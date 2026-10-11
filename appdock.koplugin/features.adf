@@ -1,8 +1,8 @@
 # AppDock update notes. Edit this file for the next release dialog.
 # Format: one page per block; title, text, image (optional), buttons (optional).
 [page]
-title=AppDock 7.9.45
-text=Diese Version ergänzt Caps Lock und größere Eingabetasten für eine schnellere und angenehmere Tastaturbedienung.
+title=AppDock 7.9.46
+text=Diese Version behebt einen möglichen Boot-Crash durch die Tastatur-Datenbank und nutzt einen sicheren Fallback.
 image=
 buttons=Weiter
 
