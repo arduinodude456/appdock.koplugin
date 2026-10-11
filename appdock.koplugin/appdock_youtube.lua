@@ -1015,10 +1015,14 @@ local VIDEO_TICK_CPU_BUDGET = 0.20
 -- static or slow scene be drained in one turn instead of paying the scheduler
 -- gap for every two dozen frames.
 local VIDEO_MAX_FRAMES_PER_TICK = 64
--- Kobo devices can exhaust memory when FFmpeg, the raw-frame pipe and the BWR
--- encoder all retain several colour frames at once. A one-frame buffer trades a
--- negligible amount of syscall overhead for a much lower and predictable peak.
-local VIDEO_READ_BATCH_FRAMES = 1
+-- Keep a small bounded pipe read: it removes most Lua/FFI round trips while
+-- remaining far below the memory peak that the old parallel FFmpeg passes used.
+-- The device-wide conversion lock still prevents two decoders competing for RAM.
+local VIDEO_READ_BATCH_FRAMES = 4
+-- Two decode threads materially improve ARM reader throughput. Filter work stays
+-- single-threaded because the raw-frame pipe and Lua encoder are the memory
+-- sensitive part of this pipeline.
+local FFMPEG_DECODE_THREADS = 2
 local PROGRESS_REFRESH_INTERVAL = 0.75
 -- Rebuilding the job pane is the most expensive part of a conversion tick. A
 -- long video does not need a 1.3 Hz progress repaint, so the video stage updates
@@ -1510,7 +1514,7 @@ function YouTube:_startVideoStage(instance, context, job)
 
     local error_log = job.work .. "/ffmpeg.log"
     local command = shellQuote(tools.ffmpeg)
-        .. " -nostdin -hide_banner -loglevel error -threads 1 -filter_threads 1"
+        .. " -nostdin -hide_banner -loglevel error -threads " .. tostring(FFMPEG_DECODE_THREADS) .. " -filter_threads 1"
         .. " -i " .. shellQuote(job.source_file)
         .. (settings.max_duration > 0 and (" -t " .. tostring(settings.max_duration)) or "")
         .. " -an -sn -dn -vf " .. shellQuote(filter)
@@ -1620,7 +1624,7 @@ function YouTube:_startAudioStage(instance, context, job)
         return nil
     end
     local command = shellQuote(tools.ffmpeg)
-        .. " -nostdin -hide_banner -loglevel error -threads 1 -filter_threads 1 -y"
+        .. " -nostdin -hide_banner -loglevel error -threads " .. tostring(FFMPEG_DECODE_THREADS) .. " -filter_threads 1 -y"
         .. " -i " .. shellQuote(job.source_file)
         .. (settings.max_duration > 0 and (" -t " .. tostring(settings.max_duration)) or "")
         .. " -vn -sn -dn -af " .. shellQuote(

@@ -17,7 +17,7 @@
 ## YouTube
 
 - Video- und Audio-Konvertierung laufen nun absichtlich **nacheinander**, nicht parallel. Das vermeidet zwei gleichzeitig speicherintensive FFmpeg-Dekoder auf Kobo-Geräten.
-- FFmpeg arbeitet mit einer begrenzten Threadzahl; der Rohframe-Puffer hält nur ein Frame statt mehrerer Frames vor.
+- FFmpeg arbeitet mit zwei Decode-Threads und einem einzelnen Filter-Thread; der Rohframe-Puffer liest vier Frames pro UI-Tick. So ist die Konvertierung deutlich schneller, ohne die speicherintensive Parallel-Konvertierung zurückzubringen.
 - Pro Gerät darf nur eine AppDock-YouTube-Konvertierung gleichzeitig laufen.
 - Fehler und Abbrüche schließen Pipes, temporäre Writer und Hintergrundprozesse sauber, damit ein späterer Versuch nicht durch Altprozesse destabilisiert wird.
 
