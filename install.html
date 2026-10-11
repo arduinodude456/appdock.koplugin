@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="AppDock Schritt für Schritt installieren und den Setup-Assistenten starten.">
+  <meta name="theme-color" content="#efece3">
+  <title>AppDock einrichten — Schritt für Schritt</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="install.css">
+</head>
+<body class="install-page">
+  <div class="site-shell">
+    <header class="topbar">
+      <a class="brand" href="index.html#top" aria-label="AppDock Startseite"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span>AppDock</span></a>
+      <nav class="nav" id="main-nav" aria-label="Hauptnavigation"><a href="index.html#features">Funktionen</a><a href="index.html#eink">Für E‑Ink</a><a class="nav-github" href="https://github.com/arduinodude456/appdock.koplugin" target="_blank" rel="noreferrer">GitHub <span>↗</span></a></nav>
+      <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="main-nav">Menü</button>
+    </header>
+
+    <main>
+      <section class="guide-hero section-wrap">
+        <a class="back-link" href="index.html">← Zurück zu AppDock</a>
+        <div class="eyebrow"><span class="status-dot"></span> Kein GitHub-Wissen nötig</div>
+        <h1>Von „Was ist das?“<br><em>zu „Es läuft!“</em></h1>
+        <p>Diese Anleitung führt dich vom Download bis zum ersten AppDock-Homescreen. Du brauchst keine Programmierkenntnisse — nur einen E‑Reader, auf dem KOReader installiert ist, und ein USB-Kabel.</p>
+        <div class="guide-meta"><span>⏱ ca. 10 Minuten</span><span>▣ kostenlos</span><span>✓ rückgängig machbar</span></div>
+      </section>
+
+      <section class="prereq section-wrap"><div class="prereq-card"><div class="prereq-icon">i</div><div><strong>Bevor du beginnst</strong><p>AppDock ist ein Zusatz für <a href="https://koreader.rocks/" target="_blank" rel="noreferrer">KOReader</a>. KOReader ist eine kostenlose Lese-App für viele E‑Reader. Wenn du KOReader noch nicht hast, installiere es zuerst über die offizielle KOReader-Seite. Danach kommst du hierher zurück.</p></div></div></section>
+
+      <section class="guide-steps section-wrap">
+        <div class="section-kicker">Der einfache Weg</div>
+        <div class="step-list">
+          <article class="guide-step"><div class="step-rail"><span>01</span><i></i></div><div class="step-content"><h2>AppDock herunterladen</h2><p>Klicke auf den Download-Button. Du bekommst eine ZIP-Datei — genauso wie bei einem normalen Datei-Download.</p><a class="button button-dark" href="https://github.com/arduinodude456/appdock.koplugin/releases/download/v7.9.29/appdock-7.9.29.zip">AppDock 7.9.29 herunterladen <span>↓</span></a><small>Die Datei heißt <code>appdock-7.9.29.zip</code>.</small></div><div class="step-visual download-visual"><div class="download-file"><span>ZIP</span><b>appdock<br><small>7.9.29</small></b></div><div class="download-arrow">↓</div></div></article>
+          <article class="guide-step"><div class="step-rail"><span>02</span><i></i></div><div class="step-content"><h2>ZIP-Datei öffnen</h2><p>Öffne die heruntergeladene Datei auf deinem Computer. Darin liegt bereits der fertige Ordner <code>appdock.koplugin</code>. Ziehe <strong>den ganzen Ordner</strong> heraus — nicht nur einzelne Dateien.</p><div class="folder-example"><span class="folder-icon">▰</span><div><strong>appdock.koplugin</strong><small>Der Ordner, den du kopierst</small></div><span class="check">✓</span></div></div><div class="step-visual unzip-visual"><div class="zip-box">ZIP</div><span>→</span><div class="folder-big">▰</div></div></article>
+          <article class="guide-step"><div class="step-rail"><span>03</span><i></i></div><div class="step-content"><h2>Ordner auf den E‑Reader kopieren</h2><p>Verbinde deinen E‑Reader per USB mit dem Computer. Öffne den Speicher des Readers und suche den KOReader-Ordner. Darin gibt es einen Ordner namens <code>plugins</code>. Ziehe <code>appdock.koplugin</code> dort hinein.</p><div class="path-box"><span>KOReader</span><b>/</b><span>plugins</span><b>/</b><strong>appdock.koplugin</strong></div><details><summary>Den plugins-Ordner nicht gefunden?</summary><p>Suche nach dem Ordner, in dem auch die Datei <code>reader.lua</code> liegt. Dort sollte ein Ordner <code>plugins</code> liegen. Auf Kobo-Geräten befindet sich KOReader häufig unter <code>.adds/koreader/</code>. Kopiere AppDock in dessen Unterordner <code>plugins</code>.</p></details></div><div class="step-visual copy-visual"><div class="reader-folder"><span>KOReader</span><span class="folder-line">├── reader.lua</span><span class="folder-line">└── <b>plugins</b></span><span class="folder-line indent">└── <mark>appdock.koplugin</mark></span></div></div></article>
+          <article class="guide-step"><div class="step-rail"><span>04</span><i></i></div><div class="step-content"><h2>KOReader neu starten</h2><p>Wirf den E‑Reader sicher aus und trenne das USB-Kabel. Beende KOReader vollständig und öffne es danach erneut. Das ist wichtig: Plugins werden beim Start von KOReader geladen.</p><div class="tip-box"><span>↻</span><p><strong>Wichtig:</strong> Nur das Buch zu schließen reicht nicht. Wähle im KOReader-Menü wirklich <strong>Exit</strong> und starte KOReader danach neu.</p></div></div><div class="step-visual restart-visual"><div class="restart-ring">↻</div><span>KOReader<br>neu starten</span></div></article>
+          <article class="guide-step"><div class="step-rail"><span>05</span><i></i></div><div class="step-content"><h2>AppDock einschalten</h2><p>Öffne im frisch gestarteten KOReader das Menü:</p><div class="menu-path"><span>More tools</span><b>→</b><span>Plugin management</span></div><p>Suche <strong>AppDock Homescreen</strong> in der Liste und schalte es ein. Falls es schon aktiviert ist, musst du nichts ändern.</p></div><div class="step-visual menu-visual"><div class="mini-menu"><span>More tools</span><span>Plugin management</span><strong>✓ AppDock Homescreen</strong></div></div></article>
+          <article class="guide-step last-step"><div class="step-rail"><span>06</span><i></i></div><div class="step-content"><h2>AppDock öffnen</h2><p>Gehe im Plugin-Menü auf <strong>AppDock Homescreen → Open homescreen</strong>. Beim ersten Start fragt dich AppDock, ob du den Setup-Assistenten öffnen möchtest.</p><div class="wizard-card"><div class="wizard-top"><span>AppDock setup wizard</span><span>1 / 3</span></div><h3>Bereit für AppDock?</h3><p>Der Assistent führt dich in drei kurzen Schritten durch die wichtigsten Einstellungen.</p><div class="wizard-actions"><span>Cancel</span><strong>Start setup →</strong></div></div></div><div class="step-visual done-visual"><div class="done-mark">✓</div><span>Du bist drin.</span></div></article>
+        </div>
+      </section>
+
+      <section class="wizard-guide section-wrap"><div class="section-kicker">Der Setup-Assistent</div><h2>Du kannst nichts<br><em>kaputt machen.</em></h2><p class="wizard-lede">Der Assistent stellt dir drei einfache Fragen. Wenn du unsicher bist, kannst du die vorgeschlagenen Einstellungen einfach übernehmen oder jeden Schritt überspringen.</p><div class="wizard-options"><div><span>1</span><strong>Appearance</strong><p>Wähle die vollständige AppDock-Oberfläche oder den reduzierten Simple Mode.</p></div><div><span>2</span><strong>Find apps</strong><p>Entscheide, ob der Homescreen ein lokales Suchfeld für deine Apps zeigen soll.</p></div><div><span>3</span><strong>Local workspace</strong><p>Lege fest, ob ausgewählte lokale Apps nach einem KOReader-Neustart wiederhergestellt werden.</p></div></div><div class="success-banner"><span>✦</span><div><strong>Fertig!</strong><p>Nach dem letzten Schritt erscheint dein AppDock-Homescreen. Du kannst den Assistenten später jederzeit unter <strong>Settings → Other</strong> erneut öffnen.</p></div></div></section>
+
+      <section class="help-section section-wrap"><div><div class="section-kicker">Wenn etwas nicht klappt</div><h2>Wir finden<br>den Fehler.</h2></div><div class="help-list"><details open><summary>AppDock erscheint nicht in Plugin management</summary><p>Prüfe, ob der Ordner wirklich <code>appdock.koplugin</code> heißt und nicht versehentlich <code>appdock.koplugin/appdock.koplugin</code>. Der Ordner muss direkt im KOReader-Ordner <code>plugins</code> liegen. Starte KOReader danach vollständig neu.</p></details><details><summary>Ich sehe nur Dateien, aber keinen Ordner</summary><p>Öffne die ZIP-Datei und ziehe den Ordner auf deinen Computer. Kopiere anschließend den Ordner — nicht die ZIP-Datei — auf den Reader.</p></details><details><summary>Wie entferne ich AppDock wieder?</summary><p>Beende KOReader, lösche den Ordner <code>appdock.koplugin</code> aus dem KOReader-Ordner <code>plugins</code> und starte KOReader neu.</p></details><details><summary>Noch eine Frage?</summary><p>Öffne ein Issue im <a href="https://github.com/arduinodude456/appdock.koplugin/issues" target="_blank" rel="noreferrer">AppDock GitHub-Repository</a> oder lies die vollständige technische Dokumentation.</p></details></div></section>
+
+      <section class="final-cta section-wrap"><div class="cta-mark"><span></span><span></span><span></span><span></span></div><h2>Bereit für<br>deinen Homescreen?</h2><p>Der erste Schritt dauert weniger als eine Minute.</p><a class="button button-dark" href="https://github.com/arduinodude456/appdock.koplugin/releases/download/v7.9.29/appdock-7.9.29.zip">AppDock herunterladen <span>↓</span></a></section>
+    </main>
+    <footer class="footer section-wrap"><div class="brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span>AppDock</span></div><p>Ein KOReader-Plugin von <a href="https://github.com/arduinodude456" target="_blank" rel="noreferrer">arduinodude456</a>.</p><p class="footer-right"><a href="index.html">Startseite</a><a href="https://github.com/arduinodude456/appdock.koplugin" target="_blank" rel="noreferrer">GitHub ↗</a></p></footer>
+  </div>
+  <script src="script.js"></script>
+</body>
+</html>
