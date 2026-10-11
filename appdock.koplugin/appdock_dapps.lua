@@ -2638,6 +2638,27 @@ function DAppManager:showSettingsNotice(text)
     UIManager:show(InfoMessage:new{ text = text })
 end
 
+function DAppManager:showFeatureDialog()
+    local feature_pages = type(self.appdock.getFeaturePages) == "function" and self.appdock:getFeaturePages() or {}
+    if #feature_pages == 0 then
+        feature_pages = { { title = _("AppDock updated"), text = _("AppDock was updated. See the release notes for details.") } }
+    end
+    local page_index = 1
+    local dialog
+    local function show_page()
+        local page = feature_pages[page_index]
+        local last = page_index == #feature_pages
+        local buttons = { { { text = last and _("Done") or _("Next"), callback = function()
+            if last then self.appdock:completeSetupAssistant(); UIManager:close(dialog)
+            else page_index = page_index + 1; UIManager:close(dialog); show_page() end
+        end } }, { { text = _("Later"), callback = function() UIManager:close(dialog) end } } }
+        dialog = ButtonDialog:new{ title = (page.title or _("AppDock update")) .. "\n\n" .. (page.text or "") .. string.format("\n\n(%d/%d)", page_index, #feature_pages), buttons = buttons }
+        dialog.description = page.text or ""
+        UIManager:show(dialog)
+    end
+    show_page()
+end
+
 function DAppManager:showSetupAssistant(instance, context, automatic)
     local feature_pages = type(self.appdock.getFeaturePages) == "function" and self.appdock:getFeaturePages() or {}
     if automatic and #feature_pages > 0 then

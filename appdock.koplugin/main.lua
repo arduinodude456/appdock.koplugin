@@ -20,7 +20,7 @@ local AppDock = WidgetContainer:extend{
 
 -- Bump this only when a new AppDock release should offer the optional guide.
 -- It is intentionally not a remote update check: all assistant state stays local.
-local SETUP_ASSISTANT_VERSION = "7.9.37"
+local SETUP_ASSISTANT_VERSION = "7.9.39"
 local MODULE_DIR = (debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "")
 
 local DEFAULT_SETTINGS = {
@@ -162,14 +162,11 @@ function AppDock:init()
         local restored = manager and self.settings.workspace and self.settings.workspace.restore_enabled
             and manager.restoreWorkspace and manager:restoreWorkspace()
         if self.settings.launch_on_start and not restored then self:showHome() end
-        if self:shouldOfferSetupAssistant() and manager and manager.showSetupAssistant then
-            -- The same startup tick may still be rebuilding the homescreen/host.
-            -- Showing a modal here lets that rebuild close it immediately. Record
-            -- the offer now, but display it on the following UI tick instead.
+        if self:shouldOfferSetupAssistant() and manager and manager.showFeatureDialog then
+            -- The update notice is deliberately separate from the manual setup wizard.
+            -- Record the offer before showing it, then display it after startup rebuilds.
             self:markSetupAssistantOffered()
-            UIManager:nextTick(function()
-                manager:showSetupAssistant(nil, nil, true)
-            end)
+            UIManager:nextTick(function() manager:showFeatureDialog() end)
         end
     end)
 end
