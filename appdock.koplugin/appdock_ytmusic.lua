@@ -1576,7 +1576,13 @@ function Music:_buildPlayerPane(instance, context, state)
     local info_y = title_y + scale(48)
     if dark then
         local chip_gap = scale(8)
-        local chip_width = math.floor((width - 2 * margin - 2 * chip_gap) / 3)
+        -- Keep the action group inside the actual player bounds. Computing
+        -- each x position from `margin` made the last chip drift on readers
+        -- where scaled widths were rounded differently by KOReader.
+        local action_width = width - 2 * margin
+        local chip_width = math.max(scale(44), math.floor((action_width - 2 * chip_gap) / 3))
+        local action_group_width = chip_width * 3 + chip_gap * 2
+        local action_left = math.max(0, math.floor((width - action_group_width) / 2))
         local like_key = play and play.path or ""
         local liked = state.liked_paths and state.liked_paths[like_key]
         table.insert(content, Pill:new{
@@ -1587,7 +1593,7 @@ function Music:_buildPlayerPane(instance, context, state)
                 state.liked_paths[like_key] = not state.liked_paths[like_key]
                 if context.requestRebuild then context.requestRebuild("ui") end
             end,
-            overlap_offset = { margin, info_y },
+            overlap_offset = { action_left, info_y },
         })
         table.insert(content, Pill:new{
             text = "▤  Saved", width = chip_width, height = scale(32),
@@ -1597,7 +1603,7 @@ function Music:_buildPlayerPane(instance, context, state)
                     text = (play and play.title or "") .. "\n\n" .. (play and play.path or ""),
                 })
             end,
-            overlap_offset = { margin + chip_width + chip_gap, info_y },
+            overlap_offset = { action_left + chip_width + chip_gap, info_y },
         })
         table.insert(content, Pill:new{
             text = "⋯  More", width = chip_width, height = scale(32),
@@ -1607,7 +1613,7 @@ function Music:_buildPlayerPane(instance, context, state)
                     text = (play and play.title or "") .. "\n\n" .. (play and play.artist or "YouTube Music"),
                 })
             end,
-            overlap_offset = { margin + 2 * (chip_width + chip_gap), info_y },
+            overlap_offset = { action_left + 2 * (chip_width + chip_gap), info_y },
         })
     end
 

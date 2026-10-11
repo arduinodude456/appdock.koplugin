@@ -483,11 +483,24 @@ state.play = {
 local player_pane = music:_buildPlayerPane(local_instance, context, state)
 assert(player_pane[1].background == "black", "The now-playing screen must use YouTube Music's dark full-player treatment")
 local found_artist, found_mix = false, false
+local action_chips = {}
 for _, widget in ipairs(player_pane) do
     if widget.text == "Test Artist" then found_artist = true end
     if widget.text and widget.text:find("Mix —", 1, true) then found_mix = true end
+    if widget.text and (widget.text:find("Like", 1, true) or widget.text:find("Saved", 1, true)
+        or widget.text:find("More", 1, true)) then
+        action_chips[#action_chips + 1] = widget
+    end
 end
 assert(found_artist and found_mix, "The player must show artist attribution and a compact mix footer")
+assert(#action_chips == 3, "The player must show Like, Saved and More actions")
+table.sort(action_chips, function(left, right) return left.overlap_offset[1] < right.overlap_offset[1] end)
+assert(action_chips[1].overlap_offset[1] >= 0
+    and action_chips[3].overlap_offset[1] + action_chips[3].width <= context.dimen.w,
+    "Like/Saved/More actions must stay inside the player width")
+assert(action_chips[2].overlap_offset[1] == action_chips[1].overlap_offset[1] + action_chips[1].width + 8
+    and action_chips[3].overlap_offset[1] == action_chips[2].overlap_offset[1] + action_chips[2].width + 8,
+    "Like/Saved/More actions must form one evenly spaced row")
 
 local handle = assert(io.open(track.path, "rb"))
 local info = assert(Audio.readWavInfo(handle))
