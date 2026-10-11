@@ -2587,8 +2587,19 @@ end
 
 function DAppManager:showBluetoothSettings()
     local ok, Bluetooth = pcall(require, "appdock_bluetooth")
-    if ok and Bluetooth and Bluetooth.show then Bluetooth.show()
-    else self:showSettingsNotice(_("Bluetooth controls are unavailable on this device.")) end
+    -- Some KOReader plugin loaders do not add the plugin directory to
+    -- package.path even though the other AppDock modules were loaded from it.
+    -- Load our own module by its absolute sibling path as a fallback.
+    if not ok or not Bluetooth or not Bluetooth.show then
+        local source = debug.getinfo(1, "S").source:sub(2)
+        local directory = source:match("(.*/)")
+        if directory then ok, Bluetooth = pcall(dofile, directory .. "appdock_bluetooth.lua") end
+    end
+    if ok and Bluetooth and Bluetooth.show then
+        Bluetooth.show()
+    else
+        self:showSettingsNotice(_("Bluetooth controls are unavailable on this device."))
+    end
 end
 function DAppManager:showVolumeSettings()
     local current = tonumber(self.appdock.settings.volume_percent) or 100
