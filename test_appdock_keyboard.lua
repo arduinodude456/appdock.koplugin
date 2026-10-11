@@ -88,7 +88,7 @@ local before = keyboard.value
 tapped_key:onTapKey()
 assert(tapped_key.pressed and keyboard.value == before .. "W", "A tapped key shows temporary pressed feedback and enters its own character")
 assert(ui.dirty_modes[#ui.dirty_modes] == "fast", "Key entry requests a fast partial refresh")
-assert(ui.scheduled[#ui.scheduled].delay == 0.12, "Pressed feedback uses a short non-blocking interval")
+assert(ui.scheduled[#ui.scheduled].delay == 0.08, "Pressed feedback uses the faster short non-blocking interval")
 for _, item in ipairs(ui.scheduled) do item.callback() end
 assert(not tapped_key.pressed, "Pressed feedback clears after its short display interval")
 keyboard.symbol_key:onTapKey()
@@ -125,4 +125,6 @@ numeric_keyboard.on_submit(numeric_keyboard.value)
 assert(dialog.text == "12" and ui.closed == numeric_keyboard, "Done returns the value to the original dialog")
 
 assert(keyboard:_displayValue():sub(1, 1) == "Q", "Short values remain fully visible")
+assert(Keyboard.setLanguage("de") == "de" and Keyboard.getLanguage() == "de", "Keyboard language can be set persistently by AppDock Settings")
+assert(Keyboard._test.resolvedLanguage("de") == "de" and Keyboard._test.resolvedLanguage("unsupported") == "en", "Keyboard resolves explicit and automatic languages safely")
 print("AppDock keyboard test: OK")

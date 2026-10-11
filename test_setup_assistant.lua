@@ -30,6 +30,7 @@ _G.G_reader_settings = {
 package.preload["gettext"] = function() return function(text) return text end end
 package.preload["pluginloader"] = function() return { loadPlugins = function() return {} end } end
 package.preload["ui/widget/container/widgetcontainer"] = function() return WidgetContainer end
+package.preload["appdock_dialogs"] = function() return { ButtonDialog = WidgetContainer, InfoMessage = WidgetContainer } end
 package.preload["ui/widget/buttondialog"] = function() return WidgetContainer end
 package.preload["ui/widget/infomessage"] = function() return WidgetContainer end
 package.preload["ffi/blitbuffer"] = function() return { COLOR_WHITE = 1, COLOR_BLACK = 0, COLOR_GRAY_8 = 200 } end
@@ -79,8 +80,9 @@ local AppDock = dofile(plugin_dir .. "main.lua")
 local ui = { menu = { registerToMainMenu = function() end } }
 local first = AppDock:new{ ui = ui }
 local first_status = first:getSetupAssistantStatus()
-assert(first_status.version == "7.9.48" and first_status.offered and not first_status.completed, "A new AppDock version must offer the assistant once and record that offer locally")
-assert(log.offers == 1, "The update-triggered assistant must be shown once")
+assert(first_status.version == "7.9.49" and not first_status.offered and not first_status.completed, "The setup wizard remains an independent manual flow")
+assert(log.offers == 1 and first:shouldShowUpdateDialog(), "The update dialog must be shown on startup until explicitly dismissed")
+assert(first:getFeaturePages()[1].image and first:getFeaturePages()[1].image:match("assets/logos/appdock%.png$"), "The update dialog must receive its packaged test image")
 assert(first:setSleepScreenEnabled(true) and first.settings.sleepscreen_enabled, "The Sleep screen toggle must persist locally")
 first:onSuspend()
 assert(log.sleep_show == 1, "An enabled Sleep screen must be shown on Suspend")
@@ -89,5 +91,8 @@ assert(log.sleep_close == 1, "The Sleep screen must close on Resume")
 first:completeSetupAssistant()
 assert(first:getSetupAssistantStatus().completed and not first:shouldOfferSetupAssistant(), "Completing setup must prevent repeat offers for the same version")
 local second = AppDock:new{ ui = ui }
-assert(log.offers == 1 and second:getSetupAssistantStatus().completed and not second:shouldOfferSetupAssistant(), "A completed local setup must not reappear after a KOReader restart")
+assert(log.offers == 2 and second:shouldShowUpdateDialog(), "The update dialog must appear again after a normal Later or Done close")
+assert(second:dismissUpdateDialog() and not second:shouldShowUpdateDialog(), "Don't show again must persist for the current AppDock version")
+local third = AppDock:new{ ui = ui }
+assert(log.offers == 2 and not third:shouldShowUpdateDialog(), "A dismissed update dialog must stay hidden after a KOReader restart")
 print("Setup assistant test: OK")

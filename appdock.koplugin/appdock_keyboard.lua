@@ -18,9 +18,26 @@ local _ = require("gettext")
 -- keyboard is actually created, so a missing/broken database cannot prevent
 -- AppDock from opening.
 local SuggestionDatabase
+local configured_language = "auto"
 
 local Screen = Device.screen
 local function scale(n) return Screen:scaleBySize(n) end
+
+local function normalizeLanguage(language)
+    if language == "de" or language == "en" then return language end
+    return "auto"
+end
+
+local function resolvedLanguage(language)
+    language = normalizeLanguage(language or configured_language)
+    if language ~= "auto" then return language end
+    local reader_language
+    if _G.G_reader_settings and type(G_reader_settings.readSetting) == "function" then
+        local ok, value = pcall(G_reader_settings.readSetting, G_reader_settings, "language")
+        if ok then reader_language = value end
+    end
+    return reader_language == "de" and "de" or "en"
+end
 
 local LOWER_TO_UPPER, UPPER_TO_LOWER = {}, {}
 for code = string.byte("a"), string.byte("z") do
@@ -134,7 +151,7 @@ function Key:onTapKey()
     self.pressed = true
     UIManager:setDirty(self, "fast")
     if self.callback then self.callback() end
-    UIManager:scheduleIn(0.12, function()
+    UIManager:scheduleIn(0.08, function()
         if self._press_generation == generation then
             self.pressed = false
             UIManager:setDirty(self, "fast")
@@ -163,12 +180,15 @@ end
 
 function Keyboard:init()
     self.width = Screen:getWidth()
+    self.language = resolvedLanguage(self.language)
     self.shift = true
     self.caps_lock = self.caps_lock == true
     self.symbols_page = false
     self.letter_keys = {}
     self.suggestion_keys = {}
     self.suggestion_source = self.suggestions or loadSuggestions(self.language)
+    self.suggestion_database = not self.suggestions and SuggestionDatabase or nil
+    self._case_state = nil
     self.numeric_rows = {
         { "1", "2", "3" },
         { "4", "5", "6" },
@@ -357,6 +377,16 @@ end
 function Keyboard:_suggestions()
     local token, prefix = self:_suggestionPrefix()
     local result = {}
+    if self.suggestion_database and type(self.suggestion_database.match) == "function" then
+        local ok, matches = pcall(self.suggestion_database.match, self.language, prefix, 3)
+        if ok and type(matches) == "table" then
+            for _, candidate in ipairs(matches) do
+                local word = type(candidate) == "table" and candidate.word or tostring(candidate)
+                if word ~= "" then result[#result + 1] = word end
+            end
+            return result
+        end
+    end
     for _, candidate in ipairs(self.suggestion_source or {}) do
         local word = type(candidate) == "table" and candidate.word or tostring(candidate)
         local candidate_lower = word:lower()
@@ -398,10 +428,17 @@ function Keyboard:_update()
     self.display:setText(self.value ~= "" and self:_displayValue() or (self.placeholder or _("Search apps")))
     if self.suggestion_keys and #self.suggestion_keys > 0 then
         local suggestions = self:_suggestions()
-        for index, key in ipairs(self.suggestion_keys) do key:setLabel(suggestions[index] or "…") end
+        for index, key in ipairs(self.suggestion_keys) do
+            local label = suggestions[index] or "…"
+            if key.label ~= label then key:setLabel(label) end
+        end
     end
-    for _, item in ipairs(self.letter_keys) do
-        item.key:setLabel((self.caps_lock or self.shift) and item.upper or item.lower)
+    local upper = self.caps_lock or self.shift
+    if self._case_state ~= upper then
+        for _, item in ipairs(self.letter_keys) do
+            item.key:setLabel(upper and item.upper or item.lower)
+        end
+        self._case_state = upper
     end
     if self.shift_key then self.shift_key:setActive(self.shift) end
     if self.caps_key then self.caps_key:setActive(self.caps_lock) end
@@ -426,6 +463,18 @@ function Keyboard.open(options)
     local keyboard = Keyboard:new(options or {})
     UIManager:show(keyboard)
     return keyboard
+end
+
+-- The DApp manager calls this when the Settings choice changes. Existing
+-- keyboards keep their active input uninterrupted; every newly opened one
+-- immediately uses the selected dictionary.
+function Keyboard.setLanguage(language)
+    configured_language = normalizeLanguage(language)
+    return configured_language
+end
+
+function Keyboard.getLanguage()
+    return configured_language
 end
 
 -- The native dialog is only a compatibility object now. It is closed before
@@ -509,5 +558,10 @@ end
 -- Never call UIManager:close() from here again: it re-enters the widget
 -- lifecycle and can leave KOReader's render mutex pointing at destroyed UI.
 function Keyboard:onCloseWidget() return true end
+
+Keyboard._test = {
+    normalizeLanguage = normalizeLanguage,
+    resolvedLanguage = resolvedLanguage,
+}
 
 return Keyboard

@@ -10,6 +10,8 @@ local InputContainer = require("ui/widget/container/inputcontainer")
 local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
 local _ = require("gettext")
+local ImageWidget
+pcall(function() ImageWidget = require("ui/widget/imagewidget") end)
 local Screen = Device.screen
 local function scale(n) return Screen:scaleBySize(n) end
 local function clamp(n, lo, hi) return math.max(lo, math.min(hi, n)) end
@@ -19,7 +21,7 @@ local function textWidget(text, width, size, bold, foreground)
         fgcolor = foreground or Blitbuffer.COLOR_BLACK, bold = bold or false, padding = 0, max_width = width,
     }
 end
-local Modal = InputContainer:extend{ mode=nil, title=nil, text=nil, buttons=nil, duration=nil }
+local Modal = InputContainer:extend{ mode=nil, title=nil, text=nil, image=nil, image_alt=nil, buttons=nil, duration=nil }
 function Modal:init()
     self.mode = self.mode or "buttons"
     if self.mode == "input" and not self.text then self.text = self.description end
@@ -33,6 +35,25 @@ function Modal:init()
     self.card_x = math.floor((screen.w - self.card_w) / 2)
     self.max_card_h = math.max(scale(120), screen.h - self.margin * 2)
     self.title_h = self.title and scale(42) or scale(14)
+    self.image_widget = nil
+    self.image_h = 0
+    if self.image and ImageWidget then
+        local image_file = io.open(self.image, "rb")
+        if image_file then
+            image_file:close()
+            local ok, widget = pcall(ImageWidget.new, ImageWidget, {
+                file = self.image,
+                width = self.card_w - scale(36),
+                height = scale(88),
+                scale_factor = nil,
+                file_do_cache = false,
+            })
+            if ok and widget then
+                self.image_widget = widget
+                self.image_h = scale(88)
+            end
+        end
+    end
     self.body_widget = self.text and textWidget(self.text, self.card_w - scale(36), 14, false) or nil
     local body_dims
     if self.body_widget and self.body_widget.getSize then
@@ -43,7 +64,9 @@ function Modal:init()
     self.input_h = self.mode == "input" and scale(56) or 0
     self.row_h = scale(46)
     self.footer_h = scale(52)
-    self.top_h = self.margin + self.title_h + (self.body_h > 0 and scale(12) + self.body_h or 0) + scale(10)
+    self.top_h = self.margin + self.title_h
+        + (self.image_h > 0 and scale(8) + self.image_h or 0)
+        + (self.body_h > 0 and scale(12) + self.body_h or 0) + scale(10)
     self.rows = self:_normalizeRows(self.buttons or {})
     if self.mode == "confirm" then
         self.rows = { {
@@ -182,9 +205,17 @@ function Modal:paintTo(bb, x, y)
         bb:paintRect(self.card_x+pad,input_y+input_h-scale(1),self.card_w-pad*2,scale(1),Blitbuffer.COLOR_BLACK)
         self:_paintText(bb,(self.input_value~="" and self.input_value or self.input_hint or "Tap to enter text"),self.card_x+pad+scale(6),input_y+scale(12),self.card_w-pad*2-scale(12),14,false)
         self._hits[#self._hits+1]={x=self.card_x+pad,y=input_y,w=self.card_w-pad*2,h=input_h,input=true}
-    elseif self.body_widget then
-        local body_y=self.card_y+self.margin+self.title_h
-        self.body_widget:paintTo(bb,self.card_x+pad,body_y)
+    else
+        local body_y = self.card_y + self.margin + self.title_h
+        if self.image_widget then
+            body_y = body_y + scale(8)
+            self.image_widget:paintTo(bb, self.card_x + pad, body_y)
+            body_y = body_y + self.image_h
+        end
+        if self.body_widget then
+            body_y = body_y + scale(12)
+            self.body_widget:paintTo(bb, self.card_x + pad, body_y)
+        end
     end
     local start=(self.page-1)*self.visible_rows+1
     local finish=math.min(#self.rows,start+self.visible_rows-1)

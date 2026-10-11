@@ -82,6 +82,15 @@ local function readableInk(surface, preferred)
     return contrastInk(surface)
 end
 
+-- Store DApps do not all use the same palette field names. Keep explicit
+-- foreground aliases in the public palette and derive every one from the
+-- surface it is painted on. This prevents an installed design's decorative
+-- text color from becoming invisible when a third-party DApp uses `text`,
+-- `foreground` or `on_background` instead of AppDock's newer `on_surface`.
+local function roleInk(surface, preferred)
+    return readableInk(surface, preferred)
+end
+
 local function grayscaleInk(surface)
     -- A fixed COLOR_BLACK/COLOR_DARK_GRAY role is not safe for installed
     -- dark designs: on grayscale readers Forest's dark surfaces otherwise
@@ -310,8 +319,10 @@ function Theme.getPalette(appdock)
     local tertiary = mix(button, background, high_contrast and .72 or .56)
     local surface = high_contrast and background or mix(background, text, .93)
     local surface_variant = high_contrast and mix(text, background, .10) or mix(button, background, .25)
-    local on_surface = contrastInk(surface)
-    local on_variant = contrastInk(surface_variant)
+    local on_background = roleInk(background, text)
+    local on_surface = roleInk(surface, text)
+    local on_variant = roleInk(surface_variant, text)
+    local on_dropdown = roleInk(dropdown, text)
     return {
         background = color(background, GRAYS.background),
         surface = color(surface, GRAYS.surface),
@@ -321,16 +332,24 @@ function Theme.getPalette(appdock)
         tertiary = color(tertiary, GRAYS.tertiary),
         button = color(button, GRAYS.primary),
         dropdown = color(dropdown, GRAYS.background),
-        on_primary = color(readableInk(primary, text), grayscaleInk(primary)),
-        on_secondary = color(readableInk(secondary, text), grayscaleInk(secondary)),
-        on_tertiary = color(readableInk(tertiary, text), grayscaleInk(tertiary)),
-        on_button = color(readableInk(button, text), grayscaleInk(button)),
+        on_primary = color(roleInk(primary, text), grayscaleInk(primary)),
+        on_secondary = color(roleInk(secondary, text), grayscaleInk(secondary)),
+        on_tertiary = color(roleInk(tertiary, text), grayscaleInk(tertiary)),
+        on_button = color(roleInk(button, text), grayscaleInk(button)),
+        on_background = color(on_background, grayscaleInk(background)),
         on_surface = color(on_surface, grayscaleInk(surface)),
         on_variant = color(on_variant, grayscaleInk(surface_variant)),
+        on_dropdown = color(on_dropdown, grayscaleInk(dropdown)),
+        -- Compatibility aliases for Store DApps. They are deliberately colors,
+        -- never the raw design string, so a DApp cannot accidentally paint
+        -- unreadable text just by selecting a different AppDock color theme.
+        text = color(on_background, grayscaleInk(background)),
+        foreground = color(on_background, grayscaleInk(background)),
         outline = color(mix(on_surface, background, .48), GRAYS.outline),
-        track = color(mix(readableInk(button, text), background, .52), GRAYS.track),
+        track = color(mix(roleInk(button, text), background, .52), GRAYS.track),
         primary_hex = primary,
         background_hex = background,
+        text_hex = on_background,
         high_contrast = high_contrast,
     }
 end
@@ -356,6 +375,7 @@ end
 Theme._test = {
     contrastRatio = contrastRatio,
     readableInk = readableInk,
+    roleInk = roleInk,
 }
 
 return Theme

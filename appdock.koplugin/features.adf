@@ -1,13 +1,13 @@
 # AppDock update notes. Edit this file for the next release dialog.
 # Format: one page per block; title, text, image (optional), buttons (optional).
 [page]
-title=AppDock 7.9.48
-text=Diese Version enthält die vollständige Vorschlagsdatenbank auch im Installationsarchiv und lädt sie zuverlässig.
-image=
+title=AppDock 7.9.49 · zuverlässiger starten
+text=Der neue Boot-Schutz hält lokal eine letzte funktionierende AppDock-Version bereit. Bricht ein Update beim Start ab, wird diese Sicherheitskopie beim nächsten KOReader-Start automatisch wiederhergestellt.
+image=assets/logos/appdock.png
 buttons=Weiter
 
 [page]
-title=Audio und Bluetooth
-text=Die Einstellungen enthalten jetzt Lautstärke und Bluetooth. Bluetooth wird jetzt vollständig von AppDock selbst gesteuert.
+title=Stabilere Tools und klare Einstellungen
+text=YouTube konvertiert Video und Ton jetzt nacheinander und mit begrenzten Ressourcen. Die Tastatur sucht Vorschläge über eine schnelle Sprach- und Präfixauswahl; die Sprache kann in Settings gewählt werden. Sort my files arbeitet virtuell, merkt sich Kategorie und ausgeblendete Einträge – Dateien werden nie verschoben.
 image=
 buttons=Fertig

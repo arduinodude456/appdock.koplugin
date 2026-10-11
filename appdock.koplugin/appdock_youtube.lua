@@ -1015,10 +1015,10 @@ local VIDEO_TICK_CPU_BUDGET = 0.20
 -- static or slow scene be drained in one turn instead of paying the scheduler
 -- gap for every two dozen frames.
 local VIDEO_MAX_FRAMES_PER_TICK = 64
--- FFmpeg writes several frames into the pipe while the Lua side encodes. Reading
--- a small batch per call amortizes the Lua/C round trips without delaying the
--- first frame of a conversion.
-local VIDEO_READ_BATCH_FRAMES = 4
+-- Kobo devices can exhaust memory when FFmpeg, the raw-frame pipe and the BWR
+-- encoder all retain several colour frames at once. A one-frame buffer trades a
+-- negligible amount of syscall overhead for a much lower and predictable peak.
+local VIDEO_READ_BATCH_FRAMES = 1
 local PROGRESS_REFRESH_INTERVAL = 0.75
 -- Rebuilding the job pane is the most expensive part of a conversion tick. A
 -- long video does not need a 1.3 Hz progress repaint, so the video stage updates
@@ -1034,6 +1034,20 @@ local function monotonicNow()
 end
 
 local job_sequence = 0
+-- Converting is intentionally device-wide, not only per DApp instance. Window
+-- mode and restored workspaces can otherwise launch two FFmpeg pipelines and
+-- make the reader kill KOReader under memory pressure.
+local ACTIVE_CONVERSION
+
+local function claimConversion(job)
+    if ACTIVE_CONVERSION then return false end
+    ACTIVE_CONVERSION = job
+    return true
+end
+
+local function releaseConversion(job)
+    if ACTIVE_CONVERSION == job then ACTIVE_CONVERSION = nil end
+end
 local function jobDirectory()
     local ok, lfs = pcall(require, "libs/libkoreader-lfs")
     if not ok then ok, lfs = pcall(require, "lfs") end
@@ -1352,6 +1366,10 @@ function YouTube:_startJob(instance, context, spec)
         self:_notify(instance, context, _("A video conversion is already running."))
         return nil
     end
+    if ACTIVE_CONVERSION then
+        self:_notify(instance, context, _("Another AppDock video conversion is already running. Please wait for it to finish."))
+        return nil
+    end
     if spec.kind == "file" and not fileExists(spec.source) then
         self:_notify(instance, context, _("The video file cannot be opened."))
         return nil
@@ -1405,6 +1423,11 @@ function YouTube:_startJob(instance, context, spec)
         log_tail = "",
     }
     os.remove(job.partial_target)
+    if not claimConversion(job) then
+        cleanupDirectory(work)
+        self:_notify(instance, context, _("Another AppDock video conversion is already running. Please wait for it to finish."))
+        return nil
+    end
     state.job = job
     state.view = "job"
     state.note = ""
@@ -1413,10 +1436,6 @@ function YouTube:_startJob(instance, context, spec)
         job.source_file = spec.source
         job.stage = "video"
         job.stage_message = _("Converting video")
-        -- Both FFmpeg passes read the same source. Running the short audio pass
-        -- next to the frame conversion keeps the total time at max(video, audio)
-        -- instead of video + audio.
-        self:_startAudioStage(instance, context, job)
         self:_startVideoStage(instance, context, job)
     else
         local command = YouTube.buildDownloadCommand(
@@ -1431,6 +1450,7 @@ function YouTube:_startJob(instance, context, spec)
     end
 
     if context and context.requestRebuild then context.requestRebuild("ui") end
+    if job.stage == "error" then releaseConversion(job) end
     self:_schedule(instance, context)
     return job
 end
@@ -1490,7 +1510,7 @@ function YouTube:_startVideoStage(instance, context, job)
 
     local error_log = job.work .. "/ffmpeg.log"
     local command = shellQuote(tools.ffmpeg)
-        .. " -nostdin -hide_banner -loglevel error"
+        .. " -nostdin -hide_banner -loglevel error -threads 1 -filter_threads 1"
         .. " -i " .. shellQuote(job.source_file)
         .. (settings.max_duration > 0 and (" -t " .. tostring(settings.max_duration)) or "")
         .. " -an -sn -dn -vf " .. shellQuote(filter)
@@ -1528,8 +1548,14 @@ function YouTube:_finishVideoStage(instance, context, job)
     local handle = job.handle
     local frame_count = job.frames
     if job.pipe then
-        pcall(function() job.pipe:close() end)
+        local close_ok, close_result, close_reason, close_code = pcall(function() return job.pipe:close() end)
         job.pipe = nil
+        if not close_ok or close_result == false or (close_reason == "exit" and close_code and close_code ~= 0) then
+            local log = readFile(job.error_log) or ""
+            job.stage = "error"
+            job.stage_message = _("ffmpeg stopped before the video was complete.") .. "\n" .. trim(log:sub(-400))
+            return
+        end
     end
     if handle then
         if frame_count > 0 then
@@ -1574,18 +1600,17 @@ function YouTube:_finishVideoStage(instance, context, job)
     job.stage_message = _("Extracting audio")
     job.percent = 96
     job.interval = 1
-    -- The audio pass was already started next to the frame conversion. Only a
-    -- process that never started finishes the job here without a companion WAV.
-    self:_pollAudioStage(job)
+    -- Start audio only after the raw-frame pipe and BWR writer are closed. Two
+    -- concurrent FFmpeg readers caused avoidable OOM crashes on Kobo devices.
+    self:_startAudioStage(instance, context, job)
     if not job.audio and job.audio_code == nil then
         self:_finishJob(instance, context, job, true)
     end
 end
 
--- Extracts the companion WAV next to the running frame conversion. `ffmpeg`
--- decodes the source twice in the old sequential pipeline; starting both passes
--- together keeps the reader's second core busy and removes one full pass from
--- the wall clock.
+-- Extracts the companion WAV only after frame conversion is complete. Keeping
+-- one FFmpeg process at a time prevents the reader from killing KOReader when
+-- two decoders compete for memory.
 function YouTube:_startAudioStage(instance, context, job)
     if job.audio or job.audio_code ~= nil then return job.audio end
     local settings = self:_settings()
@@ -1595,7 +1620,7 @@ function YouTube:_startAudioStage(instance, context, job)
         return nil
     end
     local command = shellQuote(tools.ffmpeg)
-        .. " -nostdin -hide_banner -loglevel error -y"
+        .. " -nostdin -hide_banner -loglevel error -threads 1 -filter_threads 1 -y"
         .. " -i " .. shellQuote(job.source_file)
         .. (settings.max_duration > 0 and (" -t " .. tostring(settings.max_duration)) or "")
         .. " -vn -sn -dn -af " .. shellQuote(
@@ -1652,6 +1677,7 @@ function YouTube:_finishJob(instance, context, job, without_audio)
         end)
     end
     self:_cleanupJob(job)
+    releaseConversion(job)
     local state = self:_state(instance)
     state.job = nil
     self:scanLibrary(instance, context)
@@ -1668,13 +1694,12 @@ function YouTube:_failJob(instance, context, job, message)
     job.stage = "error"
     job.stage_message = message or _("The conversion failed.")
     job.percent = 0
-    -- The audio pass runs in parallel now, so a failed video stage can leave a
-    -- finished WAV behind for a video that was never written. Stop the pass and
-    -- drop the orphan file; the job stays visible for the error message.
-    self:_killDetached(job.audio)
-    job.audio = nil
+    -- Always close pipes and temporary writers on error. Keeping an orphaned
+    -- ffmpeg pipe alive after a Lua-side encoder failure made later conversions
+    -- unstable as well.
+    self:_cleanupJob(job)
+    releaseConversion(job)
     if job.wav then os.remove(job.wav) end
-    if job.partial_target then os.remove(job.partial_target) end
     if context and context.requestRefresh then context.requestRefresh("ui") end
 end
 
@@ -1698,6 +1723,7 @@ function YouTube:cancelJob(instance, context)
     local job = state.job
     if not job then return end
     self:_cleanupJob(job)
+    releaseConversion(job)
     state.job = nil
     state.view = "home"
     self:_notify(instance, context, _("Conversion cancelled."))
@@ -1742,15 +1768,9 @@ function YouTube:_tick(instance, context)
                 self:_failJob(instance, context, job, YouTube.describeDownloadFailure(log))
                 return
             end
-            -- Both FFmpeg passes read the downloaded file. Starting the audio
-            -- pass here overlaps it with the frame conversion instead of adding
-            -- a second full decode to the wall clock.
-            self:_startAudioStage(instance, context, job)
             self:_startVideoStage(instance, context, job)
         end
     elseif job.stage == "video" then
-        -- The audio pass runs in parallel; collect it as soon as it exits.
-        self:_pollAudioStage(job)
         if state.job ~= job or not job.pipe or not job.encoder or not job.writer or not job.frame_bytes then
             self:_failJob(instance, context, job, _("The video converter stopped unexpectedly."))
             return
@@ -1843,6 +1863,8 @@ function YouTube:_tick(instance, context)
     end
     if job.stage == "error" then
         -- Nothing is running any more: show the message and stop ticking.
+        self:_cleanupJob(job)
+        releaseConversion(job)
         if hostIsActive(context) and context.requestRebuild and self:_state(instance).view ~= "play" then
             context.requestRebuild("ui")
         end

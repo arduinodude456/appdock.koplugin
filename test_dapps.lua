@@ -65,6 +65,7 @@ package.preload["device"] = function()
     }
 end
 package.preload["gettext"] = function() return function(text) return text end end
+package.preload["json"] = function() return { encode = function() return "{}" end, decode = function() return {} end } end
 package.preload["logger"] = function()
     return { info = function() end, warn = function() end, err = function() end, dbg = function() end }
 end

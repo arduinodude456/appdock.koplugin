@@ -115,7 +115,7 @@ function LockScreen:build()
             emptySizedWidget(width, math.max(scale(5), math.floor(height * .008))),
         },
         TextWidget:new{
-            text = _("APPDOCK"), face = Font:getFace("smallinfofont", scale(10)), fgcolor = palette.on_surface,
+            text = _("APPDOCK"), face = Font:getFace("smallinfofont", scale(10)), fgcolor = palette.on_primary,
             bold = true, max_width = math.floor(width * .42), padding = 0, overlap_offset = { margin, scale(18) },
         },
         TextWidget:new{

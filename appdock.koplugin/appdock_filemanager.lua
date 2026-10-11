@@ -38,6 +38,11 @@ local FileBrowser = {}
 FileBrowser.__index = FileBrowser
 local STORAGE_ROOT = "/mnt/onboard"
 local STANDARD_FOLDERS = { "Downloads", "Documents", "Images", "Videos", "Audio" }
+local IMAGE_EXTENSIONS = { jpg=true, jpeg=true, png=true, gif=true, webp=true, bmp=true, tif=true, tiff=true, heic=true, avif=true, svg=true }
+local VIDEO_EXTENSIONS = { mp4=true, m4v=true, mkv=true, avi=true, webm=true, mov=true, flv=true, ts=true, mpg=true, mpeg=true }
+VIDEO_EXTENSIONS["3gp"] = true
+local AUDIO_EXTENSIONS = { mp3=true, wav=true, ogg=true, oga=true, flac=true, aac=true, m4a=true, opus=true, wma=true, aiff=true, alac=true }
+local APP_EXTENSIONS = { apk=true, lua=true, luac=true, sh=true, py=true, js=true, bin=true, appimage=true, desktop=true, exe=true }
 
 local function scale(value) return Screen:scaleBySize(value) end
 local function color(r, g, b, grayscale)
@@ -91,9 +96,9 @@ end
 local function iconFor(entry)
     if entry.is_dir then return "▰" end
     local ext = extension(entry.path)
-    if ext == "jpg" or ext == "jpeg" or ext == "png" or ext == "gif" or ext == "webp" then return "▧" end
-    if ext == "mp4" or ext == "mkv" or ext == "avi" or ext == "webm" then return "▹" end
-    if ext == "mp3" or ext == "wav" or ext == "ogg" or ext == "flac" then return "♫" end
+    if IMAGE_EXTENSIONS[ext] then return "▧" end
+    if VIDEO_EXTENSIONS[ext] then return "▹" end
+    if AUDIO_EXTENSIONS[ext] then return "♫" end
     if entry.is_lua then return "{}" end
     if entry.is_markup then return "≡" end
     if entry.supported then return "▤" end
@@ -102,11 +107,18 @@ end
 local function categoryFor(entry)
     if entry.is_dir then return "folders" end
     local ext = extension(entry.path)
-    if ext == "jpg" or ext == "jpeg" or ext == "png" or ext == "gif" or ext == "webp" then return "images" end
-    if ext == "mp4" or ext == "mkv" or ext == "avi" or ext == "webm" then return "videos" end
-    if ext == "mp3" or ext == "wav" or ext == "ogg" or ext == "flac" then return "audio" end
-    if ext == "apk" or ext == "lua" then return "apps" end
+    if IMAGE_EXTENSIONS[ext] then return "images" end
+    if VIDEO_EXTENSIONS[ext] then return "videos" end
+    if AUDIO_EXTENSIONS[ext] then return "audio" end
+    if APP_EXTENSIONS[ext] or entry.is_executable then return "apps" end
     return "documents"
+end
+
+local function hiddenPath(path)
+    for part in tostring(path or ""):gmatch("/([^/]+)") do
+        if part:sub(1, 1) == "." then return true end
+    end
+    return false
 end
 
 local SearchPill = InputContainer:extend{ text = nil, callback = nil, width = nil, height = nil, dimen = nil }
@@ -221,18 +233,28 @@ function FileRow:onHoldFileRow() if self.hold_callback then self.hold_callback()
 
 function FileBrowser:new() return setmetatable({}, self) end
 function FileBrowser:_ensureStandardFolders()
-    -- These are only empty directory entries. Files are never moved or copied
-    -- by the virtual sorter; users remain in control of their storage.
-    pcall(function()
-        local attributes = lfs.attributes(STORAGE_ROOT)
-        if not attributes and lfs.mkdir then lfs.mkdir(STORAGE_ROOT) end
-        for _, folder in ipairs(STANDARD_FOLDERS) do
-            local path = STORAGE_ROOT .. "/" .. folder
-            if not lfs.attributes(path) and lfs.mkdir then lfs.mkdir(path) end
-        end
-    end)
+    -- Sort my files is strictly virtual: it must never create category folders,
+    -- move a file or otherwise alter the reader's storage.
+    return true
 end
-function FileBrowser:_ensureState(instance)
+function FileBrowser:_preferences(context)
+    local appdock = context and context.manager and context.manager.appdock
+    if appdock and type(appdock.settings) == "table" then
+        appdock.settings.file_browser = type(appdock.settings.file_browser) == "table" and appdock.settings.file_browser
+            or { sort_category = "all", show_hidden = false, hidden_paths = {} }
+        local preferences = appdock.settings.file_browser
+        preferences.sort_category = preferences.sort_category or "all"
+        preferences.hidden_paths = type(preferences.hidden_paths) == "table" and preferences.hidden_paths or {}
+        return preferences, appdock
+    end
+    self._fallback_preferences = self._fallback_preferences or { sort_category = "all", show_hidden = false, hidden_paths = {} }
+    return self._fallback_preferences, nil
+end
+function FileBrowser:_savePreferences(context)
+    local _, appdock = self:_preferences(context)
+    if appdock and appdock._saveSettings then appdock:_saveSettings() end
+end
+function FileBrowser:_ensureState(instance, context)
     self:_ensureStandardFolders()
     instance.file_browser = instance.file_browser or { path = STORAGE_ROOT, error = nil, entries = nil, home_mode = true, sort_mode = false, query = "", category = nil, recent_files = {} }
     instance.file_browser.sort_mode = instance.file_browser.sort_mode == true
@@ -251,6 +273,8 @@ function FileBrowser:_entryFromAttributes(fullpath, name, attributes)
     return {
         name = name, path = fullpath, is_dir = not is_file, size = tonumber(attributes.size) or 0,
         supported = supported,
+        is_executable = is_file and type(attributes.permissions) == "string" and attributes.permissions:find("x", 1, true) ~= nil,
+        is_hidden = hiddenPath(fullpath),
         is_lua = is_file and lower:match("%.lua$") ~= nil,
         is_markup = is_file and (lower:match("%.md$") or lower:match("%.markdown$") or lower:match("%.mdown$") or lower:match("%.mkdn$")) ~= nil,
         is_dreader = is_file and (lower:match("%.epub$") or lower:match("%.html$") or lower:match("%.htm$") or lower:match("%.xhtml$") or lower:match("%.md$") or lower:match("%.markdown$")) ~= nil,
@@ -276,12 +300,18 @@ function FileBrowser:_readEntries(path)
     return entries
 end
 
-function FileBrowser:_readSortedEntries(root, limit)
+function FileBrowser:_readSortedEntries(root, limit, hidden_paths, show_hidden)
     if type(root) ~= "string" or (root ~= STORAGE_ROOT and root:sub(1, #STORAGE_ROOT + 1) ~= STORAGE_ROOT .. "/") then
         return nil, _("This folder cannot be read.")
     end
     local entries, visited = {}, {}
     limit = math.max(1, math.floor(tonumber(limit) or 500))
+    hidden_paths = type(hidden_paths) == "table" and hidden_paths or {}
+    local function include(entry)
+        local hidden = entry.is_hidden or hidden_paths[entry.path] == true
+        entry.is_hidden_for_sort = hidden
+        return show_hidden == true or not hidden
+    end
     local function visit(path, required)
         if #entries >= limit or visited[path] then return true end
         visited[path] = true
@@ -300,13 +330,22 @@ function FileBrowser:_readSortedEntries(root, limit)
                         if attributes.mode == "directory" then
                             -- A virtual sort never follows symlinks. This keeps a
                             -- reader's storage tree bounded and prevents cycles.
-                            visit(fullpath, false)
+                            local entry = self:_entryFromAttributes(fullpath, name, attributes)
+                            if entry then
+                                entry.sort_category = "folders"
+                                entry.virtual_path = fullpath
+                                if include(entry) then table.insert(entries, entry) end
+                                -- A hidden directory also hides its descendants
+                                -- until the user explicitly asks to show hidden
+                                -- items. Nothing on disk is renamed or moved.
+                                if show_hidden == true or not entry.is_hidden_for_sort then visit(fullpath, false) end
+                            end
                         elseif attributes.mode == "file" then
                             local entry = self:_entryFromAttributes(fullpath, name, attributes)
                             if entry then
                                 entry.sort_category = categoryFor(entry)
                                 entry.virtual_path = fullpath
-                                table.insert(entries, entry)
+                                if include(entry) then table.insert(entries, entry) end
                             end
                         end
                     end
@@ -328,22 +367,29 @@ function FileBrowser:_readSortedEntries(root, limit)
 end
 
 function FileBrowser:refresh(instance, context)
-    local state = self:_ensureState(instance)
-    if state.sort_mode then state.entries, state.error = self:_readSortedEntries(STORAGE_ROOT)
+    local state = self:_ensureState(instance, context)
+    if state.sort_mode then
+        local preferences = self:_preferences(context)
+        state.entries, state.error = self:_readSortedEntries(STORAGE_ROOT, nil, preferences.hidden_paths, preferences.show_hidden)
     else state.entries, state.error = self:_readEntries(state.path) end
     context.requestRebuild("ui")
 end
 function FileBrowser:enterDirectory(instance, context, path)
-    local state = self:_ensureState(instance); state.path, state.home_mode, state.sort_mode, state.category, state.query = path, false, false, nil, ""; self:refresh(instance, context)
+    local state = self:_ensureState(instance, context); state.path, state.home_mode, state.sort_mode, state.category, state.query = path, false, false, nil, ""; self:refresh(instance, context)
 end
 function FileBrowser:showHome(instance, context)
-    local state = self:_ensureState(instance); state.path, state.home_mode, state.sort_mode, state.category, state.query = STORAGE_ROOT, true, false, nil, ""; self:refresh(instance, context)
+    local state = self:_ensureState(instance, context); state.path, state.home_mode, state.sort_mode, state.category, state.query = STORAGE_ROOT, true, false, nil, ""; self:refresh(instance, context)
 end
 function FileBrowser:openInternalStorage(instance, context)
-    local state = self:_ensureState(instance); state.path, state.home_mode, state.sort_mode, state.category, state.query = STORAGE_ROOT, false, false, nil, ""; self:refresh(instance, context)
+    local state = self:_ensureState(instance, context); state.path, state.home_mode, state.sort_mode, state.category, state.query = STORAGE_ROOT, false, false, nil, ""; self:refresh(instance, context)
 end
-function FileBrowser:sortMyFiles(instance, context)
-    local state = self:_ensureState(instance); state.path, state.home_mode, state.sort_mode, state.category, state.query = STORAGE_ROOT, false, true, nil, ""; self:refresh(instance, context)
+function FileBrowser:sortMyFiles(instance, context, category)
+    local preferences = self:_preferences(context)
+    if category then preferences.sort_category = category end
+    self:_savePreferences(context)
+    local state = self:_ensureState(instance, context)
+    state.path, state.home_mode, state.sort_mode, state.category, state.query = STORAGE_ROOT, false, true, preferences.sort_category or "all", ""
+    self:refresh(instance, context)
 end
 function FileBrowser:showSearch(instance, context)
     local state = self:_ensureState(instance)
@@ -366,7 +412,39 @@ function FileBrowser:showSearch(instance, context)
     UIManager:show(keyboard)
 end
 function FileBrowser:setCategory(instance, context, category)
-    local state = self:_ensureState(instance); state.home_mode, state.sort_mode, state.category, state.query = false, false, category, ""; context.requestRebuild("ui")
+    self:sortMyFiles(instance, context, category)
+end
+function FileBrowser:toggleSortHidden(instance, context)
+    local preferences = self:_preferences(context)
+    preferences.show_hidden = not preferences.show_hidden
+    self:_savePreferences(context)
+    local state = self:_ensureState(instance, context)
+    state.entries, state.error = nil, nil
+    self:refresh(instance, context)
+end
+function FileBrowser:setEntryHidden(instance, context, entry, hidden)
+    if not entry or not entry.virtual_path then return false end
+    local preferences = self:_preferences(context)
+    if hidden then preferences.hidden_paths[entry.virtual_path] = true else preferences.hidden_paths[entry.virtual_path] = nil end
+    self:_savePreferences(context)
+    local state = self:_ensureState(instance, context)
+    state.entries, state.error = nil, nil
+    self:refresh(instance, context)
+    return true
+end
+function FileBrowser:showSortPicker(instance, context)
+    local dialog
+    local choices = {
+        { id = "all", title = _("All files") }, { id = "documents", title = _("Documents") },
+        { id = "images", title = _("Images") }, { id = "videos", title = _("Videos") },
+        { id = "audio", title = _("Audio") }, { id = "apps", title = _("Apps") }, { id = "folders", title = _("Folders") },
+    }
+    local buttons = {}
+    for _, choice in ipairs(choices) do
+        buttons[#buttons + 1] = { { text = choice.title, callback = function() UIManager:close(dialog); self:sortMyFiles(instance, context, choice.id) end } }
+    end
+    dialog = ButtonDialog:new{ title = _("Sort my files · virtual only"), buttons = buttons }
+    UIManager:show(dialog)
 end
 function FileBrowser:_handlers(context, path)
     return context.manager and context.manager.getFileHandlers and context.manager:getFileHandlers(path) or {}
@@ -482,6 +560,14 @@ function FileBrowser:showEntryActions(instance, context, entry)
         { { text = _("Rename"), callback = closeThen(function() self:showRename(instance, context, entry) end) } },
         { { text = _("Move"), callback = closeThen(function() self:showDestinationMenu(instance, context, entry, true) end) }, { text = _("Copy"), callback = closeThen(function() self:showDestinationMenu(instance, context, entry, false) end) } },
     }
+    local state = self:_ensureState(instance, context)
+    if state.sort_mode and entry.virtual_path then
+        local preferences = self:_preferences(context)
+        local hidden = preferences.hidden_paths[entry.virtual_path] == true
+        table.insert(buttons, 2, { { text = hidden and _("Show in Sort my files") or _("Hide from Sort my files"), callback = closeThen(function()
+            self:setEntryHidden(instance, context, entry, not hidden)
+        end) } })
+    end
     local handlers = not entry.is_dir and self:_handlers(context, entry.path) or {}
     if #handlers > 0 and context.manager and context.manager.showFileHandlerChoices then
         table.insert(buttons, 2, { { text = _("Open with ..."), callback = closeThen(function() context.manager:showFileHandlerChoices(entry.path, handlers) end) } })
@@ -518,7 +604,7 @@ function FileBrowser:openEntry(instance, context, entry)
 end
 local function matches(entry, query, category)
     if query and query ~= "" then local hay = (entry.name .. " " .. entry.path):lower(); if not hay:find(query:lower(), 1, true) then return false end end
-    return not category or (entry.sort_category or categoryFor(entry)) == category
+    return not category or category == "all" or (entry.sort_category or categoryFor(entry)) == category
 end
 function FileBrowser:_fileSubtitle(context, entry)
     if entry.is_dir then return _("Folder") end
@@ -560,9 +646,11 @@ function FileBrowser:_buildBrowseList(instance, context, state, entries, width, 
 end
 function FileBrowser:buildPane(instance, context)
     applyTheme(context.manager and context.manager.appdock)
-    local state = self:_ensureState(instance)
+    local state = self:_ensureState(instance, context)
     if not state.entries and not state.error then
-        if state.sort_mode then state.entries, state.error = self:_readSortedEntries(STORAGE_ROOT)
+        if state.sort_mode then
+            local preferences = self:_preferences(context)
+            state.entries, state.error = self:_readSortedEntries(STORAGE_ROOT, nil, preferences.hidden_paths, preferences.show_hidden)
         else state.entries, state.error = self:_readEntries(state.path) end
     end
     local pane = WidgetContainer:new{ dimen = Geom:new{ w = context.dimen.w, h = context.dimen.h } }
@@ -586,7 +674,8 @@ function FileBrowser:buildPane(instance, context)
     local recent = state.recent_files or {}
     if #recent == 0 then for _, entry in ipairs(state.entries) do if not entry.is_dir then table.insert(recent, entry); if #recent >= 4 then break end end end end
     local browse_entries = self:_filteredEntries(state)
-    local category_label = state.sort_mode and _("Sorted files") or (state.category and (_("Category") .. " · " .. state.category) or _("All files"))
+    local category_label = state.sort_mode and (_("Sorted files") .. " · " .. (state.category == "all" and _("All files") or tostring(state.category)))
+        or (state.category and (_("Category") .. " · " .. state.category) or _("All files"))
     if state.home_mode then
         table.insert(root, TextWidget:new{ text = _("Files"), face = Font:getFace("cfont", scale(18)), fgcolor = PALETTE.on_surface, bold = true, padding = 0, overlap_offset = { margin, content_y } })
         table.insert(root, TextWidget:new{ text = _("Recently used"), face = Font:getFace("smallinfofont", scale(11)), fgcolor = PALETTE.on_surface, bold = true, padding = 0, overlap_offset = { margin, content_y + scale(28) } })
@@ -604,12 +693,21 @@ function FileBrowser:buildPane(instance, context)
         local storage_y = cat_y + scale(22) + 3 * (card_h + card_gap) + scale(10)
         table.insert(root, TextWidget:new{ text = _("All storage"), face = Font:getFace("smallinfofont", scale(11)), fgcolor = PALETTE.on_surface, bold = true, padding = 0, overlap_offset = { margin, storage_y } })
         table.insert(root, ActionPill:new{ title = _("Internal storage"), symbol = "▥", width = card_w, height = browse_button_h, background = PALETTE.surface, callback = function() self:openInternalStorage(instance, context) end, overlap_offset = { margin, storage_y + scale(20) } })
-        table.insert(root, ActionPill:new{ title = _("Sort my files"), symbol = "↕", width = card_w, height = browse_button_h, background = PALETTE.primary, foreground = PALETTE.on_primary, callback = function() self:sortMyFiles(instance, context) end, overlap_offset = { margin + card_w + card_gap, storage_y + scale(20) } })
+        table.insert(root, ActionPill:new{ title = _("Sort my files"), symbol = "↕", width = card_w, height = browse_button_h, background = PALETTE.primary, foreground = PALETTE.on_primary, callback = function() self:showSortPicker(instance, context) end, overlap_offset = { margin + card_w + card_gap, storage_y + scale(20) } })
     end
     -- The right side is the Google Files-style recent/browse surface.
     table.insert(root, FrameContainer:new{ width = side_w, height = content_h, padding = 0, bordersize = 0, radius = scale(15), background = PALETTE.surface, emptySizedWidget(side_w, content_h), overlap_offset = { side_x, content_y } })
     table.insert(root, TextWidget:new{ text = state.home_mode and _("Recently used") or category_label, face = Font:getFace("cfont", scale(16)), fgcolor = PALETTE.on_surface, bold = true, padding = 0, overlap_offset = { side_x + scale(12), content_y + scale(12) } })
     table.insert(root, ActionPill:new{ title = state.home_mode and _("Browse") or _("Home"), symbol = state.home_mode and "☷" or "⌂", width = scale(76), height = browse_button_h, background = PALETTE.surface_alt, callback = function() if state.home_mode then self:openInternalStorage(instance, context) else self:showHome(instance, context) end end, overlap_offset = { side_x + side_w - scale(88), content_y + scale(8) } })
+    if state.sort_mode then
+        local preferences = self:_preferences(context)
+        table.insert(root, ActionPill:new{
+            title = preferences.show_hidden and _("Hide hidden") or _("Show hidden"), symbol = preferences.show_hidden and "◉" or "○",
+            width = scale(88), height = browse_button_h, background = PALETTE.surface_alt,
+            callback = function() self:toggleSortHidden(instance, context) end,
+            overlap_offset = { side_x + side_w - scale(184), content_y + scale(8) },
+        })
+    end
     local right_y = content_y + scale(54)
     if state.home_mode then
         local right_entries = {}
@@ -626,7 +724,7 @@ function FileBrowser:buildPane(instance, context)
         root[#root].overlap_offset = { side_x + scale(10), right_y }
     end
     pane[1] = root
-    pane.file_layout = { google_files_style = true, home_mode = state.home_mode, sort_mode = state.sort_mode, storage_root = STORAGE_ROOT, standard_folders = STANDARD_FOLDERS, has_search = true, has_recent = #recent > 0, has_categories = true, has_storage = true, category = state.category, query = state.query, two_column = true, recent_count = #recent, non_destructive_sort = true }
+    pane.file_layout = { google_files_style = true, home_mode = state.home_mode, sort_mode = state.sort_mode, storage_root = STORAGE_ROOT, standard_folders = STANDARD_FOLDERS, has_search = true, has_recent = #recent > 0, has_categories = true, has_storage = true, category = state.category, query = state.query, two_column = true, recent_count = #recent, non_destructive_sort = true, persistent_sort_preferences = true }
     return pane
 end
 return FileBrowser

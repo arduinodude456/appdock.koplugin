@@ -3,6 +3,19 @@ AppDock is an in-app homescreen for KOReader.
 It exposes selected KOReader plugin menu actions as configurable app tiles.
 --]]--
 
+local MODULE_DIR = (debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "")
+local APPDOCK_RELEASE = "7.9.49"
+local AppDockRecovery
+local recovery_context
+do
+    local ok, loaded = pcall(dofile, MODULE_DIR .. "appdock_recovery.lua")
+    if ok and type(loaded) == "table" then
+        AppDockRecovery = loaded
+        local prepared, context = pcall(AppDockRecovery.prepare, MODULE_DIR, APPDOCK_RELEASE)
+        if prepared then recovery_context = context end
+    end
+end
+
 local AppDockDialogs = require("appdock_dialogs")
 local ButtonDialog = AppDockDialogs.ButtonDialog
 local InfoMessage = AppDockDialogs.InfoMessage
@@ -20,8 +33,7 @@ local AppDock = WidgetContainer:extend{
 
 -- Bump this only when a new AppDock release should offer the optional guide.
 -- It is intentionally not a remote update check: all assistant state stays local.
-local SETUP_ASSISTANT_VERSION = "7.9.48"
-local MODULE_DIR = (debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "")
+local SETUP_ASSISTANT_VERSION = APPDOCK_RELEASE
 
 local DEFAULT_SETTINGS = {
     pinned_apps = {
@@ -66,6 +78,9 @@ local DEFAULT_SETTINGS = {
     dapp_permissions = {},
     widget_generator = { items = {}, next_id = 0 },
     setup_assistant = { offered_version = "", completed_version = "" },
+    update_dialog = { dismissed_version = "" },
+    keyboard = { language = "auto" },
+    file_browser = { sort_category = "all", show_hidden = false, hidden_paths = {} },
     power_saving = false,
     volume_percent = 100,
     refresh_interval = 60,
@@ -96,7 +111,14 @@ local function readFeaturePages()
         if line == "[page]" then current = {}; pages[#pages + 1] = current
         elseif current then
             local key, value = line:match("^([%w_]+)=(.*)$")
-            if key then current[key] = value end
+            if key == "image" then
+                local safe_path = value:gsub("\\", "/")
+                if safe_path:match("^[%w_./%-]+$") and not safe_path:find("%.%.", 1, true) then
+                    current.image = MODULE_DIR .. safe_path
+                end
+            elseif key then
+                current[key] = value
+            end
         end
     end
     f:close()
@@ -162,14 +184,16 @@ function AppDock:init()
         local restored = manager and self.settings.workspace and self.settings.workspace.restore_enabled
             and manager.restoreWorkspace and manager:restoreWorkspace()
         if self.settings.launch_on_start and not restored then self:showHome() end
-        if self:shouldOfferSetupAssistant() and manager and manager.showFeatureDialog then
-            -- The update notice is deliberately separate from the manual setup wizard.
-            -- Record the offer before showing it, then display it after startup rebuilds.
-            self:markSetupAssistantOffered()
-            -- Show once after the home surface exists; the AppDock-owned modal
-            -- is independent of later periodic full refreshes.
+        if self:shouldShowUpdateDialog() and manager and manager.showFeatureDialog then
+            -- The update notice stays visible on every KOReader start until the
+            -- user explicitly chooses "Don't show again" for this release.
             UIManager:nextTick(function() manager:showFeatureDialog() end)
         end
+        UIManager:nextTick(function()
+            if AppDockRecovery and recovery_context then pcall(AppDockRecovery.markHealthy, recovery_context) end
+            local notice = AppDockRecovery and recovery_context and AppDockRecovery.consumeNotice and AppDockRecovery.consumeNotice(recovery_context)
+            if notice and notice ~= "" then UIManager:show(InfoMessage:new{ text = notice }) end
+        end)
     end)
 end
 
@@ -224,6 +248,9 @@ function AppDock:_loadSettings()
         dapp_permissions = stored.dapp_permissions or {},
         widget_generator = stored.widget_generator or { items = {}, next_id = 0 },
         setup_assistant = stored.setup_assistant or { offered_version = "", completed_version = "" },
+        update_dialog = stored.update_dialog or { dismissed_version = "" },
+        keyboard = stored.keyboard or { language = "auto" },
+        file_browser = stored.file_browser or { sort_category = "all", show_hidden = false, hidden_paths = {} },
         power_saving = stored.power_saving == true,
         volume_percent = math.max(0, math.min(100, tonumber(stored.volume_percent) or 100)),
         refresh_interval = tonumber(stored.refresh_interval) or DEFAULT_SETTINGS.refresh_interval,
@@ -417,6 +444,24 @@ function AppDock:_loadSettings()
     self.settings.setup_assistant = type(self.settings.setup_assistant) == "table" and self.settings.setup_assistant or {}
     self.settings.setup_assistant.offered_version = type(self.settings.setup_assistant.offered_version) == "string" and self.settings.setup_assistant.offered_version:sub(1, 24) or ""
     self.settings.setup_assistant.completed_version = type(self.settings.setup_assistant.completed_version) == "string" and self.settings.setup_assistant.completed_version:sub(1, 24) or ""
+    self.settings.update_dialog = type(self.settings.update_dialog) == "table" and self.settings.update_dialog or {}
+    self.settings.update_dialog.dismissed_version = type(self.settings.update_dialog.dismissed_version) == "string"
+        and self.settings.update_dialog.dismissed_version:sub(1, 24) or ""
+    self.settings.keyboard = type(self.settings.keyboard) == "table" and self.settings.keyboard or {}
+    self.settings.keyboard.language = (self.settings.keyboard.language == "de" or self.settings.keyboard.language == "en")
+        and self.settings.keyboard.language or "auto"
+    self.settings.file_browser = type(self.settings.file_browser) == "table" and self.settings.file_browser or {}
+    local file_categories = { all = true, documents = true, images = true, videos = true, audio = true, apps = true, folders = true }
+    self.settings.file_browser.sort_category = file_categories[self.settings.file_browser.sort_category]
+        and self.settings.file_browser.sort_category or "all"
+    self.settings.file_browser.show_hidden = self.settings.file_browser.show_hidden == true
+    local normalized_hidden_paths = {}
+    for path, hidden in pairs(type(self.settings.file_browser.hidden_paths) == "table" and self.settings.file_browser.hidden_paths or {}) do
+        if hidden == true and type(path) == "string" and #path <= 360 and path:match("^/[^%z]+$") and not path:find("..", 1, true) then
+            normalized_hidden_paths[path] = true
+        end
+    end
+    self.settings.file_browser.hidden_paths = normalized_hidden_paths
     local normalized_generated = {}
     local generated_count = 0
     for id, item in pairs(self.settings.widget_generator.items) do
@@ -485,6 +530,40 @@ function AppDock:completeSetupAssistant()
     self.settings.setup_assistant.offered_version = SETUP_ASSISTANT_VERSION
     self.settings.setup_assistant.completed_version = SETUP_ASSISTANT_VERSION
     self:_saveSettings()
+end
+
+function AppDock:shouldShowUpdateDialog()
+    local state = self.settings.update_dialog or {}
+    return state.dismissed_version ~= SETUP_ASSISTANT_VERSION
+end
+
+function AppDock:dismissUpdateDialog()
+    self.settings.update_dialog = self.settings.update_dialog or {}
+    self.settings.update_dialog.dismissed_version = SETUP_ASSISTANT_VERSION
+    self:_saveSettings()
+    return true
+end
+
+function AppDock:resetUpdateDialog()
+    self.settings.update_dialog = self.settings.update_dialog or {}
+    self.settings.update_dialog.dismissed_version = ""
+    self:_saveSettings()
+    return true
+end
+
+function AppDock:getKeyboardLanguage()
+    local keyboard = self.settings.keyboard or {}
+    return (keyboard.language == "de" or keyboard.language == "en") and keyboard.language or "auto"
+end
+
+function AppDock:setKeyboardLanguage(language)
+    if language ~= "auto" and language ~= "de" and language ~= "en" then return false end
+    self.settings.keyboard = self.settings.keyboard or {}
+    self.settings.keyboard.language = language
+    self:_saveSettings()
+    local ok, Keyboard = pcall(require, "appdock_keyboard")
+    if ok and Keyboard and Keyboard.setLanguage then Keyboard.setLanguage(language) end
+    return true
 end
 
 function AppDock:setLaunchOnStart(enabled)

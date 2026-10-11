@@ -1008,6 +1008,9 @@ end
 
 function DAppManager:new(appdock)
     applyTheme(appdock)
+    if AppDockKeyboard and AppDockKeyboard.setLanguage and appdock and appdock.getKeyboardLanguage then
+        AppDockKeyboard.setLanguage(appdock:getKeyboardLanguage())
+    end
     local manager = setmetatable({
         appdock = appdock,
         open_order = {},
@@ -2661,12 +2664,19 @@ function DAppManager:showFeatureDialog()
         local page_text = (page.text or "") .. string.format("\n\n" .. _("Page %d of %d"), page_index, #feature_pages)
         local buttons = {
             { { text = last and _("Done") or _("Next"), is_default = true, callback = function()
-                if last then self.appdock:completeSetupAssistant(); close_dialog()
+                if last then close_dialog()
                 else page_index = page_index + 1; close_dialog(); UIManager:nextTick(show_page) end
             end } },
             { { text = _("Later"), callback = close_dialog } },
+            { { text = _("Don't show again"), callback = function()
+                if self.appdock and self.appdock.dismissUpdateDialog then self.appdock:dismissUpdateDialog() end
+                close_dialog()
+            end } },
         }
-        dialog = UpdateDialog:new{ title = page.title or _("AppDock update"), text = page_text, buttons = buttons }
+        dialog = UpdateDialog:new{
+            title = page.title or _("AppDock update"), text = page_text,
+            image = page.image, image_alt = _("AppDock update preview"), buttons = buttons,
+        }
         self._feature_dialog = dialog
         UIManager:show(dialog)
     end
@@ -2981,6 +2991,26 @@ function DAppManager:showLanguageSelector(context)
         buttons = {
             { { text = (current == "de" and "✓ " or "") .. _("German"), callback = function() choose("de") end },
               { text = (current == "C" and "✓ " or "") .. _("English"), callback = function() choose("C") end } },
+            { { text = _("Cancel"), callback = function() UIManager:close(dialog) end } },
+        },
+    }
+    UIManager:show(dialog)
+end
+
+function DAppManager:showKeyboardLanguageSelector(context)
+    local dialog
+    local current = self.appdock and self.appdock.getKeyboardLanguage and self.appdock:getKeyboardLanguage() or "auto"
+    local function choose(language)
+        UIManager:close(dialog)
+        if self.appdock and self.appdock.setKeyboardLanguage then self.appdock:setKeyboardLanguage(language) end
+        if context and context.requestRebuild then context.requestRebuild("ui") end
+    end
+    dialog = ButtonDialog:new{
+        title = _("Keyboard language"),
+        buttons = {
+            { { text = (current == "auto" and "✓ " or "") .. _("Automatic (UI language)"), callback = function() choose("auto") end } },
+            { { text = (current == "de" and "✓ " or "") .. _("German"), callback = function() choose("de") end },
+              { text = (current == "en" and "✓ " or "") .. _("English"), callback = function() choose("en") end } },
             { { text = _("Cancel"), callback = function() UIManager:close(dialog) end } },
         },
     }
@@ -3642,6 +3672,20 @@ function DAppManager:_buildSettingsPane(instance, context)
                 callback = function() self:showSetupAssistant(instance, context, false) end,
             },
             {
+                title = _("Update notice"),
+                subtitle = (self.appdock.shouldShowUpdateDialog and self.appdock:shouldShowUpdateDialog())
+                    and _("Shown whenever AppDock starts") or _("Hidden for this AppDock version"),
+                show_state = false,
+                callback = function()
+                    if self.appdock.shouldShowUpdateDialog and self.appdock:shouldShowUpdateDialog() then
+                        self:showFeatureDialog()
+                    elseif self.appdock.resetUpdateDialog then
+                        self.appdock:resetUpdateDialog()
+                        context.requestRebuild("ui")
+                    end
+                end,
+            },
+            {
                 title = _("Lockscreen"),
                 subtitle = lockscreen_settings.enabled and (lockscreen_settings.method == "pin" and _("PIN") or lockscreen_settings.method == "pattern" and _("Pattern") or _("Swipe")) or _("Disabled"),
                 show_state = false,
@@ -3667,10 +3711,10 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("About AppDock"),
-                subtitle = _( "Version 6.0.7 · Sleep screen"),
+                subtitle = _( "Version 7.9.49 · Reliability update"),
                 show_state = false,
                 callback = function()
-                    self:showSettingsNotice(_("AppDock 6.0.7 · Sleep screen\n\nThis update adds an optional AppDock sleep screen. Enable it in Settings → Other → Sleep screen to show a simple AppDock screen when KOReader enters sleep instead of the standard sleep message. It closes automatically on resume. The setup wizard, Fixed Bounds layout correction and Simple Mode separation remain in place."))
+                    self:showSettingsNotice(_("AppDock 7.9.49 · Reliability update\n\nThis version adds a boot rollback guard, a safer sequential YouTube conversion pipeline, a persistent virtual file sorter, keyboard language selection and contrast-safe Store-DApp text roles."))
                 end,
             },
             {
@@ -3678,6 +3722,14 @@ function DAppManager:_buildSettingsPane(instance, context)
                 subtitle = (G_reader_settings:readSetting("language") == "de") and _("German · restart required") or _("English · restart required"),
                 show_state = false,
                 callback = function() self:showLanguageSelector(context) end,
+            },
+            {
+                title = _("Keyboard language"),
+                subtitle = (self.appdock.getKeyboardLanguage and self.appdock:getKeyboardLanguage() == "de") and _("German suggestions")
+                    or (self.appdock.getKeyboardLanguage and self.appdock:getKeyboardLanguage() == "en") and _("English suggestions")
+                    or _("Automatic · follows UI language"),
+                show_state = false,
+                callback = function() self:showKeyboardLanguageSelector(context) end,
             },
             {
                 title = _("Open AppDock on startup"),
