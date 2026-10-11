@@ -34,8 +34,10 @@ function Modal:init()
     self.card_w = math.max(1, math.min(math.max(1, screen.w - self.margin * 2), scale(560)))
     self.card_x = math.floor((screen.w - self.card_w) / 2)
     self.max_card_h = math.max(scale(120), screen.h - self.margin * 2)
+    self.content_w = self.card_w - scale(36)
     self.title_h = self.title and scale(42) or scale(14)
     self.image_widget = nil
+    self.image_w = 0
     self.image_h = 0
     if self.image and ImageWidget then
         local image_file = io.open(self.image, "rb")
@@ -43,13 +45,17 @@ function Modal:init()
             image_file:close()
             local ok, widget = pcall(ImageWidget.new, ImageWidget, {
                 file = self.image,
-                width = self.card_w - scale(36),
+                -- The packaged preview is square. Keep the widget's target box
+                -- square instead of passing a wide-and-short rectangle, which
+                -- makes ImageWidget stretch the bitmap on some KOReader builds.
+                width = scale(88),
                 height = scale(88),
-                scale_factor = nil,
+                scale_factor = 0,
                 file_do_cache = false,
             })
             if ok and widget then
                 self.image_widget = widget
+                self.image_w = scale(88)
                 self.image_h = scale(88)
             end
         end
@@ -209,7 +215,8 @@ function Modal:paintTo(bb, x, y)
         local body_y = self.card_y + self.margin + self.title_h
         if self.image_widget then
             body_y = body_y + scale(8)
-            self.image_widget:paintTo(bb, self.card_x + pad, body_y)
+            local image_x = self.card_x + pad + math.floor((self.content_w - self.image_w) / 2)
+            self.image_widget:paintTo(bb, image_x, body_y)
             body_y = body_y + self.image_h
         end
         if self.body_widget then

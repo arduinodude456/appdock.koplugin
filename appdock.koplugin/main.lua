@@ -184,15 +184,16 @@ function AppDock:init()
         local restored = manager and self.settings.workspace and self.settings.workspace.restore_enabled
             and manager.restoreWorkspace and manager:restoreWorkspace()
         if self.settings.launch_on_start and not restored then self:showHome() end
-        if self:shouldShowUpdateDialog() and manager and manager.showFeatureDialog then
-            -- The update notice stays visible on every KOReader start until the
-            -- user explicitly chooses "Don't show again" for this release.
-            UIManager:nextTick(function() manager:showFeatureDialog() end)
-        end
         UIManager:nextTick(function()
             if AppDockRecovery and recovery_context then pcall(AppDockRecovery.markHealthy, recovery_context) end
             local notice = AppDockRecovery and recovery_context and AppDockRecovery.consumeNotice and AppDockRecovery.consumeNotice(recovery_context)
             if notice and notice ~= "" then UIManager:show(InfoMessage:new{ text = notice }) end
+            -- Show the update dialog after a recovery notice has been placed,
+            -- never before it. Otherwise the informational notice becomes the
+            -- top modal and makes the news dialog appear to vanish instantly.
+            if self:shouldShowUpdateDialog() and manager and manager.showFeatureDialog then
+                UIManager:nextTick(function() manager:showFeatureDialog() end)
+            end
         end)
     end)
 end
