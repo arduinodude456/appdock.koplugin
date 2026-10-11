@@ -25,6 +25,7 @@ local AppDockKeyboard = require("appdock_keyboard")
 local DAppLogo = require("appdock_logo")
 local Layout = require("appdock_layout")
 local Theme = require("appdock_theme")
+local Wallpaper = require("appdock_wallpaper")
 local Help = require("appdock_help")
 local WebBrowser = require("appdock_browser")
 local FileBrowser = require("appdock_filemanager")
@@ -3037,30 +3038,59 @@ function DAppManager:showLockscreenNameDialog(instance, context)
 end
 
 function DAppManager:showLockscreenProfileImageDialog(instance, context)
+    local manager = self
     local lockscreen = self.appdock.settings.lockscreen
-    local dialog
-    dialog = InputDialog:new{
-        title = _("Lockscreen profile image"),
-        description = _("Optional local PNG, JPG, GIF, WEBP or SVG path. The image stays on this device and is not used as device security."),
-        input_hint = _("Full local image path"),
-        input = lockscreen.profile_image_path or "",
-        buttons = { {
-            { text = _("Clear image"), callback = function()
-                self.appdock:setLockscreenProfile(lockscreen.profile_name, "")
-                UIManager:close(dialog)
-                context.requestRebuild("ui")
-            end },
-            { text = _("Use image"), is_enter_default = true, callback = function()
-                local saved = self.appdock:setLockscreenProfile(lockscreen.profile_name, dialog:getInputText() or "")
-                UIManager:close(dialog)
-                if not saved then self:showSettingsNotice(_("Choose an existing local PNG, JPG, GIF, WEBP or SVG file.")) end
-                context.requestRebuild("ui")
-            end },
-        } },
-    }
-    AppDockKeyboard.attach(dialog)
-    UIManager:show(dialog)
-    dialog:onShowKeyboard()
+    local function clearImage()
+        manager.appdock:setLockscreenProfile(lockscreen.profile_name, "")
+        context.requestRebuild("ui")
+    end
+    local function useImage(path)
+        local saved = manager.appdock:setLockscreenProfile(lockscreen.profile_name, path or "")
+        if not saved then manager:showSettingsNotice(_("Choose an existing local PNG, JPG, GIF, WEBP or SVG file.")) end
+        context.requestRebuild("ui")
+    end
+    local function showManualPath()
+        local dialog
+        dialog = InputDialog:new{
+            title = _("Lockscreen profile image"),
+            description = _("Optional local PNG, JPG, GIF, WEBP or SVG path. The image stays on this device and is not used as device security."),
+            input_hint = _("Full local image path"), input = lockscreen.profile_image_path or "",
+            buttons = { { { text = _("Clear image"), callback = function() UIManager:close(dialog); clearImage() end },
+                { text = _("Use image"), is_enter_default = true, callback = function() local path = dialog:getInputText() or ""; UIManager:close(dialog); useImage(path) end } } },
+        }
+        AppDockKeyboard.attach(dialog); UIManager:show(dialog); dialog:onShowKeyboard()
+    end
+    local function showChooser()
+        local ok_chooser, FileChooser = pcall(require, "ui/widget/filechooser")
+        if not ok_chooser or not FileChooser then return false end
+        local chooser_ui = { selected_files = {}, folder_shortcuts = {
+            getShortcutFullName = function() return nil end, hasShortcut = function() return false end, hasFolderShortcut = function() return false end,
+        } }
+        local ok_new, chooser = pcall(function() return FileChooser:new{
+            name = "appdock_lockscreen_profile_image", ui = chooser_ui,
+            path = (lockscreen.profile_image_path or "") ~= "" and lockscreen.profile_image_path or (Device.home_dir or "/"),
+            show_path = true, file_filter = function(filename) return Wallpaper.isValidPath(filename) end,
+        } end)
+        if not ok_new or not chooser then return false end
+        function chooser:onFileSelect(item)
+            local path = item and item.path
+            UIManager:close(self)
+            UIManager:nextTick(function() if path then useImage(path) else manager:showSettingsNotice(_("No profile image was selected.")) end end)
+            return true
+        end
+        UIManager:show(chooser)
+        return true
+    end
+    local menu
+    menu = ButtonDialog:new{ title = _("Lockscreen profile image"), buttons = {
+        { { text = _("Browse images"), callback = function()
+            UIManager:close(menu)
+            if not showChooser() then showManualPath() end
+        end } },
+        { { text = _("Clear image"), callback = function() UIManager:close(menu); clearImage() end } },
+        { { text = _("Cancel"), callback = function() UIManager:close(menu) end } },
+    } }
+    UIManager:show(menu)
 end
 
 function DAppManager:showLockscreenEditor(instance, context)
