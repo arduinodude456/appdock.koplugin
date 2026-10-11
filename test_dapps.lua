@@ -727,6 +727,45 @@ assert(clock_instance.pane and clock_instance.pane.dimen, "Analog Clock must bui
     assert(window_host.window_rect.w >= before_resize.w and window_host.window_rect.h >= before_resize.h
         and clock_instance.pane.dimen.w < Device.screen:getSize().w,
         "Window content must receive a smaller flexible local pane rectangle")
+    assert(window_host.window_layout.taskbar and #window_host.window_layout.taskbar_buttons == 1,
+        "Window Mode must show a taskbar with an entry for the open app")
+    local start_button
+    walk_tree(window_host[1], function(widget)
+        if widget.title == "Start" and widget.callback then start_button = widget end
+    end)
+    assert(start_button, "The Window Mode taskbar must expose a Start menu button")
+    start_button.callback()
+    local start_menu = log.shown[#log.shown]
+    assert(start_menu.title == "Start menu" and type(start_menu.buttons) == "table",
+        "The Start button must open a list of available DApps")
+    local launch_draw
+    for _, row in ipairs(start_menu.buttons) do
+        for _, item in ipairs(row) do
+            if item.text == "Draw" then launch_draw = item.callback end
+        end
+    end
+    assert(launch_draw, "The Start menu must offer Draw as a launchable app")
+    launch_draw()
+    local draw_window = manager.instances.draw
+    assert(#window_host.dapp_ids == 2 and manager.active_id == "draw" and draw_window.in_window
+        and #window_host.window_layout.taskbar_buttons == 2,
+        "Selecting a Start menu app must open it beside existing windows")
+    assert(window_context.requestFullscreen(true) and window_host.window_layout.fullscreen and not window_host.window_layout.taskbar,
+        "A fullscreen DApp must temporarily hide the taskbar without closing other windows")
+    assert(window_host:focusWindow("draw") and not window_host.window_layout.fullscreen
+        and draw_window.pane.dimen.w < Device.screen:getSize().w,
+        "Focusing another window must restore the desktop and give that app its windowed dimensions")
+    assert(window_host:focusWindow("analog_clock") and window_host.window_layout.fullscreen
+        and window_context.requestFullscreen(false) and window_host.window_layout.taskbar,
+        "A fullscreen window must remain in the desktop and restore the taskbar when it exits fullscreen")
+    assert(window_host:focusWindow("analog_clock") and manager.active_id == "analog_clock",
+        "Focusing a taskbar window entry must bring that app to the front")
+    assert(window_host:minimizeWindow("draw") and window_host.window_states.draw.minimized,
+        "A window must be minimizable without closing its taskbar entry")
+    assert(window_host:focusWindow("draw") and not window_host.window_states.draw.minimized,
+        "Selecting a minimized taskbar entry must restore the window")
+    assert(manager:closeDApp("draw") and #window_host.dapp_ids == 1 and manager.active_id == "analog_clock",
+        "Closing one DApp window must keep the other window and desktop active")
     manager:activate("analog_clock")
     Device.hasKeys = original_has_keys
 end)()

@@ -46,6 +46,7 @@ if not ok_lfs then lfs = require("lfs") end
 
 local Screen = Device.screen
 local ACTIVE_APPDOCK = nil
+local MAX_WINDOW_COUNT = 8
 
 local DAppManager = {}
 DAppManager.__index = DAppManager
@@ -78,6 +79,7 @@ local DAppWindowHost = InputContainer:extend{
     is_window = true,
     dimen = nil,
     window_rect = nil,
+    window_states = nil,
     is_fullscreen = false,
     windowed_rect = nil,
     active_panes = nil,
@@ -1494,7 +1496,14 @@ function DAppManager:uninstallStoreDApp(id)
     if not removed and lfs.attributes(record.file) then return false, remove_err or _("The DApp file could not be removed.") end
     if self.active_host then
         for _, active_id in ipairs(self.active_host.dapp_ids or {}) do
-            if active_id == id then UIManager:close(self.active_host); break end
+            if active_id == id then
+                if self.active_host.is_window and self.active_host.window_states then
+                    self.active_host:removeWindow(id)
+                else
+                    UIManager:close(self.active_host)
+                end
+                break
+            end
         end
     end
     self:closeDApp(id)
@@ -2073,7 +2082,11 @@ function DAppManager:_newContext(host, instance, assigned_dimen)
         end,
         requestRebuild = function(refreshtype)
             if self.active_host == host then
-                host:rebuild()
+                if host.is_window and host.window_states then
+                    host:rebuild({ dapp_id = instance.id })
+                else
+                    host:rebuild()
+                end
                 UIManager:setDirty(host, refreshtype or "ui")
                 if UIManager.forceRePaint then UIManager:forceRePaint() end
             end
@@ -2139,15 +2152,17 @@ function DAppManager:_windowGeometry(id, screen)
     local saved = type(layout.window_geometries) == "table" and layout.window_geometries[id] or {}
     local margin = math.max(scale(8), 4)
     local min_w = math.min(math.max(scale(180), 120), math.max(1, screen.w - margin * 2))
-    local min_h = math.min(math.max(scale(150), 100), math.max(1, screen.h - margin * 2))
+    local taskbar_h = scale(48)
+    local available_h = math.max(1, screen.h - taskbar_h - margin * 2)
+    local min_h = math.min(math.max(scale(150), 100), available_h)
     local default_w = math.max(min_w, math.floor(screen.w * .84))
-    local default_h = math.max(min_h, math.floor(screen.h * .72))
+    local default_h = math.max(min_h, math.floor(available_h * .84))
     local width = math.max(min_w, math.min(screen.w - margin * 2, windowNumber(saved.w, default_w)))
-    local height = math.max(min_h, math.min(screen.h - margin * 2, windowNumber(saved.h, default_h)))
+    local height = math.max(min_h, math.min(available_h, windowNumber(saved.h, default_h)))
     local x = windowNumber(saved.x, (screen.w - width) / 2)
-    local y = windowNumber(saved.y, math.max(margin, (screen.h - height) / 3))
+    local y = windowNumber(saved.y, math.max(margin, margin + math.floor((available_h - height) / 3)))
     x = math.max(margin, math.min(math.max(margin, screen.w - margin - width), x))
-    y = math.max(margin, math.min(math.max(margin, screen.h - margin - height), y))
+    y = math.max(margin, math.min(math.max(margin, screen.h - taskbar_h - margin - height), y))
     return { x = x, y = y, w = width, h = height }
 end
 
@@ -2168,6 +2183,9 @@ function DAppManager:openWindow(id, source)
         return false
     end
     if source then UIManager:close(source) end
+    if self.active_host and self.active_host.is_window and self.active_host.addWindow then
+        return self.active_host:addWindow(id)
+    end
     if self.active_host then UIManager:close(self.active_host) end
     self.active_id = id
     instance.last_active = os.time()
@@ -2181,6 +2199,36 @@ function DAppManager:openWindow(id, source)
         UIManager:setDirty(host, "ui")
         if UIManager.forceRePaint then UIManager:forceRePaint() end
     end)
+    return true
+end
+
+function DAppManager:showWindowStartMenu(host)
+    if not host or self.active_host ~= host or not host.is_window then return false end
+    local apps = {}
+    for id, definition in pairs(self.definitions) do
+        if type(definition) == "table" and type(definition.buildPane) == "function"
+            and definition.host_kind ~= "plugin" and type(definition.title) == "string" then
+            apps[#apps + 1] = { id = id, title = definition.title }
+        end
+    end
+    table.sort(apps, function(left, right) return left.title:lower() < right.title:lower() end)
+    if #apps == 0 then return false end
+    local dialog
+    local buttons = {}
+    for _, app in ipairs(apps) do
+        local app_id, app_title = app.id, app.title
+        buttons[#buttons + 1] = {{
+            text = app_title,
+            callback = function()
+                UIManager:close(dialog)
+                UIManager:nextTick(function()
+                    if self.active_host == host then self:openWindow(app_id) end
+                end)
+            end,
+        }}
+    end
+    dialog = ButtonDialog:new{ title = _("Start menu"), buttons = buttons, rows_per_page = { 5, 6, 7 } }
+    UIManager:show(dialog)
     return true
 end
 
@@ -2394,7 +2442,10 @@ function DAppManager:closeDApp(id)
             return false
         end
     end
-    if self.active_id == id and self.active_host then
+    if self.active_host and self.active_host.is_window and self.active_host.window_states
+        and self.active_host.window_states[id] then
+        self.active_host:removeWindow(id)
+    elseif self.active_id == id and self.active_host then
         UIManager:close(self.active_host)
     end
     for index, open_id in ipairs(self.open_order) do
@@ -3745,8 +3796,12 @@ end
 
 function DAppWindowHost:init()
     self.dimen = Screen:getSize()
-    self.dapp_ids = { self.dapp_id }
-    self.window_rect = self.manager:_windowGeometry(self.dapp_id, self.dimen)
+    self.dapp_ids = self.dapp_ids or { self.dapp_id }
+    self.window_states = {}
+    for _, id in ipairs(self.dapp_ids) do
+        self.window_states[id] = { rect = self.manager:_windowGeometry(id, self.dimen), fullscreen = false, minimized = false }
+    end
+    self.window_rect = self.window_states[self.dapp_id] and self.window_states[self.dapp_id].rect
     self.ges_events = {
         PanWindowMove = { GestureRange:new{ ges = "pan", range = function() return self._window_title_range end } },
         PanReleaseWindowMove = { GestureRange:new{ ges = "pan_release", range = function() return self._window_title_range end } },
@@ -3757,20 +3812,132 @@ function DAppWindowHost:init()
     self:rebuild()
 end
 
+function DAppWindowHost:addWindow(id)
+    if self.window_states[id] then return self:focusWindow(id) end
+    if #self.dapp_ids >= MAX_WINDOW_COUNT then
+        UIManager:show(InfoMessage:new{ text = string.format(_("You can open up to %d windows in Window Mode."), MAX_WINDOW_COUNT) })
+        return false
+    end
+    local instance = self.manager:_instanceFor(id)
+    if not instance or instance.definition.host_kind == "plugin" then return false end
+    local rect = self.manager:_windowGeometry(id, self.dimen)
+    local saved_geometry = self.manager.appdock.settings.layout
+        and self.manager.appdock.settings.layout.window_geometries
+        and self.manager.appdock.settings.layout.window_geometries[id]
+    if type(saved_geometry) ~= "table" then
+        local cascade = math.min(#self.dapp_ids * scale(24), scale(96))
+        rect.x, rect.y = rect.x + cascade, rect.y + cascade
+        rect = self:_clampWindowRect(rect)
+    end
+    self.window_states[id] = { rect = rect, fullscreen = false, minimized = false }
+    self.dapp_ids[#self.dapp_ids + 1] = id
+    instance.last_active = os.time()
+    instance.visible, instance.in_split, instance.in_window = true, false, true
+    self.manager:_touchOpen(id)
+    self.manager.active_id = id
+    self.manager:captureWorkspace()
+    return self:focusWindow(id)
+end
+
+function DAppWindowHost:focusWindow(id, relayout)
+    local state = self.window_states[id]
+    local instance = self.manager.instances[id]
+    if not state or not instance then return false end
+    local was_fullscreen = self.is_fullscreen == true
+    state.minimized = false
+    for index, open_id in ipairs(self.dapp_ids) do
+        if open_id == id then table.remove(self.dapp_ids, index); break end
+    end
+    self.dapp_ids[#self.dapp_ids + 1] = id
+    self.dapp_id, self.manager.active_id = id, id
+    self.window_rect, self.is_fullscreen = state.rect, state.fullscreen == true
+    instance.last_active, instance.visible, instance.in_window = os.time(), true, true
+    self.manager:_touchOpen(id)
+    self.manager:captureWorkspace()
+    self:rebuild((relayout or was_fullscreen ~= self.is_fullscreen) and "layout" or "reuse")
+    UIManager:setDirty(self, "ui")
+    if UIManager.forceRePaint then UIManager:forceRePaint() end
+    return true
+end
+
+function DAppWindowHost:minimizeWindow(id)
+    local state = self.window_states[id]
+    if not state or state.minimized then return false end
+    state.minimized = true
+    local instance = self.manager.instances[id]
+    if instance then
+        if instance.pane and instance.pane.onDeactivate then instance.pane:onDeactivate() end
+        instance.pane, instance.visible = nil, false
+    end
+    if self.manager.active_id == id then
+        self.manager.active_id = nil
+        for index = #self.dapp_ids, 1, -1 do
+            local next_id = self.dapp_ids[index]
+            local next_state = self.window_states[next_id]
+            if next_state and not next_state.minimized then return self:focusWindow(next_id) end
+        end
+    end
+    self:rebuild("reuse")
+    UIManager:setDirty(self, "ui")
+    if UIManager.forceRePaint then UIManager:forceRePaint() end
+    return true
+end
+
+function DAppWindowHost:removeWindow(id)
+    local state = self.window_states[id]
+    if not state then return false end
+    local was_active = self.manager.active_id == id
+    local instance = self.manager.instances[id]
+    if instance then
+        if instance.pane and instance.pane.onDeactivate then instance.pane:onDeactivate() end
+        instance.pane, instance.visible, instance.in_window = nil, false, false
+        instance.in_split = false
+    end
+    self.window_states[id] = nil
+    for index, open_id in ipairs(self.dapp_ids) do
+        if open_id == id then table.remove(self.dapp_ids, index); break end
+    end
+    if #self.dapp_ids == 0 then
+        self.manager.active_id = nil
+        UIManager:close(self)
+        return true
+    end
+    if was_active then
+        self.manager.active_id, self.dapp_id = nil, nil
+        for index = #self.dapp_ids, 1, -1 do
+            local next_id = self.dapp_ids[index]
+            local next_state = self.window_states[next_id]
+            if next_state and not next_state.minimized then return self:focusWindow(next_id) end
+        end
+        self.dapp_id = self.dapp_ids[#self.dapp_ids]
+        self.window_rect = self.window_states[self.dapp_id].rect
+        self.is_fullscreen = false
+    end
+    self.manager:captureWorkspace()
+    self:rebuild("reuse")
+    UIManager:setDirty(self, "ui")
+    if UIManager.forceRePaint then UIManager:forceRePaint() end
+    return true
+end
+
 function DAppWindowHost:_clampWindowRect(rect)
     local screen = self.dimen
     local margin = math.max(scale(8), 4)
     local min_w = math.min(math.max(scale(180), 120), math.max(1, screen.w - margin * 2))
-    local min_h = math.min(math.max(scale(150), 100), math.max(1, screen.h - margin * 2))
+    local taskbar_h = scale(48)
+    local available_h = math.max(1, screen.h - taskbar_h - margin * 2)
+    local min_h = math.min(math.max(scale(150), 100), available_h)
     rect.w = math.max(min_w, math.min(math.max(min_w, screen.w - margin * 2), math.floor(rect.w)))
-    rect.h = math.max(min_h, math.min(math.max(min_h, screen.h - margin * 2), math.floor(rect.h)))
+    rect.h = math.max(min_h, math.min(math.max(min_h, available_h), math.floor(rect.h)))
     rect.x = math.max(margin, math.min(math.max(margin, screen.w - margin - rect.w), math.floor(rect.x)))
-    rect.y = math.max(margin, math.min(math.max(margin, screen.h - margin - rect.h), math.floor(rect.y)))
+    rect.y = math.max(margin, math.min(math.max(margin, screen.h - taskbar_h - margin - rect.h), math.floor(rect.y)))
     return rect
 end
 
 function DAppWindowHost:_updateWindow(position, resize, persist)
     if self.is_fullscreen or not position or not self.window_rect then return false end
+    local state = self.window_states and self.window_states[self.dapp_id]
+    if not state then return false end
     local rect = { x = self.window_rect.x, y = self.window_rect.y, w = self.window_rect.w, h = self.window_rect.h }
     if resize then
         rect.w = position.x - rect.x + scale(8)
@@ -3783,11 +3950,12 @@ function DAppWindowHost:_updateWindow(position, resize, persist)
         rect.y = position.y - self._window_drag_offset.y
     end
     self.window_rect = self:_clampWindowRect(rect)
+    state.rect = self.window_rect
     if persist then
         self._window_drag_offset = nil
         self.manager:_persistWindowGeometry(self.dapp_id, self.window_rect)
     end
-    self:rebuild(true)
+    self:rebuild(resize and { dapp_id = self.dapp_id } or "reuse")
     if persist then
         -- Moving and resizing a window leaves the previous frame outline behind
         -- on E-Ink: the regional fast refreshes during the gesture cannot clear
@@ -3824,83 +3992,166 @@ function DAppWindowHost:onKeyRepeat(key)
 end
 
 function DAppWindowHost:setDAppFullscreen(id, enabled)
-    if id ~= self.dapp_id then return false end
+    local state = self.window_states and self.window_states[id]
+    if not state then return false end
     enabled = enabled == true
-    if enabled == self.is_fullscreen then return true end
+    if enabled == (state.fullscreen == true) then return true end
+    local instance = self.manager.instances[id]
+    if instance and instance.pane and instance.pane.onDeactivate then instance.pane:onDeactivate() end
+    if instance then instance.pane = nil end
     if enabled then
-        local rect = self.window_rect or self.manager:_windowGeometry(id, Screen:getSize())
-        self.windowed_rect = { x = rect.x, y = rect.y, w = rect.w, h = rect.h }
-        self.is_fullscreen = true
+        local rect = state.rect or self.manager:_windowGeometry(id, Screen:getSize())
+        state.windowed_rect = { x = rect.x, y = rect.y, w = rect.w, h = rect.h }
+        state.fullscreen = true
     else
-        self.is_fullscreen = false
-        self.window_rect = self.windowed_rect or self.manager:_windowGeometry(id, Screen:getSize())
-        self.windowed_rect = nil
+        state.fullscreen = false
+        state.rect = state.windowed_rect or self.manager:_windowGeometry(id, Screen:getSize())
+        state.windowed_rect = nil
     end
-    if self.manager.active_host == self then
-        self:rebuild()
-        UIManager:setDirty(self, "ui")
-        if UIManager.forceRePaint then UIManager:forceRePaint() end
-    end
-    return true
+    return self:focusWindow(id, true)
 end
 
 function DAppWindowHost:rebuild(preserve_active)
     applyTheme(self.manager.appdock)
     self.dimen = Screen:getSize()
-    if self.is_fullscreen then
-        self.window_rect = { x = 0, y = 0, w = self.dimen.w, h = self.dimen.h }
-    else
-        self.window_rect = self:_clampWindowRect(self.window_rect or self.manager:_windowGeometry(self.dapp_id, self.dimen))
+    self.window_states = self.window_states or {}
+    if not self.window_states[self.dapp_id] then
+        for index = #self.dapp_ids, 1, -1 do
+            local candidate = self.dapp_ids[index]
+            if self.window_states[candidate] then self.dapp_id = candidate; break end
+        end
     end
-    local rect = self.window_rect
-    local instance = self.manager:_instanceFor(self.dapp_id)
-    if not instance then return end
+    local focused_state = self.window_states[self.dapp_id]
+    if focused_state and not focused_state.minimized then self.manager.active_id = self.dapp_id
+    elseif focused_state then self.manager.active_id = nil end
+    self.is_fullscreen = focused_state and focused_state.fullscreen == true or false
+    self.windowed_rect = focused_state and focused_state.windowed_rect or nil
+    if focused_state then
+        self.window_rect = self.is_fullscreen
+            and { x = 0, y = 0, w = self.dimen.w, h = self.dimen.h }
+            or self:_clampWindowRect(focused_state.rect or self.manager:_windowGeometry(self.dapp_id, self.dimen))
+        if not self.is_fullscreen then focused_state.rect = self.window_rect end
+    end
     if not preserve_active then
         for _, pane in ipairs(self.active_panes or {}) do if pane.onDeactivate then pane:onDeactivate() end end
     end
-    self.active_panes = {}
+    self.active_panes, self.active_pane = {}, nil
     local border, title_h = math.max(scale(2), 1), math.max(scale(40), scale(36))
-    local content
-    if self.is_fullscreen then
-        content = Geom:new{ x = 0, y = 0, w = rect.w, h = rect.h }
-    else
-        content = Geom:new{ x = rect.x + border, y = rect.y + title_h, w = math.max(1, rect.w - border * 2), h = math.max(1, rect.h - title_h - border) }
-    end
-    local context = self.manager:_newContext(self, instance, content)
-    if instance.workspace_state ~= nil and instance.definition.restoreState and not instance._workspace_state_applied then
-        pcall(instance.definition.restoreState, instance, instance.workspace_state, context)
-        instance._workspace_state_applied, instance.workspace_state = true, nil
-    end
-    local pane = instance.definition.buildPane(instance, context)
-    instance.pane, instance.visible, instance.in_split, instance.in_window = pane, true, false, true
-    pane.overlap_offset = { content.x, content.y }
-    self.active_panes[1], self.active_pane = pane, pane
     local chrome = OverlapGroup:new{
         dimen = self.dimen, allow_mirroring = false,
         FrameContainer:new{ width = self.dimen.w, height = self.dimen.h, padding = 0, bordersize = 0, background = PALETTE.background, emptySizedWidget(self.dimen.w, self.dimen.h) },
     }
-    if not self.is_fullscreen then
-        local title = TextWidget:new{
-            text = instance.definition.title, face = Font:getFace("smallinfofont", scale(16)), fgcolor = PALETTE.on_primary,
-            bold = true, max_width = math.max(1, rect.w - scale(100)), padding = 0,
-            overlap_offset = { rect.x + scale(14), rect.y + math.floor((title_h - scale(16)) / 2) },
-        }
-        table.insert(chrome, FrameContainer:new{ width = rect.w, height = rect.h, padding = 0, bordersize = border, color = PALETTE.on_surface, background = PALETTE.surface, emptySizedWidget(rect.w, rect.h), overlap_offset = { rect.x, rect.y } })
-        table.insert(chrome, FrameContainer:new{ width = rect.w - border * 2, height = title_h - border, padding = 0, bordersize = 0, background = PALETTE.primary, emptySizedWidget(rect.w - border * 2, title_h - border), overlap_offset = { rect.x + border, rect.y + border } })
-        table.insert(chrome, title)
+    local layout_windows, taskbar_buttons, active_content = {}, {}, nil
+    local reuse_all = preserve_active == "reuse"
+    local rebuild_target = type(preserve_active) == "table" and preserve_active.dapp_id or nil
+    for _, id in ipairs(self.dapp_ids or {}) do
+        local window_id = id
+        local state = self.window_states[window_id]
+        local instance = state and self.manager:_instanceFor(window_id)
+        local is_foreground_fullscreen = self.is_fullscreen and window_id == self.dapp_id
+        local should_show = instance and state and not state.minimized
+            and (not self.is_fullscreen or is_foreground_fullscreen)
+        if should_show then
+            local rect = is_foreground_fullscreen
+                and { x = 0, y = 0, w = self.dimen.w, h = self.dimen.h }
+                or self:_clampWindowRect(state.rect or self.manager:_windowGeometry(window_id, self.dimen))
+            if not is_foreground_fullscreen then state.rect = rect end
+            local content = is_foreground_fullscreen
+                and Geom:new{ x = 0, y = 0, w = rect.w, h = rect.h }
+                or Geom:new{ x = rect.x + border, y = rect.y + title_h, w = math.max(1, rect.w - border * 2), h = math.max(1, rect.h - title_h - border) }
+            local pane
+            if (reuse_all or (rebuild_target and window_id ~= rebuild_target)) and instance.pane then
+                pane = instance.pane
+            else
+                if rebuild_target == window_id and instance.pane and instance.pane.onDeactivate then instance.pane:onDeactivate() end
+                local context = self.manager:_newContext(self, instance, content)
+                if instance.workspace_state ~= nil and instance.definition.restoreState and not instance._workspace_state_applied then
+                    pcall(instance.definition.restoreState, instance, instance.workspace_state, context)
+                    instance._workspace_state_applied, instance.workspace_state = true, nil
+                end
+                pane = instance.definition.buildPane(instance, context)
+            end
+            instance.pane, instance.visible, instance.in_split, instance.in_window = pane, true, false, true
+            pane.overlap_offset = { content.x, content.y }
+            self.active_panes[#self.active_panes + 1] = pane
+            if window_id == self.dapp_id then self.active_pane, active_content = pane, content end
+            state._hidden = false
+            if not is_foreground_fullscreen then
+                local title = TextWidget:new{
+                    text = instance.definition.title, face = Font:getFace("smallinfofont", scale(16)), fgcolor = PALETTE.on_primary,
+                    bold = true, max_width = math.max(1, rect.w - scale(100)), padding = 0,
+                    overlap_offset = { rect.x + scale(14), rect.y + math.floor((title_h - scale(16)) / 2) },
+                }
+                table.insert(chrome, FrameContainer:new{ width = rect.w, height = rect.h, padding = 0, bordersize = border, color = PALETTE.on_surface, background = PALETTE.surface, emptySizedWidget(rect.w, rect.h), overlap_offset = { rect.x, rect.y } })
+                table.insert(chrome, FrameContainer:new{ width = rect.w - border * 2, height = title_h - border, padding = 0, bordersize = 0, background = PALETTE.primary, emptySizedWidget(rect.w - border * 2, title_h - border), overlap_offset = { rect.x + border, rect.y + border } })
+                table.insert(chrome, title)
+            end
+            table.insert(chrome, pane)
+            if not is_foreground_fullscreen then
+                table.insert(chrome, ActionChip:new{ title = "", symbol = "−", width = scale(28), height = scale(28), background = PALETTE.surface_variant, foreground = PALETTE.on_variant, callback = function() self:minimizeWindow(window_id) end, overlap_offset = { rect.x + rect.w - scale(64), rect.y + math.floor((title_h - scale(28)) / 2) } })
+                table.insert(chrome, ActionChip:new{ title = "", symbol = "×", width = scale(28), height = scale(28), background = PALETTE.surface_variant, foreground = PALETTE.on_variant, callback = function()
+                    local was_last = #self.dapp_ids == 1
+                    local closed = self.manager:closeDApp(window_id)
+                    if closed and was_last then UIManager:nextTick(function() self.manager:showRecents() end) end
+                end, overlap_offset = { rect.x + rect.w - scale(32), rect.y + math.floor((title_h - scale(28)) / 2) } })
+                table.insert(chrome, TextWidget:new{ text = "↘", face = Font:getFace("cfont", scale(16)), fgcolor = PALETTE.on_surface, padding = 0, overlap_offset = { rect.x + rect.w - scale(23), rect.y + rect.h - scale(23) } })
+            end
+            layout_windows[window_id] = { rect = rect, content = content, fullscreen = is_foreground_fullscreen, minimized = false }
+        elseif instance and state then
+            if instance.pane and not state._hidden and instance.pane.onDeactivate then instance.pane:onDeactivate() end
+            instance.pane, instance.visible = nil, false
+            state._hidden = true
+            layout_windows[window_id] = { rect = state.rect, fullscreen = state.fullscreen == true, minimized = state.minimized == true }
+        end
     end
-    table.insert(chrome, pane)
     if not self.is_fullscreen then
-        table.insert(chrome, ActionChip:new{ title = "", symbol = "□", width = scale(28), height = scale(28), background = PALETTE.surface_variant, foreground = PALETTE.on_variant, callback = function() self.manager:showRecentsFromHost(self) end, overlap_offset = { rect.x + rect.w - scale(64), rect.y + math.floor((title_h - scale(28)) / 2) } })
-        table.insert(chrome, ActionChip:new{ title = "", symbol = "×", width = scale(28), height = scale(28), background = PALETTE.surface_variant, foreground = PALETTE.on_variant, callback = function() self.manager:closeDApp(self.dapp_id); UIManager:nextTick(function() self.manager:showRecents() end) end, overlap_offset = { rect.x + rect.w - scale(32), rect.y + math.floor((title_h - scale(28)) / 2) } })
-        table.insert(chrome, TextWidget:new{ text = "↘", face = Font:getFace("cfont", scale(16)), fgcolor = PALETTE.on_surface, padding = 0, overlap_offset = { rect.x + rect.w - scale(23), rect.y + rect.h - scale(23) } })
+        local taskbar_h, margin, gap = scale(48), scale(4), scale(4)
+        local bar_y = self.dimen.h - taskbar_h
+        table.insert(chrome, FrameContainer:new{
+            width = self.dimen.w, height = taskbar_h, padding = 0, bordersize = 0,
+            background = PALETTE.surface_variant, emptySizedWidget(self.dimen.w, taskbar_h),
+            overlap_offset = { 0, bar_y },
+        })
+        local chip_h = math.max(1, taskbar_h - margin * 2)
+        local start_w = math.min(scale(78), math.max(1, self.dimen.w - margin * 2))
+        table.insert(chrome, ActionChip:new{
+            title = _("Start"), symbol = "▦", width = start_w, height = chip_h,
+            background = PALETTE.primary, foreground = PALETTE.on_primary,
+            callback = function() self.manager:showWindowStartMenu(self) end,
+            overlap_offset = { margin, bar_y + margin },
+        })
+        local app_count = #(self.dapp_ids or {})
+        local task_area_x = margin + start_w + gap
+        local task_area_w = math.max(1, self.dimen.w - task_area_x - margin)
+        local button_w = app_count > 0 and math.max(1, math.floor((task_area_w - gap * (app_count - 1)) / app_count)) or scale(44)
+        for index, id in ipairs(self.dapp_ids or {}) do
+            local window_id = id
+            local instance = self.manager.instances[window_id]
+            if instance then
+                taskbar_buttons[#taskbar_buttons + 1] = window_id
+                table.insert(chrome, ActionChip:new{
+                    title = instance.definition.title, symbol = instance.definition.symbol, logo = instance.definition.logo,
+                    width = button_w, height = chip_h,
+                    background = window_id == self.dapp_id and PALETTE.primary or PALETTE.surface,
+                    foreground = window_id == self.dapp_id and PALETTE.on_primary or PALETTE.on_surface,
+                    callback = function() self:focusWindow(window_id) end,
+                    overlap_offset = { task_area_x + (index - 1) * (button_w + gap), bar_y + margin },
+                })
+            end
+        end
     end
     if self._brightness_indicator then table.insert(chrome, self._brightness_indicator) end
-    self.window_layout = { fullscreen = self.is_fullscreen, content = content }
-    if self.is_fullscreen then
+    self.window_layout = {
+        fullscreen = self.is_fullscreen, content = active_content, windows = layout_windows,
+        taskbar = not self.is_fullscreen, taskbar_buttons = taskbar_buttons,
+    }
+    local active_state = self.window_states[self.dapp_id]
+    if self.is_fullscreen or not active_state or active_state.minimized then
         self._window_title_range = Geom:new{ x = 0, y = 0, w = 0, h = 0 }
         self._window_resize_range = Geom:new{ x = 0, y = 0, w = 0, h = 0 }
     else
+        local rect = active_state.rect
+        self.window_rect = rect
         self._window_title_range = Geom:new{ x = rect.x, y = rect.y, w = rect.w - scale(68), h = title_h }
         self._window_resize_range = Geom:new{ x = rect.x + rect.w - scale(36), y = rect.y + rect.h - scale(36), w = scale(36), h = scale(36) }
     end
