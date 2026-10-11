@@ -28,6 +28,7 @@ local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
 local AppDockDialogs = require("appdock_dialogs")
 local AppDockKeyboard = require("appdock_keyboard")
+local Stylus = require("appdock_stylus")
 local _ = require("gettext")
 
 local Draw = {}
@@ -510,6 +511,63 @@ function Canvas:_brushFor(ev)
     return brush
 end
 
+-- Kobo's stylus packets are delivered before KOReader turns them into generic
+-- gestures. `appdock_stylus` forwards those packets here with pressure and
+-- button state intact. Keep that stroke separate from the subsequent generic
+-- touch/pan callbacks, otherwise the same pen sample would be committed twice.
+function Canvas:_containsPoint(ev)
+    local p = ev and ev.pos
+    if not p or not self.origin_x or not self.origin_y then return false end
+    return p.x >= self.origin_x and p.y >= self.origin_y
+        and p.x < self.origin_x + self.dimen.w and p.y < self.origin_y + self.dimen.h
+end
+
+function Canvas:handleStylusSample(ev, tracking_id)
+    if not self:_containsPoint(ev) then
+        if self._stylus_tracking_id == tracking_id then self:finishStylus(tracking_id) end
+        return false
+    end
+    if self._stylus_tracking_id ~= nil and self._stylus_tracking_id ~= tracking_id then
+        self:finishStylus(self._stylus_tracking_id)
+    end
+    self._raw_stylus_active = true
+    if self._stylus_tracking_id == nil then
+        self._stylus_tracking_id = tracking_id
+        return self:_begin(ev)
+    end
+    return self:_continue(ev)
+end
+
+function Canvas:finishStylus(tracking_id)
+    if tracking_id ~= nil and self._stylus_tracking_id ~= tracking_id then return false end
+    local was_raw_stylus = self._raw_stylus_active == true
+    local app = self.app
+    local stroke = app and app.stroke
+    if stroke and (stroke.tool == "line" or stroke.tool == "rect" or stroke.tool == "circle") then
+        stroke.snapshot = nil
+    end
+    if app then
+        app.stroke = nil
+        app.fill_gesture = nil
+    end
+    self._stylus_tracking_id = nil
+    -- `feedEvent` forwards to KOReader after this callback. Keep a short
+    -- one-turn guard so the matching generic tap/release cannot stamp the same
+    -- stylus contact a second time; it clears even when KOReader emits no
+    -- gesture callback for the release.
+    if was_raw_stylus and UIManager.nextTick then
+        self._ignore_gesture_after_stylus = true
+        UIManager:nextTick(function()
+            self._ignore_gesture_after_stylus = nil
+            if self._stylus_tracking_id == nil then self._raw_stylus_active = nil end
+        end)
+    else
+        self._raw_stylus_active = nil
+    end
+    if self.origin_x then self:_refreshStroke({ 0, 0, self.width - 1, self.height - 1 }, true) end
+    return true
+end
+
 function Canvas:_colorFor(ev)
     local app = self.app
     if app.tool == "eraser" then return 1 end
@@ -662,11 +720,22 @@ function Canvas:_refreshStroke(box, force)
     end
 end
 
-function Canvas:onPaint(_, ev) return self:_continue(ev) end
+function Canvas:onPaint(_, ev)
+    if self._raw_stylus_active then return true end
+    return self:_continue(ev)
+end
 
-function Canvas:onPaintTouch(_, ev) return self:_begin(ev) end
+function Canvas:onPaintTouch(_, ev)
+    if self._raw_stylus_active then return true end
+    return self:_begin(ev)
+end
 
 function Canvas:onPaintTap(_, ev)
+    if self._raw_stylus_active or self._ignore_gesture_after_stylus then
+        self._raw_stylus_active = nil
+        self._ignore_gesture_after_stylus = nil
+        return true
+    end
     local app = self.app
     app.stroke = nil
     app.fill_gesture = nil
@@ -688,6 +757,13 @@ function Canvas:onPaintTap(_, ev)
 end
 
 function Canvas:onPaintRelease(_, ev)
+    if self._raw_stylus_active then
+        if self._stylus_tracking_id == nil then
+            self._raw_stylus_active = nil
+            self._ignore_gesture_after_stylus = nil
+        end
+        return true
+    end
     local app = self.app
     if ev and app.stroke then self:_continue(ev, true) end
     app.stroke = nil
@@ -1315,6 +1391,10 @@ function Draw:buildPane(instance, context)
     canvas.ges_events.PaintTouch[1].range = function() return canvas.dimen end
     canvas.overlap_offset = { margin, canvas_y }
     pane[#pane + 1] = canvas
+    -- Raw Kobo stylus samples are needed for pressure and the physical eraser
+    -- and marker buttons. The listener is attached only while this pane lives,
+    -- so no other AppDock screen observes or changes touch handling.
+    Stylus:activate(canvas)
 
     -- Action bar ------------------------------------------------------------
     local action_y = h - action_bar_h
@@ -1356,7 +1436,10 @@ function Draw:buildPane(instance, context)
     }
     pane[#pane + 1] = status
 
-    pane.onDeactivate = function() end
+    pane.onDeactivate = function()
+        Stylus:deactivate(canvas)
+        if self.canvas == canvas then self.canvas = nil end
+    end
     self.canvas = canvas
     return pane
 end

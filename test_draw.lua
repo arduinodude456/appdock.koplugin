@@ -259,6 +259,34 @@ assert(app.stroke==nil,"lifting the finger must end the stroke")
 assert(app:undo(),"a completed stroke must be undoable as one step")
 assert(app.layers[app.active].pixels[2*app.width+3]==1,"undo must remove the whole stroke")
 
+-- Raw Kobo stylus samples use the same canvas path, but must not be committed
+-- again when KOReader subsequently emits the generic touch event.
+app.tool="pen"; app.color=2; app.brush_size=7
+local _,raw_stylus_press=press(3,2)
+raw_stylus_press.pointer_type="stylus"; raw_stylus_press.stylus=true; raw_stylus_press.pressure=.5
+local history_before_stylus=#app.history
+assert(canvas:handleStylusSample(raw_stylus_press,77),"a raw stylus sample must start a Draw stroke")
+assert(app.stroke and app.stroke.brush==4,"normalized stylus pressure must scale the selected brush")
+assert(canvas:onPaintTouch(raw_stylus_press) and #app.history==history_before_stylus+1,
+    "The matching generic touch must not create a duplicate stylus history step")
+assert(canvas:finishStylus(77) and app.stroke==nil,"ending the raw stylus contact must finish its stroke")
+
+app.brush_size=1
+app:stamp(8,2,2,1)
+local _,eraser_press=press(8,2)
+eraser_press.pointer_type="stylus"; eraser_press.tool="eraser"; eraser_press.eraser=true
+assert(canvas:handleStylusSample(eraser_press,78),"an eraser stylus sample must be accepted")
+assert(app.layers[app.active].pixels[2*app.width+8]==1,
+    "The physical stylus eraser must paint Draw's white erase color")
+canvas:finishStylus(78)
+
+app.brush_size=2
+local _,marker_press=press(10,2)
+marker_press.pointer_type="stylus"; marker_press.stylus=true; marker_press.marker_button=true
+assert(canvas:handleStylusSample(marker_press,79) and app.stroke.brush==5,
+    "The physical stylus marker must use Draw's marker-width brush")
+canvas:finishStylus(79)
+
 app.tool="fill"
 local fill_base=app.layers[app.active].pixels
 canvas:onPaintTouch(press(0,0))
