@@ -39,6 +39,14 @@ end
 -- Suggestions are loaded from the bilingual offline database. A caller can
 -- still pass a small context-specific list through `suggestions`.
 local FALLBACK_SUGGESTIONS = { "AppDock", "Einstellungen", "Settings", "Search", "Browser", "Dateien" }
+local function loadSiblingDatabase()
+    local source = debug.getinfo(1, "S").source or ""
+    local directory = source:match("^@(.*/)")
+    if not directory then return nil end
+    local ok, loaded = pcall(dofile, directory .. "appdock_suggestions.lua")
+    if ok and type(loaded) == "table" then return loaded end
+    return nil
+end
 local function loadSuggestions(language)
     if not SuggestionDatabase then
         local ok, loaded = pcall(require, "appdock_suggestions")
@@ -46,7 +54,20 @@ local function loadSuggestions(language)
     end
     if SuggestionDatabase and type(SuggestionDatabase.get) == "function" then
         local ok, result = pcall(SuggestionDatabase.get, language)
-        if ok and type(result) == "table" then return result end
+        if ok and type(result) == "table" and #result > 0 then return result end
+    end
+    -- KOReader can load a module from its plugin directory without adding
+    -- that directory to package.path. In that case require() succeeds or
+    -- fails, but the database path may be resolved relative to KOReader's
+    -- working directory. Re-load the sibling module by absolute path so its
+    -- own debug source points at the shipped .db file.
+    local sibling = loadSiblingDatabase()
+    if sibling and type(sibling.get) == "function" then
+        local ok, result = pcall(sibling.get, language)
+        if ok and type(result) == "table" and #result > 0 then
+            SuggestionDatabase = sibling
+            return result
+        end
     end
     return FALLBACK_SUGGESTIONS
 end
