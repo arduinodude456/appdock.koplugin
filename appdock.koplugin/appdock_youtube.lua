@@ -1005,16 +1005,13 @@ YouTube._writeFile = writeFile
 -- limiting conversion to 2 fps regardless of encoder speed. Use bounded batches
 -- and short video ticks while keeping each UI-thread turn time-limited.
 local VIDEO_TICK_INTERVAL = 0.01
--- Conversion runs between E-Ink UI turns. A slightly longer bounded turn and
--- larger batch stop the UI scheduler from throttling fast FFmpeg/FFI paths,
--- while the hard CPU budget still returns control frequently on slower Kobo
--- CPUs and leaves cancellation/progress responsive.
-local VIDEO_TICK_CPU_BUDGET = 0.20
--- 32 frames per turn only ever bound the cheap "repeat previous frame" runs;
--- real footage is still limited by the CPU budget below. The higher cap lets a
--- static or slow scene be drained in one turn instead of paying the scheduler
--- gap for every two dozen frames.
-local VIDEO_MAX_FRAMES_PER_TICK = 64
+-- Conversion runs between E-Ink UI turns. Allow a larger but still bounded turn
+-- so fast FFmpeg/FFI paths spend less time returning through the scheduler.
+-- The hard CPU budget still returns control frequently on slower Kobo CPUs.
+local VIDEO_TICK_CPU_BUDGET = 0.30
+-- Real footage remains limited by the CPU budget below; this higher ceiling is
+-- mainly useful for cheap/repeated frames and avoids scheduler overhead.
+local VIDEO_MAX_FRAMES_PER_TICK = 128
 -- Keep a small bounded pipe read: it removes most Lua/FFI round trips while
 -- remaining far below the memory peak that the old parallel FFmpeg passes used.
 -- The device-wide conversion lock still prevents two decoders competing for RAM.
