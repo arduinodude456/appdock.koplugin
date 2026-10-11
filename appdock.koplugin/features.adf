@@ -1,137 +1,163 @@
-# AppDock vollständige Änderungshistorie seit 7.0.0
-# Eine Seite pro historischer Funktionsgruppe; die Seiten werden im Neuigkeiten-Dialog angezeigt.
+# AppDock complete change history since 7.0.0
+# One page per historical feature group; all images are existing assets from the plugin archive.
 [page]
-title=AppDock 7.1.0 · eigene Tastatur
-text=AppDock verwendet für alle AppDock-Eingabefelder eine eigene E-Ink-Tastatur. Sie unterstützt Text, Zahlen, Secure-Input, Enter/Done, Löschen, Shift, deutsche Sonderzeichen und eine eigene Symbolseite. Eingaben aus Dialogen werden zuverlässig an das aktive Feld zurückgegeben.
+title=AppDock 7.1.0 · Custom keyboard
+text=AppDock introduced its own E-Ink keyboard for every AppDock text input. It supports text, numbers, secure input, Enter/Done, deletion, Shift, German characters, and a dedicated symbols page. Dialog input is returned reliably to the active field.
 image=assets/logos/appdock.png
-buttons=Weiter
+buttons=Next
 
 [page]
-title=7.3.0 · Navigation und Control Center
-text=Die Homescreen-Navigation und das Control Center wurden überarbeitet. Schnellzugriffe für wichtige Geräte- und AppDock-Funktionen sind klarer angeordnet, Seitenwechsel und Statusanzeigen arbeiten zuverlässiger und die Oberfläche ist für E-Ink-Aktualisierungen optimiert.
-buttons=Weiter
+title=7.3.0 · Navigation and Control Center
+text=Home navigation and the Control Center were redesigned. Shortcuts for important device and AppDock functions are arranged more clearly, page changes and status indicators are more reliable, and the interface is optimized for E-Ink refreshes.
+image=assets/logos/settings.png
+buttons=Next
 
 [page]
-title=7.3.2–7.3.6 · E-Ink-Refresh und Lockscreen
-text=Ghosting bei E-Ink-Animationen wurde reduziert. Der Welcome-Home-Lockscreen kam hinzu. Grid Glide verbesserte die Homescreen-Bewegung; Logo-Regionen werden gezielt aktualisiert. Der Lockscreen erhielt neue Illustrationen und ein überarbeitetes, ruhigeres Layout.
-buttons=Weiter
+title=7.3.2–7.3.6 · E-Ink refresh and lock screen
+text=Ghosting during E-Ink animations was reduced. The Welcome Home lock screen was added. Grid Glide improved home-screen movement, logo regions are refreshed selectively, and the lock screen received new artwork and a calmer layout.
+image=assets/lockscreen/appdock_lockscreen_hero.png
+buttons=Next
 
 [page]
 title=7.4.0 · Colorful Calm
-text=AppDock erhielt eine statische E-Ink-Oberfläche, rasterbasierte Logos und ein neues Lockscreen-Design. Die Darstellung wurde von starren Flächen auf thembare, lokale Bildoberflächen umgestellt. Logo- und Wallpaper-Ladevorgänge sind gegen fehlende oder fehlerhafte Assets abgesichert.
-buttons=Weiter
+text=AppDock gained a static E-Ink interface, raster logos, and a redesigned lock screen. Rigid surfaces were replaced with themeable local image surfaces. Logo and wallpaper loading is protected against missing or invalid assets.
+image=assets/logos/display.png
+buttons=Next
 
 [page]
-title=7.4.6–7.4.10 · Oberflächen und Live-Tastatur
-text=Liquid-Glass-Oberflächen wurden in Größe, Randmaskierung und Asset-Bibliothek korrigiert. Die PNG-Logo-Bibliothek wurde erweitert, unter anderem um dChat und Minecraft. Die Tastatur verarbeitet Live-Eingaben stabiler und die letzten Boot-kritischen Rasterpfade wurden abgesichert.
-buttons=Weiter
+title=7.4.6–7.4.10 · Surfaces and live keyboard
+text=Liquid-glass surfaces were corrected for sizing, edge masks, and asset handling. The PNG logo library was expanded, including dChat and Minecraft. Live keyboard input became more reliable, and the remaining boot-critical raster paths were hardened.
+image=assets/logos/dchat.png
+buttons=Next
 
 [page]
-title=7.5.0 · DuckDuckGo und AppDock Store
-text=Der Homescreen erhielt eine DuckDuckGo-Suchleiste. Der AppStore wurde zu einem Google-Play-ähnlichen AppDock Store mit Store-Katalog, Installationsablauf und App-Details ausgebaut. Store-Header, Scrollverhalten und Suchaktualisierung wurden anschließend verbessert.
-buttons=Weiter
+title=7.5.0 · DuckDuckGo and AppDock Store
+text=The home screen gained a DuckDuckGo search bar. The AppStore became a Google Play-style AppDock Store with a catalog, installation flow, and app details. The store header, scrolling, and search refresh were subsequently improved.
+image=assets/logos/app_store.png
+buttons=Next
 
 [page]
-title=7.6.0–7.7.0 · visueller Layout-Editor
-text=Der Homescreen kann visuell bearbeitet werden. Apps und Widgets lassen sich im Layout anordnen und verschieben; eine bessere Auffindbarkeit führt in den Editor. Ein Fehler beim Verschieben angehefteter Elemente wurde behoben, und die Änderungen werden persistent gespeichert.
-buttons=Weiter
+title=7.6.0–7.7.0 · Visual layout editor
+text=The home screen can be edited visually. Apps and widgets can be arranged and moved in the layout, and a more discoverable entry point opens the editor. A pinned-item move crash was fixed and layout changes are stored persistently.
+image=assets/logos/appdock.png
+buttons=Next
 
 [page]
-title=7.8.0–7.8.2 · Android-inspirierter Homescreen
-text=Homescreen, Quick Settings und Settings wurden Android-inspiriert neu gestaltet. Die Oberfläche erhielt klarere Karten, Statusbereiche, Schalter und semantische Bereiche. Die Struktur bleibt für E-Ink lesbar und die bisherigen AppDock-Funktionen bleiben erreichbar.
-buttons=Weiter
+title=7.8.0–7.8.2 · Android-inspired home screen
+text=Home, Quick Settings, and Settings were redesigned with Android-inspired cards, status areas, switches, and semantic sections. The structure remains readable on E-Ink displays while keeping existing AppDock functions accessible.
+image=assets/logos/settings.png
+buttons=Next
 
 [page]
-title=7.8.3 · Google-Files-Dateimanager
-text=Der File Manager erhielt eine Google-Files-ähnliche Oberfläche mit übersichtlichen Kategorien, Suche, Ordnernavigation und klareren Dateiaktionen. Die Darstellung wurde für große Touch-Ziele und langsame E-Ink-Refreshes optimiert.
-buttons=Weiter
+title=7.8.3 · Google Files-style file manager
+text=The File Manager received a Google Files-style interface with clear categories, search, folder navigation, and clearer file actions. The presentation was tuned for large touch targets and slow E-Ink refreshes.
+image=assets/logos/file_manager.png
+buttons=Next
 
 [page]
-title=7.8.4–7.8.8 · Dateien, Tasten und Helligkeit
-text=Sort my files gruppiert Dateien nicht-destruktiv und verschiebt keine Pfade. Lange Dateiaktionen wurden ergänzt. Page Keys ändern die Helligkeit auch innerhalb von DApps, Fenstern, Open Apps, Recent Apps und Quick Settings. Helligkeitsanzeige, Refresh-Rennen, leere Container und Fill-Flächen wurden stabilisiert.
-buttons=Weiter
+title=7.8.4–7.8.8 · Files, page keys, and brightness
+text=Sort my files groups items non-destructively and never moves their paths. Long-press file actions were added. Page keys can change brightness inside DApps, windows, Open Apps, Recent Apps, and Quick Settings. Brightness indicators, refresh races, empty containers, and fill surfaces were stabilized.
+image=assets/logos/file_manager.png
+buttons=Next
 
 [page]
-title=7.8.9–7.8.11 · YouTube-Basis und E-Ink-Video
-text=Die YouTube-DApp lädt Videos mit yt-dlp und ffmpeg, wandelt sie in das E-Ink-kompatible BWR-Format um und bietet lokale Bibliothek und Wiedergabe. Die Konvertierung verwendet schnelle Skalierung, größere begrenzte Batches, optimierte BWR2-Verarbeitung und wiederverwendbare Framebuffer. Der Player holt bei Sprüngen effizienter auf.
-buttons=Weiter
+title=7.8.9–7.8.11 · YouTube foundation and E-Ink video
+text=The YouTube DApp downloads videos with yt-dlp and ffmpeg, converts them to the E-Ink-compatible BWR format, and provides a local library and player. Conversion gained fast scaling, larger bounded batches, optimized BWR2 processing, and reusable framebuffers. The player catches up more efficiently after seeks.
+image=assets/logos/web_browser.png
+buttons=Next
 
 [page]
-title=7.8.12–7.8.23 · YouTube-Tools und robuste Downloads
-text=YouTube erhielt automatische Tool-Einrichtung, sichtbare Live-Shell-Ausgabe, ARMv7- und Legacy-libc-Unterstützung, sichere Runtime-Extraktion, begrenzte Kompatibilitätschecks und verständliche Bootstrap-Fehler. Downloads verwenden den Android-YouTube-Client und schützen vor hängenden oder unvollständigen Prozessen.
-buttons=Weiter
+title=7.8.12–7.8.23 · YouTube tools and reliable downloads
+text=YouTube gained automatic tool setup, visible live shell output, ARMv7 and legacy-libc support, safe runtime extraction, bounded compatibility checks, and useful bootstrap errors. Downloads use the Android YouTube client and protect against hanging or incomplete processes.
+image=assets/logos/web_browser.png
+buttons=Next
 
 [page]
-title=7.8.24–7.8.31 · YouTube-Audio, BWR2 und Synchronisation
-text=Video und Companion-WAV werden aus YouTube erzeugt und abgespielt. BWR2-Kompression, Audio-/Video-Synchronisation, DASH-Fragmentdownloads, gebündelte Frame-Lesung, monow-Erkennung und schnellere FFmpeg-Konvertierung wurden ergänzt. GStreamer-Clock, Fallbacks und Zeitkorrekturen wurden für Kobo-Geräte mehrfach stabilisiert.
-buttons=Weiter
+title=7.8.24–7.8.31 · YouTube audio, BWR2, and sync
+text=Video and companion WAV audio are generated and played together. BWR2 compression, audio/video synchronization, DASH fragment downloads, batched frame reads, cached monow detection, and faster ffmpeg conversion were added. GStreamer clock handling, fallbacks, and timing corrections were repeatedly stabilized for Kobo devices.
+image=assets/logos/music.png
+buttons=Next
 
 [page]
-title=7.8.32–7.8.43 · konfigurierbarer Video-Offset
-text=Der Video-Startabstand nach dem Audio-Start ist von sofort bis 60 Sekunden einstellbar, auch mit Dezimalwerten. Mehrere Audio-Backends werden unterstützt. Variable Quellen-Offsets, führende Stille, MTK-Latenz, Audio-Clock und Echtzeit-Wiedergabe wurden korrigiert; die stabile Echtzeitbasis ersetzt den fehleranfälligen Frame-Lock.
-buttons=Weiter
+title=7.8.32–7.8.43 · Configurable video offset
+text=The video start offset after audio begins can be set from immediate playback to 60 seconds, including decimal values. Multiple audio backends are supported. Variable source offsets, leading silence, MTK latency, audio clocks, and real-time playback were corrected; the stable real-time clock replaced the unreliable frame lock.
+image=assets/logos/music.png
+buttons=Next
 
 [page]
-title=7.8.42–7.8.51 · YouTube Watch-Ansicht und Library
-text=YouTube verwendet in Hoch- und Querformat dieselbe Watch-Struktur mit Hauptvideo, Up-next-Leiste, Suche, Aktionen und Navigation. Die Library ist klickbar, erhält sichere Vorschaubilder beziehungsweise den ersten BWR-Frame, kann Videos per Langdruck samt WAV und alten Thumbnails löschen und zeigt proportionale, nicht gequetschte Vorschauen. Der Inline-MiniPlayer und ein flüssigerer E-Ink-Renderingpfad kamen hinzu.
-buttons=Weiter
+title=7.8.42–7.8.51 · YouTube Watch view and library
+text=YouTube uses the same Watch-oriented structure in portrait and landscape, with a main video, Up next rail, search, actions, and navigation. The library is clickable, uses safe thumbnails or the first BWR frame, can delete videos with their WAV and old thumbnails by long press, and shows proportional, undistorted previews. An inline mini-player and smoother E-Ink rendering were added.
+image=assets/logos/web_browser.png
+buttons=Next
 
 [page]
-title=7.9.0–7.9.2 · Draw und Farbvideo
-text=Die Draw-DApp bietet Stift, Radierer, Pinselgrößen, Linie, Rechteck, Kreis, Füllen, Ebenen, Undo/Redo, Speichern und Laden von begrenzten .adraw-Projekten sowie JPEG-Export über vorhandenes ffmpeg. YouTube kann optional BRC2-Farbvideos mit Weiß, Schwarz, Rot, Grün und Blau erzeugen. Eigene AppDock-Dialoge und die Draw-Kachel wurden eingeführt; ein Darstellungsfehler beim Draw-Start wurde behoben.
-buttons=Weiter
+title=7.9.0–7.9.2 · Draw and color video
+text=The Draw DApp provides a pen, eraser, brush sizes, line, rectangle, circle, fill, layers, undo/redo, saving and loading of bounded .adraw projects, and JPEG export through an existing ffmpeg. YouTube can optionally create BRC2 color videos using white, black, red, green, and blue. AppDock-owned dialogs and the Draw tile were introduced, and a Draw startup rendering issue was fixed.
+image=assets/logos/document.png
+buttons=Next
 
 [page]
-title=7.9.3–7.9.9 · Stabilität, Dithering und Vollbild
-text=Dialog-Tap-Geometrie, Page-Key-Holds, Rotation, Draw-Geometrie und Farbgeräte wurden stabilisiert. Die BRC2-Farbverarbeitung nutzt YUV-Farbwahl, Mehrfarben-Fehlerdiffusion und später vorberechnete Dither-Muster; die Expansion wurde stark beschleunigt. YouTube erhielt echten Vollbildmodus, bessere Audio-Pipelines und schnellere, flüssigere Wiedergabe. Dialoge und Draw-Werkzeugleisten wurden kontrastreicher.
-buttons=Weiter
+title=7.9.3–7.9.9 · Stability, dithering, and fullscreen
+text=Dialog tap geometry, page-key holds, rotation, Draw geometry, and color devices were stabilized. BRC2 color processing gained YUV color selection, multi-color error diffusion, and later precomputed dither patterns; frame expansion became much faster. YouTube gained true fullscreen, better audio pipelines, and smoother playback. Dialogs and Draw toolbars became more readable.
+image=assets/logos/display.png
+buttons=Next
 
 [page]
-title=7.9.10–7.9.14 · Draw-Ausbau und YouTube Music
-text=Farbvideos mischen mehrere erlaubte Palettenfarben mit schneller, vorberechneter Ditherung. Audio beendet sich beim Verlassen zuverlässig. Der BWR2-Decoder senkt den Spitzen-Speicherbedarf durch direkte Delta-, RLE- und zlib-Verarbeitung. YouTube Music lädt ausschließlich Audiospuren, erzeugt WAV, zeigt Vollfarb-Cover und bietet Bibliothek, Suche und Player. Draw erhielt klassische Werkzeugleiste, Formen, Live-Vorschau, Füllen pro Geste, Teil-Refresh und Undo/Redo.
-buttons=Weiter
+title=7.9.10–7.9.14 · Draw expansion and YouTube Music
+text=Color videos mix multiple allowed palette colors with fast, precomputed dithering. Audio stops reliably when leaving the app. The BWR2 decoder reduces peak memory through direct delta, RLE, and zlib processing. YouTube Music downloads audio only, creates WAV files, shows full-color covers, and provides a library, search, and player. Draw gained a classic toolbar, shapes, live preview, gesture-based fill, partial refresh, and undo/redo.
+image=assets/logos/music.png
+buttons=Next
 
 [page]
-title=7.9.15–7.9.20 · Music, Draw-Farbe und Fenster
-text=YouTube Music zeigt Teilergebnisse und sichtbare Suchfehler, erlaubt erneute Suche per Enter und besitzt einen verbesserten Player mit Künstler, Cover, Laufzeit und Steuerung. Draw unterstützt RGB-Farbwahl, Farbdisplays, RGB32-Ausgabe und korrekte Pinselgrößen. Der Beta-Fenstermodus erhielt Taskbar, Startmenü, mehrere bewegliche und skalierbare Fenster, Minimieren, Wiederherstellen, Einzelschließen und Vollbild.
-buttons=Weiter
+title=7.9.15–7.9.20 · Music, Draw color, and windows
+text=YouTube Music keeps partial results visible, exposes search errors, supports searching with Enter, and has an improved player with artist, cover, duration, and controls. Draw supports RGB color selection, color displays, RGB32 output, and correct brush sizes. The beta window mode gained a taskbar, start menu, multiple movable and resizable windows, minimize, restore, individual close, and fullscreen.
+image=assets/logos/music.png
+buttons=Next
 
 [page]
-title=7.9.21–7.9.27 · Stylus-Unterstützung
-text=Draw unterstützt Kobo-Stiftdruck, Radierer, Marker, Rotation und den öffentlichen KOReader-Stylus-Callback. Getrennte Striche, Lift-Slots, Druckfallbacks, gerätespezifische pressure_event-Codes und Druckverläufe werden korrekt behandelt. Schnelle Stylus-Samples werden unmittelbar verarbeitet; Refreshes werden reduziert, ohne Samples zu verlieren, und nur der abschließende Refresh blockiert synchron.
-buttons=Weiter
+title=7.9.21–7.9.27 · Stylus support
+text=Draw supports Kobo stylus pressure, eraser, marker, rotation, and KOReader's public stylus callback. Separate strokes, lift slots, pressure fallbacks, device-specific pressure_event codes, and pressure curves are handled correctly. Fast stylus samples are processed immediately; refreshes are reduced without losing samples, and only the final refresh blocks synchronously.
+image=assets/logos/document.png
+buttons=Next
 
 [page]
-title=7.9.28–7.9.29 · Lockscreen und Music-Layout
-text=Der Lockscreen wurde Android-inspiriert mit Uhr, Datum, Profilkarte, Initiale, Pattern-Punkten, PIN und Swipe-Aktion neu gestaltet. Die vorhandene AppDock-Sperre schützt weiterhin nur AppDock. Im YouTube-Music-Player wurden Like-, Saved- und More-Aktionschips zentriert und gegen Überlauf bei unterschiedlichen Displaybreiten abgesichert.
-buttons=Weiter
+title=7.9.28–7.9.29 · Lock screen and Music layout
+text=The lock screen was redesigned in an Android-inspired style with clock, date, profile card, initials, pattern points, PIN, and swipe action. The existing AppDock lock still protects AppDock only. YouTube Music Like, Saved, and More action chips were centered and protected against overflow on different display widths.
+image=assets/lockscreen/appdock_lockscreen_hero.png
+buttons=Next
 
 [page]
-title=7.9.30 · sichere Downloads und lesbare Themes
-text=Theme-Paletten wählen kontrastreiche Textfarben. Store-Hintergrundbilder werden vor Aktivierung validiert. YouTube-Jobs prüfen Eingaben, Schreibrechte, Prozesse und leere Quellen; BWR-Ausgaben werden temporär geschrieben und erst nach Erfolg atomar installiert. DuckDuckGo rendert sichere Instant-Answer-Links. Sort my files scannt Ordner einmal, überspringt Symlinks und behält Pfade unverändert. AI Chat Agent und Geometry Dash erhielten lokale Updates.
-buttons=Weiter
+title=7.9.30 · Safe downloads and readable themes
+text=Theme palettes choose contrasting text colors. Store wallpapers are validated before activation. YouTube jobs check inputs, write permissions, processes, and empty sources; BWR output is written temporarily and installed atomically only after success. DuckDuckGo renders safe Instant Answer links. Sort my files scans each folder once, skips symlinks, and preserves paths. AI Chat Agent and Geometry Dash received local updates.
+image=assets/logos/settings.png
+buttons=Next
 
 [page]
-title=7.9.32–7.9.40 · Suche, Themes und Bluetooth
-text=Die Suche erhielt einen DuckDuckGo-HTML-Fallback. Der mehrseitige Update-Dialog liest Inhalte aus features.adf. Store-Theme-Bilder werden relativ und binär korrekt geladen; DApp-Farben werden kontrastreich aufgelöst. Lautstärke ist persistent einstellbar. Bluetooth wechselte von importiertem Code zu eigener bluetoothctl-Steuerung und anschließend zu Kobo-/BlueZ-D-Bus-Unterstützung für MTK und Standard-BlueZ.
-buttons=Weiter
+title=7.9.32–7.9.40 · Search, themes, and Bluetooth
+text=Search gained a DuckDuckGo HTML fallback. The multi-page update dialog reads editable content from features.adf. Store theme images are resolved relatively and stored in binary form; DApp colors are resolved for contrast. Volume is persistent. Bluetooth moved from imported code to AppDock's own bluetoothctl control and then to Kobo/BlueZ D-Bus support for MTK and standard BlueZ.
+image=assets/logos/network.png
+buttons=Next
 
 [page]
-title=7.9.34–7.9.39 · Update-Dialog und Hintergrundjobs
-text=Der Update-Dialog erscheint nach dem Startaufbau, erkennt neue Versionen wieder zuverlässig und ist vom Setup-Wizard getrennt. Der Wizard bleibt manuell unter Settings verfügbar. Falls features.adf fehlt, wird eine sichere Einzelseite angezeigt. DApp-Background-Checks laufen in Subprozessen, blockieren die Oberfläche nicht und werden beim Schließen beendet. Lockscreen-Profilbilder können über den nativen Dateiauswahldialog gewählt werden.
-buttons=Weiter
+title=7.9.34–7.9.39 · Update dialog and background jobs
+text=The update dialog appears after startup, detects new versions reliably, and is separate from the setup wizard. The wizard remains available manually in Settings. If features.adf is missing, a safe single-page fallback is shown. DApp background checks run in subprocesses without blocking the UI and are stopped when the plugin closes. Lockscreen profile images can be selected with the native file chooser.
+image=assets/logos/dockupdate.png
+buttons=Next
 
 [page]
-title=7.9.41–7.9.48 · schnelle Tastatur
-text=Die Tastatur erhielt Cancel, größere Tasten, CAPS für dauerhafte Großschreibung, korrekte deutsche Sonderzeichen und drei lokale Vervollständigungen. Eine editierbare TSV-Datenbank enthält 3.000 deutsche und 3.000 englische Wörter mit Häufigkeiten. Lazy Loading, sichere Plugin-Pfade, mehrere Datenbankpfade und eine kleine Fallback-Liste verhindern Boot-Crashes und laden die vollständige Datenbank zuverlässig.
-buttons=Weiter
+title=7.9.41–7.9.48 · Faster keyboard
+text=The keyboard gained Cancel, larger keys, CAPS for persistent uppercase, correct German characters, and three local completions. An editable TSV database contains 3,000 German and 3,000 English words with frequencies. Lazy loading, safe plugin paths, multiple database paths, and a small fallback list prevent boot crashes while reliably loading the complete database.
+image=assets/logos/appdock.png
+buttons=Next
 
 [page]
-title=7.9.49 · zuverlässiger Start und klare Kontrolle
-text=Der Update-Dialog erscheint bei jedem Start, bis Don't show again gewählt wird, verwendet eine stabile helle Modal-Karte und zeigt ein Testbild ohne Timeout. Der Boot-Schutz speichert lokal die letzte funktionierende Plugin-Version und stellt sie nach einem Boot-Crash wieder her. Sort my files erkennt Documents, Images, Videos, Audio, Apps und Folders virtuell, persistent und ohne Dateien zu verschieben. Store-DApps erhalten kontrastgeprüfte Textrollen.
-buttons=Weiter
+title=7.9.49 · Reliable startup and clear control
+text=The update dialog appears on every start until Don't show again is selected, uses a stable light modal card, and shows a test image without a timeout. The boot protection stores the last working plugin version locally and restores it after a boot crash. Sort my files recognizes Documents, Images, Videos, Audio, Apps, and Folders virtually and persistently without moving files. Store DApps receive contrast-checked text roles.
+image=assets/logos/dockupdate.png
+buttons=Next
 
 [page]
-title=7.9.49 · schnelle YouTube-Konvertierung
-text=Video- und Audio-Konvertierung laufen aus Stabilitätsgründen seriell, aber mit zwei Decode-Threads, einem Filter-Thread und vier Frames pro Pipe-Lesevorgang. Pro Gerät läuft nur ein Konvertierungsjob. Das Video-UI verarbeitet bis zu 128 Frames pro Tick mit höchstens 0,30 Sekunden CPU-Zeit. Pipes, Writer, temporäre Dateien und Hintergrundprozesse werden bei Fehlern sauber geschlossen.
-buttons=Fertig
+title=7.9.49 · Faster YouTube conversion
+text=Video and audio conversion run serially for stability, but use two decode threads, one filter thread, and four frames per pipe read. Only one conversion job runs per device. The video UI processes up to 128 frames per tick with a maximum CPU window of 0.30 seconds. Pipes, writers, temporary files, and background processes are closed safely on errors.
+image=assets/logos/web_browser.png
+buttons=Done
