@@ -51,67 +51,66 @@ function LockScreen:build()
     self:freeImages()
     local width, height = self.dimen.w, self.dimen.h
     local method = self.appdock.settings.lockscreen.method or "swipe"
-    local title = method == "pin" and _("Enter your PIN") or method == "pattern" and _("Draw your pattern") or _("Swipe to unlock")
-    local detail = method == "swipe" and _("Swipe anywhere to continue") or method == "pattern" and _("Connect four points in order") or _("Use your AppDock PIN")
     local profile = self.appdock.settings.lockscreen or {}
-    local margin = scale(18)
-    local card_x, card_y = margin, scale(112)
-    local card_w = width - 2 * margin
-    local card_h = math.min(scale(540), height - card_y - scale(52))
+    local margin = scale(22)
     local now = os.date("%H:%M")
-    local date = os.date("%A, %d %B")
+    local date = os.date("%A, %d. %B")
     local profile_name = type(profile.profile_name) == "string" and profile.profile_name ~= "" and profile.profile_name or _("Welcome back")
     local hero = Wallpaper.buildPath(HERO_PATH, width, height, true)
     self._hero = hero
+
+    -- Android-inspired hierarchy: wallpaper, compact status/date row, centered
+    -- identity, then the unlock affordance at the bottom. Keep the controls
+    -- high-contrast and mostly geometric for E-Ink screens.
+    local avatar_size = scale(72)
+    local avatar_y = math.floor(height * 0.30)
+    local name_y = avatar_y + avatar_size + scale(16)
+    local method_y = math.floor(height * 0.64)
+    local bottom_y = height - scale(72)
     local layers = {
-        hero or FrameContainer:new{ width = width, height = height, padding = 0, bordersize = 0, background = Blitbuffer.COLOR_WHITE,
-            CenterContainer:new{ dimen = self.dimen, TextWidget:new{ text = "", face = Font:getFace("cfont", scale(1)) } } },
-        FrameContainer:new{ width = width - 2 * margin, height = scale(72), padding = scale(12), bordersize = scale(1), color = Blitbuffer.COLOR_BLACK, radius = scale(18), background = Blitbuffer.COLOR_BLACK, overlap_offset = { margin, scale(22) },
-            TextWidget:new{ text = "APPDOCK", face = Font:getFace("smallinfofont", scale(10)), fgcolor = Blitbuffer.COLOR_WHITE, bold = true, overlap_offset = { scale(14), scale(10) } },
-            TextWidget:new{ text = now, face = Font:getFace("cfont", scale(27)), fgcolor = Blitbuffer.COLOR_WHITE, bold = true, overlap_offset = { scale(14), scale(23) } },
-            TextWidget:new{ text = date, face = Font:getFace("smallinfofont", scale(10)), fgcolor = Blitbuffer.COLOR_LIGHT_GRAY, max_width = width - 2 * margin - scale(28), alignment = "right", overlap_offset = { scale(14), scale(39) } },
+        hero or FrameContainer:new{ width = width, height = height, padding = 0, bordersize = 0, background = Blitbuffer.COLOR_WHITE },
+        FrameContainer:new{ width = width - 2 * margin, height = scale(76), padding = 0, bordersize = scale(1), color = Blitbuffer.COLOR_BLACK, radius = scale(22), background = Blitbuffer.COLOR_WHITE, overlap_offset = { margin, scale(18) },
+            TextWidget:new{ text = "APPDOCK", face = Font:getFace("smallinfofont", scale(9)), fgcolor = Blitbuffer.COLOR_DARK_GRAY, bold = true, overlap_offset = { scale(16), scale(10) } },
+            TextWidget:new{ text = now, face = Font:getFace("cfont", scale(32)), fgcolor = Blitbuffer.COLOR_BLACK, bold = true, overlap_offset = { scale(15), scale(25) } },
+            TextWidget:new{ text = date, face = Font:getFace("smallinfofont", scale(10)), fgcolor = Blitbuffer.COLOR_DARK_GRAY, max_width = width - scale(56), alignment = "right", overlap_offset = { scale(16), scale(47) } },
         },
-        FrameContainer:new{ width = card_w, height = card_h, padding = scale(2), bordersize = scale(2), color = Blitbuffer.COLOR_BLACK, radius = scale(20), background = Blitbuffer.COLOR_WHITE, overlap_offset = { card_x, card_y },
-            CenterContainer:new{ dimen = Geom:new{ w = card_w, h = card_h }, TextWidget:new{ text = "", face = Font:getFace("cfont", scale(1)) } } },
-        FrameContainer:new{ width = scale(86), height = scale(6), padding = 0, bordersize = 0, radius = scale(3), background = Blitbuffer.ColorRGB32(255, 99, 83, 0xFF), overlap_offset = { math.floor((width - scale(86)) / 2), card_y + scale(18) },
-            VerticalSpan:new{ width = 0 } },
-        TextWidget:new{ text = profile_name, face = Font:getFace("cfont", scale(22)), fgcolor = Blitbuffer.COLOR_BLACK, bold = true, max_width = width - 2 * margin, alignment = "center", overlap_offset = { margin, card_y + scale(106) } },
-        TextWidget:new{ text = self.status or detail, face = Font:getFace("smallinfofont", scale(12)), fgcolor = Blitbuffer.COLOR_DARK_GRAY, max_width = width - scale(64), alignment = "center", overlap_offset = { scale(32), card_y + scale(136) } },
-        TextWidget:new{ text = title, face = Font:getFace("smallinfofont", scale(12)), fgcolor = Blitbuffer.COLOR_BLACK, bold = true, max_width = width - 2 * margin, alignment = "center", overlap_offset = { margin, card_y + scale(290) } },
-        TextWidget:new{ text = method == "swipe" and "↔" or "• • •", face = Font:getFace("cfont", scale(24)), fgcolor = Blitbuffer.COLOR_BLACK, bold = true, max_width = width - 2 * margin, alignment = "center", overlap_offset = { margin, card_y + scale(198) } },
+        FrameContainer:new{ width = avatar_size, height = avatar_size, padding = 0, bordersize = scale(2), color = Blitbuffer.COLOR_BLACK, radius = math.floor(avatar_size / 2), background = Blitbuffer.COLOR_WHITE, overlap_offset = { math.floor((width - avatar_size) / 2), avatar_y },
+            CenterContainer:new{ dimen = Geom:new{ w = avatar_size, h = avatar_size }, TextWidget:new{ text = "A", face = Font:getFace("cfont", scale(28)), fgcolor = Blitbuffer.COLOR_BLACK, bold = true } } },
+        TextWidget:new{ text = profile_name, face = Font:getFace("cfont", scale(22)), fgcolor = Blitbuffer.COLOR_BLACK, bold = true, max_width = width - 2 * margin, alignment = "center", overlap_offset = { margin, name_y } },
+        TextWidget:new{ text = self.status or _("AppDock is locked"), face = Font:getFace("smallinfofont", scale(11)), fgcolor = Blitbuffer.COLOR_DARK_GRAY, max_width = width - 2 * margin, alignment = "center", overlap_offset = { margin, name_y + scale(31) } },
     }
-    local avatar_size = scale(58)
+
     local avatar = Wallpaper.buildPath(profile.profile_image_path, avatar_size, avatar_size, true)
     self._avatar = avatar
     if avatar then
-        avatar.overlap_offset = { math.floor((width - avatar_size) / 2), card_y + scale(42) }
-        layers[#layers + 1] = avatar
-    else
-        layers[#layers + 1] = FrameContainer:new{ width = avatar_size, height = avatar_size, padding = 0, bordersize = scale(2), color = Blitbuffer.COLOR_BLACK, radius = math.floor(avatar_size / 2), background = Blitbuffer.COLOR_LIGHT_GRAY,
-            CenterContainer:new{ dimen = Geom:new{ w = avatar_size, h = avatar_size }, TextWidget:new{ text = "A", face = Font:getFace("cfont", scale(24)), fgcolor = Blitbuffer.COLOR_BLACK, bold = true } }, overlap_offset = { math.floor((width - avatar_size) / 2), card_y + scale(42) } }
+        avatar.overlap_offset = { math.floor((width - avatar_size) / 2), avatar_y }
+        layers[3] = avatar
     end
+
     if method == "pattern" then
-        local cell, gap = scale(34), scale(10)
-        local start_x = math.floor((width - (cell * 3 + gap * 2)) / 2)
-        local start_y = card_y + scale(324)
+        local cell, gap = scale(48), scale(14)
+        local grid_w = cell * 3 + gap * 2
+        local start_x = math.floor((width - grid_w) / 2)
+        local start_y = method_y
+        layers[#layers + 1] = TextWidget:new{ text = _("Draw your pattern"), face = Font:getFace("smallinfofont", scale(12)), fgcolor = Blitbuffer.COLOR_BLACK, bold = true, max_width = width - 2 * margin, alignment = "center", overlap_offset = { margin, start_y - scale(34) } }
         for index = 1, 9 do
             local column, row = (index - 1) % 3, math.floor((index - 1) / 3)
             local chosen = self.pattern:find(tostring(index), 1, true) ~= nil
-            local button = FrameContainer:new{
-                width = cell, height = cell, padding = 0, bordersize = scale(1), color = Blitbuffer.COLOR_BLACK,
+            layers[#layers + 1] = FrameContainer:new{
+                width = cell, height = cell, padding = scale(15), bordersize = scale(2), color = Blitbuffer.COLOR_BLACK,
                 radius = math.floor(cell / 2), background = chosen and Blitbuffer.COLOR_BLACK or Blitbuffer.COLOR_WHITE,
-                CenterContainer:new{ dimen = Geom:new{ w = cell, h = cell }, TextWidget:new{ text = tostring(index), face = Font:getFace("smallinfofont", scale(13)), fgcolor = chosen and Blitbuffer.COLOR_WHITE or Blitbuffer.COLOR_BLACK, bold = true } },
+                overlap_offset = { start_x + column * (cell + gap), start_y + row * (cell + gap) },
             }
-            button.overlap_offset = { start_x + column * (cell + gap), start_y + row * (cell + gap) }
-            layers[#layers + 1] = button
         end
     elseif method == "pin" then
-        layers[#layers + 1] = TextWidget:new{ text = _("Tap anywhere to enter PIN"), face = Font:getFace("smallinfofont", scale(12)), fgcolor = Blitbuffer.COLOR_DARK_GRAY, max_width = width - 2 * margin, alignment = "center", overlap_offset = { margin, card_y + scale(324) } }
+        layers[#layers + 1] = FrameContainer:new{ width = scale(220), height = scale(42), padding = 0, bordersize = scale(1), color = Blitbuffer.COLOR_BLACK, radius = scale(21), background = Blitbuffer.COLOR_WHITE,
+            CenterContainer:new{ dimen = Geom:new{ w = scale(220), h = scale(42) }, TextWidget:new{ text = _("Tap to enter PIN"), face = Font:getFace("smallinfofont", scale(12)), fgcolor = Blitbuffer.COLOR_BLACK, bold = true } }, overlap_offset = { math.floor((width - scale(220)) / 2), method_y + scale(12) } }
     else
-        layers[#layers + 1] = FrameContainer:new{ width = math.min(scale(220), width - 2 * scale(48)), height = scale(34), padding = 0, bordersize = scale(1), color = Blitbuffer.COLOR_BLACK, radius = scale(17), background = Blitbuffer.COLOR_WHITE,
-            CenterContainer:new{ dimen = Geom:new{ w = math.min(scale(220), width - 2 * scale(48)), h = scale(34) }, TextWidget:new{ text = _("Swipe to open AppDock"), face = Font:getFace("smallinfofont", scale(11)), fgcolor = Blitbuffer.COLOR_BLACK, bold = true } }, overlap_offset = { math.floor((width - math.min(scale(220), width - 2 * scale(48))) / 2), card_y + scale(324) } }
+        layers[#layers + 1] = FrameContainer:new{ width = math.min(scale(250), width - 2 * scale(40)), height = scale(46), padding = 0, bordersize = scale(1), color = Blitbuffer.COLOR_BLACK, radius = scale(23), background = Blitbuffer.COLOR_WHITE,
+            CenterContainer:new{ dimen = Geom:new{ w = math.min(scale(250), width - 2 * scale(40)), h = scale(46) }, TextWidget:new{ text = _("Swipe up to unlock"), face = Font:getFace("smallinfofont", scale(12)), fgcolor = Blitbuffer.COLOR_BLACK, bold = true } }, overlap_offset = { math.floor((width - math.min(scale(250), width - 2 * scale(40))) / 2), method_y + scale(16) } }
     end
-    layers[#layers + 1] = TextWidget:new{ text = _("Your private AppDock space"), face = Font:getFace("smallinfofont", scale(9)), fgcolor = Blitbuffer.COLOR_WHITE, max_width = width - 2 * margin, alignment = "center", overlap_offset = { margin, height - scale(28) } }
+
+    layers[#layers + 1] = TextWidget:new{ text = _("This device is protected by AppDock"), face = Font:getFace("smallinfofont", scale(9)), fgcolor = Blitbuffer.COLOR_DARK_GRAY, max_width = width - 2 * margin, alignment = "center", overlap_offset = { margin, bottom_y } }
     self:clear()
     self[1] = OverlapGroup:new{ dimen = self.dimen, allow_mirroring = false, unpack(layers) }
 end
@@ -169,10 +168,10 @@ local InputDialog = AppDockDialogs.InputDialog
         return true
     end
     if settings.method == "pattern" and gesture and gesture.pos then
-        local cell = scale(46)
+        local cell = scale(48)
         local gap = scale(14)
         local start_x = math.floor((self.dimen.w - (cell * 3 + gap * 2)) / 2)
-        local start_y = math.floor(self.dimen.h * 0.52)
+        local start_y = math.floor(self.dimen.h * 0.64)
         local column = math.floor((gesture.pos.x - start_x) / (cell + gap))
         local row = math.floor((gesture.pos.y - start_y) / (cell + gap))
         if column >= 0 and column < 3 and row >= 0 and row < 3 then
