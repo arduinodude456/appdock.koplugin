@@ -8,6 +8,7 @@ local Font = require("ui/font")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
 local GestureRange = require("ui/gesturerange")
+local HorizontalSpan = require("ui/widget/horizontalspan")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local OverlapGroup = require("ui/widget/overlapgroup")
 local TextWidget = require("ui/widget/textwidget")
@@ -31,6 +32,12 @@ local LockScreen = InputContainer:extend{
 }
 
 local function scale(value) return Screen:scaleBySize(value) end
+local function emptySizedWidget(width, height)
+    return CenterContainer:new{
+        dimen = Geom:new{ w = width, h = height },
+        HorizontalSpan:new{ width = 0 },
+    }
+end
 local function digest(value) return sha2.md5("appdock-lock-v1:" .. tostring(value or "")) end
 
 function LockScreen.hash(value)
@@ -100,11 +107,12 @@ function LockScreen:build()
         FrameContainer:new{
             width = width, height = height, padding = 0, bordersize = 0,
             background = palette.background,
-            CenterContainer:new{ dimen = Geom:new{ w = width, h = height } },
+            emptySizedWidget(width, height),
         },
         FrameContainer:new{
             width = width, height = math.max(scale(5), math.floor(height * .008)), padding = 0, bordersize = 0,
             background = palette.primary, overlap_offset = { 0, 0 },
+            emptySizedWidget(width, math.max(scale(5), math.floor(height * .008))),
         },
         TextWidget:new{
             text = _("APPDOCK"), face = Font:getFace("smallinfofont", scale(10)), fgcolor = palette.on_surface,
@@ -128,6 +136,7 @@ function LockScreen:build()
         FrameContainer:new{
             width = card_w, height = card_h, padding = 0, bordersize = math.max(1, scale(1)), color = palette.outline,
             radius = scale(14), background = palette.surface, overlap_offset = { margin, card_y },
+            emptySizedWidget(card_w, card_h),
         },
         FrameContainer:new{
             width = avatar_size, height = avatar_size, padding = 0, bordersize = math.max(1, scale(2)), color = palette.outline,

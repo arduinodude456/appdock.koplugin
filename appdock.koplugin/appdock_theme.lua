@@ -82,6 +82,14 @@ local function readableInk(surface, preferred)
     return contrastInk(surface)
 end
 
+local function grayscaleInk(surface)
+    -- A fixed COLOR_BLACK/COLOR_DARK_GRAY role is not safe for installed
+    -- dark designs: on grayscale readers Forest's dark surfaces otherwise
+    -- receive nearly invisible dark text. Choose the ink from the actual
+    -- design surface, just like readableInk does for color devices.
+    return relativeLuminance(surface) < 0.42 and Blitbuffer.COLOR_WHITE or Blitbuffer.COLOR_BLACK
+end
+
 local function color(hex, grayscale)
     local red, green, blue = rgb(hex)
     if not Device.screen:isColorEnabled() then return grayscale end
@@ -313,12 +321,12 @@ function Theme.getPalette(appdock)
         tertiary = color(tertiary, GRAYS.tertiary),
         button = color(button, GRAYS.primary),
         dropdown = color(dropdown, GRAYS.background),
-        on_primary = color(readableInk(primary, text), GRAYS.on_primary),
-        on_secondary = color(readableInk(secondary, text), GRAYS.on_secondary),
-        on_tertiary = color(readableInk(tertiary, text), GRAYS.on_tertiary),
-        on_button = color(readableInk(button, text), GRAYS.on_primary),
-        on_surface = color(on_surface, GRAYS.on_surface),
-        on_variant = color(on_variant, GRAYS.on_variant),
+        on_primary = color(readableInk(primary, text), grayscaleInk(primary)),
+        on_secondary = color(readableInk(secondary, text), grayscaleInk(secondary)),
+        on_tertiary = color(readableInk(tertiary, text), grayscaleInk(tertiary)),
+        on_button = color(readableInk(button, text), grayscaleInk(button)),
+        on_surface = color(on_surface, grayscaleInk(surface)),
+        on_variant = color(on_variant, grayscaleInk(surface_variant)),
         outline = color(mix(on_surface, background, .48), GRAYS.outline),
         track = color(mix(readableInk(button, text), background, .52), GRAYS.track),
         primary_hex = primary,
