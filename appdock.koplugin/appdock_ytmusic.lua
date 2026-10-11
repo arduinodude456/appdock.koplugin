@@ -555,18 +555,25 @@ function Music:startSearch(instance, context, query)
     local state = self:_state(instance)
     local tools = state.tools or YouTube.detectTools(self:_settings())
     state.tools = tools
-    if not tools.ytdlp then
-        self:_notify(instance, context, _("yt-dlp was not found. Add it to the AppDock tools folder or configure its path."))
-        return false
-    end
     query = trim(query)
     if query == "" then return false end
+    state.search_query = query
+    if not tools.ytdlp then
+        state.view = "search_error"
+        state.search_error = _("yt-dlp was not found. Add it to the AppDock tools folder or configure its path.")
+        state.note = ""
+        if context and context.requestRebuild then context.requestRebuild("ui") end
+        return false
+    end
     local work = jobDirectory()
     local command = Music.buildSearchCommand(tools.ytdlp, query)
     local handle, start_error = self:_startDetached(command, work, "search")
     if not handle then
         cleanupDirectory(work)
-        self:_notify(instance, context, start_error or _("The search could not be started."))
+        state.view = "search_error"
+        state.search_error = start_error or _("The search could not be started.")
+        state.note = ""
+        if context and context.requestRebuild then context.requestRebuild("ui") end
         return false
     end
     state.view = "search"
@@ -642,10 +649,21 @@ function Music:promptSearch(instance, context)
                 },
                 {
                     text = _("Search"),
+                    is_enter_default = true,
                     callback = function()
-                        local text = dialog:getInputText()
+                        local text = trim(dialog:getInputText())
                         UIManager:close(dialog)
-                        local kind, value = YouTube.classifyInput(text)
+                        if text == "" then return end
+                        -- Plain text is always a music search (including an
+                        -- 11-character term). Only a pasted URL is treated as
+                        -- a direct download/open request.
+                        local is_url = text:match("^%a[%w+%.%-]*://") ~= nil
+                        local kind, value
+                        if is_url then
+                            kind, value = YouTube.classifyInput(text)
+                        else
+                            kind, value = "search", text
+                        end
                         if kind == "video" then
                             self:startDownload(instance, context, {
                                 id = value,
@@ -655,15 +673,19 @@ function Music:promptSearch(instance, context)
                         elseif kind == "search" then
                             self:startSearch(instance, context, value)
                         else
-                            self:_notify(instance, context, _("Enter a song title, an artist or a YouTube link."))
+                            state.view = "search_error"
+                            state.search_query = text
+                            state.search_error = _("That link is not a supported YouTube address.")
+                            state.note = ""
+                            if context and context.requestRebuild then context.requestRebuild("ui") end
                         end
                     end,
                 },
             },
         },
     }
-    UIManager:show(dialog)
     AppDockKeyboard.attach(dialog)
+    UIManager:show(dialog)
     dialog:onShowKeyboard()
     return true
 end
@@ -986,9 +1008,11 @@ function Music:_buildHomePane(instance, context, state)
     local content = self:_paneShell(width, height)
     local library = self:_library(instance, context)
 
+    -- The host already labels the window "YouTube Music"; show the page name
+    -- here instead of duplicating the app title inside the pane.
     local header = TextWidget:new{
-        text = _("YouTube Music"),
-        face = Font:getFace("cfont", scale(18)),
+        text = _("Home"),
+        face = Font:getFace("cfont", scale(17)),
         bold = true,
         fgcolor = Blitbuffer.COLOR_BLACK,
         padding = 0,
@@ -1020,7 +1044,7 @@ function Music:_buildHomePane(instance, context, state)
     table.insert(content, search_pill)
 
     local hero_top = scale(82)
-    local hero_height = math.max(scale(96), math.floor(height * 0.26))
+    local hero_height = math.max(scale(132), math.floor(height * 0.26))
     local selected
     for _, entry in ipairs(library) do
         if entry.path == state.selected_path then selected = entry break end
@@ -1028,50 +1052,93 @@ function Music:_buildHomePane(instance, context, state)
     selected = selected or library[1]
     if selected then state.selected_path = selected.path end
 
-    local cover_box_w = math.floor(hero_height * 16 / 9)
-    cover_box_w = math.min(cover_box_w, math.floor(width * 0.5))
-    local cover = self:_buildCover(selected and selected.cover, cover_box_w, hero_height)
-    cover.overlap_offset = { margin, hero_top }
-    table.insert(content, cover)
-
-    local info_x = margin + cover_box_w + gap
-    local info_width = math.max(scale(80), width - info_x - margin)
-    local title = TextWidget:new{
-        text = YouTube.fitText(selected and selected.title or _("No tracks yet"), info_width, 14),
-        face = Font:getFace("cfont", scale(14)),
-        bold = true,
-        fgcolor = Blitbuffer.COLOR_BLACK,
-        max_width = info_width,
-        padding = 0,
-    }
-    title.overlap_offset = { info_x, hero_top + scale(4) }
-    table.insert(content, title)
-
     local playing = state.play and selected and state.play.path == selected.path
-    local detail = TextWidget:new{
-        text = playing
-            and Music.formatPosition(self:_elapsed(state.play, monotonicNow()), state.play.duration)
-            or (selected and YouTube.formatDuration(selected.duration) or ""),
-        face = Font:getFace("smallinfofont", scale(11)),
-        fgcolor = Blitbuffer.COLOR_DARK_GRAY,
-        max_width = info_width,
-        padding = 0,
-    }
-    detail.overlap_offset = { info_x, hero_top + scale(26) }
-    table.insert(content, detail)
-    if playing then state.play.time_widget = detail end
+    if selected then
+        local cover_box_w = math.floor(hero_height * 16 / 9)
+        cover_box_w = math.min(cover_box_w, math.floor(width * 0.5))
+        local cover = self:_buildCover(selected.cover, cover_box_w, hero_height)
+        cover.overlap_offset = { margin, hero_top }
+        table.insert(content, cover)
 
-    local play_pill = Pill:new{
-        text = (playing and not state.play.paused) and ("Ⅱ  " .. _("Pause")) or ("▶  " .. _("Play")),
-        width = math.min(scale(110), info_width),
-        height = scale(32),
-        background = Blitbuffer.COLOR_LIGHT_GRAY,
-        callback = function()
-            if selected then self:playEntry(instance, context, selected.path, 0) end
-        end,
-        overlap_offset = { info_x, hero_top + hero_height - scale(34) },
-    }
-    table.insert(content, play_pill)
+        local info_x = margin + cover_box_w + gap
+        local info_width = math.max(scale(80), width - info_x - margin)
+        local title = TextWidget:new{
+            text = YouTube.fitText(selected.title, info_width, 14),
+            face = Font:getFace("cfont", scale(14)),
+            bold = true,
+            fgcolor = Blitbuffer.COLOR_BLACK,
+            max_width = info_width,
+            padding = 0,
+        }
+        title.overlap_offset = { info_x, hero_top + scale(4) }
+        table.insert(content, title)
+
+        local detail = TextWidget:new{
+            text = playing
+                and Music.formatPosition(self:_elapsed(state.play, monotonicNow()), state.play.duration)
+                or YouTube.formatDuration(selected.duration),
+            face = Font:getFace("smallinfofont", scale(11)),
+            fgcolor = Blitbuffer.COLOR_DARK_GRAY,
+            max_width = info_width,
+            padding = 0,
+        }
+        detail.overlap_offset = { info_x, hero_top + scale(26) }
+        table.insert(content, detail)
+        if playing then state.play.time_widget = detail end
+
+        table.insert(content, Pill:new{
+            text = (playing and not state.play.paused) and ("Ⅱ  " .. _("Pause")) or ("▶  " .. _("Play")),
+            width = math.min(scale(110), info_width),
+            height = scale(32),
+            background = Blitbuffer.COLOR_LIGHT_GRAY,
+            callback = function() self:playEntry(instance, context, selected.path, 0) end,
+            overlap_offset = { info_x, hero_top + hero_height - scale(34) },
+        })
+    else
+        -- A useful, intentional empty state instead of a dead Play button and
+        -- a large blank pane.
+        local card_width = width - 2 * margin
+        table.insert(content, FrameContainer:new{
+            width = card_width, height = hero_height,
+            padding = 0, bordersize = scale(1), color = Blitbuffer.COLOR_GRAY_7,
+            radius = scale(10), background = Blitbuffer.COLOR_LIGHT_GRAY,
+            emptySizedWidget(card_width, hero_height),
+            overlap_offset = { margin, hero_top },
+        })
+        local empty_title = TextWidget:new{
+            text = _("Your music starts here"),
+            face = Font:getFace("cfont", scale(16)),
+            bold = true, fgcolor = Blitbuffer.COLOR_BLACK, padding = 0,
+        }
+        empty_title.overlap_offset = {
+            math.floor((width - empty_title:getSize().w) / 2), hero_top + scale(22),
+        }
+        table.insert(content, empty_title)
+        local hint_text = YouTube.fitText(
+            _("Search for a song, artist or album. Saved tracks will appear in your library."),
+            card_width - scale(24), 10)
+        local empty_hint = TextWidget:new{
+            text = hint_text,
+            face = Font:getFace("smallinfofont", scale(10)),
+            fgcolor = Blitbuffer.COLOR_DARK_GRAY,
+            max_width = card_width - scale(24),
+            padding = 0,
+        }
+        empty_hint.overlap_offset = {
+            margin + math.floor((card_width - empty_hint:getSize().w) / 2), hero_top + scale(54),
+        }
+        table.insert(content, empty_hint)
+        local cta_width = math.min(scale(150), card_width - scale(24))
+        table.insert(content, Pill:new{
+            text = "⌕  " .. _("Search music"),
+            width = cta_width, height = scale(34),
+            background = Blitbuffer.COLOR_GRAY_8,
+            callback = function() self:promptSearch(instance, context) end,
+            overlap_offset = {
+                math.floor((width - cta_width) / 2), hero_top + hero_height - scale(46),
+            },
+        })
+    end
 
     local list_top = hero_top + hero_height + scale(10)
     local row_height, row_gap = scale(52), scale(6)
@@ -1130,17 +1197,7 @@ function Music:_buildHomePane(instance, context, state)
     end
 
     local footer_y = height - footer_height
-    if #library == 0 then
-        local empty = TextWidget:new{
-            text = _("Search for a song to download it as a compact audio track with its full-color cover."),
-            face = Font:getFace("smallinfofont", scale(10)),
-            fgcolor = Blitbuffer.COLOR_DARK_GRAY,
-            max_width = width - 2 * margin,
-            padding = 0,
-        }
-        empty.overlap_offset = { margin, list_top + scale(6) }
-        table.insert(content, empty)
-    elseif total_pages > 1 then
+    if #library > 0 and total_pages > 1 then
         local page_width = scale(120)
         local pager_left = Pill:new{
             text = "‹ " .. _("Back"),

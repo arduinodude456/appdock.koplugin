@@ -108,7 +108,13 @@ package.preload["ui/widget/textboxwidget"] = function() return TextWidget end
 package.preload["ui/widget/infomessage"] = function() return WidgetContainer end
 package.preload["ui/widget/inputdialog"] = function() return WidgetContainer end
 package.preload["ui/widget/imagewidget"] = function() return WidgetContainer end
-package.preload["appdock_keyboard"] = function() return { attach = function() end } end
+package.preload["appdock_keyboard"] = function()
+    return { attach = function(dialog)
+        dialog.appdock_keyboard_attached = true
+        dialog.onShowKeyboard = function() return true end
+        return true
+    end }
+end
 package.preload["appdock_logo"] = function()
     local Logo = Widget:extend({})
     function Logo:init() self.dimen = { w = self.size or 0, h = self.size or 0 } end
@@ -143,6 +149,7 @@ local AppDockDialogs = dofile(plugin_dir .. "appdock_dialogs.lua")
 local Audio = dofile(plugin_dir .. "appdock_audio.lua")
 local YouTube = dofile(plugin_dir .. "appdock_youtube.lua")
 local Music = dofile(plugin_dir .. "appdock_ytmusic.lua")
+local TestUIManager = require("ui/uimanager")
 
 local helpers = Music._test
 
@@ -250,6 +257,16 @@ state.tools = { ytdlp = "/tools/yt-dlp", ffmpeg = "/tools/ffmpeg", ready = true 
 local home_pane = music:buildPane(instance, context)
 assert(home_pane and home_pane[1], "The music home pane must build")
 assert(state.view == "home", "A DApp without tools must land on its library, not on setup")
+local home_content = home_pane[1]
+local has_home_label, has_empty_card, has_empty_search, has_dead_play = false, false, false, false
+for _, widget in ipairs(home_content) do
+    if widget.text == "Home" then has_home_label = true end
+    if widget.text == "Your music starts here" then has_empty_card = true end
+    if widget.text and widget.text:find("Search music", 1, true) then has_empty_search = true end
+    if widget.text == "▶  Play" then has_dead_play = true end
+end
+assert(has_home_label and has_empty_card and has_empty_search and not has_dead_play,
+    "The empty home pane must have a clear page label, a search call-to-action, and no inert Play button")
 
 -- yt-dlp can return a non-zero status after YouTube has already yielded some
 -- usable search rows (for example, one blocked result in an otherwise valid
@@ -283,6 +300,37 @@ assert(search_state.results[1].uploader == "Daft Punk" and search_state.results[
 assert(search_state.note:find("available results", 1, true),
     "Partial result sets must be shown with a clear partial-results notice")
 
+-- The custom AppDock keyboard submits only a button marked is_enter_default.
+-- Verify that the Music search dialog wires that submit action into startSearch
+-- and treats arbitrary text (even 11 ASCII characters) as a search query.
+local previous_show = TestUIManager.show
+local prompt_dialog
+TestUIManager.show = function(_, widget)
+    if widget and widget.title == "Search YouTube Music" then prompt_dialog = widget end
+end
+local prompt_handle = {}
+local prompt_command
+music._startDetached = function(_, command, _, tag)
+    assert(tag == "search", "Keyboard submission must start the search process")
+    prompt_command = command
+    return prompt_handle
+end
+local scheduled_before_prompt = #scheduled
+music:promptSearch(search_instance, context)
+assert(prompt_dialog and prompt_dialog.buttons[1][2].is_enter_default,
+    "The Music search button must be the AppDock keyboard's Enter/default action")
+prompt_dialog:setInputText("abcdefghijk")
+prompt_dialog.buttons[1][2].callback()
+assert(search_state.view == "search" and search_state.search_query == "abcdefghijk",
+    "Submitting the keyboard must leave the library and enter the searching pane")
+assert(prompt_command and prompt_command:find("ytsearch8:abcdefghijk", 1, true),
+    "An 11-character plain-text query must not be misclassified as a video ID")
+if search_state.search_work then os.execute("rm -rf " .. search_state.search_work) end
+search_state.search_handle, search_state.search_work, search_state.view = nil, nil, "home"
+while #scheduled > scheduled_before_prompt do table.remove(scheduled) end
+music._startDetached = old_start_detached
+TestUIManager.show = previous_show
+
 -- A missing ffmpeg must not hide search results behind the shared tool setup
 -- pane: yt-dlp is sufficient to search and display results; ffmpeg is only
 -- required after the user selects a track for conversion.
@@ -312,6 +360,22 @@ assert(visible_result_row and visible_result_row.dimen.w > 0 and visible_result_
         and visible_result_row.overlap_offset and visible_result_row.overlap_offset[2] > 0,
     "The results pane must contain a laid-out, visible row even when ffmpeg is unavailable")
 appdock.getDAppManager = function() return nil end
+
+local no_ytdlp_instance = {}
+local no_ytdlp_state = music:_state(no_ytdlp_instance)
+no_ytdlp_state.tools = { ytdlp = nil, ffmpeg = "/tools/ffmpeg", ready = false }
+assert(not music:startSearch(no_ytdlp_instance, context, "hallo"),
+    "A search without yt-dlp must fail without starting a detached command")
+assert(no_ytdlp_state.view == "search_error"
+        and no_ytdlp_state.search_error:find("yt%-dlp was not found"),
+    "A missing yt-dlp error must switch to a visible diagnostic pane")
+local no_ytdlp_pane = music:buildPane(no_ytdlp_instance, context)
+local visible_missing_tool_error = false
+for _, widget in ipairs(no_ytdlp_pane[1]) do
+    if widget.text == no_ytdlp_state.search_error then visible_missing_tool_error = true end
+end
+assert(visible_missing_tool_error,
+    "The missing-tool diagnostic must be included in the rendered search pane")
 
 -- A failed/empty search must stay on a visible diagnostic pane; the old
 -- behavior returned to the empty library and left only a tiny footer message.
