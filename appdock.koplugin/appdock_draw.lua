@@ -65,16 +65,16 @@ local function copyPalette(source)
 end
 local function colorPalette(app) return app and app.palette or palette end
 local function hasColorScreen()
-    -- isColorEnabled() is a user preference (Gear > Screen > Color rendering),
-    -- not a hardware capability. Use the physical screen capability so Paint
-    -- keeps its RGB output even when KOReader's document rendering is disabled.
+    -- Match Minecraft: its color renderer uses isColorEnabled(). Also accept
+    -- isColorScreen() so Paint still renders RGB on color hardware when the
+    -- document-rendering preference is off.
     if type(Screen.isColorScreen) == "function" then
         local ok, enabled = pcall(Screen.isColorScreen, Screen)
-        if ok then return enabled == true end
+        if ok and enabled == true then return true end
     end
     if type(Screen.isColorEnabled) == "function" then
         local ok, enabled = pcall(Screen.isColorEnabled, Screen)
-        if ok then return enabled == true end
+        if ok and enabled == true then return true end
     end
     return false
 end
@@ -99,10 +99,31 @@ local function screenMetric(method, field, fallback)
     end
     return safeDimension(value or Screen[field], fallback)
 end
-local function rgb(c)
-    if hasColorScreen() then return Blitbuffer.ColorRGB32(c[1], c[2], c[3], 0xFF) end
+local rgb_cache = {}
+local function rgb(c, color_mode)
+    if color_mode == nil then color_mode = hasColorScreen() end
+    if color_mode then
+        local key = c[1] * 65536 + c[2] * 256 + c[3]
+        local color = rgb_cache[key]
+        if not color then
+            color = Blitbuffer.colorFromString(string.format("#%02x%02x%02x", c[1], c[2], c[3]))
+            rgb_cache[key] = color
+        end
+        return color
+    end
     local y = math.floor((c[1] * 299 + c[2] * 587 + c[3] * 114) / 1000)
     return y > 127 and Blitbuffer.COLOR_WHITE or Blitbuffer.COLOR_BLACK
+end
+local function paintColorRect(bb, x, y, w, h, color, color_mode)
+    if color_mode == nil then color_mode = hasColorScreen() end
+    -- KOReader's color E-Ink buffers require the RGB-specific API. paintRect()
+    -- may reduce ColorRGB32 to luminance, leaving Paint monochrome while the
+    -- serialized project still contains the original RGB values.
+    if color_mode and type(bb.paintRectRGB32) == "function" then
+        bb:paintRectRGB32(x, y, w, h, color)
+    else
+        bb:paintRect(x, y, w, h, color)
+    end
 end
 local function empty(width, height)
     return { width = width, height = height, pixels = ffi.new("uint8_t[?]", width * height), empty = true }
@@ -359,7 +380,9 @@ function ColorSwatch:paintTo(bb, x, y)
     local entry = colors[clamp(tonumber(self.color_id) or 1, 1, #colors)]
     local border = self.active and math.max(2, safeScale(2)) or math.max(1, safeScale(1))
     bb:paintRect(x, y, w, h, self.active and Blitbuffer.COLOR_BLACK or Blitbuffer.COLOR_LIGHT_GRAY)
-    bb:paintRect(x + border, y + border, w - border * 2, h - border * 2, rgb(entry))
+    local color_mode = hasColorScreen()
+    paintColorRect(bb, x + border, y + border, w - border * 2, h - border * 2,
+        rgb(entry, color_mode), color_mode)
     if self.active then
         bb:paintRect(x + w - border * 3, y + border, border, border, Blitbuffer.COLOR_BLACK)
     end
@@ -420,7 +443,9 @@ function Chip:paintTo(bb, x, y)
         local color_x, color_y = x + safeScale(4), y + math.floor((h - self.color_size) / 2)
         bb:paintRect(color_x, color_y, self.color_size, self.color_size, Blitbuffer.COLOR_BLACK)
         if self.color_size > 2 then
-            bb:paintRect(color_x + 1, color_y + 1, self.color_size - 2, self.color_size - 2, rgb(self.color))
+            local color_mode = hasColorScreen()
+            paintColorRect(bb, color_x + 1, color_y + 1, self.color_size - 2, self.color_size - 2,
+                rgb(self.color, color_mode), color_mode)
         end
     end
     if self.text_widget then
@@ -470,12 +495,15 @@ end
 
 function Canvas:_brushFor(ev)
     local app = self.app
-    local brush = math.max(1, math.floor((app.brush_size or 1) * math.min(self.width / self.dimen.w, self.height / self.dimen.h) + .5))
+    -- Keep the selected logical diameter. Scaling it down by the reduced-size
+    -- canvas collapsed common presets to the same one-pixel stamp.
+    local brush = math.max(1, math.floor((app.brush_size or 1) + .5))
     local pressure = ev and tonumber(ev.pressure)
-    -- A finger reports pressure 0 (not nil). Treating that as "very light"
-    -- silently shrank every finger stroke to a single pixel, which made the
-    -- brush size control look broken.
-    if pressure and pressure > 0 and app.pressure_enabled then
+    local stylus = ev and (ev.pointer_type == "stylus" or ev.pointer_type == "pen"
+        or ev.tool == "stylus" or ev.tool == "pen" or ev.stylus == true)
+    -- Touch pressure varies by device and may be a small positive value. Only
+    -- apply pressure when the event explicitly identifies a pen.
+    if stylus and pressure and pressure > 0 and app.pressure_enabled then
         brush = math.max(1, math.floor(brush * clamp(pressure, 0.1, 1) + .5))
     end
     if ev and (ev.marker_button == true or ev.stylus_button == true) then brush = math.max(brush, 5) end
@@ -672,6 +700,7 @@ end
 function Canvas:paintRegionTo(bb, x, y, sx0, sy0, sx1, sy1)
     local app = self.app
     local layers = app.layers
+    local color_mode = hasColorScreen()
     sx0 = clamp(sx0, 0, self.width - 1)
     sx1 = clamp(sx1, 0, self.width - 1)
     sy0 = clamp(sy0, 0, self.height - 1)
@@ -696,14 +725,14 @@ function Canvas:paintRegionTo(bb, x, y, sx0, sy0, sx1, sy1)
                 color_id = color_id or 1
             end
             local entry = color_id and colorPalette(app)[color_id] or nil
-            local value = entry and rgb(entry)
+            local value = entry and rgb(entry, color_mode)
             if px == sx0 then
                 run_id, run_color, run_start = color_id, value, px
             elseif color_id ~= run_id then
                 local dx = x + math.floor(run_start * self.dimen.w / self.width)
                 local ex = x + math.floor(px * self.dimen.w / self.width)
-                bb:paintRect(dx, y + math.floor(py * self.dimen.h / self.height),
-                    math.max(1, ex - dx), row_height, run_color)
+                paintColorRect(bb, dx, y + math.floor(py * self.dimen.h / self.height),
+                    math.max(1, ex - dx), row_height, run_color, color_mode)
                 run_id, run_color, run_start = color_id, value, px
             end
         end
@@ -785,9 +814,13 @@ end
 
 function Draw:stamp(x,y,color_id,radius)
     local layer=self.layers[self.active]; if not layer then return end
-    local r=math.max(0,math.floor((radius-1)/2))
-    for yy=y-r,y+r do for xx=x-r,x+r do
-        if (xx-x)^2+(yy-y)^2 <= r*r+math.max(1,r) then
+    local diameter=math.max(1,math.floor((tonumber(radius) or 1)+.5))
+    local first=-math.floor(diameter/2)
+    local last=first+diameter-1
+    local center=(first+last)/2
+    local radius2=(diameter/2)^2
+    for yy=y+first,y+last do for xx=x+first,x+last do
+        if (xx-x-center)^2+(yy-y-center)^2 <= radius2 then
             local pixel_color=color_id
             if self.color_dither and color_id>=3 and color_id<=5 then
                 pixel_color=Draw.ditherChannel(140,xx,yy)==255 and color_id or 1
