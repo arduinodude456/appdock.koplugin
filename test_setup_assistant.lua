@@ -19,7 +19,7 @@ end
 
 local WidgetContainer = baseClass({})
 local saved_settings = {}
-local log = { offers = 0, saves = 0, sleep_show = 0, sleep_close = 0 }
+local log = { offers = 0, saves = 0, sleep_show = 0, sleep_close = 0, home = 0, boot_callback = nil }
 
 _G.G_reader_settings = {
     readSetting = function() return saved_settings end,
@@ -62,6 +62,16 @@ package.preload["appdock_sleepscreen"] = function()
         close = function() log.sleep_close = log.sleep_close + 1 end,
     }
 end
+package.preload["appdock_homescreen"] = function()
+    local Home = baseClass(WidgetContainer)
+    function Home:init() log.home = log.home + 1 end
+    return Home
+end
+package.preload["appdock_boot"] = function()
+    return {
+        show = function(callback) log.boot_callback = callback end,
+    }
+end
 package.preload["appdock_dapps"] = function()
     return {
         new = function()
@@ -80,7 +90,7 @@ local AppDock = dofile(plugin_dir .. "main.lua")
 local ui = { menu = { registerToMainMenu = function() end } }
 local first = AppDock:new{ ui = ui }
 local first_status = first:getSetupAssistantStatus()
-assert(first_status.version == "7.9.49" and not first_status.offered and not first_status.completed, "The setup wizard remains an independent manual flow")
+assert(first_status.version == "8.0.0" and not first_status.offered and not first_status.completed, "The setup wizard remains an independent manual flow")
 assert(log.offers == 1 and first:shouldShowUpdateDialog(), "The update dialog must be shown on startup until explicitly dismissed")
 assert(first:getFeaturePages()[1].image and first:getFeaturePages()[1].image:match("assets/logos/appdock%.png$"), "The update dialog must receive its packaged test image")
 assert(first:setSleepScreenEnabled(true) and first.settings.sleepscreen_enabled, "The Sleep screen toggle must persist locally")
@@ -95,4 +105,13 @@ assert(log.offers == 2 and second:shouldShowUpdateDialog(), "The update dialog m
 assert(second:dismissUpdateDialog() and not second:shouldShowUpdateDialog(), "Don't show again must persist for the current AppDock version")
 local third = AppDock:new{ ui = ui }
 assert(log.offers == 2 and not third:shouldShowUpdateDialog(), "A dismissed update dialog must stay hidden after a KOReader restart")
+
+-- A real boot screen finishes asynchronously. The update dialog must wait for
+-- its callback; otherwise showHome() puts the homescreen on top of the dialog.
+saved_settings = { launch_on_start = true, update_dialog = { dismissed_version = "" } }
+local offers_before_boot = log.offers
+local booted = AppDock:new{ ui = ui }
+assert(log.boot_callback and log.offers == offers_before_boot, "The update dialog must wait while the boot screen is visible")
+log.boot_callback()
+assert(log.home > 0 and log.offers == offers_before_boot + 1, "The update dialog must appear after the homescreen finishes loading")
 print("Setup assistant test: OK")

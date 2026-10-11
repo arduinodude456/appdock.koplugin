@@ -183,18 +183,24 @@ function AppDock:init()
         if manager and manager.runPermittedAutostarts then manager:runPermittedAutostarts() end
         local restored = manager and self.settings.workspace and self.settings.workspace.restore_enabled
             and manager.restoreWorkspace and manager:restoreWorkspace()
-        if self.settings.launch_on_start and not restored then self:showHome() end
-        UIManager:nextTick(function()
+        local function finish_startup()
             if AppDockRecovery and recovery_context then pcall(AppDockRecovery.markHealthy, recovery_context) end
             local notice = AppDockRecovery and recovery_context and AppDockRecovery.consumeNotice and AppDockRecovery.consumeNotice(recovery_context)
             if notice and notice ~= "" then UIManager:show(InfoMessage:new{ text = notice }) end
-            -- Show the update dialog after a recovery notice has been placed,
-            -- never before it. Otherwise the informational notice becomes the
-            -- top modal and makes the news dialog appear to vanish instantly.
-            if self:shouldShowUpdateDialog() and manager and manager.showFeatureDialog then
-                UIManager:nextTick(function() manager:showFeatureDialog() end)
-            end
-        end)
+            -- This callback runs only after the boot/lockscreen callback has
+            -- shown the homescreen. Showing the dialog earlier lets the final
+            -- showHome() call put the homescreen on top of it.
+            UIManager:nextTick(function()
+                if self:shouldShowUpdateDialog() and manager and manager.showFeatureDialog then
+                    manager:showFeatureDialog()
+                end
+            end)
+        end
+        if self.settings.launch_on_start and not restored then
+            self:showHome(false, function() UIManager:nextTick(finish_startup) end)
+        else
+            UIManager:nextTick(finish_startup)
+        end
     end)
 end
 
@@ -1087,11 +1093,11 @@ function AppDock:addToMainMenu(menu_items)
     }
 end
 
-function AppDock:showHome(skip_lock)
+function AppDock:showHome(skip_lock, on_ready)
     if self.settings.lockscreen.enabled and not skip_lock then
         local ok, LockScreen = pcall(require, "appdock_lockscreen")
         if ok and LockScreen and LockScreen.show then
-            LockScreen.show(self, function() self:showHome(true) end)
+            LockScreen.show(self, function() self:showHome(true, on_ready) end)
             return
         end
     end
@@ -1099,12 +1105,13 @@ function AppDock:showHome(skip_lock)
         self._boot_shown = true
         local ok, Boot = pcall(require, "appdock_boot")
         if ok and Boot and Boot.show then
-            Boot.show(function() self:showHome(true) end)
+            Boot.show(function() self:showHome(true, on_ready) end)
             return
         end
     end
     local HomeScreen = require("appdock_homescreen")
     UIManager:show(HomeScreen:new{ appdock = self })
+    if on_ready then UIManager:nextTick(on_ready) end
 end
 
 function AppDock:showManager(home, selected_app)
