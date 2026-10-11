@@ -2639,24 +2639,39 @@ function DAppManager:showSettingsNotice(text)
 end
 
 function DAppManager:showFeatureDialog()
+    if self._feature_dialog then return false end
     local feature_pages = type(self.appdock.getFeaturePages) == "function" and self.appdock:getFeaturePages() or {}
     if #feature_pages == 0 then
         feature_pages = { { title = _("AppDock updated"), text = _("AppDock was updated. See the release notes for details.") } }
     end
     local page_index = 1
     local dialog
+    -- Modal is AppDock-owned, has an explicit light card, and has no timeout.
+    -- ButtonDialog used to render the whole page as a title and could vanish
+    -- when the periodic E-Ink refresh rebuilt the underlying home screen.
+    local UpdateDialog = AppDockDialogs.Modal or ButtonDialog
+    local function close_dialog()
+        self._feature_dialog = nil
+        if dialog and type(dialog.close) == "function" then dialog:close()
+        else UIManager:close(dialog) end
+    end
     local function show_page()
         local page = feature_pages[page_index]
         local last = page_index == #feature_pages
-        local buttons = { { { text = last and _("Done") or _("Next"), callback = function()
-            if last then self.appdock:completeSetupAssistant(); UIManager:close(dialog)
-            else page_index = page_index + 1; UIManager:close(dialog); show_page() end
-        end } }, { { text = _("Later"), callback = function() UIManager:close(dialog) end } } }
-        dialog = ButtonDialog:new{ title = (page.title or _("AppDock update")) .. "\n\n" .. (page.text or "") .. string.format("\n\n(%d/%d)", page_index, #feature_pages), buttons = buttons }
-        dialog.description = page.text or ""
+        local page_text = (page.text or "") .. string.format("\n\n" .. _("Page %d of %d"), page_index, #feature_pages)
+        local buttons = {
+            { { text = last and _("Done") or _("Next"), is_default = true, callback = function()
+                if last then self.appdock:completeSetupAssistant(); close_dialog()
+                else page_index = page_index + 1; close_dialog(); UIManager:nextTick(show_page) end
+            end } },
+            { { text = _("Later"), callback = close_dialog } },
+        }
+        dialog = UpdateDialog:new{ title = page.title or _("AppDock update"), text = page_text, buttons = buttons }
+        self._feature_dialog = dialog
         UIManager:show(dialog)
     end
     show_page()
+    return true
 end
 
 function DAppManager:showSetupAssistant(instance, context, automatic)

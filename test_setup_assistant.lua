@@ -79,7 +79,7 @@ local AppDock = dofile(plugin_dir .. "main.lua")
 local ui = { menu = { registerToMainMenu = function() end } }
 local first = AppDock:new{ ui = ui }
 local first_status = first:getSetupAssistantStatus()
-assert(first_status.version == "7.9.42" and first_status.offered and not first_status.completed, "A new AppDock version must offer the assistant once and record that offer locally")
+assert(first_status.version == "7.9.43" and first_status.offered and not first_status.completed, "A new AppDock version must offer the assistant once and record that offer locally")
 assert(log.offers == 1, "The update-triggered assistant must be shown once")
 assert(first:setSleepScreenEnabled(true) and first.settings.sleepscreen_enabled, "The Sleep screen toggle must persist locally")
 first:onSuspend()

@@ -20,7 +20,7 @@ local AppDock = WidgetContainer:extend{
 
 -- Bump this only when a new AppDock release should offer the optional guide.
 -- It is intentionally not a remote update check: all assistant state stays local.
-local SETUP_ASSISTANT_VERSION = "7.9.42"
+local SETUP_ASSISTANT_VERSION = "7.9.43"
 local MODULE_DIR = (debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "")
 
 local DEFAULT_SETTINGS = {
@@ -166,6 +166,8 @@ function AppDock:init()
             -- The update notice is deliberately separate from the manual setup wizard.
             -- Record the offer before showing it, then display it after startup rebuilds.
             self:markSetupAssistantOffered()
+            -- Show once after the home surface exists; the AppDock-owned modal
+            -- is independent of later periodic full refreshes.
             UIManager:nextTick(function() manager:showFeatureDialog() end)
         end
     end)

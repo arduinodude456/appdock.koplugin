@@ -409,7 +409,10 @@ function Keyboard.attach(dialog, options)
     end
     local function showKeyboard()
         if active_keyboard then return true end
-        UIManager:close(dialog)
+        -- The AppDock dialog is already removed before the keyboard appears.
+        -- Remember that state so Cancel does not close the same widget twice.
+        local dialog_was_closed = dialog._closed == true
+        if not dialog_was_closed then UIManager:close(dialog) end
         local keyboard
         keyboard = Keyboard:new{
             value = dialog:getInputText() or "",
@@ -425,7 +428,12 @@ function Keyboard.attach(dialog, options)
             on_cancel = function()
                 local callback = findButtonCallback("cancel")
                 closeKeyboard()
-                if callback then callback() end
+                -- Native KOReader dialogs still need their callback; AppDock's
+                -- modal marks itself closed during the first close and must
+                -- not receive a second UIManager:close call.
+                if callback and not dialog_was_closed and dialog._closed ~= true then
+                    pcall(callback)
+                end
             end,
             on_submit = function(value)
                 dialog:setInputText(value)
