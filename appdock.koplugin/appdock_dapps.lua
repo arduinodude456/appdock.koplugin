@@ -2051,6 +2051,7 @@ function DAppManager:_newContext(host, instance, assigned_dimen)
     local width, height = host.dimen.w, host.dimen.h
     local appbar_height = scale(52)
     assigned_dimen = assigned_dimen or Geom:new{ x = 0, y = appbar_height, w = width, h = height - appbar_height }
+    local appdock_palette = Theme.getPalette(self.appdock)
     -- New DApps should scale type and spacing from the actual pane they receive.
     -- Existing DApps may keep using Screen:scaleBySize() and context.dimen.
     local baseline_width, baseline_height = 600, 748
@@ -2058,6 +2059,7 @@ function DAppManager:_newContext(host, instance, assigned_dimen)
     return {
         manager = self,
         appdock = self.appdock,
+        palette = appdock_palette,
         instance = instance,
         host = host,
         -- Single and split hosts both hand out an explicit local pane rectangle.
