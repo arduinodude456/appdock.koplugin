@@ -14,6 +14,7 @@ local Device = require("device")
 local DAppLogo = require("appdock_logo")
 local Layout = require("appdock_layout")
 local Theme = require("appdock_theme")
+local Wallpaper = require("appdock_wallpaper")
 local Font = require("ui/font")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local Widget = require("ui/widget/widget")
@@ -833,9 +834,23 @@ function AppStore:installDesign(instance, context, entry)
         end
         local suffix = definition.wallpaper:match("%.([%w]+)$") or "png"
         wallpaper_file = design_directory .. "/" .. definition.id .. "_wallpaper." .. suffix:lower()
-        local image_saved, image_save_err = saveFile(wallpaper_file, image)
+        -- Keep an image suffix on the temporary path: Wallpaper.buildPath
+        -- intentionally rejects files whose extensions are not image types.
+        local candidate = wallpaper_file .. ".candidate." .. suffix:lower()
+        os.remove(candidate)
+        local image_saved, image_save_err = saveFile(candidate, image)
         if not image_saved then
             UIManager:show(InfoMessage:new{ text = _("Could not save this design background: ") .. tostring(image_save_err or "") })
+            return
+        end
+        if not Wallpaper.isUsableImage(candidate) then
+            os.remove(candidate)
+            UIManager:show(InfoMessage:new{ text = _("The downloaded design background is not a readable image.") })
+            return
+        end
+        if not os.rename(candidate, wallpaper_file) then
+            os.remove(candidate)
+            UIManager:show(InfoMessage:new{ text = _("Could not install this design background.") })
             return
         end
     end

@@ -48,10 +48,38 @@ local function mix(first, second, first_weight)
     return toHex(r1 * first_weight + r2 * second_weight, g1 * first_weight + g2 * second_weight, b1 * first_weight + b2 * second_weight)
 end
 
-local function contrastInk(hex)
+local function channelLuminance(channel)
+    local value = (tonumber(channel) or 0) / 255
+    if value <= 0.03928 then return value / 12.92 end
+    return ((value + 0.055) / 1.055) ^ 2.4
+end
+
+local function relativeLuminance(hex)
     local red, green, blue = rgb(hex)
-    local luminance = (red * 299 + green * 587 + blue * 114) / 255000
-    return luminance > 0.58 and "#1F1D24" or "#FFFFFF"
+    if not red then return 0 end
+    return channelLuminance(red) * 0.2126 + channelLuminance(green) * 0.7152 + channelLuminance(blue) * 0.0722
+end
+
+local function contrastRatio(first, second)
+    local left, right = relativeLuminance(first), relativeLuminance(second)
+    if left < right then left, right = right, left end
+    return (left + 0.05) / (right + 0.05)
+end
+
+local function contrastInk(hex)
+    -- Pure black/white are deliberate only as fallbacks. They guarantee that
+    -- one option clears the readable-text threshold even on mid-gray palettes.
+    local dark_ratio = contrastRatio(hex, "#000000")
+    local light_ratio = contrastRatio(hex, "#FFFFFF")
+    return dark_ratio >= light_ratio and "#000000" or "#FFFFFF"
+end
+
+-- Store designs remain permissive so existing user-installed themes keep
+-- working, but no text role is ever allowed to inherit an unreadable ink.
+local function readableInk(surface, preferred)
+    local candidate = Theme.normalizeHex(preferred)
+    if candidate and contrastRatio(surface, candidate) >= 4.5 then return candidate end
+    return contrastInk(surface)
 end
 
 local function color(hex, grayscale)
@@ -167,10 +195,13 @@ function Theme.getBuiltinThemes()
 end
 
 function Theme.getThemeList(settings)
+    settings = type(settings) == "table" and settings or {}
+    local theme = type(settings.theme) == "table" and settings.theme or {}
+    local custom = type(theme.custom) == "table" and theme.custom or {}
     local themes = Theme.getBuiltinThemes()
-    for id, definition in pairs((settings.theme and settings.theme.custom) or {}) do
-        if Theme.normalizeHex(definition.primary) then
-            table.insert(themes, { id = id, title = definition.title or id, primary = definition.primary, builtin = false })
+    for id, definition in pairs(custom) do
+        if type(id) == "string" and type(definition) == "table" and Theme.normalizeHex(definition.primary) then
+            table.insert(themes, { id = id, title = type(definition.title) == "string" and definition.title or id, primary = definition.primary, builtin = false })
         end
     end
     table.sort(themes, function(left, right)
@@ -181,12 +212,12 @@ function Theme.getThemeList(settings)
 end
 
 function Theme.resolveDefinition(settings)
-    local theme = settings and settings.theme or {}
-    local selected = theme.selected or "lavender"
+    local theme = type(settings) == "table" and type(settings.theme) == "table" and settings.theme or {}
+    local selected = type(theme.selected) == "string" and theme.selected or "lavender"
     if BUILTIN[selected] then return selected, BUILTIN[selected] end
-    local custom = theme.custom and theme.custom[selected]
-    if custom and Theme.normalizeHex(custom.primary) then
-        return selected, { title = custom.title or selected, primary = Theme.normalizeHex(custom.primary) }
+    local custom = type(theme.custom) == "table" and theme.custom[selected] or nil
+    if type(custom) == "table" and Theme.normalizeHex(custom.primary) then
+        return selected, { title = type(custom.title) == "string" and custom.title or selected, primary = Theme.normalizeHex(custom.primary) }
     end
     return "lavender", BUILTIN.lavender
 end
@@ -221,9 +252,10 @@ function Theme.normalizeDesignDefinition(definition)
 end
 
 function Theme.getActiveDesign(settings)
-    local design = settings and settings.design or nil
+    local design = type(settings) == "table" and type(settings.design) == "table" and settings.design or nil
     local active_id = design and design.active_id
-    local record = type(active_id) == "string" and design.installed and design.installed[active_id] or nil
+    local installed = design and type(design.installed) == "table" and design.installed or nil
+    local record = type(active_id) == "string" and installed and installed[active_id] or nil
     return Theme.normalizeDesignDefinition(record)
 end
 
@@ -240,10 +272,11 @@ function Theme.getButtonFrameStyle(appdock, height, rounded_radius)
         return { radius = rounded_radius, bordersize = 0, color = nil }
     end
     local border = math.max(1, Device.screen:scaleBySize(1))
+    local ink = readableInk(design.background, design.text)
     return {
         radius = math.max(border * 2, math.floor((tonumber(height) or 20) * .14)),
         bordersize = border,
-        color = color(mix(design.text, design.background, .46), GRAYS.outline),
+        color = color(mix(ink, design.background, .46), GRAYS.outline),
     }
 end
 
@@ -269,6 +302,8 @@ function Theme.getPalette(appdock)
     local tertiary = mix(button, background, high_contrast and .72 or .56)
     local surface = high_contrast and background or mix(background, text, .93)
     local surface_variant = high_contrast and mix(text, background, .10) or mix(button, background, .25)
+    local on_surface = readableInk(surface, text)
+    local on_variant = readableInk(surface_variant, text)
     return {
         background = color(background, GRAYS.background),
         surface = color(surface, GRAYS.surface),
@@ -278,15 +313,16 @@ function Theme.getPalette(appdock)
         tertiary = color(tertiary, GRAYS.tertiary),
         button = color(button, GRAYS.primary),
         dropdown = color(dropdown, GRAYS.background),
-        on_primary = color(design and text or contrastInk(primary), GRAYS.on_primary),
-        on_secondary = color(design and text or contrastInk(secondary), GRAYS.on_secondary),
-        on_tertiary = color(design and text or contrastInk(tertiary), GRAYS.on_tertiary),
-        on_button = color(design and text or contrastInk(button), GRAYS.on_primary),
-        on_surface = color(text, GRAYS.on_surface),
-        on_variant = color(mix(text, background, .70), GRAYS.on_variant),
-        outline = color(mix(text, background, .48), GRAYS.outline),
-        track = color(mix(button, background, .52), GRAYS.track),
+        on_primary = color(readableInk(primary, text), GRAYS.on_primary),
+        on_secondary = color(readableInk(secondary, text), GRAYS.on_secondary),
+        on_tertiary = color(readableInk(tertiary, text), GRAYS.on_tertiary),
+        on_button = color(readableInk(button, text), GRAYS.on_primary),
+        on_surface = color(on_surface, GRAYS.on_surface),
+        on_variant = color(on_variant, GRAYS.on_variant),
+        outline = color(mix(on_surface, background, .48), GRAYS.outline),
+        track = color(mix(readableInk(button, text), background, .52), GRAYS.track),
         primary_hex = primary,
+        background_hex = background,
         high_contrast = high_contrast,
     }
 end
@@ -308,5 +344,10 @@ function Theme.createCustom(settings, title, hex)
     settings.theme.selected = id
     return id
 end
+
+Theme._test = {
+    contrastRatio = contrastRatio,
+    readableInk = readableInk,
+}
 
 return Theme

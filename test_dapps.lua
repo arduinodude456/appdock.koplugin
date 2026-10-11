@@ -161,6 +161,14 @@ package.preload["ui/widget/confirmbox"] = function() return WidgetContainer end
 package.preload["ui/widget/inputdialog"] = function() return WidgetContainer end
 package.preload["ui/widget/buttondialog"] = function() return WidgetContainer end
 package.preload["ui/widget/infomessage"] = function() return WidgetContainer end
+package.preload["appdock_dialogs"] = function()
+    return {
+        InputDialog = WidgetContainer, ButtonDialog = WidgetContainer, ConfirmBox = WidgetContainer, InfoMessage = WidgetContainer,
+        toggleWifi = function(network, enabled, callback)
+            if enabled then network:disableWifi(callback) else network:enableWifi(callback) end
+        end,
+    }
+end
 package.preload["ui/widget/widget"] = function() return Widget end
 package.preload["ui/widget/imagewidget"] = function() return Widget end
 package.preload["ui/widget/container/widgetcontainer"] = function() return WidgetContainer end

@@ -108,12 +108,25 @@ package.preload["ui/widget/horizontalspan"] = function() return HorizontalSpan e
 package.preload["ui/widget/textwidget"] = function() return TextWidget end
 package.preload["ui/widget/textboxwidget"] = function() return TextWidget end
 package.preload["ui/widget/infomessage"] = function() return WidgetContainer end
+package.preload["appdock_dialogs"] = function() return { InfoMessage = WidgetContainer, InputDialog = WidgetContainer } end
 package.preload["ui/widget/inputdialog"] = function() return WidgetContainer end
 package.preload["appdock_keyboard"] = function() return WidgetContainer end
 package.preload["appdock_logo"] = function()
     local Logo = Widget:extend({})
     function Logo:init() self.dimen = { w = self.size or 0, h = self.size or 0 } end
     return Logo
+end
+package.preload["appdock_audio"] = function()
+    return {
+        durationOf = function() return 2 end,
+        new = function()
+            return {
+                getError = function() return nil end,
+                startFrom = function() return true end,
+                stop = function() end,
+            }
+        end,
+    }
 end
 package.preload["libs/libkoreader-lfs"] = function() return lfs end
 
@@ -142,7 +155,9 @@ package.preload["ui/uimanager"] = function()
 end
 
 local BWR = dofile(plugin_dir .. "appdock_bwr.lua")
+package.preload["appdock_bwr"] = function() return BWR end
 local Player = dofile(plugin_dir .. "appdock_player.lua")
+package.preload["appdock_player"] = function() return Player end
 local YouTube = dofile(plugin_dir .. "appdock_youtube.lua")
 
 ----------------------------------------------------------------
