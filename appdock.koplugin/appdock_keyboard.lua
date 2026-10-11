@@ -14,6 +14,7 @@ local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
 local _ = require("gettext")
+local SuggestionDatabase = require("appdock_suggestions")
 
 local Screen = Device.screen
 local function scale(n) return Screen:scaleBySize(n) end
@@ -32,14 +33,8 @@ local function casePair(label)
     if UPPER_TO_LOWER[label] then return UPPER_TO_LOWER[label], label end
 end
 
--- Small offline vocabulary: suggestions remain instant and work without a
--- network connection. Callers can provide a context-specific list via
--- Keyboard.open/attach({ suggestions = { ... } }).
-local DEFAULT_SUGGESTIONS = {
-    "AppDock", "Einstellungen", "Bluetooth", "Browser", "Dateien",
-    "DuckDuckGo", "Suche", "YouTube", "Musik", "Downloads",
-    "Kobo", "KOReader", "Theme", "Settings", "Search", "Home",
-}
+-- Suggestions are loaded from the bilingual offline database. A caller can
+-- still pass a small context-specific list through `suggestions`.
 
 local function removeLastUTF8Character(value)
     local index = #value
@@ -115,6 +110,7 @@ local Keyboard = InputContainer:extend{
     numeric_only = false,
     secure = false,
     suggestions = nil,
+    language = nil,
 }
 
 local function appendKey(row, key, gap)
@@ -128,7 +124,7 @@ function Keyboard:init()
     self.symbols_page = false
     self.letter_keys = {}
     self.suggestion_keys = {}
-    self.suggestion_source = self.suggestions or DEFAULT_SUGGESTIONS
+    self.suggestion_source = self.suggestions or SuggestionDatabase.get(self.language)
     self.numeric_rows = {
         { "1", "2", "3" },
         { "4", "5", "6" },
@@ -311,10 +307,10 @@ function Keyboard:_suggestions()
     local token, prefix = self:_suggestionPrefix()
     local result = {}
     for _, candidate in ipairs(self.suggestion_source or {}) do
-        candidate = tostring(candidate)
-        local candidate_lower = candidate:lower()
-        if candidate ~= "" and candidate_lower ~= prefix and (prefix == "" or candidate_lower:sub(1, #prefix) == prefix) then
-            result[#result + 1] = candidate
+        local word = type(candidate) == "table" and candidate.word or tostring(candidate)
+        local candidate_lower = word:lower()
+        if word ~= "" and candidate_lower ~= prefix and (prefix == "" or candidate_lower:sub(1, #prefix) == prefix) then
+            result[#result + 1] = word
             if #result == 3 then break end
         end
     end
@@ -421,6 +417,7 @@ function Keyboard.attach(dialog, options)
             numeric_only = options.numeric_only or dialog.input_type == "number",
             secure = options.secure or false,
             suggestions = options.suggestions,
+            language = options.language,
             on_change = function(value)
                 dialog:setInputText(value)
                 if options.on_change then options.on_change(value) end

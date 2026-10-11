@@ -66,7 +66,7 @@ assert(keyboard.dimen.x == 0 and keyboard.dimen.y + keyboard.dimen.h == 1200, "K
 assert(keyboard.shift and keyboard.letter_keys[1].key.label == "Q", "Shift starts active and displays uppercase labels")
 assert(keyboard.dimen.h > 0 and #keyboard.suggestion_keys == 3, "Alphabetic keyboard must show three suggestion buttons")
 keyboard:_press("A")
-assert(keyboard.suggestion_keys[1].label == "AppDock" or keyboard.suggestion_keys[1].label == "…", "Suggestions update with the typed prefix")
+assert(keyboard.suggestion_keys[1].label ~= "…", "Database suggestions update with the typed prefix")
 keyboard.value = ""
 keyboard.shift = true
 keyboard:_update()

@@ -373,3 +373,19 @@ Die Version-1.0-Oberfläche konzentrierte sich auf eine **ruhige, zusammenhänge
 > **7.9.15:** Repariert YouTube-Music-Suche mit verwertbaren Teilergebnissen, Timeout und Metadaten-only-Abfrage. Der Player erhält ein dunkles Coverlayout mit Künstlerangabe, Timeline und üblichen Musiksteuerungen; die Wiedergabe läuft beim Minimieren weiter. [Details](RELEASE_NOTES_7.9.15.md).
 > **7.9.14:** Ergänzt YouTube Music mit Audio-only-Downloads und Vollfarb-Covern, beschleunigt YouTube-Konvertierungen, überarbeitet Draw zur Malprogramm-Oberfläche mit Undo/Redo, behebt YouTube-Vollbild-Taps und Fensterrefresh nach Ziehen/Skalieren und reduziert den Spitzen-Speicherbedarf der Videowiedergabe. [Details](RELEASE_NOTES_7.9.14.md).
 > **7.9.11:** Beschleunigt YouTube-Farbvideos mit vorberechneten Mehrfarben-Dithermustern und verbessert die Lesbarkeit der Draw-Schaltflächen. [Details](RELEASE_NOTES_7.9.11.md).
+
+## Vorschlagsdatenbank
+
+Die AppDock-Tastatur verwendet die mitgelieferte Offline-Datenbank
+`appdock.koplugin/appdock_suggestions.db`. Sie enthält getrennte deutsche (`de`)
+und englische (`en`) Wortlisten mit Häufigkeitswerten. Das Format ist bewusst
+editierbares TSV:
+
+```text
+Sprache<TAB>Häufigkeit<TAB>Wort
+```
+
+Die Datenbank benötigt weder Netzwerk noch SQLite. Eigene Wörter können als
+weitere Zeilen ergänzt werden; nach einem Neustart werden sie automatisch
+berücksichtigt. Dialoge können zusätzlich eine kontextbezogene `suggestions`
+Liste oder die Sprache `language = "de"` bzw. `language = "en"` übergeben.
