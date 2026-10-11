@@ -20,7 +20,8 @@ local AppDock = WidgetContainer:extend{
 
 -- Bump this only when a new AppDock release should offer the optional guide.
 -- It is intentionally not a remote update check: all assistant state stays local.
-local SETUP_ASSISTANT_VERSION = "6.0.6"
+local SETUP_ASSISTANT_VERSION = "6.0.7"
+local MODULE_DIR = (debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "")
 
 local DEFAULT_SETTINGS = {
     pinned_apps = {
@@ -66,6 +67,7 @@ local DEFAULT_SETTINGS = {
     widget_generator = { items = {}, next_id = 0 },
     setup_assistant = { offered_version = "", completed_version = "" },
     power_saving = false,
+    volume_percent = 100,
     refresh_interval = 60,
     sleepscreen_enabled = false,
     youtube = {
@@ -83,6 +85,25 @@ local DEFAULT_SETTINGS = {
     },
     layout_version = 25,
 }
+
+
+local function readFeaturePages()
+    local pages, current = {}, nil
+    local f = io.open(MODULE_DIR .. "features.adf", "rb")
+    if not f then return pages end
+    for line in f:lines() do
+        line = line:gsub("\r$", "")
+        if line == "[page]" then current = {}; pages[#pages + 1] = current
+        elseif current then
+            local key, value = line:match("^([%w_]+)=(.*)$")
+            if key then current[key] = value end
+        end
+    end
+    f:close()
+    return pages
+end
+
+function AppDock:getFeaturePages() return readFeaturePages() end
 
 local function copyArray(source)
     local result = {}
@@ -202,6 +223,7 @@ function AppDock:_loadSettings()
         widget_generator = stored.widget_generator or { items = {}, next_id = 0 },
         setup_assistant = stored.setup_assistant or { offered_version = "", completed_version = "" },
         power_saving = stored.power_saving == true,
+        volume_percent = math.max(0, math.min(100, tonumber(stored.volume_percent) or 100)),
         refresh_interval = tonumber(stored.refresh_interval) or DEFAULT_SETTINGS.refresh_interval,
         sleepscreen_enabled = stored.sleepscreen_enabled == true,
         youtube = normalizeYouTubeSettings(stored.youtube),

@@ -65,6 +65,15 @@ local function safeDesignImagePath(path)
     return suffix and DESIGN_IMAGE_SUFFIXES[suffix:lower()] == true or false
 end
 
+local fetchText
+local function fetchBinary(url, limit) return fetchText(url, limit) end
+local function resolveRepositoryAsset(design_source, asset)
+    if type(asset) ~= "string" or asset == "" then return asset end
+    if asset:sub(1, 8) == "designs/" then return asset end
+    local directory = type(design_source) == "string" and design_source:match("^(.*)/[^/]+$") or ""
+    return directory ~= "" and (directory .. "/" .. asset) or asset
+end
+
 local function saveFile(path, body)
     local temporary = path .. ".tmp"
     os.remove(temporary)
@@ -582,7 +591,7 @@ function PlayNavTab:onTapPlayNavTab()
     return true
 end
 
-local function fetchText(url, limit)
+fetchText = function(url, limit)
     local socket_url = require("socket.url")
     local socket = require("socket")
     local socketutil = require("socketutil")
@@ -827,7 +836,7 @@ function AppStore:installDesign(instance, context, entry)
     local design_directory = self:_designDirectory()
     local wallpaper_file = ""
     if definition.wallpaper and definition.wallpaper ~= "" then
-        local image, image_err = fetchText(REPOSITORY .. definition.wallpaper, MAX_WALLPAPER_BYTES)
+        local image, image_err = fetchBinary(REPOSITORY .. resolveRepositoryAsset(entry.path, definition.wallpaper), MAX_WALLPAPER_BYTES)
         if not image then
             UIManager:show(InfoMessage:new{ text = _("Could not download this design background: ") .. tostring(image_err or "") })
             return

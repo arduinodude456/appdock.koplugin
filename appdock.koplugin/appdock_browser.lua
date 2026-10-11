@@ -38,7 +38,8 @@ local MAX_CSS_BYTES = 192 * 1024
 local MAX_STYLESHEETS = 3
 local REQUEST_TIMEOUT = 12
 local REQUEST_MAX_TIME = 30
-local DUCKDUCKGO_API = "https://api.duckduckgo.com/?format=json&no_html=1&skip_disambig=1&q="
+local DUCKDUCKGO_API = "https://api.duckduckgo.com/?format=json&no_html=1&skip_disambig=1&no_redirect=1&q="
+local DUCKDUCKGO_HTML = "https://html.duckduckgo.com/html/?q="
 local GOOGLE_SEARCH = "https://www.google.com/search?gbv=1&filter=0&num=10&hl=de&q="
 local BROWSER_USER_AGENT = "Mozilla/5.0 (Linux; Android 12; eReader) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
 
@@ -830,8 +831,22 @@ function Browser:search(instance, context, query)
     end
     state.url = url
     state.duckduckgo_query = query
-    state.html = renderDuckDuckGoResults(query, extractDuckDuckGoResults(payload))
-    state.error = nil
+    local results = extractDuckDuckGoResults(payload)
+    if #results == 0 then
+        -- Instant Answers are sparse for ordinary queries; use the
+        -- server-rendered DuckDuckGo result page as a private fallback.
+        local html_url = DUCKDUCKGO_HTML .. util.urlEncode(query)
+        local html, html_err = fetchUrl(html_url)
+        if html then
+            state.url, state.html = html_url, html
+        else
+            state.html = renderDuckDuckGoResults(query, results)
+            state.error = html_err
+        end
+    else
+        state.html = renderDuckDuckGoResults(query, results)
+    end
+    state.error = state.error or nil
     state.is_home = false
     state.title = "DuckDuckGo"
     if context and context.requestRebuild then context.requestRebuild("ui") end

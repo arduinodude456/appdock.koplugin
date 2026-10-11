@@ -2525,52 +2525,31 @@ function DAppManager:_bluetoothPlugin()
 end
 
 function DAppManager:showBluetoothSettings()
-    if not self:isKoboLibraColour() then
-        self:showSettingsNotice(_("Bluetooth controls are shown only on Kobo Libra Colour."))
-        return
-    end
-    local plugin = self:_bluetoothPlugin()
-    if not plugin then
-        self:showSettingsNotice(_("Bluetooth support requires a separately installed KOReader Bluetooth plugin. AppDock does not control Bluetooth drivers itself. Third-party MTK Bluetooth support can be experimental; returning to Nickel may require a reboot."))
-        return
-    end
-    local menu_items = {}
-    local ok = pcall(plugin.addToMainMenu, plugin, menu_items)
-    local entry = ok and menu_items.bluetooth or nil
-    if type(entry) ~= "table" or type(entry.sub_item_table) ~= "table" then
-        self:showSettingsNotice(_("The installed Bluetooth plugin does not provide a compatible settings menu."))
-        return
-    end
-    local function show_items(items, title)
-        local dialog
-        local buttons = {}
-        for item_index, item in ipairs(items) do
-            if type(item) == "table" then
-                local label = item.text
-                if type(item.text_func) == "function" then
-                    local text_ok, generated = pcall(item.text_func)
-                    label = text_ok and generated or label
-                end
-                if type(label) == "string" then
-                    buttons[#buttons + 1] = { { text = label, callback = function()
-                        UIManager:close(dialog)
-                        if type(item.callback) == "function" then item.callback()
-                        elseif type(item.sub_item_table) == "table" then show_items(item.sub_item_table, label)
-                        elseif type(item.sub_item_table_func) == "function" then
-                            local sub_ok, sub_items = pcall(item.sub_item_table_func)
-                            if sub_ok and type(sub_items) == "table" then show_items(sub_items, label) else self:showSettingsNotice(_("Bluetooth plugin menu is unavailable.")) end
-                        end
-                    end } }
-                end
-            end
-        end
-        buttons[#buttons + 1] = { { text = _("Back"), callback = function() UIManager:close(dialog) end } }
-        dialog = ButtonDialog:new{ title = title, buttons = buttons }
-        UIManager:show(dialog)
-    end
-    show_items(entry.sub_item_table, _("Bluetooth · Kobo Libra Colour") .. "\n" .. _("External plugin only. Third-party MTK Bluetooth may be experimental; returning to Nickel can require a reboot."))
+    local ok, Bluetooth = pcall(require, "appdock_bluetooth")
+    if ok and Bluetooth and Bluetooth.show then Bluetooth.show()
+    else self:showSettingsNotice(_("Bluetooth controls are unavailable on this device.")) end
 end
-
+function DAppManager:showVolumeSettings()
+    local current = tonumber(self.appdock.settings.volume_percent) or 100
+    local dialog
+    local function choose(value)
+        value = math.max(0, math.min(100, value))
+        self.appdock.settings.volume_percent = value
+        if self.appdock._saveSettings then self.appdock:_saveSettings() end
+        -- KOReader versions expose different audio backends; broadcast the
+        -- standard event and retain the value for backends that restore it.
+        pcall(function() UIManager:broadcastEvent(Event:new("SetVolume", value)) end)
+        UIManager:close(dialog)
+        self:showSettingsNotice(string.format(_("Lautstärke: %d%%"), value))
+    end
+    local buttons = {}
+    for value=0,100,10 do
+        buttons[#buttons+1] = { { text = string.format("%d%%", value) .. (value == current and " ✓" or ""), callback = function() choose(value) end } }
+    end
+    buttons[#buttons+1] = { { text = _("Cancel"), callback = function() UIManager:close(dialog) end } }
+    dialog = ButtonDialog:new{ title = _("Volume") .. "\n" .. string.format(_("Current: %d%%"), current), buttons = buttons, rows_per_page = { 6, 8 } }
+    UIManager:show(dialog)
+end
 function DAppManager:showRefreshSettings()
     UIManager:show(RefreshIntervalDialog:new{ appdock = self.appdock })
 end
@@ -2588,6 +2567,26 @@ function DAppManager:showSettingsNotice(text)
 end
 
 function DAppManager:showSetupAssistant(instance, context, automatic)
+    local feature_pages = type(self.appdock.getFeaturePages) == "function" and self.appdock:getFeaturePages() or {}
+    if automatic and #feature_pages > 0 then
+        local page_index = 1
+        local dialog
+        local function show_page()
+            local page = feature_pages[page_index]
+            local last = page_index == #feature_pages
+            local buttons = { { { text = last and _("Fertig") or _("Weiter"), callback = function()
+                if last then self.appdock:completeSetupAssistant(); UIManager:close(dialog)
+                else page_index = page_index + 1; UIManager:close(dialog); show_page() end
+            end } }, { { text = _("Später"), callback = function() UIManager:close(dialog) end } } }
+            dialog = ButtonDialog:new{ title = (page.title or _("AppDock update")) .. "\n\n" .. (page.text or "") .. string.format("\n\n(%d/%d)", page_index, #feature_pages), buttons = buttons }
+            -- ButtonDialog is intentionally text-only here: ADF image paths are optional
+            -- and can be added later without making updates fail on monochrome devices.
+            dialog.description = page.text or ""
+            UIManager:show(dialog)
+        end
+        show_page()
+        return
+    end
     local dialog
     local function refreshSettings()
         if context and context.requestRebuild then context.requestRebuild("ui") end
@@ -3380,6 +3379,12 @@ function DAppManager:_buildSettingsPane(instance, context)
                 callback = function() self:showFrontlightSettings() end,
             },
             {
+                title = _("Volume"),
+                subtitle = string.format(_("System audio · %d%%"), tonumber(self.appdock.settings.volume_percent) or 100),
+                show_state = false,
+                callback = function() self:showVolumeSettings() end,
+            },
+            {
                 title = _("Color themes"),
                 subtitle = selected_theme_title .. " · " .. selected_theme.primary,
                 show_state = false,
@@ -3554,14 +3559,12 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
         },
     }
-    if self:isKoboLibraColour() then
-        table.insert(rows_by_category.network, {
-            title = _("Bluetooth"),
-            subtitle = self:_bluetoothPlugin() and _("Open installed Bluetooth plugin") or _("Install a compatible Bluetooth plugin"),
-            show_state = false,
-            callback = function() self:showBluetoothSettings() end,
-        })
-    end
+    table.insert(rows_by_category.network, {
+        title = _("Bluetooth"),
+        subtitle = _("Bluetooth controls · imported from audiobook.koplugin (not AppDock code)"),
+        show_state = false,
+        callback = function() self:showBluetoothSettings() end,
+    })
 
     -- Android Settings uses labelled groups; preserve every existing action but
     -- attach a semantic icon and a compact section heading to each one.

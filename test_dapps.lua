@@ -431,8 +431,8 @@ local appdock = {
         return true
     end,
     completeSetupAssistant = function(self)
-        self.settings.setup_assistant.offered_version = "6.0.6"
-        self.settings.setup_assistant.completed_version = "6.0.6"
+        self.settings.setup_assistant.offered_version = "6.0.7"
+        self.settings.setup_assistant.completed_version = "6.0.7"
         self:_saveSettings()
     end,
     setLauncherLayout = function(self, changes) for key, value in pairs(changes or {}) do self.settings.layout[key] = value end; self:_saveSettings(); return true end,
@@ -869,7 +869,7 @@ search_step.buttons[3][1].callback()
 local workspace_step = log.shown[#log.shown]
 assert(workspace_step.title:find("Setup 3/3", 1, true), "Skipping app search must advance to the local workspace choice")
 workspace_step.buttons[3][1].callback()
-assert(appdock.settings.setup_assistant.completed_version == "6.0.6" and not appdock:isSimpleModeEnabled("homescreen") and (log.setup_rebuilds or 0) == 1, "Finishing without changes must record setup locally and leave Simple Mode untouched")
+assert(appdock.settings.setup_assistant.completed_version == "6.0.7" and not appdock:isSimpleModeEnabled("homescreen") and (log.setup_rebuilds or 0) == 1, "Finishing without changes must record setup locally and leave Simple Mode untouched")
 assert(appdock:setWorkspaceRestoreEnabled(true), "Local workspace restoration must be explicitly enabled through a persisted setting")
 manager:activate("settings")
 assert(manager.instances.settings.pane.settings_layout.workspace_enabled, "Settings must immediately expose the opt-in local workspace state")

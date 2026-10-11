@@ -1,0 +1,13 @@
+# AppDock update notes. Edit this file for the next release dialog.
+# Format: one page per block; title, text, image (optional), buttons (optional).
+[page]
+title=AppDock 6.0.7
+text=Diese Version behebt die DuckDuckGo-Suche, lädt Store-Hintergrundbilder korrekt und verbessert Lesbarkeit und Kontrast.
+image=
+buttons=Weiter
+
+[page]
+title=Audio und Bluetooth
+text=Die Einstellungen enthalten jetzt Lautstärke und Bluetooth. Der Bluetooth-Code stammt aus audiobook.koplugin und ist nicht von AppDock.
+image=
+buttons=Fertig

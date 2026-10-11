@@ -310,8 +310,8 @@ function Theme.getPalette(appdock)
     local tertiary = mix(button, background, high_contrast and .72 or .56)
     local surface = high_contrast and background or mix(background, text, .93)
     local surface_variant = high_contrast and mix(text, background, .10) or mix(button, background, .25)
-    local on_surface = readableInk(surface, text)
-    local on_variant = readableInk(surface_variant, text)
+    local on_surface = contrastInk(surface)
+    local on_variant = contrastInk(surface_variant)
     return {
         background = color(background, GRAYS.background),
         surface = color(surface, GRAYS.surface),
