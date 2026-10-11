@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="AppDock ist ein anpassbarer E-Ink-Homescreen für KOReader – mit DApps, Widgets, Store, Browser, Draw, Splitscreen und mehr.">
+  <meta name="theme-color" content="#efece3">
+  <title>AppDock — Dein KOReader. Dein Homescreen.</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="site-shell">
+    <header class="topbar">
+      <a class="brand" href="#top" aria-label="AppDock Startseite">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        <span>AppDock</span>
+      </a>
+      <nav class="nav" id="main-nav" aria-label="Hauptnavigation">
+        <a href="#features">Funktionen</a>
+        <a href="#eink">Für E‑Ink</a>
+        <a href="#install">Installation</a>
+        <a class="nav-github" href="https://github.com/arduinodude456/appdock.koplugin" target="_blank" rel="noreferrer">GitHub <span>↗</span></a>
+      </nav>
+      <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="main-nav">Menü</button>
+    </header>
+
+    <main id="top">
+      <section class="hero section-wrap">
+        <div class="hero-copy">
+          <div class="eyebrow"><span class="status-dot"></span> KOReader Plugin · Release 7.9.29</div>
+          <h1>Dein KOReader.<br><em>Dein Homescreen.</em></h1>
+          <p class="hero-lede">AppDock bringt Ordnung, Apps und ein bisschen Android-Gefühl auf deinen E‑Reader — gebaut für kontrastreiche, ruhige E‑Ink-Darstellung.</p>
+          <div class="hero-actions">
+            <a class="button button-dark" href="https://github.com/arduinodude456/appdock.koplugin#installation" target="_blank" rel="noreferrer">Auf GitHub ansehen <span>↗</span></a>
+            <a class="text-link" href="#features">Entdecken <span>↓</span></a>
+          </div>
+          <div class="hero-note"><span>✦</span> Keine unnötigen Animationen. Kein visuelles Rauschen. Nur dein Reader.</div>
+        </div>
+        <div class="hero-visual" aria-label="Illustration der AppDock-Oberfläche">
+          <div class="sun-stamp">E‑INK<br><small>READY</small></div>
+          <div class="reader-device">
+            <div class="device-camera"></div>
+            <div class="reader-screen">
+              <div class="screen-status"><span>09:41</span><span>▰ 78%</span></div>
+              <div class="screen-search"><span>⌕</span><span>Search the web</span><b>◌</b></div>
+              <div class="screen-cards"><div><small>DEVICE</small><strong>Kobo Sage</strong></div><div><small>CONTINUE READING</small><strong>Die Bibel</strong></div></div>
+              <div class="screen-label">YOUR APPS <span>8</span></div>
+              <div class="app-grid">
+                <div class="app-icon"><span class="icon icon-library">▤</span><small>Library</small></div>
+                <div class="app-icon"><span class="icon icon-files">▥</span><small>Files</small></div>
+                <div class="app-icon"><span class="icon icon-draw">✎</span><small>Draw</small></div>
+                <div class="app-icon"><span class="icon icon-store">▦</span><small>Store</small></div>
+                <div class="app-icon"><span class="icon icon-browser">⊙</span><small>Browser</small></div>
+                <div class="app-icon"><span class="icon icon-settings">⚙</span><small>Settings</small></div>
+              </div>
+              <div class="screen-dock"><span>◷</span><span>▥</span><span>✎</span><span>▦</span><span class="dock-more">•••</span></div>
+            </div>
+          </div>
+          <div class="visual-caption"><span class="caption-line"></span><span>ruhig. klar. bereit.</span></div>
+        </div>
+      </section>
+
+      <section class="ticker" aria-label="AppDock Vorteile">
+        <div class="ticker-track"><span>APPDOCK</span><b>✦</b><span>E‑INK FIRST</span><b>✦</b><span>OPEN SOURCE</span><b>✦</b><span>KOReader INSIDE</span><b>✦</b><span>APPDOCK</span><b>✦</b><span>E‑INK FIRST</span><b>✦</b></div>
+      </section>
+
+      <section class="intro section-wrap" id="features">
+        <div class="section-kicker">01 — Mehr als ein Launcher</div>
+        <div class="intro-grid">
+          <h2>Ein Zuhause<br>für alles, was<br><em>du liest, machst<br>und entdeckst.</em></h2>
+          <div class="intro-text"><p>AppDock ist eine anpassbare Homescreen-Schicht direkt in KOReader. Apps, Widgets und DApps leben an einem Ort — übersichtlich, lokal und mit der Ruhe, die ein E‑Ink-Display verdient.</p><a class="text-link" href="#eink">Warum E‑Ink? <span>→</span></a></div>
+        </div>
+      </section>
+
+      <section class="feature-band section-wrap">
+        <article class="feature-card feature-card-large"><div class="feature-number">01</div><div class="feature-symbol">⌘</div><h3>Alles im<br>eigenen Dock.</h3><p>Ein klares 3‑Spalten-Raster, zuletzt verwendete Apps und ein Kontrollzentrum. Ordne, pinne und gestalte deine Oberfläche so, wie du sie brauchst.</p><a href="https://github.com/arduinodude456/appdock.koplugin" target="_blank" rel="noreferrer">Im Repo stöbern ↗</a></article>
+        <article class="feature-card feature-card-light"><div class="feature-number">02</div><div class="feature-symbol">▦</div><h3>Apps, Widgets<br>und DApps.</h3><p>Der AppDock Store bringt lokale DApps und passive Widgets auf deinen Reader. Mit WidgetGenerator erstellst du eigene kleine Karten — ohne Lua-Code.</p><a href="#install">Mehr erfahren ↗</a></article>
+        <article class="feature-card feature-card-accent"><div class="feature-number">03</div><div class="feature-symbol">◒</div><h3>Werkzeuge für<br>deinen Reader.</h3><p>Files, Browser, Draw, Splitscreen, YouTube und YouTube Music. Ein Reader, der sich an deinen Alltag anpasst.</p><a href="#tools">Alle Tools ansehen ↗</a></article>
+      </section>
+
+      <section class="ecosystem section-wrap" id="tools">
+        <div class="section-kicker">02 — Das AppDock-Universum</div>
+        <div class="ecosystem-heading"><h2>Ein Reader,<br><em>viele Möglichkeiten.</em></h2><p>Von der ersten Seite bis zur letzten Zeile: AppDock hält deine wichtigsten Werkzeuge griffbereit.</p></div>
+        <div class="tool-list">
+          <div class="tool-row"><span class="tool-icon">▤</span><strong>Files</strong><span class="tool-desc">Lokale Dateien, Ordner und direkte Übergaben an deine Reader-Apps.</span><span class="tool-arrow">↗</span></div>
+          <div class="tool-row"><span class="tool-icon">⊙</span><strong>Web Browser</strong><span class="tool-desc">Schlank, JavaScript-frei und gemacht für lesbare Webseiten.</span><span class="tool-arrow">↗</span></div>
+          <div class="tool-row"><span class="tool-icon">✎</span><strong>Draw</strong><span class="tool-desc">Zeichnen, Ebenen, Formen, Dithering und bis zu 8 Undo-Schritte.</span><span class="tool-arrow">↗</span></div>
+          <div class="tool-row"><span class="tool-icon">▶</span><strong>YouTube</strong><span class="tool-desc">Videos suchen, konvertieren und auf kompatiblen E‑Ink-Geräten abspielen.</span><span class="tool-arrow">↗</span></div>
+          <div class="tool-row"><span class="tool-icon">♫</span><strong>YouTube Music</strong><span class="tool-desc">Audio-Bibliothek mit Titelbildern, Pause und Fortschrittsanzeige.</span><span class="tool-arrow">↗</span></div>
+        </div>
+      </section>
+
+      <section class="eink-section" id="eink">
+        <div class="eink-inner section-wrap"><div class="section-kicker">03 — Für E‑Ink gebaut</div><div class="eink-content"><div><h2>Weniger Effekt.<br><em>Mehr Fokus.</em></h2><p>AppDock übernimmt die Formensprache moderner Oberflächen — aber nicht deren Daueranimationen, Unschärfen oder Transparenzen. Seiten wechseln direkt. Flächen bleiben kontrastreich. Refreshes passieren gezielt.</p></div><div class="eink-stats"><div><strong>60s</strong><span>periodischer<br>Vollrefresh</span></div><div><strong>4×3</strong><span>Simple Mode<br>Raster</span></div><div><strong>0</strong><span>unnötige<br>Animationen</span></div></div></div></div>
+      </section>
+
+      <section class="install section-wrap" id="install">
+        <div class="install-card"><div class="install-copy"><div class="section-kicker">04 — Startklar</div><h2>Einfach installieren.<br><em>Direkt loslegen.</em></h2><p>Kopiere den Ordner <code>appdock.koplugin</code> in deinen KOReader-Plugin-Ordner, starte KOReader neu und aktiviere AppDock unter <strong>More tools → Plugin management</strong>.</p><a class="button button-dark" href="https://github.com/arduinodude456/appdock.koplugin#installation" target="_blank" rel="noreferrer">Installationsanleitung <span>↗</span></a></div><div class="terminal-card"><div class="terminal-top"><span></span><span></span><span></span><small>KOReader / plugins</small></div><div class="terminal-body"><span class="muted">…/plugins/</span><br><b>└── appdock.koplugin/</b><br>&nbsp;&nbsp;&nbsp;&nbsp;├── main.lua<br>&nbsp;&nbsp;&nbsp;&nbsp;├── appdock_homescreen.lua<br>&nbsp;&nbsp;&nbsp;&nbsp;├── appdock_appstore.lua<br>&nbsp;&nbsp;&nbsp;&nbsp;└── <span class="cursor">_</span></div></div></div>
+      </section>
+
+      <section class="final-cta section-wrap"><div class="cta-mark"><span></span><span></span><span></span><span></span></div><h2>Mach mehr aus<br>deinem KOReader.</h2><p>AppDock ist offen, anpassbar und bereit für deinen Reader.</p><a class="button button-light" href="https://github.com/arduinodude456/appdock.koplugin" target="_blank" rel="noreferrer">AppDock auf GitHub <span>↗</span></a></section>
+    </main>
+
+    <footer class="footer section-wrap"><div class="brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span>AppDock</span></div><p>Ein KOReader-Plugin von <a href="https://github.com/arduinodude456" target="_blank" rel="noreferrer">arduinodude456</a>.</p><p class="footer-right"><a href="https://github.com/arduinodude456/appdock.koplugin" target="_blank" rel="noreferrer">GitHub ↗</a><span>Release 7.9.29</span></p></footer>
+  </div>
+  <script src="script.js"></script>
+</body>
+</html>
