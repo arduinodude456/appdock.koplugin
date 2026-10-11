@@ -1,8 +1,8 @@
 # AppDock update notes. Edit this file for the next release dialog.
 # Format: one page per block; title, text, image (optional), buttons (optional).
 [page]
-title=AppDock 7.9.47
-text=Diese Version lädt die deutsche und englische Vorschlagsdatenbank sicher direkt aus dem Plugin-Ordner.
+title=AppDock 7.9.48
+text=Diese Version enthält die vollständige Vorschlagsdatenbank auch im Installationsarchiv und lädt sie zuverlässig.
 image=
 buttons=Weiter
 

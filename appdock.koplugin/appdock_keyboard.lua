@@ -42,9 +42,17 @@ local FALLBACK_SUGGESTIONS = { "AppDock", "Einstellungen", "Settings", "Search",
 local function loadSiblingDatabase()
     local source = debug.getinfo(1, "S").source or ""
     local directory = source:match("^@(.*/)")
-    if not directory then return nil end
-    local ok, loaded = pcall(dofile, directory .. "appdock_suggestions.lua")
-    if ok and type(loaded) == "table" then return loaded end
+    if directory then
+        local ok, loaded = pcall(dofile, directory .. "appdock_suggestions.lua")
+        if ok and type(loaded) == "table" then return loaded end
+    end
+    if package.searchpath then
+        local module_path = package.searchpath("appdock_suggestions", package.path or "")
+        if module_path then
+            local ok, loaded = pcall(dofile, module_path)
+            if ok and type(loaded) == "table" then return loaded end
+        end
+    end
     return nil
 end
 local function loadSuggestions(language)

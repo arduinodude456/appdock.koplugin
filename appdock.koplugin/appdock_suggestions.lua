@@ -4,13 +4,27 @@
 local Suggestions = {}
 local cache = {}
 local source = debug.getinfo(1, "S").source or ""
-local base = source:match("^@(.*/)" ) or ""
-local database_path = base .. "appdock_suggestions.db"
+local base = source:match("^@(.*/)") or ""
+local database_candidates = {}
+if base ~= "" then database_candidates[#database_candidates + 1] = base .. "appdock_suggestions.db" end
+if os.getenv then
+    local plugin_dir = os.getenv("APPDOCK_PLUGIN_DIR")
+    if plugin_dir and plugin_dir ~= "" then
+        database_candidates[#database_candidates + 1] = plugin_dir:gsub("/$", "") .. "/appdock_suggestions.db"
+    end
+end
+database_candidates[#database_candidates + 1] = "appdock_suggestions.db"
+database_candidates[#database_candidates + 1] = "appdock.koplugin/appdock_suggestions.db"
+local database_path = database_candidates[1] or "appdock_suggestions.db"
 
 local function load()
     if cache.all then return cache.all end
     local all = {}
-    local file = io.open(database_path, "rb")
+    local file
+    for _, candidate in ipairs(database_candidates) do
+        file = io.open(candidate, "rb")
+        if file then database_path = candidate; break end
+    end
     if file then
         for line in file:lines() do
             if line:sub(1, 1) ~= "#" then
