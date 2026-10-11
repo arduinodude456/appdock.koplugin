@@ -484,6 +484,8 @@ function Canvas:init()
         PaintTouch = { GestureRange:new{ ges="touch", range=function() return self.dimen end } },
     }
     self.last_refresh = 0
+    self._pending_refresh_region = nil
+    self._refresh_action = nil
 end
 
 function Canvas:_point(ev)
@@ -694,8 +696,21 @@ function Canvas:_continue(ev, final)
     return true
 end
 
--- Repaints and refreshes only the touched canvas region. A full-canvas repaint
--- per touch event is what made drawing feel unresponsive on E-Ink.
+function Canvas:_flushRefresh(final)
+    local region = self._pending_refresh_region
+    self._pending_refresh_region = nil
+    self._refresh_action = nil
+    if not region or not UIManager.setDirty then return end
+    UIManager:setDirty(nil, "fast", region)
+    if UIManager.forceRePaint then UIManager:forceRePaint() end
+    -- Only the final contact flush waits for the controller. Waiting on every
+    -- high-frequency pen packet is what makes stylus input lag behind a finger.
+    if final and UIManager.yieldToEPDC then UIManager:yieldToEPDC() end
+end
+
+-- Paint the changed pixels immediately, but batch the expensive UI/E-Ink
+-- refresh requests. Styluses can produce considerably more packets than a
+-- finger; queueing one repaint per packet makes the input queue fall behind.
 function Canvas:_refreshStroke(box, force)
     if not box or not self.origin_x then return end
     local app = self.app
@@ -715,14 +730,24 @@ function Canvas:_refreshStroke(box, force)
         w = math.max(1, math.ceil((x1 - x0 + 1) * scale_x)),
         h = math.max(1, math.ceil((y1 - y0 + 1) * scale_y)),
     }
-    UIManager:setDirty(nil, "fast", region)
-    -- E-Ink updates need a moment; refresh at a steady rate instead of queueing
-    -- one panel update per touch sample.
-    local now = monotonicNow()
-    if force or now - (self.last_refresh or 0) >= 0.06 then
-        self.last_refresh = now
-        if UIManager.forceRePaint then UIManager:forceRePaint() end
-        if UIManager.yieldToEPDC then UIManager:yieldToEPDC() end
+    local pending = self._pending_refresh_region
+    if pending then
+        local left = math.min(pending.x, region.x)
+        local top = math.min(pending.y, region.y)
+        local right = math.max(pending.x + pending.w, region.x + region.w)
+        local bottom = math.max(pending.y + pending.h, region.y + region.h)
+        pending.x, pending.y, pending.w, pending.h = left, top, right - left, bottom - top
+    else
+        self._pending_refresh_region = region
+    end
+    if force then
+        if self._refresh_action and UIManager.unschedule then UIManager:unschedule(self._refresh_action) end
+        self:_flushRefresh(true)
+    elseif not self._refresh_action and UIManager.scheduleIn then
+        self._refresh_action = function() self:_flushRefresh(false) end
+        UIManager:scheduleIn(0.035, self._refresh_action)
+    elseif not UIManager.scheduleIn then
+        self:_flushRefresh(false)
     end
 end
 
