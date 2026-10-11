@@ -121,6 +121,7 @@ end
 function Keyboard:init()
     self.width = Screen:getWidth()
     self.shift = true
+    self.caps_lock = self.caps_lock == true
     self.symbols_page = false
     self.letter_keys = {}
     self.suggestion_keys = {}
@@ -198,7 +199,8 @@ function Keyboard:_buildLayout()
         table.insert(content, VerticalSpan:new{ height = scale(6) })
     end
 
-    local key_height = scale(58)
+    -- Larger targets are especially helpful on Carta/E-Ink touchscreens.
+    local key_height = scale(64)
     for _, labels in ipairs(self.rows) do
         local row = HorizontalGroup:new{ align = "center" }
         -- Use the actual row length. The old fixed three-column value made
@@ -225,11 +227,15 @@ function Keyboard:_buildLayout()
 
     if not self.numeric_only then
         self.shift_key = Key:new{
-            label = "⇧", width = math.floor(self.width * .13), height = key_height,
+            label = "⇧", width = math.floor(self.width * .11), height = key_height,
             callback = function() self.shift = not self.shift; self:_update() end,
         }
+        self.caps_key = Key:new{
+            label = "CAPS", width = math.floor(self.width * .13), height = key_height,
+            callback = function() self.caps_lock = not self.caps_lock; self.shift = self.caps_lock or self.shift; self:_update() end,
+        }
         self.symbol_key = Key:new{
-            label = self.symbols_page and "ABC" or "?123", width = math.floor(self.width * .16), height = key_height,
+            label = self.symbols_page and "ABC" or "?123", width = math.floor(self.width * .14), height = key_height,
             callback = function()
                 self.symbols_page = not self.symbols_page
                 self.rows = self.symbols_page and self.symbol_rows or self.alpha_rows
@@ -238,15 +244,16 @@ function Keyboard:_buildLayout()
             end,
         }
         local space = Key:new{
-            label = _("SPACE"), width = math.floor(self.width * .40), height = key_height,
+            label = _("SPACE"), width = math.floor(self.width * .36), height = key_height,
             callback = function() self:_press(" ") end,
         }
         local back = Key:new{
-            label = "⌫", width = math.floor(self.width * .13), height = key_height,
+            label = "⌫", width = math.floor(self.width * .11), height = key_height,
             callback = function() self:_press("←") end,
         }
         local controls = HorizontalGroup:new{ align = "center" }
         appendKey(controls, self.shift_key, key_gap)
+        appendKey(controls, self.caps_key, key_gap)
         appendKey(controls, self.symbol_key, key_gap)
         appendKey(controls, space, key_gap)
         appendKey(controls, back, key_gap)
@@ -254,6 +261,7 @@ function Keyboard:_buildLayout()
         table.insert(content, VerticalSpan:new{ height = scale(5) })
     else
         self.shift_key = nil
+        self.caps_key = nil
         self.symbol_key = nil
     end
 
@@ -334,8 +342,8 @@ function Keyboard:_press(key)
     else
         local lower, upper = casePair(key)
         if lower and not self.numeric_only then
-            self.value = self.value .. (self.shift and upper or lower)
-            self.shift = false
+            self.value = self.value .. ((self.caps_lock or self.shift) and upper or lower)
+            if not self.caps_lock then self.shift = false end
         else
             self.value = self.value .. key
         end
@@ -350,9 +358,10 @@ function Keyboard:_update()
         for index, key in ipairs(self.suggestion_keys) do key:setLabel(suggestions[index] or "…") end
     end
     for _, item in ipairs(self.letter_keys) do
-        item.key:setLabel(self.shift and item.upper or item.lower)
+        item.key:setLabel((self.caps_lock or self.shift) and item.upper or item.lower)
     end
     if self.shift_key then self.shift_key:setActive(self.shift) end
+    if self.caps_key then self.caps_key:setActive(self.caps_lock) end
     if self.on_change then self.on_change(self.value) end
     UIManager:setDirty(self, "fast")
 end
@@ -418,6 +427,7 @@ function Keyboard.attach(dialog, options)
             secure = options.secure or false,
             suggestions = options.suggestions,
             language = options.language,
+            caps_lock = options.caps_lock == true,
             on_change = function(value)
                 dialog:setInputText(value)
                 if options.on_change then options.on_change(value) end

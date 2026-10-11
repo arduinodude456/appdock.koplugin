@@ -64,6 +64,7 @@ local keyboard = Keyboard:new{}
 assert(keyboard.width == 900 and keyboard.dimen.w == 900, "Keyboard spans the full screen width")
 assert(keyboard.dimen.x == 0 and keyboard.dimen.y + keyboard.dimen.h == 1200, "Keyboard is anchored to the bottom edge")
 assert(keyboard.shift and keyboard.letter_keys[1].key.label == "Q", "Shift starts active and displays uppercase labels")
+assert(keyboard.letter_keys[1].key.height == 64 and keyboard.caps_key, "Keyboard uses larger keys and exposes Caps Lock")
 assert(keyboard.dimen.h > 0 and #keyboard.suggestion_keys == 3, "Alphabetic keyboard must show three suggestion buttons")
 keyboard:_press("A")
 assert(keyboard.suggestion_keys[1].label ~= "…", "Database suggestions update with the typed prefix")
@@ -76,6 +77,10 @@ keyboard:_press("W")
 assert(keyboard.value == "Qw", "Unshifted input is lowercase")
 keyboard.shift_key:onTapKey()
 assert(keyboard.shift and keyboard.letter_keys[1].key.label == "Q", "Shift can be re-enabled and is visibly active")
+keyboard.caps_key:onTapKey()
+assert(keyboard.caps_lock and keyboard.caps_key.active and keyboard.letter_keys[1].key.label == "Q", "Caps Lock stays visibly active")
+keyboard.caps_key:onTapKey()
+assert(not keyboard.caps_lock, "Caps Lock can be disabled again")
 local tapped_key = keyboard.letter_keys[2].key
 local before = keyboard.value
 tapped_key:onTapKey()

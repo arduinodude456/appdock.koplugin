@@ -1,8 +1,8 @@
 # AppDock update notes. Edit this file for the next release dialog.
 # Format: one page per block; title, text, image (optional), buttons (optional).
 [page]
-title=AppDock 7.9.44
-text=Diese Version bringt eine echte Offline-Datenbank mit je 3.000 deutschen und englischen Wörtern für schnellere und bessere Vorschläge.
+title=AppDock 7.9.45
+text=Diese Version ergänzt Caps Lock und größere Eingabetasten für eine schnellere und angenehmere Tastaturbedienung.
 image=
 buttons=Weiter
 
