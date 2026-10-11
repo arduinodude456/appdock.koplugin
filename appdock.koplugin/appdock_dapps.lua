@@ -3561,7 +3561,7 @@ function DAppManager:_buildSettingsPane(instance, context)
     }
     table.insert(rows_by_category.network, {
         title = _("Bluetooth"),
-        subtitle = _("Bluetooth controls · imported from audiobook.koplugin (not AppDock code)"),
+        subtitle = _("AppDock-eigene Bluetooth-Steuerung über bluetoothctl"),
         show_state = false,
         callback = function() self:showBluetoothSettings() end,
     })

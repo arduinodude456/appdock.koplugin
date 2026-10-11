@@ -8,6 +8,6 @@ buttons=Weiter
 
 [page]
 title=Audio und Bluetooth
-text=Die Einstellungen enthalten jetzt Lautstärke und Bluetooth. Der Bluetooth-Code stammt aus audiobook.koplugin und ist nicht von AppDock.
+text=Die Einstellungen enthalten jetzt Lautstärke und Bluetooth. Bluetooth wird jetzt vollständig von AppDock selbst gesteuert.
 image=
 buttons=Fertig

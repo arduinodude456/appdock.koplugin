@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.9.32** verbessert Theme-Kontrast, Lockscreen, YouTube-Stabilität, Files-Sortierung und die DuckDuckGo-API-Suche. [Details](RELEASE_NOTES_7.9.30.md).
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.9.33** verbessert Theme-Kontrast, Lockscreen, YouTube-Stabilität, Files-Sortierung und die DuckDuckGo-API-Suche. [Details](RELEASE_NOTES_7.9.30.md).
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst Androids Formensprache, nicht dessen Daueranimationen, Unschärfen oder Transparenzeffekte. Auf E-Ink wechseln App-Seiten und Recently-used-Drawer direkt und ohne Zwischenanimation. Damit bleibt die Darstellung auf monochromen Readern kontrastreich, sparsam und frei von unnötigem Ghosting.
 
@@ -8,7 +8,7 @@
 
 > **3.1.0:** Die Store-DApp **WidgetGenerator** erstellt ohne Lua-Programmierung lokale Homescreen-Widgets aus eigenem Text, Uhrzeit, Datum und verfügbarem Akkustand. Konfigurationen sind auf 20 begrenzt, enthalten nie ausführbaren Nutzer-Code und lassen sich in WidgetGenerator aktualisieren, ausblenden oder löschen. Details stehen in [`RELEASE_NOTES_3.1.0.md`](RELEASE_NOTES_3.1.0.md).
 
-> **3.2.0:** Die Speicheransicht verwendet die vollständige LuaFileSystem-Iterator-Schnittstelle und zeigt lesbare lokale Dateien wieder mit Größe an. Der AppDock-only Lockscreen kann einen optionalen lokalen Namen und ein lokales Profilbild anzeigen; beides ist keine Gerätesperre oder Verschlüsselung. Bluetooth erscheint ausschließlich auf **Kobo Libra Colour** und öffnet nur das Menü einer bereits installierten kompatiblen Bluetooth-Erweiterung. Details stehen in [`RELEASE_NOTES_3.2.0.md`](RELEASE_NOTES_3.2.0.md).
+> **3.2.0:** Die Speicheransicht verwendet die vollständige LuaFileSystem-Iterator-Schnittstelle und zeigt lesbare lokale Dateien wieder mit Größe an. Der AppDock-only Lockscreen kann einen optionalen lokalen Namen und ein lokales Profilbild anzeigen; beides ist keine Gerätesperre oder Verschlüsselung. Bluetooth bietet eine AppDock-eigene Steuerung über die Standard-Schnittstelle `bluetoothctl` und ist nicht auf ein einzelnes Kobo-Modell beschränkt. Details stehen in [`RELEASE_NOTES_3.2.0.md`](RELEASE_NOTES_3.2.0.md).
 
 > **4.0.0 „Bueno“:** Unter **Settings → Display → Beta features** können bereits aktivierte Plugin-Kacheln in einem AppDock-Plugin-Host geöffnet werden. Kooperierende Plugins können einen lokalen Panevertrag und AppDock-Benachrichtigungen nutzen; nicht angepasste Plugins erhalten eine sichere Aktionsliste. Plugin-Hosts sind bewusst **nicht** splittbar, und fremde Plugin-Dialoge werden nicht global abgefangen. Details stehen in [`RELEASE_NOTES_4.0.0.md`](RELEASE_NOTES_4.0.0.md).
 
@@ -310,7 +310,7 @@ Die ersten sechs angehefteten Apps belegen die aktuelle 3×2-Seite. Weitere Apps
 | Plugin mit tieferen Spezialmenüs | Stellt die erste Ebene als Dialog bereit. |
 | Android-System-App | Wird bewusst nicht gestartet, weil AppDock ausschließlich KOReader-intern arbeitet. |
 | Test auf dem konkreten Gerät | Steht noch aus; lokale Smoke-Tests und Syntaxprüfungen sind bestanden. |
-| Bluetooth | Die Einstellung wird nur erkannt, wenn KOReader das Gerät als **Kobo Libra Colour** (`Kobo_monza`) meldet. AppDock benötigt außerdem eine separat installierte kompatible Bluetooth-Erweiterung und delegiert nur an deren Menü. Es sendet keine Treiber-, Shell- oder D-Bus-Befehle. Externe MTK-Bluetooth-Lösungen können experimentell sein; nach der Rückkehr zu Nickel kann ein Neustart erforderlich sein. |
+| Bluetooth | AppDock verwendet eine eigene, kleine Steuerung über `bluetoothctl`. Wenn die Gerätesoftware diese Schnittstelle nicht bereitstellt, zeigt AppDock eine verständliche Fehlermeldung. AppDock installiert keine Firmware und keinen Bluetooth-Treiber. |
 
 ## Qualitätssicherung
 
