@@ -5,6 +5,8 @@ usable in a later split-screen host without global-layout rewrites.
 --]]--
 
 local Blitbuffer = require("ffi/blitbuffer")
+local JSON = require("json")
+local ok_subprocess, Subprocess = pcall(require, "ffi/util")
 local AppDockDialogs = require("appdock_dialogs")
 local ButtonDialog = AppDockDialogs.ButtonDialog
 local DataStorage = require("datastorage")
@@ -1016,6 +1018,8 @@ function DAppManager:new(appdock)
         widget_definitions = {},
         widget_instances = {},
         generated_widget_instances = {},
+        background_jobs = {},
+        background_job_tick = nil,
         browser = WebBrowser:new(),
         file_browser = FileBrowser:new(),
         app_store = AppStore:new(),
@@ -2106,20 +2110,65 @@ function DAppManager:_newContext(host, instance, assigned_dimen)
     }
 end
 
-function DAppManager:_backgroundContext(instance)
+function DAppManager:_backgroundContext(instance, options)
+    options = options or {}
     return {
         manager = self,
         appdock = self.appdock,
         instance = instance,
         background = true,
-        now = os.time(),
+        subprocess = options.subprocess == true,
+        now = options.now or os.time(),
         notify = function(payload)
+            if options.subprocess then return false end
             payload = type(payload) == "table" and payload or {}
             payload.source = payload.source or instance.definition.title or instance.id
             payload.app_id = notificationAppId(instance)
             return self.appdock:notify(payload)
         end,
     }
+end
+
+function DAppManager:_scheduleBackgroundPoll()
+    if self.background_job_tick then return end
+    self.background_job_tick = function()
+        self.background_job_tick = nil
+        for id, job in pairs(self.background_jobs) do
+            local done = not ok_subprocess or not Subprocess.isSubProcessDone or Subprocess.isSubProcessDone(job.pid)
+            if done then
+                local result
+                local f = io.open(job.path, "rb")
+                if f then
+                    local raw = f:read("*a"); f:close(); os.remove(job.path)
+                    local ok, decoded = pcall(JSON.decode, raw)
+                    if ok then result = decoded end
+                end
+                self.background_jobs[id] = nil
+                if job.definition.backgroundComplete then
+                    pcall(job.definition.backgroundComplete, job.instance, self:_backgroundContext(job.instance), result)
+                end
+            end
+        end
+        if next(self.background_jobs) then self:_scheduleBackgroundPoll() end
+    end
+    UIManager:scheduleIn(1, self.background_job_tick)
+end
+
+function DAppManager:_startBackgroundJob(id, definition, instance)
+    if self.background_jobs[id] then return true end
+    if not ok_subprocess or not Subprocess.runInSubProcess then return false end
+    local path = DataStorage:getDataDir() .. "/appdock_background_" .. tostring(os.time()) .. "_" .. id:gsub("[^%w_%-]", "_") .. ".json"
+    local pid = Subprocess.runInSubProcess(function()
+        local result
+        local ok, value = pcall(definition.backgroundTick, instance, self:_backgroundContext(instance, { subprocess = true }))
+        if ok then result = value else result = { error = tostring(value) } end
+        local f = io.open(path, "wb")
+        if f then f:write(JSON.encode(result)); f:close() end
+    end)
+    if not pid or pid == false then return false end
+    self.background_jobs[id] = { pid = pid, path = path, definition = definition, instance = instance }
+    self:_scheduleBackgroundPoll()
+    return true
 end
 
 function DAppManager:runPermittedAutostarts()
@@ -2132,12 +2181,21 @@ function DAppManager:runPermittedAutostarts()
     end
 end
 
+function DAppManager:stopBackgroundJobs()
+    if self.background_job_tick then UIManager:unschedule(self.background_job_tick); self.background_job_tick = nil end
+    for id, job in pairs(self.background_jobs or {}) do
+        if ok_subprocess and Subprocess and Subprocess.terminateSubProcess then pcall(Subprocess.terminateSubProcess, job.pid) end
+        os.remove(job.path)
+        self.background_jobs[id] = nil
+    end
+end
+
 function DAppManager:runPermittedBackgroundTasks()
     for id, definition in pairs(self.definitions) do
         local permissions = self.appdock:getDAppPermissions(id)
         if permissions.background and definition.backgroundTick then
             local instance = self:_instanceFor(id)
-            pcall(definition.backgroundTick, instance, self:_backgroundContext(instance))
+            self:_startBackgroundJob(id, definition, instance)
         end
     end
 end

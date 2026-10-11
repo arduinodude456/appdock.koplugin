@@ -976,6 +976,7 @@ function AppDock:_scheduleDAppTasks()
 end
 
 function AppDock:onCloseWidget()
+    if self.dapp_manager and self.dapp_manager.stopBackgroundJobs then self.dapp_manager:stopBackgroundJobs() end
     if self.dapp_manager and self.dapp_manager.captureWorkspace then self.dapp_manager:captureWorkspace() end
     if self._screen_refresh_tick then
         UIManager:unschedule(self._screen_refresh_tick)
