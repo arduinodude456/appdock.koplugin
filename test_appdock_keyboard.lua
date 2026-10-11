@@ -64,6 +64,12 @@ local keyboard = Keyboard:new{}
 assert(keyboard.width == 900 and keyboard.dimen.w == 900, "Keyboard spans the full screen width")
 assert(keyboard.dimen.x == 0 and keyboard.dimen.y + keyboard.dimen.h == 1200, "Keyboard is anchored to the bottom edge")
 assert(keyboard.shift and keyboard.letter_keys[1].key.label == "Q", "Shift starts active and displays uppercase labels")
+assert(keyboard.dimen.h > 0 and #keyboard.suggestion_keys == 3, "Alphabetic keyboard must show three suggestion buttons")
+keyboard:_press("A")
+assert(keyboard.suggestion_keys[1].label == "AppDock" or keyboard.suggestion_keys[1].label == "…", "Suggestions update with the typed prefix")
+keyboard.value = ""
+keyboard.shift = true
+keyboard:_update()
 keyboard:_press("Q")
 assert(keyboard.value == "Q" and not keyboard.shift and keyboard.letter_keys[1].key.label == "q", "Typing a letter consumes Shift and updates key labels")
 keyboard:_press("W")

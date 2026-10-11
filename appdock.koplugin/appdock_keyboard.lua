@@ -32,6 +32,15 @@ local function casePair(label)
     if UPPER_TO_LOWER[label] then return UPPER_TO_LOWER[label], label end
 end
 
+-- Small offline vocabulary: suggestions remain instant and work without a
+-- network connection. Callers can provide a context-specific list via
+-- Keyboard.open/attach({ suggestions = { ... } }).
+local DEFAULT_SUGGESTIONS = {
+    "AppDock", "Einstellungen", "Bluetooth", "Browser", "Dateien",
+    "DuckDuckGo", "Suche", "YouTube", "Musik", "Downloads",
+    "Kobo", "KOReader", "Theme", "Settings", "Search", "Home",
+}
+
 local function removeLastUTF8Character(value)
     local index = #value
     if index == 0 then return value end
@@ -48,7 +57,7 @@ function Key:init()
     self.dimen = Geom:new{ w = self.width, h = self.height }
     self.text_widget = TextWidget:new{
         text = self.label,
-        face = Font:getFace("cfont", scale(16)),
+        face = Font:getFace("cfont", scale(18)),
         fgcolor = Blitbuffer.COLOR_BLACK,
         padding = 0,
     }
@@ -105,6 +114,7 @@ local Keyboard = InputContainer:extend{
     placeholder = nil,
     numeric_only = false,
     secure = false,
+    suggestions = nil,
 }
 
 local function appendKey(row, key, gap)
@@ -117,6 +127,8 @@ function Keyboard:init()
     self.shift = true
     self.symbols_page = false
     self.letter_keys = {}
+    self.suggestion_keys = {}
+    self.suggestion_source = self.suggestions or DEFAULT_SUGGESTIONS
     self.numeric_rows = {
         { "1", "2", "3" },
         { "4", "5", "6" },
@@ -172,10 +184,25 @@ function Keyboard:_buildLayout()
         table.insert(content, VerticalSpan:new{ height = scale(4) })
     end
     table.insert(content, self.display)
-    table.insert(content, VerticalSpan:new{ height = scale(8) })
-
-    local key_height = scale(50)
+    table.insert(content, VerticalSpan:new{ height = scale(6) })
     local key_gap = scale(4)
+
+    if not self.numeric_only then
+        local suggestion_row = HorizontalGroup:new{ align = "center" }
+        for index = 1, 3 do
+            local slot = index
+            local suggestion_key = Key:new{
+                label = "…", width = math.floor((inner_width - 2 * key_gap) / 3), height = scale(42),
+                callback = function() self:_applySuggestion(slot) end,
+            }
+            self.suggestion_keys[index] = suggestion_key
+            appendKey(suggestion_row, suggestion_key, key_gap)
+        end
+        table.insert(content, suggestion_row)
+        table.insert(content, VerticalSpan:new{ height = scale(6) })
+    end
+
+    local key_height = scale(58)
     for _, labels in ipairs(self.rows) do
         local row = HorizontalGroup:new{ align = "center" }
         -- Use the actual row length. The old fixed three-column value made
@@ -275,6 +302,36 @@ function Keyboard:_displayValue()
     return value
 end
 
+function Keyboard:_suggestionPrefix()
+    local token = self.value:match("([%a%dÄÖÜäöüß]+)$") or ""
+    return token, token:lower()
+end
+
+function Keyboard:_suggestions()
+    local token, prefix = self:_suggestionPrefix()
+    local result = {}
+    for _, candidate in ipairs(self.suggestion_source or {}) do
+        candidate = tostring(candidate)
+        local candidate_lower = candidate:lower()
+        if candidate ~= "" and candidate_lower ~= prefix and (prefix == "" or candidate_lower:sub(1, #prefix) == prefix) then
+            result[#result + 1] = candidate
+            if #result == 3 then break end
+        end
+    end
+    return result
+end
+
+function Keyboard:_applySuggestion(index)
+    local suggestions = self:_suggestions()
+    local suggestion = suggestions[index]
+    if not suggestion then return end
+    local token = self:_suggestionPrefix()
+    local start = #self.value - #token + 1
+    self.value = self.value:sub(1, math.max(0, start - 1)) .. suggestion .. " "
+    self.shift = true
+    self:_update()
+end
+
 function Keyboard:_press(key)
     if key == "←" then
         self.value = removeLastUTF8Character(self.value)
@@ -292,6 +349,10 @@ end
 
 function Keyboard:_update()
     self.display:setText(self.value ~= "" and self:_displayValue() or (self.placeholder or _("Search apps")))
+    if self.suggestion_keys and #self.suggestion_keys > 0 then
+        local suggestions = self:_suggestions()
+        for index, key in ipairs(self.suggestion_keys) do key:setLabel(suggestions[index] or "…") end
+    end
     for _, item in ipairs(self.letter_keys) do
         item.key:setLabel(self.shift and item.upper or item.lower)
     end
@@ -356,6 +417,7 @@ function Keyboard.attach(dialog, options)
             placeholder = options.placeholder or dialog.input_hint,
             numeric_only = options.numeric_only or dialog.input_type == "number",
             secure = options.secure or false,
+            suggestions = options.suggestions,
             on_change = function(value)
                 dialog:setInputText(value)
                 if options.on_change then options.on_change(value) end

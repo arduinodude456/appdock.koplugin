@@ -20,7 +20,7 @@ local AppDock = WidgetContainer:extend{
 
 -- Bump this only when a new AppDock release should offer the optional guide.
 -- It is intentionally not a remote update check: all assistant state stays local.
-local SETUP_ASSISTANT_VERSION = "7.9.41"
+local SETUP_ASSISTANT_VERSION = "7.9.42"
 local MODULE_DIR = (debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "")
 
 local DEFAULT_SETTINGS = {

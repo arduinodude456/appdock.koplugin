@@ -1,8 +1,8 @@
 # AppDock update notes. Edit this file for the next release dialog.
 # Format: one page per block; title, text, image (optional), buttons (optional).
 [page]
-title=AppDock 7.9.41
-text=Diese Version verbessert die AppDock-Tastatur mit Cancel-Schaltfläche, besserer Ziffernanordnung, sichtbarer Rücktaste und lesbarer Darstellung langer Eingaben.
+title=AppDock 7.9.42
+text=Diese Version macht die AppDock-Tastatur schneller: größere Tasten und drei lokale Vorschläge zur Vervollständigung erscheinen direkt über der Tastatur.
 image=
 buttons=Weiter
 
