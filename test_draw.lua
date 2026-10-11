@@ -269,7 +269,14 @@ assert(canvas:handleStylusSample(raw_stylus_press,77),"a raw stylus sample must 
 assert(app.stroke and app.stroke.brush==4,"normalized stylus pressure must scale the selected brush")
 assert(canvas:onPaintTouch(raw_stylus_press) and #app.history==history_before_stylus+1,
     "The matching generic touch must not create a duplicate stylus history step")
-assert(canvas:finishStylus(77) and app.stroke==nil,"ending the raw stylus contact must finish its stroke")
+assert(canvas:onPaintRelease(raw_stylus_press) and app.stroke==nil,
+    "lifting the stylus must finish its stroke through KOReader's release gesture")
+local history_after_lift=#app.history
+assert(canvas:handleStylusSample(raw_stylus_press,77),
+    "putting the stylus down again must start a fresh contact")
+assert(#app.history==history_after_lift+1,
+    "separate stylus contacts must not be joined into one stroke")
+canvas:finishStylus(77)
 
 app.brush_size=1
 app:stamp(8,2,2,1)

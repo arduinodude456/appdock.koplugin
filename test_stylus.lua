@@ -2,6 +2,7 @@
 local plugin_dir = os.getenv("APPDOCK_PLUGIN_DIR") or "/home/ubuntu/appdock.koplugin/appdock.koplugin/"
 
 local registered, registered_callback = 0, nil
+local pressure_hook
 local unregistered = 0
 local input = {
     registerStylusCallback = function(_, callback)
@@ -15,6 +16,11 @@ local input = {
 }
 local device = { input = input, isKobo = true }
 package.preload["device"] = function() return device end
+package.preload["device/input"] = function()
+    return {
+        registerEventAdjustHook = function(_, callback) pressure_hook = callback end,
+    }
+end
 
 local Stylus = dofile(plugin_dir .. "appdock_stylus.lua")
 local samples, finished = {}, {}
@@ -31,16 +37,19 @@ local canvas = {
 
 assert(Stylus:activate(canvas), "Draw must register KOReader's public stylus callback")
 assert(registered == 1 and registered_callback, "The stylus callback must be installed exactly once")
+assert(pressure_hook, "Draw must register the raw Kobo pressure fallback")
 
 local function emit(flags, slot)
     assert(registered_callback(flags or {}, slot), "A valid KOReader stylus slot must reach Draw")
 end
 
-emit({ stylus_eraser_active = true }, { id = 101, x = 120, y = 160, tool = "pen", pressure = 2048 })
+pressure_hook(input, { code = 24, value = 2048 })
+emit({ stylus_eraser_active = true }, { id = 101, x = 120, y = 160, tool = "pen" })
 assert(samples[1].sample.eraser and samples[1].sample.tool == "eraser", "KOReader eraser state must select eraser input")
 assert(math.abs(samples[1].sample.pressure - 2048 / 4095) < 0.0001, "Raw Kobo pressure must be normalized")
 
-emit({ stylus_highlighter_active = true }, { id = 102, x = 220, y = 260, tool = "pen", p = 4095 })
+pressure_hook(input, { code = 24, value = 4095 })
+emit({ stylus_highlighter_active = true }, { id = 102, x = 220, y = 260, tool = "pen" })
 assert(samples[2].sample.marker_button and not samples[2].sample.eraser, "KOReader highlighter state must select marker input")
 assert(samples[2].sample.pressure == 1, "Maximum raw pressure must normalize to one")
 

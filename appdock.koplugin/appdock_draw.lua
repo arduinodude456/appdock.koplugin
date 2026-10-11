@@ -758,10 +758,11 @@ end
 
 function Canvas:onPaintRelease(_, ev)
     if self._raw_stylus_active then
-        if self._stylus_tracking_id == nil then
-            self._raw_stylus_active = nil
-            self._ignore_gesture_after_stylus = nil
-        end
+        -- The public stylus callback supplies contact samples, but KOReader's
+        -- generic pan_release is the reliable end-of-contact notification.
+        -- Finish here so lifting and touching down elsewhere starts a new
+        -- stroke instead of extending the previous one.
+        self:finishStylus(self._stylus_tracking_id)
         return true
     end
     local app = self.app

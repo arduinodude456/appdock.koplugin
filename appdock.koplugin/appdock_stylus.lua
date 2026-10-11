@@ -7,10 +7,14 @@ path used by quicky.koplugin and avoids depending on private raw-event hooks.
 --]]--
 
 local Device = require("device")
+local ok_input, Input = pcall(require, "device/input")
+if not ok_input then Input = nil end
 
 local Stylus = {
     canvas = nil,
     callback = nil,
+    pressure = nil,
+    pressure_hook_registered = false,
 }
 
 local function number(value)
@@ -44,9 +48,24 @@ function Stylus:_sample(input, slot)
         stylus = true,
         eraser = eraser,
         marker_button = marker,
-        pressure = normalizePressure(slot.pressure or slot.p),
+        pressure = normalizePressure(slot.pressure or slot.p or self.pressure),
         id = slot.id,
     }
+end
+
+function Stylus:_registerPressureHook()
+    if self.pressure_hook_registered or not Input
+        or type(Input.registerEventAdjustHook) ~= "function" then return false end
+    local ok = pcall(Input.registerEventAdjustHook, Input, function(_, event)
+        -- Quicky's InputListener records this exact Kobo sensor value. The
+        -- parsed stylus slot does not expose it reliably on every KOReader
+        -- build, so retain the latest raw value as a callback fallback.
+        if type(event) == "table" and tonumber(event.code) == 24 then
+            self.pressure = tonumber(event.value)
+        end
+    end, { name = "AppDock Draw Kobo stylus pressure" })
+    if ok then self.pressure_hook_registered = true end
+    return ok
 end
 
 function Stylus:_callback(input, slot)
@@ -62,6 +81,7 @@ function Stylus:activate(canvas)
     if not canvas then return false end
     local input = Device and Device.input
     if not input or type(input.registerStylusCallback) ~= "function" then return false end
+    self:_registerPressureHook()
     if self.canvas and self.canvas ~= canvas then self:deactivate(self.canvas) end
     if self.canvas == canvas and self.callback then return true end
 
