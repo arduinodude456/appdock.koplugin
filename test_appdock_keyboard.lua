@@ -102,6 +102,7 @@ assert(Keyboard.attach(dialog, { secure = true, on_change = function(value) live
 assert(dialog._input_widget.onTapTextBox(), "Tapping the dialog field opens the AppDock keyboard")
 local numeric_keyboard = ui.shown
 assert(numeric_keyboard.numeric_only and numeric_keyboard.secure, "Number dialogs use the numeric layout and secure display")
+assert(numeric_keyboard.on_cancel and numeric_keyboard.on_submit, "Keyboard must expose explicit cancel and submit actions")
 assert(numeric_keyboard.width == 900 and numeric_keyboard.dimen.x == 0 and numeric_keyboard.dimen.y + numeric_keyboard.dimen.h == 1200, "Numeric keyboard also spans the full width at the bottom")
 assert(ui.closed == dialog, "The KOReader input dialog is closed before the AppDock keyboard is shown")
 numeric_keyboard:_press("1")
@@ -110,4 +111,5 @@ assert(numeric_keyboard.display.text == "••" and live_value == "12" and dial
 numeric_keyboard.on_submit(numeric_keyboard.value)
 assert(dialog.text == "12" and ui.closed == numeric_keyboard, "Done returns the value to the original dialog")
 
+assert(keyboard:_displayValue():sub(1, 1) == "Q", "Short values remain fully visible")
 print("AppDock keyboard test: OK")

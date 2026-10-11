@@ -178,8 +178,10 @@ function Keyboard:_buildLayout()
     local key_gap = scale(4)
     for _, labels in ipairs(self.rows) do
         local row = HorizontalGroup:new{ align = "center" }
-        local columns = self.numeric_only and 3 or #labels
-        local key_width = math.floor((inner_width - columns * key_gap) / columns)
+        -- Use the actual row length. The old fixed three-column value made
+        -- the final numeric row unnecessarily narrow and left a large hole.
+        local columns = #labels
+        local key_width = math.floor((inner_width - (columns - 1) * key_gap) / columns)
         for _, label in ipairs(labels) do
             local key_label = label
             local lower, upper = casePair(key_label)
@@ -217,7 +219,7 @@ function Keyboard:_buildLayout()
             callback = function() self:_press(" ") end,
         }
         local back = Key:new{
-            label = "←", width = math.floor(self.width * .13), height = key_height,
+            label = "⌫", width = math.floor(self.width * .13), height = key_height,
             callback = function() self:_press("←") end,
         }
         local controls = HorizontalGroup:new{ align = "center" }
@@ -233,15 +235,20 @@ function Keyboard:_buildLayout()
     end
 
     local clear = Key:new{
-        label = _("Clear"), width = math.floor(self.width * .28), height = scale(46),
+        label = _("Clear"), width = math.floor(self.width * .22), height = scale(46),
         callback = function() self.value = ""; self:_update() end,
     }
+    local cancel = Key:new{
+        label = _("Cancel"), width = math.floor(self.width * .22), height = scale(46),
+        callback = function() if self.on_cancel then self.on_cancel() else UIManager:close(self) end end,
+    }
     local done = Key:new{
-        label = _("Done"), width = math.floor(self.width * .62), height = scale(46),
+        label = _("Done"), width = math.floor(self.width * .50), height = scale(46),
         callback = function() if self.on_submit then self.on_submit(self.value) end end,
     }
     local actions = HorizontalGroup:new{ align = "center" }
     appendKey(actions, clear, key_gap)
+    appendKey(actions, cancel, key_gap)
     appendKey(actions, done, key_gap)
     table.insert(content, actions)
 
@@ -262,7 +269,10 @@ end
 
 function Keyboard:_displayValue()
     if self.secure then return string.rep("•", #self.value) end
-    return self.value
+    local value = self.value
+    local max_chars = math.max(12, math.floor(self.width / scale(18)))
+    if #value > max_chars then return "…" .. value:sub(-max_chars + 1) end
+    return value
 end
 
 function Keyboard:_press(key)

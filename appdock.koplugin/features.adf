@@ -1,8 +1,8 @@
 # AppDock update notes. Edit this file for the next release dialog.
 # Format: one page per block; title, text, image (optional), buttons (optional).
 [page]
-title=AppDock 6.0.7
-text=Diese Version behebt die DuckDuckGo-Suche, lädt Store-Hintergrundbilder korrekt und verbessert Lesbarkeit und Kontrast.
+title=AppDock 7.9.41
+text=Diese Version verbessert die AppDock-Tastatur mit Cancel-Schaltfläche, besserer Ziffernanordnung, sichtbarer Rücktaste und lesbarer Darstellung langer Eingaben.
 image=
 buttons=Weiter
 
