@@ -34,7 +34,7 @@ function BootScreen:rebuild()
         children[#children + 1] = VerticalSpan:new{ width = scale(15) }
         children[#children + 1] = TextWidget:new{ text = "AppDock", face = Font:getFace("cfont", scale(27)), fgcolor = Blitbuffer.COLOR_BLACK, bold = true }
         children[#children + 1] = VerticalSpan:new{ width = scale(5) }
-        children[#children + 1] = TextWidget:new{ text = _("by @arduinodude456"), face = Font:getFace("smallinfofont", scale(12)), fgcolor = Blitbuffer.COLOR_DARK_GRAY }
+        children[#children + 1] = TextWidget:new{ text = _("by @arduinodude456 & Quin"), face = Font:getFace("smallinfofont", scale(12)), fgcolor = Blitbuffer.COLOR_DARK_GRAY }
     end
     self:clear()
     self[1] = FrameContainer:new{
