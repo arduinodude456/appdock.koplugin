@@ -28,8 +28,13 @@ local ColorRGB32 = ffi.metatype("AppDockDrawTestColor", {
             and self.blue == other.blue and self.alpha == other.alpha
     end,
 })
+local function colorFromString(value)
+    local hex = value:gsub("#", "")
+    return ColorRGB32(tonumber(hex:sub(1, 2), 16), tonumber(hex:sub(3, 4), 16),
+        tonumber(hex:sub(5, 6), 16), tonumber(hex:sub(7, 8), 16) or 0xFF)
+end
 package.preload["gettext"]=function() return function(s) return s end end
-package.preload["ffi/blitbuffer"]=function() return {COLOR_WHITE=1,COLOR_BLACK=2,COLOR_GRAY_8=3,COLOR_LIGHT_GRAY=4,ColorRGB32=function(r,g,b,a) return ColorRGB32(r,g,b,a or 0xFF) end} end
+package.preload["ffi/blitbuffer"]=function() return {COLOR_WHITE=1,COLOR_BLACK=2,COLOR_GRAY_8=3,COLOR_LIGHT_GRAY=4,ColorRGB32=function(r,g,b,a) return ColorRGB32(r,g,b,a or 0xFF) end,colorFromString=colorFromString} end
 package.preload["device"]=function() return {screen={getSize=function() return {w=600,h=800} end,scaleBySize=function(_,v) return v end,isColorEnabled=function() return color_enabled end,isColorScreen=function() return color_screen end}} end
 package.preload["ui/geometry"]=function() return {new=function(_,a) return a end} end
 package.preload["ui/gesturerange"]=function() return {new=function(_,a) return a end} end
@@ -81,6 +86,12 @@ app.layers={{name="Layer 1",width=12,height=8,pixels=base}}
 assert(app:addLayer() and #app.layers==2 and app.active==2,"a new transparent layer must become active")
 app:stamp(4,3,3,1)
 assert(app.layers[2].pixels[3*12+4]==3,"brush writes to the active layer")
+app:stamp(8,4,3,2)
+local two_pixel_stamp_count=0
+for yy=3,4 do for xx=7,8 do
+    if app.layers[2].pixels[yy*12+xx]==3 then two_pixel_stamp_count=two_pixel_stamp_count+1 end
+end end
+assert(two_pixel_stamp_count==4,"a 2 px brush must visibly cover a 2x2 stamp instead of matching a 1 px brush")
 app:floodFill(0,0,2)
 assert(app.layers[2].pixels[0]==2 and app.layers[2].pixels[3*12+4]==3,"fill replaces only the connected region")
 local custom_color=app:setRGBColor(18,160,255)
@@ -151,12 +162,14 @@ local draw_notice
 local pane=app:buildPane({}, {dimen={w=600,h=800},requestRebuild=function() end,notify=function(message) draw_notice=message end})
 assert(pane.is_overlap_group and pane.dimen.w==600 and pane.dimen.h==800,
     "The Draw pane must position its toolbar and canvas in a screen-sized OverlapGroup")
-local canvas,pen,chips,active_tool_button
+local canvas,pen,chips,active_tool_button,brush_minus,brush_plus
 local strip_symbols={}
 for _,child in ipairs(pane) do
     if child.app==app then canvas=child end
     if child.symbol=="pen" then pen=child end
     if child.symbol=="trash" then chips=child end
+    if child.symbol=="minus" then brush_minus=child end
+    if child.symbol=="plus" then brush_plus=child end
     if child.symbol==app.tool then active_tool_button=child end
     if child.symbol and child.ges_events and child.ges_events.TapTool
         and child.overlap_offset and child.overlap_offset[2]==6 then
@@ -166,6 +179,7 @@ end
 assert(canvas and canvas.overlap_offset[1]>0 and canvas.overlap_offset[2]>0,
     "The Draw canvas must be positioned below the toolbar instead of at the top-left origin")
 assert(pen,"The Draw pane must construct one icon button per tool")
+assert(brush_minus and brush_plus,"The options row must expose working brush-size controls")
 assert(active_tool_button and active_tool_button.active==true,
     "The selected tool must be highlighted in the tool strip")
 for _,symbol in ipairs({"pen","eraser","line","rect","circle","fill","undo","redo","refresh"}) do
@@ -179,6 +193,16 @@ app.tool="eraser"
 assert(pen:onTapTool() and app.tool=="pen",
     "The Draw tool button must still invoke its tool action")
 assert(app:statusText():find("Pen",1,true),"Selecting a tool must update the status line")
+app.brush_size=2
+brush_plus:onTapTool()
+assert(app.brush_size==4,"Tapping plus must increase the selected brush diameter")
+brush_minus:onTapTool()
+assert(app.brush_size==2,"Tapping minus must decrease the selected brush diameter")
+app.brush_size=7
+assert(canvas:_brushFor({pressure=0.1,pointer_type="finger"})==7,
+    "Touch pressure must not silently shrink the selected brush to one pixel")
+assert(canvas:_brushFor({pressure=0.1,pointer_type="stylus"})==1,
+    "A pen/stylus may still use explicit pressure sensitivity")
 
 local swatch
 for _,child in ipairs(pane) do
@@ -274,7 +298,8 @@ app:stamp(10,6,rendered_rgb_id,1)
 local observed_custom_rgb=false
 color_enabled, color_screen = false, true
 local color_painted, color_error = pcall(canvas.paintTo, canvas, {
-    paintRect=function(_,_,_,_,_,color)
+    paintRect=function() end,
+    paintRectRGB32=function(_,_,_,_,_,color)
         if type(color)=="cdata" and color.red==12 and color.green==34 and color.blue==56 then
             observed_custom_rgb=true
         end
@@ -283,7 +308,20 @@ local color_painted, color_error = pcall(canvas.paintTo, canvas, {
 color_enabled, color_screen = false, false
 assert(color_painted, "A color canvas must not compare a BlitBuffer ColorRGB32 value with nil: " .. tostring(color_error))
 assert(observed_custom_rgb,
-    "A color-capable screen must paint custom RGB even when KOReader's global color-rendering preference is off")
+    "A color-capable screen must send custom RGB through paintRectRGB32 even when global color rendering is off")
+observed_custom_rgb=false
+color_enabled, color_screen = true, false
+color_painted, color_error = pcall(canvas.paintTo, canvas, {
+    paintRect=function() end,
+    paintRectRGB32=function(_,_,_,_,_,color)
+        if type(color)=="cdata" and color.red==12 and color.green==34 and color.blue==56 then
+            observed_custom_rgb=true
+        end
+    end,
+}, paint_x, paint_y)
+color_enabled, color_screen = false, false
+assert(color_painted and observed_custom_rgb,
+    "Minecraft's isColorEnabled path must also send custom RGB through paintRectRGB32: " .. tostring(color_error))
 ;(function()
     local device = require("device")
     local old_size, old_scale = device.screen.getSize, device.screen.scaleBySize
