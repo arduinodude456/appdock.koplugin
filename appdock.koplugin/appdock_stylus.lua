@@ -56,14 +56,17 @@ end
 function Stylus:_registerPressureHook()
     if self.pressure_hook_registered or not Input
         or type(Input.registerEventAdjustHook) ~= "function" then return false end
-    local ok = pcall(Input.registerEventAdjustHook, Input, function(_, event)
-        -- Quicky's InputListener records this exact Kobo sensor value. The
-        -- parsed stylus slot does not expose it reliably on every KOReader
-        -- build, so retain the latest raw value as a callback fallback.
-        if type(event) == "table" and tonumber(event.code) == 24 then
+    local configured_pressure_code = tonumber((Device.input or Input).pressure_event) or 58
+    local ok = pcall(Input.registerEventAdjustHook, Input, function(input, event)
+        -- KOReader configures Kobo Elipsa/Sage/Libra-family devices with
+        -- ABS_MT_PRESSURE (Linux code 58). Code 24 is ABS_PRESSURE and is only
+        -- the legacy fallback on older devices; do not read it when KOReader
+        -- explicitly selected another pressure axis.
+        local pressure_code = tonumber(input and input.pressure_event) or configured_pressure_code
+        if type(event) == "table" and tonumber(event.code) == pressure_code then
             self.pressure = tonumber(event.value)
         end
-    end, { name = "AppDock Draw Kobo stylus pressure" })
+    end, { name = "AppDock Draw KOReader pressure axis" })
     if ok then self.pressure_hook_registered = true end
     return ok
 end

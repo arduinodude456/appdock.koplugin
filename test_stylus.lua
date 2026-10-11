@@ -5,6 +5,7 @@ local registered, registered_callback = 0, nil
 local pressure_hook
 local unregistered = 0
 local input = {
+    pressure_event = 58,
     registerStylusCallback = function(_, callback)
         registered = registered + 1
         registered_callback = callback
@@ -44,11 +45,13 @@ local function emit(flags, slot)
 end
 
 pressure_hook(input, { code = 24, value = 2048 })
+assert(not samples[1], "Legacy ABS_PRESSURE code 24 must not override KOReader's configured axis")
+pressure_hook(input, { code = 58, value = 2048 })
 emit({ stylus_eraser_active = true }, { id = 101, x = 120, y = 160, tool = "pen" })
 assert(samples[1].sample.eraser and samples[1].sample.tool == "eraser", "KOReader eraser state must select eraser input")
 assert(math.abs(samples[1].sample.pressure - 2048 / 4095) < 0.0001, "Raw Kobo pressure must be normalized")
 
-pressure_hook(input, { code = 24, value = 4095 })
+pressure_hook(input, { code = 58, value = 4095 })
 emit({ stylus_highlighter_active = true }, { id = 102, x = 220, y = 260, tool = "pen" })
 assert(samples[2].sample.marker_button and not samples[2].sample.eraser, "KOReader highlighter state must select marker input")
 assert(samples[2].sample.pressure == 1, "Maximum raw pressure must normalize to one")
