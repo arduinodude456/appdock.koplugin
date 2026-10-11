@@ -13,6 +13,7 @@
 - Mehrseitiger Update-Dialog aus `features.adf`.
 - Korrekte Store-Theme-Hintergrundbilder.
 - Verbesserte Theme-Kontraste und Lautstärkeeinstellungen.
+- DChat 1.8.7 erhält die aktive AppDock-Palette direkt vom DApp-Host; dadurch bleiben Flächen und Textfarben auch bei dunklen Store-Themes lesbar.
 
 ## Hinweis
 
