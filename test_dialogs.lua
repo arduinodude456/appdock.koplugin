@@ -35,6 +35,7 @@ function TextWidget:paintTo(bb, x, y)
 end
 
 local scheduled, closed = {}, {}
+local shown = {}
 local UIManager = {
     scheduleIn = function(_, seconds, callback) scheduled[#scheduled + 1] = { seconds = seconds, callback = callback } end,
     unschedule = function() end,
@@ -42,6 +43,7 @@ local UIManager = {
         closed[#closed + 1] = widget
         if widget.onCloseWidget then widget:onCloseWidget() end
     end,
+    show = function(_, widget) shown[#shown + 1] = widget end,
     setDirty = function() end,
 }
 
@@ -65,8 +67,25 @@ package.preload["ui/widget/container/inputcontainer"] = function() return InputC
 package.preload["ui/widget/textwidget"] = function() return TextWidget end
 package.preload["ui/uimanager"] = function() return UIManager end
 package.preload["gettext"] = function() return function(text) return text end end
+local appdock_keyboard_enabled = true
 package.preload["appdock_keyboard"] = function()
-    return { attach = function(widget) widget.appdock_keyboard_attached = true; return true end }
+    return {
+        setEnabled = function(enabled) appdock_keyboard_enabled = enabled ~= false end,
+        attach = function(widget, options)
+            if not appdock_keyboard_enabled then
+                widget.appdock_keyboard_options = options
+                return false
+            end
+            widget.appdock_keyboard_attached = true
+            return true
+        end,
+    }
+end
+package.preload["ui/widget/inputdialog"] = function()
+    local NativeInputDialog = InputContainer:extend({})
+    function NativeInputDialog:getInputText() return self.input or "" end
+    function NativeInputDialog:onShowKeyboard() self.native_keyboard_opened = true; return true end
+    return NativeInputDialog
 end
 
 local Dialogs = dofile(plugin_dir .. "appdock_dialogs.lua")
@@ -157,5 +176,25 @@ local save_hit = input_dialog._hits[#input_dialog._hits]
 input_dialog:onTapAppDockModal(nil, { pos = { x = save_hit.x + 1, y = save_hit.y + 1 } })
 assert(submitted == "after" and input_dialog._closed, "The custom input dialog must return the entered value to its action callback")
 
-assert(#closed == 3, "Info, confirmation, and input dialogs must each close through UIManager")
+local native_submitted
+local native_fallback_dialog
+native_fallback_dialog = Dialogs.InputDialog:new{
+    title = "Native fallback",
+    input = "before",
+    input_hint = "Enter a value",
+    buttons = { { { text = "Save", callback = function() native_submitted = native_fallback_dialog:getInputText() end } } },
+}
+package.loaded["appdock_keyboard"].setEnabled(false)
+package.loaded["appdock_keyboard"].attach(native_fallback_dialog, { secure = true })
+assert(native_fallback_dialog:onShowKeyboard(), "Disabling AppDock's keyboard must open the native input route")
+local native_input = shown[#shown]
+assert(native_input.native_keyboard_opened and native_input.title == "Native fallback" and native_input.secure,
+    "The native KOReader dialog must open its own keyboard with the original title and secure-input preference")
+native_input.input = "typed natively"
+native_input.buttons[1][1].callback()
+assert(native_fallback_dialog:getInputText() == "typed natively" and native_submitted == "typed natively",
+    "The native fallback must pass its entered value back into the AppDock action")
+package.loaded["appdock_keyboard"].setEnabled(true)
+
+assert(#closed == 4, "Info, confirmation, and both input dialogs must close through UIManager")
 print("AppDock custom dialog tests passed")

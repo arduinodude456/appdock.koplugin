@@ -19,6 +19,7 @@ local _ = require("gettext")
 -- AppDock from opening.
 local SuggestionDatabase
 local configured_language = "auto"
+local keyboard_enabled = true
 
 local Screen = Device.screen
 local function scale(n) return Screen:scaleBySize(n) end
@@ -486,12 +487,25 @@ function Keyboard.getLanguage()
     return configured_language
 end
 
+function Keyboard.setEnabled(enabled)
+    keyboard_enabled = enabled ~= false
+    return keyboard_enabled
+end
+
+function Keyboard.isEnabled()
+    return keyboard_enabled
+end
+
 -- The native dialog is only a compatibility object now. It is closed before
 -- the AppDock keyboard is shown, so the typed value can be mirrored directly
 -- into the owning surface without a second KOReader input field.
 function Keyboard.attach(dialog, options)
     options = options or {}
     if type(dialog) ~= "table" or type(dialog.getInputText) ~= "function" or type(dialog.setInputText) ~= "function" then
+        return false
+    end
+    if not keyboard_enabled then
+        dialog.appdock_keyboard_options = options
         return false
     end
     if dialog.appdock_keyboard_attached then return true end

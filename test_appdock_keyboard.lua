@@ -135,5 +135,16 @@ assert(dialog.text == "12" and ui.closed == numeric_keyboard, "Done returns the 
 
 assert(keyboard:_displayValue():sub(1, 1) == "Q", "Short values remain fully visible")
 assert(Keyboard.setLanguage("de") == "de" and Keyboard.getLanguage() == "de", "Keyboard language can be set persistently by AppDock Settings")
+assert(Keyboard.isEnabled(), "The AppDock keyboard must remain enabled by default")
+local native_dialog = { text = "", _input_widget = {}, appdock_keyboard_attached = nil }
+function native_dialog:getInputText() return self.text end
+function native_dialog:setInputText(value) self.text = value end
+function native_dialog:onShowKeyboard() self.native_keyboard_opened = true; return true end
+assert(Keyboard.setEnabled(false) == false and not Keyboard.isEnabled(), "AppDock Settings must be able to disable the custom keyboard")
+assert(not Keyboard.attach(native_dialog) and not native_dialog.appdock_keyboard_attached,
+    "When disabled, the AppDock adapter must leave the native dialog untouched")
+assert(native_dialog:onShowKeyboard() and native_dialog.native_keyboard_opened,
+    "A native dialog must keep its KOReader keyboard when the AppDock keyboard is disabled")
+assert(Keyboard.setEnabled(true) and Keyboard.isEnabled(), "The custom keyboard must be re-enableable")
 assert(Keyboard._test.resolvedLanguage("de") == "de" and Keyboard._test.resolvedLanguage("unsupported") == "en", "Keyboard resolves explicit and automatic languages safely")
 print("AppDock keyboard test: OK")

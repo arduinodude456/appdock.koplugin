@@ -9,6 +9,7 @@ local JSON = require("json")
 local ok_subprocess, Subprocess = pcall(require, "ffi/util")
 local AppDockDialogs = require("appdock_dialogs")
 local ButtonDialog = AppDockDialogs.ButtonDialog
+local ConfirmBox = AppDockDialogs.ConfirmBox
 local DataStorage = require("datastorage")
 local CenterContainer = require("ui/widget/container/centercontainer")
 local Device = require("device")
@@ -3732,6 +3733,31 @@ function DAppManager:_buildSettingsPane(instance, context)
                 callback = function() self:showKeyboardLanguageSelector(context) end,
             },
             {
+                title = _("AppDock keyboard"),
+                subtitle = (not self.appdock.getKeyboardEnabled or self.appdock:getKeyboardEnabled())
+                    and _("Enabled · AppDock keyboard") or _("Disabled · use KOReader keyboard"),
+                enabled = not self.appdock.getKeyboardEnabled or self.appdock:getKeyboardEnabled(),
+                callback = function()
+                    local currently_enabled = not self.appdock.getKeyboardEnabled or self.appdock:getKeyboardEnabled()
+                    if currently_enabled then
+                        local confirmation = ConfirmBox:new{
+                            title = _("Wirklich??"),
+                            text = _("Disable the AppDock keyboard and use the KOReader keyboard instead?"),
+                            ok_text = _("Disable"),
+                            cancel_text = _("Cancel"),
+                            ok_callback = function()
+                                if self.appdock.setKeyboardEnabled then self.appdock:setKeyboardEnabled(false) end
+                                if context.requestRebuild then context.requestRebuild("ui") end
+                            end,
+                        }
+                        UIManager:show(confirmation)
+                    else
+                        if self.appdock.setKeyboardEnabled then self.appdock:setKeyboardEnabled(true) end
+                        if context.requestRebuild then context.requestRebuild("ui") end
+                    end
+                end,
+            },
+            {
                 title = _("Open AppDock on startup"),
                 subtitle = self.appdock.settings.launch_on_start and _("Enabled") or _("Disabled"),
                 enabled = self.appdock.settings.launch_on_start,
@@ -3941,6 +3967,7 @@ function DAppManager:_buildSettingsPane(instance, context)
         text_scale = accessibility_settings.text_scale or 1,
         high_contrast = accessibility_settings.high_contrast == true,
         workspace_enabled = workspace_settings.restore_enabled == true,
+        keyboard_enabled = not self.appdock.getKeyboardEnabled or self.appdock:getKeyboardEnabled(),
         integrity = selected_category.id == "storage" and self:getIntegrityStatus() or nil,
         android_style = true,
         has_search = true,

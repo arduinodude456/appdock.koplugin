@@ -79,7 +79,7 @@ local DEFAULT_SETTINGS = {
     widget_generator = { items = {}, next_id = 0 },
     setup_assistant = { offered_version = "", completed_version = "" },
     update_dialog = { dismissed_version = "" },
-    keyboard = { language = "auto" },
+    keyboard = { language = "auto", enabled = true },
     file_browser = { sort_category = "all", show_hidden = false, hidden_paths = {} },
     power_saving = false,
     volume_percent = 100,
@@ -457,6 +457,9 @@ function AppDock:_loadSettings()
     self.settings.keyboard = type(self.settings.keyboard) == "table" and self.settings.keyboard or {}
     self.settings.keyboard.language = (self.settings.keyboard.language == "de" or self.settings.keyboard.language == "en")
         and self.settings.keyboard.language or "auto"
+    self.settings.keyboard.enabled = self.settings.keyboard.enabled ~= false
+    local keyboard_ok, Keyboard = pcall(require, "appdock_keyboard")
+    if keyboard_ok and Keyboard and Keyboard.setEnabled then Keyboard.setEnabled(self.settings.keyboard.enabled) end
     self.settings.file_browser = type(self.settings.file_browser) == "table" and self.settings.file_browser or {}
     local file_categories = { all = true, documents = true, images = true, videos = true, audio = true, apps = true, folders = true }
     self.settings.file_browser.sort_category = file_categories[self.settings.file_browser.sort_category]
@@ -570,6 +573,19 @@ function AppDock:setKeyboardLanguage(language)
     self:_saveSettings()
     local ok, Keyboard = pcall(require, "appdock_keyboard")
     if ok and Keyboard and Keyboard.setLanguage then Keyboard.setLanguage(language) end
+    return true
+end
+
+function AppDock:getKeyboardEnabled()
+    return not (self.settings.keyboard and self.settings.keyboard.enabled == false)
+end
+
+function AppDock:setKeyboardEnabled(enabled)
+    self.settings.keyboard = self.settings.keyboard or {}
+    self.settings.keyboard.enabled = enabled == true
+    self:_saveSettings()
+    local ok, Keyboard = pcall(require, "appdock_keyboard")
+    if ok and Keyboard and Keyboard.setEnabled then Keyboard.setEnabled(self.settings.keyboard.enabled) end
     return true
 end
 

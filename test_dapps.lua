@@ -464,6 +464,9 @@ local appdock = {
         document = { file = "/books/example.epub" },
     },
 }
+appdock.settings.keyboard = { language = "auto", enabled = true }
+appdock.getKeyboardEnabled = AppDockClass.getKeyboardEnabled
+appdock.setKeyboardEnabled = AppDockClass.setKeyboardEnabled
 appdock.settings.design.installed.galaxy = {
     id = "galaxy", title = "Galaxy", version = "1.0.0", highlight = "#A98BFF", background = "#111126",
     button = "#282653", text = "#F8F7FF", dropdown = "#181634", button_style = "3d", logo_shape = "circle",
@@ -854,8 +857,34 @@ manager:toggleColorTheme({ requestRebuild = function() log.settings_rebuilds = (
 assert(log.events[#log.events] == "ToggleNightMode" and log.settings_rebuilds == 1, "Color themes must trigger KOReader's night-mode event")
 settings_instance.settings_category = "other"
 manager:activate("settings")
-assert(settings_instance.pane.settings_layout.category == "other" and settings_instance.pane.settings_layout.row_count == 10, "Other category must include the sleep screen and setup wizard alongside the opt-in local workspace, lockscreen, control center, permissions, arrangement and startup")
+assert(settings_instance.pane.settings_layout.category == "other" and settings_instance.pane.settings_layout.row_count == 11, "Other category must include the AppDock keyboard switch alongside the sleep screen, setup wizard and other options")
 assert(settings_instance.pane.settings_layout.text_scale == 1.3 and settings_instance.pane.settings_layout.high_contrast and not settings_instance.pane.settings_layout.workspace_enabled, "Settings metadata must expose the applied local accessibility and workspace state")
+do
+assert(settings_instance.pane.settings_layout.keyboard_enabled, "The AppDock keyboard must be enabled by default")
+local keyboard_setting
+walk_tree(settings_instance.pane, function(node)
+    if node.title == "AppDock keyboard" and node.callback then keyboard_setting = node end
+end)
+assert(keyboard_setting and keyboard_setting.enabled, "Other settings must show the AppDock keyboard as an enabled switch")
+keyboard_setting.callback()
+local disable_confirmation = log.shown[#log.shown]
+assert(disable_confirmation.title == "Wirklich??" and appdock:getKeyboardEnabled(), "Disabling the keyboard must ask for confirmation and leave it enabled until confirmed")
+disable_confirmation:_buttonCallback(disable_confirmation.rows[1][2])
+assert(appdock:getKeyboardEnabled(), "Canceling the confirmation must preserve the AppDock keyboard")
+keyboard_setting.callback()
+disable_confirmation = log.shown[#log.shown]
+disable_confirmation:_buttonCallback(disable_confirmation.rows[1][1])
+assert(not appdock:getKeyboardEnabled(), "Confirming the warning must persistently disable the AppDock keyboard")
+manager:activate("settings")
+assert(not settings_instance.pane.settings_layout.keyboard_enabled, "Settings must report the disabled keyboard state on rebuild")
+keyboard_setting = nil
+walk_tree(settings_instance.pane, function(node)
+    if node.title == "AppDock keyboard" and node.callback then keyboard_setting = node end
+end)
+assert(keyboard_setting and not keyboard_setting.enabled, "A disabled AppDock keyboard must remain visible and can be switched back on")
+keyboard_setting.callback()
+assert(appdock:getKeyboardEnabled(), "Re-enabling the keyboard must not require the disable confirmation")
+end
 local setup_dialogs_before = #log.shown
 manager:showSetupAssistant(settings_instance, { requestRebuild = function() log.setup_rebuilds = (log.setup_rebuilds or 0) + 1 end }, false)
 local setup_start = log.shown[#log.shown]

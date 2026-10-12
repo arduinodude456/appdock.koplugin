@@ -205,11 +205,52 @@ function Modal:setInputText(value)
     self.input_value = tostring(value or "")
     self.input = self.input_value
 end
+function Modal:_showNativeKeyboard()
+    local ok, NativeInputDialog = pcall(require, "ui/widget/inputdialog")
+    if not ok or not NativeInputDialog then return false end
+    local native_dialog
+    local native_buttons = {}
+    for row_index, row in ipairs(self.buttons or {}) do
+        native_buttons[row_index] = {}
+        for button_index, button in ipairs(row or {}) do
+            local native_button = {}
+            for key, value in pairs(button) do native_button[key] = value end
+            local callback = button.callback
+            native_button.callback = function()
+                if native_dialog and native_dialog.getInputText then
+                    self:setInputText(native_dialog:getInputText())
+                end
+                if callback then return callback() end
+            end
+            native_buttons[row_index][button_index] = native_button
+        end
+    end
+    local keyboard_options = self.appdock_keyboard_options or {}
+    native_dialog = NativeInputDialog:new{
+        title = self.title,
+        input = self:getInputText(),
+        input_hint = self.input_hint,
+        input_type = self.input_type,
+        secure = keyboard_options.secure or self.secure,
+        buttons = native_buttons,
+    }
+    self:close()
+    UIManager:show(native_dialog)
+    if native_dialog.onShowKeyboard then native_dialog:onShowKeyboard() end
+    return true
+end
 function Modal:onShowKeyboard()
     if self.appdock_keyboard_attached then return false end
     local Keyboard = require("appdock_keyboard")
-    Keyboard.attach(self, { title=self.title, placeholder=self.input_hint, numeric_only=self.input_type=="number", secure=self.secure })
-    return self:onShowKeyboard()
+    local keyboard_options = self.appdock_keyboard_options or {
+        title = self.title,
+        placeholder = self.input_hint,
+        numeric_only = self.input_type == "number",
+        secure = self.secure,
+    }
+    local attached = Keyboard.attach(self, keyboard_options)
+    if attached then return self:onShowKeyboard() end
+    return self:_showNativeKeyboard()
 end
 function Modal:close()
     if self._closed then return end
