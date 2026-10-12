@@ -60,103 +60,42 @@ image=assets/logos/display.png
 buttons=Next
 
 [page]
-title=7.8.9–7.8.11 · YouTube foundation and E-Ink video
-text=The YouTube DApp downloads videos with yt-dlp and ffmpeg, converts them to the E-Ink-compatible BWR format, and provides a local library and player. Conversion gained fast scaling, larger bounded batches, optimized BWR2 processing, and reusable framebuffers. The player catches up more efficiently after seeks.
-image=assets/logos/web_browser.png
-buttons=Next
-
-[page]
-title=7.8.12–7.8.23 · YouTube tools and reliable downloads
-text=YouTube gained automatic tool setup, visible live shell output, ARMv7 and legacy-libc support, safe runtime extraction, bounded compatibility checks, and useful bootstrap errors. Downloads use the Android YouTube client and protect against hanging or incomplete processes.
-image=assets/logos/web_browser.png
-buttons=Next
-
-[page]
-title=7.8.24–7.8.31 · YouTube audio, BWR2, and sync
-text=Video and companion WAV audio are generated and played together. BWR2 compression, audio/video synchronization, DASH fragment downloads, batched frame reads, cached monow detection, and faster ffmpeg conversion were added. GStreamer clock handling, fallbacks, and timing corrections were repeatedly stabilized for Kobo devices.
-image=assets/logos/music.png
-buttons=Next
-
-[page]
-title=7.8.32–7.8.43 · Configurable video offset
-text=The video start offset after audio begins can be set from immediate playback to 60 seconds, including decimal values. Multiple audio backends are supported. Variable source offsets, leading silence, MTK latency, audio clocks, and real-time playback were corrected; the stable real-time clock replaced the unreliable frame lock.
-image=assets/logos/music.png
-buttons=Next
-
-[page]
-title=7.8.42–7.8.51 · YouTube Watch view and library
-text=YouTube uses the same Watch-oriented structure in portrait and landscape, with a main video, Up next rail, search, actions, and navigation. The library is clickable, uses safe thumbnails or the first BWR frame, can delete videos with their WAV and old thumbnails by long press, and shows proportional, undistorted previews. An inline mini-player and smoother E-Ink rendering were added.
-image=assets/logos/web_browser.png
-buttons=Next
-
-[page]
-title=7.9.0–7.9.2 · Draw and color video
-text=The Draw DApp provides a pen, eraser, brush sizes, line, rectangle, circle, fill, layers, undo/redo, saving and loading of bounded .adraw projects, and JPEG export through an existing ffmpeg. YouTube can optionally create BRC2 color videos using white, black, red, green, and blue. AppDock-owned dialogs and the Draw tile were introduced, and a Draw startup rendering issue was fixed.
+title=New Draw app
+text=The Draw DApp provides a pen, eraser, brush sizes, line, rectangle, circle, fill, layers, undo/redo, saving and loading of bounded .adraw projects, and JPEG export through an existing ffmpeg.
 image=assets/logos/document.png
 buttons=Next
 
 [page]
-title=7.9.3–7.9.9 · Stability, dithering, and fullscreen
-text=Dialog tap geometry, page-key holds, rotation, Draw geometry, and color devices were stabilized. BRC2 color processing gained YUV color selection, multi-color error diffusion, and later precomputed dither patterns; frame expansion became much faster. YouTube gained true fullscreen, better audio pipelines, and smoother playback. Dialogs and Draw toolbars became more readable.
-image=assets/logos/display.png
+title=Rotation Tile in quick settings
+text=The heading (ˆ) stole me my purpose!!!
 buttons=Next
 
 [page]
-title=7.9.10–7.9.14 · Draw expansion and YouTube Music
-text=Color videos mix multiple allowed palette colors with fast, precomputed dithering. Audio stops reliably when leaving the app. The BWR2 decoder reduces peak memory through direct delta, RLE, and zlib processing. YouTube Music downloads audio only, creates WAV files, shows full-color covers, and provides a library, search, and player. Draw gained a classic toolbar, shapes, live preview, gesture-based fill, partial refresh, and undo/redo.
-image=assets/logos/music.png
-buttons=Next
-
-[page]
-title=7.9.15–7.9.20 · Music, Draw color, and windows
-text=YouTube Music keeps partial results visible, exposes search errors, supports searching with Enter, and has an improved player with artist, cover, duration, and controls. Draw supports RGB color selection, color displays, RGB32 output, and correct brush sizes. The beta window mode gained a taskbar, start menu, multiple movable and resizable windows, minimize, restore, individual close, and fullscreen.
-image=assets/logos/music.png
-buttons=Next
-
-[page]
-title=7.9.21–7.9.27 · Stylus support
-text=Draw supports Kobo stylus pressure, eraser, marker, rotation, and KOReader's public stylus callback. Separate strokes, lift slots, pressure fallbacks, device-specific pressure_event codes, and pressure curves are handled correctly. Fast stylus samples are processed immediately; refreshes are reduced without losing samples, and only the final refresh blocks synchronously.
-image=assets/logos/document.png
-buttons=Next
-
-[page]
-title=7.9.28–7.9.29 · Lock screen and Music layout
-text=The lock screen was redesigned in an Android-inspired style with clock, date, profile card, initials, pattern points, PIN, and swipe action. The existing AppDock lock still protects AppDock only. YouTube Music Like, Saved, and More action chips were centered and protected against overflow on different display widths.
+title=Lockscreen update
+text=AppDock's own lockscreen got a visual overhaul. Profile pic now can be selected with KOReader's File Browser
 image=assets/lockscreen/appdock_lockscreen_hero.png
 buttons=Next
 
 [page]
-title=7.9.30 · Safe downloads and readable themes
-text=Theme palettes choose contrasting text colors. Store wallpapers are validated before activation. YouTube jobs check inputs, write permissions, processes, and empty sources; BWR output is written temporarily and installed atomically only after success. DuckDuckGo renders safe Instant Answer links. Sort my files scans each folder once, skips symlinks, and preserves paths. AI Chat Agent and Geometry Dash received local updates.
-image=assets/logos/settings.png
-buttons=Next
-
-[page]
-title=7.9.32–7.9.40 · Search, themes, and Bluetooth
-text=Search gained a DuckDuckGo HTML fallback. The multi-page update dialog reads editable content from features.adf. Store theme images are resolved relatively and stored in binary form; DApp colors are resolved for contrast. Volume is persistent. Bluetooth moved from imported code to AppDock's own bluetoothctl control and then to Kobo/BlueZ D-Bus support for MTK and standard BlueZ.
+title=Bluetooth
+text=AppDock gained its own Bluetooth management part so there's no need to install a third-party plugin
 image=assets/logos/network.png
 buttons=Next
 
 [page]
-title=7.9.34–7.9.39 · Update dialog and background jobs
-text=The update dialog appears after startup, detects new versions reliably, and is separate from the setup wizard. The wizard remains available manually in Settings. If features.adf is missing, a safe single-page fallback is shown. DApp background checks run in subprocesses without blocking the UI and are stopped when the plugin closes. Lockscreen profile images can be selected with the native file chooser.
-image=assets/logos/dockupdate.png
-buttons=Next
-
-[page]
-title=7.9.41–7.9.48 · Faster keyboard
-text=The keyboard gained Cancel, larger keys, CAPS for persistent uppercase, correct German characters, and three local completions. An editable TSV database contains 3,000 German and 3,000 English words with frequencies. Lazy loading, safe plugin paths, multiple database paths, and a small fallback list prevent boot crashes while reliably loading the complete database.
+title=DockBoard
+text=AppDock got its own keyboard DB. Long-time goal is to improve typing experience by slowly fading out KOReaders own Keyboard.
 image=assets/logos/appdock.png
 buttons=Next
 
 [page]
-title=7.9.49 · Reliable startup and clear control
-text=The update dialog appears on every start until Don't show again is selected, uses a stable light modal card, and shows a test image without a timeout. The boot protection stores the last working plugin version locally and restores it after a boot crash. Sort my files recognizes Documents, Images, Videos, Audio, Apps, and Folders virtually and persistently without moving files. Store DApps receive contrast-checked text roles.
+title=DockDialog
+text=Instead of KOReader's native dialog windows, AppDock now mostly uses its own dialog windows to become more and more independent.
 image=assets/logos/dockupdate.png
 buttons=Next
 
 [page]
-title=7.9.49 · Faster YouTube conversion
-text=Video and audio conversion run serially for stability, but use two decode threads, one filter thread, and four frames per pipe read. Only one conversion job runs per device. The video UI processes up to 128 frames per tick with a maximum CPU window of 0.30 seconds. Pipes, writers, temporary files, and background processes are closed safely on errors.
+title=That's it
+text=Featute Requests, Issues, Questions? arduinodude456.github.io/appdock.koplugin
 image=assets/logos/web_browser.png
 buttons=Done
