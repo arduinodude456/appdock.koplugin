@@ -95,6 +95,12 @@ image=assets/logos/dockupdate.png
 buttons=Next
 
 [page]
+title=Minecraft
+text=Now with working place/break, fast movement, better controls, more worlds, cooler biomes.
+image=assets/logos/minecraft.png
+buttons=Next
+
+[page]
 title=That's it
 text=Featute Requests, Issues, Questions? arduinodude456.github.io/appdock.koplugin
 image=assets/logos/web_browser.png
