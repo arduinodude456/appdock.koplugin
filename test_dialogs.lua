@@ -86,6 +86,19 @@ assert(info:onKeyRepeat() == true, "A custom AppDock modal must consume held pag
 local update_text = "This is a deliberately long update description that must wrap inside the modal instead of running past the card width."
 local update_dialog = Dialogs.Modal:new{ title = "AppDock updated", text = update_text }
 assert(update_dialog.body_widget.text:find("\n", 1, true), "Update dialog text must be explicitly wrapped to the modal width")
+assert(#update_dialog.body_widget.lines > 1, "Update dialog wrapped lines must each have their own single-line TextWidget")
+local painted_lines_before = #bb.text_calls
+update_dialog.body_widget:paintTo(bb, 10, 20)
+assert(#bb.text_calls - painted_lines_before == #update_dialog.body_widget.lines,
+    "Update dialog descriptions must paint every wrapped line instead of passing newlines to one TextWidget")
+for index, line in ipairs(update_dialog.body_widget.lines) do
+    assert(bb.text_calls[painted_lines_before + index].text == line.text,
+        "Each update description line must be rendered as its own text operation")
+end
+local expected_body_height = 0
+for _, line in ipairs(update_dialog.body_widget.lines) do expected_body_height = expected_body_height + line:getSize().h end
+assert(update_dialog.body_widget:getSize().h == expected_body_height,
+    "Update dialog body height must account for each wrapped line")
 
 local selected = false
 local picker = Dialogs.ButtonDialog:new{

@@ -53,9 +53,36 @@ local function textWidget(text, width, size, bold, foreground)
 end
 local function bodyTextWidget(text, width, size, foreground)
     local face = Font:getFace("smallinfofont", scale(size))
-    return TextWidget:new{
-        text = wrapText(text, width, face, size), face = face,
-        fgcolor = foreground or Blitbuffer.COLOR_BLACK, padding = 0, max_width = width,
+    local wrapped = wrapText(text, width, face, size)
+    local lines = {}
+    for line in (wrapped .. "\n"):gmatch("(.-)\n") do
+        lines[#lines + 1] = TextWidget:new{
+            text = line, face = face,
+            fgcolor = foreground or Blitbuffer.COLOR_BLACK, padding = 0, max_width = width,
+        }
+    end
+    return {
+        -- Keep the wrapped source for diagnostics and callers, but render each
+        -- line as its own TextWidget. KOReader TextWidget is not consistently
+        -- multiline across device builds, even when given explicit newlines.
+        text = wrapped,
+        lines = lines,
+        getSize = function(self)
+            local height = 0
+            for _, line in ipairs(self.lines) do
+                local dims = line.getSize and line:getSize()
+                height = height + (dims and dims.h or scale(size + 4))
+            end
+            return { w = width, h = height }
+        end,
+        paintTo = function(self, bb, x, y)
+            local line_y = y
+            for _, line in ipairs(self.lines) do
+                line:paintTo(bb, x, line_y)
+                local dims = line.getSize and line:getSize()
+                line_y = line_y + (dims and dims.h or scale(size + 4))
+            end
+        end,
     }
 end
 local Modal = InputContainer:extend{ mode=nil, title=nil, text=nil, image=nil, image_alt=nil, buttons=nil, duration=nil }
