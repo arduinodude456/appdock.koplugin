@@ -29,9 +29,10 @@ local VerticalGroup = Widget:extend({
     end,
 })
 local TextWidget = Widget:extend({ setText = function(self, text) self.text = text end })
-local ui = { scheduled = {}, dirty_modes = {} }
+local ui = { scheduled = {}, dirty_modes = {}, next_ticks = {} }
 function ui:setDirty(_, mode) table.insert(self.dirty_modes, mode) end
 function ui:scheduleIn(delay, callback) table.insert(self.scheduled, { delay = delay, callback = callback }) end
+function ui:nextTick(callback) table.insert(self.next_ticks, callback) end
 function ui:show(widget) self.shown = widget end
 function ui:close(widget) self.closed = widget end
 
@@ -118,6 +119,14 @@ assert(numeric_keyboard.numeric_only and numeric_keyboard.secure, "Number dialog
 assert(numeric_keyboard.on_cancel and numeric_keyboard.on_submit, "Keyboard must expose explicit cancel and submit actions")
 assert(numeric_keyboard.width == 900 and numeric_keyboard.dimen.x == 0 and numeric_keyboard.dimen.y + numeric_keyboard.dimen.h == 1200, "Numeric keyboard also spans the full width at the bottom")
 assert(ui.closed == dialog, "The KOReader input dialog is closed before the AppDock keyboard is shown")
+ui.closed = nil
+local cancel_calls = 0
+local cancel_keyboard
+cancel_keyboard = Keyboard:new{ on_cancel = function() cancel_calls = cancel_calls + 1; ui:close(cancel_keyboard) end }
+cancel_keyboard.cancel_key:onTapKey()
+assert(cancel_calls == 0 and ui.closed == nil and #ui.next_ticks == 1, "Cancel must wait until the keyboard key-dispatch callback has returned")
+table.remove(ui.next_ticks, 1)()
+assert(cancel_calls == 1 and ui.closed == cancel_keyboard, "Deferred Cancel must close the keyboard once without re-entering its key callback")
 numeric_keyboard:_press("1")
 numeric_keyboard:_press("2")
 assert(numeric_keyboard.display.text == "••" and live_value == "12" and dialog.text == "12", "Secure values and the target field update live")

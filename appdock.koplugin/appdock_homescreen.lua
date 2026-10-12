@@ -1182,9 +1182,26 @@ function AppDockHomeScreen:build()
     local layout = self.appdock.settings.layout or {}
     local label_height = scale(20)
     local label_gap = scale(3)
-    local apps = self.appdock:getPinnedApps()
     local search_query = (self.search_query or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
-    if layout.search_enabled and search_query ~= "" then
+    local searching_apps = layout.search_enabled and search_query ~= ""
+    local apps
+    if searching_apps and type(self.appdock.getAppCatalog) == "function" then
+        local catalog = self.appdock:getAppCatalog()
+        apps = {}
+        for _, app in pairs(catalog or {}) do
+            if type(app) == "table" and type(app.id) == "string" then
+                table.insert(apps, app)
+            end
+        end
+        table.sort(apps, function(left, right)
+            local left_title, right_title = (left.title or ""):lower(), (right.title or ""):lower()
+            if left_title == right_title then return left.id < right.id end
+            return left_title < right_title
+        end)
+    else
+        apps = self.appdock:getPinnedApps()
+    end
+    if searching_apps then
         local filtered = {}
         for _, app in ipairs(apps) do
             if (app.title or ""):lower():find(search_query, 1, true) then table.insert(filtered, app) end

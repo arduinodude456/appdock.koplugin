@@ -163,7 +163,7 @@ local pane=app:buildPane({}, {dimen={w=600,h=800},requestRebuild=function() end,
 assert(pane.is_overlap_group and pane.dimen.w==600 and pane.dimen.h==800,
     "The Draw pane must position its toolbar and canvas in a screen-sized OverlapGroup")
 local canvas,pen,chips,active_tool_button,brush_minus,brush_plus
-local strip_symbols={}
+local strip_symbols,strip_labels={},{}
 for _,child in ipairs(pane) do
     if child.app==app then canvas=child end
     if child.symbol=="pen" then pen=child end
@@ -174,6 +174,7 @@ for _,child in ipairs(pane) do
     if child.symbol and child.ges_events and child.ges_events.TapTool
         and child.overlap_offset and child.overlap_offset[2]==6 then
         strip_symbols[child.symbol]=true
+        strip_labels[child.symbol]=child.label_widget
     end
 end
 assert(canvas and canvas.overlap_offset[1]>0 and canvas.overlap_offset[2]>0,
@@ -184,6 +185,7 @@ assert(active_tool_button and active_tool_button.active==true,
     "The selected tool must be highlighted in the tool strip")
 for _,symbol in ipairs({"pen","eraser","line","rect","circle","fill","undo","redo","refresh"}) do
     assert(strip_symbols[symbol],"The tool strip must offer a "..symbol.." button")
+    assert(strip_labels[symbol],"The tool strip must visibly label the "..symbol.." button at full pane width")
 end
 assert(chips and chips.ges_events.TapChip,"The action bar must offer actionable chips")
 pen:paintTo({paintRect=function() end},11,57)

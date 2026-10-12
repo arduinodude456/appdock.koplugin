@@ -1003,6 +1003,31 @@ assert(paged_home.normal_layout.tile_size >= 62 and (paged_home.normal_layout.hi
 assert(paged_home:onSwipeHomePage(nil, { direction = "west" }) and paged_home.page == 2 and not paged_home._page_transition, "Swiping west must animate to the next homescreen page and finish cleanly")
 assert(paged_home:onSwipeHomePage(nil, { direction = "east" }) and paged_home.page == 1, "Swiping east must animate back to the previous homescreen page")
 appdock.getPinnedApps = original_get_pinned_apps
+-- Homescreen search also covers installed apps which are not pinned. ---------
+;(function()
+    local old_search_enabled = appdock.settings.layout.search_enabled
+    local old_get_app_catalog = appdock.getAppCatalog
+    appdock.settings.layout.search_enabled = true
+    appdock.getAppCatalog = function()
+        return {
+            ["plugin:unlisted"] = { id = "plugin:unlisted", title = "Unpinned Plugin Search Target" },
+            ["dapp:unlisted"] = { id = "dapp:unlisted", title = "Unpinned DApp Search Target" },
+            ["dapp:other"] = { id = "dapp:other", title = "Unrelated App" },
+        }
+    end
+    local search_home = HomeScreen:new{ appdock = appdock, search_query = "search target" }
+    local search_hits, search_hit_count = {}, 0
+    walk_tree(search_home._app_grid, function(node)
+        if node.app and (node.app.id == "plugin:unlisted" or node.app.id == "dapp:unlisted") then
+            search_hits[node.app.id] = true
+            search_hit_count = search_hit_count + 1
+        end
+    end)
+    assert(search_hits["plugin:unlisted"] and search_hits["dapp:unlisted"], "Homescreen search must include matching unpinned plugins and DApps from the full catalog")
+    assert(search_hit_count == 2, "Homescreen search must show only matching catalog entries")
+    appdock.getAppCatalog = old_get_app_catalog
+    appdock.settings.layout.search_enabled = old_search_enabled
+end)()
 local saved_recent_apps = appdock.test_recent_apps
 appdock.test_recent_apps = {}
 local fallback_home = HomeScreen:new{ appdock = appdock }

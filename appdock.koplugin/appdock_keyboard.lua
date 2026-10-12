@@ -334,8 +334,9 @@ function Keyboard:_buildLayout()
     }
     local cancel = Key:new{
         label = _("Cancel"), width = math.floor(self.width * .22), height = scale(46),
-        callback = function() if self.on_cancel then self.on_cancel() else UIManager:close(self) end end,
+        callback = function() self:_requestCancel() end,
     }
+    self.cancel_key = cancel
     local done = Key:new{
         label = _("Done"), width = math.floor(self.width * .50), height = scale(46),
         callback = function() if self.on_submit then self.on_submit(self.value) end end,
@@ -449,14 +450,22 @@ end
 function Keyboard:paintTo(bb, x, y)
     return InputContainer.paintTo(self, bb, self.dimen.x, self.dimen.y)
 end
-
-function Keyboard:onClose()
-    if self.on_cancel then
-        self.on_cancel()
-    else
-        UIManager:close(self)
-    end
+function Keyboard:_requestCancel()
+    if self._cancel_requested then return true end
+    self._cancel_requested = true
+    -- Cancel can be tapped from inside this widget. Defer its callback so
+    -- UIManager does not destroy the keyboard while it is dispatching a key.
+    UIManager:nextTick(function()
+        if self.on_cancel then
+            self.on_cancel()
+        else
+            UIManager:close(self)
+        end
+    end)
     return true
+end
+function Keyboard:onClose()
+    return self:_requestCancel()
 end
 
 function Keyboard.open(options)

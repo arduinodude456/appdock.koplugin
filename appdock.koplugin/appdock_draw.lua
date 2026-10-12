@@ -1,10 +1,10 @@
 --[[--
 AppDock Draw: a layered pixel canvas for E-Ink and color readers.
 
-The user interface follows a conventional paint program: a tool strip with the
-active tool highlighted, a color and brush row, the canvas, and an action bar
-with the current tool state. Editing works the way a drawing app is expected to
-work on a touch screen:
+The user interface follows a conventional paint program: a labeled tool strip
+with the active tool highlighted, a color and brush row, the canvas, and an
+action bar with the current tool state. Editing works the way a drawing app is
+expected to work on a touch screen:
 
 * a stroke starts with the finger press (`touch`), so the first segment is never
   lost,
@@ -321,6 +321,7 @@ end
 
 local ToolButton = InputContainer:extend{
     symbol = nil,
+    label = nil,
     active = false,
     callback = nil,
     width = nil,
@@ -330,6 +331,14 @@ local ToolButton = InputContainer:extend{
 
 function ToolButton:init()
     self.dimen = Geom:new{ x = 0, y = 0, w = self.width, h = self.height }
+    if self.label and self.width >= safeScale(38) and self.height >= safeScale(28) then
+        self.label_widget = TextWidget:new{
+            text = self.label,
+            face = Font:getFace("smallinfofont", safeScale(9)),
+            max_width = math.max(1, self.width - safeScale(4)),
+            padding = 0,
+        }
+    end
     self.ges_events = { TapTool = { GestureRange:new{ ges = "tap", range = self.dimen } } }
 end
 
@@ -348,7 +357,16 @@ function ToolButton:paintTo(bb, x, y)
     bb:paintRect(x, y + h - inset, w, inset, Blitbuffer.COLOR_BLACK)
     bb:paintRect(x, y, inset, h, Blitbuffer.COLOR_BLACK)
     bb:paintRect(x + w - inset, y, inset, h, Blitbuffer.COLOR_BLACK)
-    paintGlyph(bb, x, y, w, h, self.symbol, ink)
+    local label_height = self.label_widget and safeScale(12) or 0
+    local icon_height = math.max(1, h - label_height)
+    paintGlyph(bb, x, y, w, icon_height, self.symbol, ink)
+    if self.label_widget then
+        self.label_widget.fgcolor = ink
+        local text_size = self.label_widget:getSize()
+        self.label_widget:paintTo(bb,
+            x + math.floor((w - text_size.w) / 2),
+            y + icon_height + math.floor((label_height - text_size.h) / 2))
+    end
     self.dimen.x, self.dimen.y, self.dimen.w, self.dimen.h = x, y, w, h
 end
 
@@ -1249,7 +1267,7 @@ function Draw:buildPane(instance, context)
             -- ghosting; nothing on the canvas changes, so no rebuild follows.
             if UIManager.setDirty then UIManager:setDirty(nil, "full") end
             if UIManager.forceRePaint then UIManager:forceRePaint() end
-        end, false },
+        end, false, _("Refresh") },
     }
     local slots = #TOOL_ORDER + #extra
     -- Keep the strip inside the pane even in a narrow split or window pane by
@@ -1264,6 +1282,7 @@ function Draw:buildPane(instance, context)
     for index, tool in ipairs(TOOL_ORDER) do
         local button = ToolButton:new{
             symbol = tool,
+            label = TOOL_LABELS[tool],
             active = self.tool == tool,
             width = button_w,
             height = button_h,
@@ -1280,6 +1299,7 @@ function Draw:buildPane(instance, context)
         local position = #TOOL_ORDER + index
         pane[#pane + 1] = ToolButton:new{
             symbol = entry[1],
+            label = entry[5] or entry[2],
             width = button_w,
             height = button_h,
             callback = function()
