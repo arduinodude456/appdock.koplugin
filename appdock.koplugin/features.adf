@@ -1,63 +1,62 @@
-# AppDock complete change history since 7.0.0
-# One page per historical feature group; all images are existing assets from the plugin archive.
+# AppDock news
 [page]
-title=AppDock 7.1.0 · Custom keyboard
-text=AppDock introduced its own E-Ink keyboard for every AppDock text input. It supports text, numbers, secure input, Enter/Done, deletion, Shift, German characters, and a dedicated symbols page. Dialog input is returned reliably to the active field.
+title=AppDock 8 - What's new (Page 1)
+text=Please report bugs, feature requests, etc. via GitHub Issue or DChat. Thanks for your support.
 image=assets/logos/appdock.png
 buttons=Next
 
 [page]
-title=7.3.0 · Navigation and Control Center
-text=Home navigation and the Control Center were redesigned. Shortcuts for important device and AppDock functions are arranged more clearly, page changes and status indicators are more reliable, and the interface is optimized for E-Ink refreshes.
-image=assets/logos/settings.png
+title=Digital Independence
+text=Dchat 2.0.0: The DM server is now hosted by supabase. No more Manus shit.
+image=assets/logos/network.png
 buttons=Next
 
 [page]
-title=7.3.2–7.3.6 · E-Ink refresh and lock screen
-text=Ghosting during E-Ink animations was reduced. The Welcome Home lock screen was added. Grid Glide improved home-screen movement, logo regions are refreshed selectively, and the lock screen received new artwork and a calmer layout.
+title=New Homescreen
+text=Closer to android, re-arrangeable apps, App logos
 image=assets/lockscreen/appdock_lockscreen_hero.png
 buttons=Next
 
 [page]
-title=7.4.0 · Colorful Calm
-text=AppDock gained a static E-Ink interface, raster logos, and a redesigned lock screen. Rigid surfaces were replaced with themeable local image surfaces. Logo and wallpaper loading is protected against missing or invalid assets.
+title=Recent apps
+text=Steve Jobs once introdued the home button: "It takes you home wherever you are". Swipe up from the lower screen edge, no matter where you are. A dock with recent apps opens.
 image=assets/logos/display.png
 buttons=Next
 
 [page]
-title=7.4.6–7.4.10 · Surfaces and live keyboard
-text=Liquid-glass surfaces were corrected for sizing, edge masks, and asset handling. The PNG logo library was expanded, including dChat and Minecraft. Live keyboard input became more reliable, and the remaining boot-critical raster paths were hardened.
-image=assets/logos/dchat.png
+title=Keys - Simple control
+text=Click the page turn key (Multi: Upper one) to incerase brightness. Long-press it for power options. Multi: Lower key long press -> Screensaver animation
+image=assets/logos/appdock_logo.png
 buttons=Next
 
 [page]
-title=7.5.0 · DuckDuckGo and AppDock Store
+title=DuckDuckGo and AppDock Store
 text=The home screen gained a DuckDuckGo search bar. The AppStore became a Google Play-style AppDock Store with a catalog, installation flow, and app details. The store header, scrolling, and search refresh were subsequently improved.
 image=assets/logos/app_store.png
 buttons=Next
 
 [page]
-title=7.6.0–7.7.0 · Visual layout editor
+title=Visual layout editor
 text=The home screen can be edited visually. Apps and widgets can be arranged and moved in the layout, and a more discoverable entry point opens the editor. A pinned-item move crash was fixed and layout changes are stored persistently.
 image=assets/logos/appdock.png
 buttons=Next
 
 [page]
-title=7.8.0–7.8.2 · Android-inspired home screen
-text=Home, Quick Settings, and Settings were redesigned with Android-inspired cards, status areas, switches, and semantic sections. The structure remains readable on E-Ink displays while keeping existing AppDock functions accessible.
+title=The GOOGLE age
+text=REAL YouTube and YouTube Music were introduced.
 image=assets/logos/settings.png
 buttons=Next
 
 [page]
-title=7.8.3 · Google Files-style file manager
-text=The File Manager received a Google Files-style interface with clear categories, search, folder navigation, and clearer file actions. The presentation was tuned for large touch targets and slow E-Ink refreshes.
+title=App redesign
+text=To improve the visual power of AppDock, some Apps like FM or Settings were redesigned to look like Android Apps
 image=assets/logos/file_manager.png
 buttons=Next
 
 [page]
-title=7.8.4–7.8.8 · Files, page keys, and brightness
-text=Sort my files groups items non-destructively and never moves their paths. Long-press file actions were added. Page keys can change brightness inside DApps, windows, Open Apps, Recent Apps, and Quick Settings. Brightness indicators, refresh races, empty containers, and fill surfaces were stabilized.
-image=assets/logos/file_manager.png
+title=Window Manager - Computer Mode
+text=Beta Feature: Launch DApps as movable, resizeable Windows, explore multitasking and more.
+image=assets/logos/display.png
 buttons=Next
 
 [page]
