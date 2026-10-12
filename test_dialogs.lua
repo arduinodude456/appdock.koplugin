@@ -23,11 +23,15 @@ local Widget = class()
 local InputContainer = Widget:extend({})
 local TextWidget = Widget:extend({})
 function TextWidget:init()
-    self.dimen = { w = self.max_width or 120, h = (self.face and self.face.size or 12) + 4 }
+    self.dimen = { w = self.max_width or 120,
+        h = self.text == "" and 0 or (self.face and self.face.size or 12) + 4 }
 end
 function TextWidget:getSize() return self.dimen end
-function TextWidget:paintTo(bb)
-    if bb and bb.text_calls then bb.text_calls[#bb.text_calls + 1] = { fgcolor = self.fgcolor, text = self.text, last_fill = bb.last_fill } end
+function TextWidget:paintTo(bb, x, y)
+    if bb and bb.text_calls then
+        bb.text_calls[#bb.text_calls + 1] = { fgcolor = self.fgcolor, text = self.text,
+            last_fill = bb.last_fill, x = x, y = y }
+    end
 end
 
 local scheduled, closed = {}, {}
@@ -96,9 +100,20 @@ for index, line in ipairs(update_dialog.body_widget.lines) do
         "Each update description line must be rendered as its own text operation")
 end
 local expected_body_height = 0
-for _, line in ipairs(update_dialog.body_widget.lines) do expected_body_height = expected_body_height + line:getSize().h end
+expected_body_height = #update_dialog.body_widget.lines * update_dialog.body_widget.line_height
 assert(update_dialog.body_widget:getSize().h == expected_body_height,
     "Update dialog body height must account for each wrapped line")
+local paragraph_dialog = Dialogs.Modal:new{ text = "Feature summary.\n\nPage 1 of 3" }
+assert(#paragraph_dialog.body_widget.lines == 3 and paragraph_dialog.body_widget.lines[2].text == "",
+    "Update dialog paragraph spacing must preserve an explicit blank line")
+local paragraph_lines_before = #bb.text_calls
+paragraph_dialog.body_widget:paintTo(bb, 10, 30)
+local first_paragraph_line = bb.text_calls[paragraph_lines_before + 1]
+local blank_paragraph_line = bb.text_calls[paragraph_lines_before + 2]
+local page_counter_line = bb.text_calls[paragraph_lines_before + 3]
+assert(blank_paragraph_line.y - first_paragraph_line.y == paragraph_dialog.body_widget.line_height
+    and page_counter_line.y - blank_paragraph_line.y == paragraph_dialog.body_widget.line_height,
+    "A zero-height empty TextWidget must still advance the page counter to a separate line")
 
 local selected = false
 local picker = Dialogs.ButtonDialog:new{

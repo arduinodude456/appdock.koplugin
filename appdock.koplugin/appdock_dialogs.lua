@@ -61,26 +61,31 @@ local function bodyTextWidget(text, width, size, foreground)
             fgcolor = foreground or Blitbuffer.COLOR_BLACK, padding = 0, max_width = width,
         }
     end
+    -- Empty TextWidgets may report a zero-height size on some KOReader builds.
+    -- Keep a full line slot for them so the paragraph/page counter after a
+    -- deliberate blank line cannot overlap the preceding text.
+    local line_height = scale(size + 4)
+    for _, line in ipairs(lines) do
+        local dims = line.getSize and line:getSize()
+        if dims and type(dims.h) == "number" then
+            line_height = math.max(line_height, dims.h)
+        end
+    end
     return {
         -- Keep the wrapped source for diagnostics and callers, but render each
         -- line as its own TextWidget. KOReader TextWidget is not consistently
         -- multiline across device builds, even when given explicit newlines.
         text = wrapped,
         lines = lines,
+        line_height = line_height,
         getSize = function(self)
-            local height = 0
-            for _, line in ipairs(self.lines) do
-                local dims = line.getSize and line:getSize()
-                height = height + (dims and dims.h or scale(size + 4))
-            end
-            return { w = width, h = height }
+            return { w = width, h = #self.lines * self.line_height }
         end,
         paintTo = function(self, bb, x, y)
             local line_y = y
             for _, line in ipairs(self.lines) do
                 line:paintTo(bb, x, line_y)
-                local dims = line.getSize and line:getSize()
-                line_y = line_y + (dims and dims.h or scale(size + 4))
+                line_y = line_y + self.line_height
             end
         end,
     }
