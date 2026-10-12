@@ -15,10 +15,47 @@ pcall(function() ImageWidget = require("ui/widget/imagewidget") end)
 local Screen = Device.screen
 local function scale(n) return Screen:scaleBySize(n) end
 local function clamp(n, lo, hi) return math.max(lo, math.min(hi, n)) end
+local function textWidth(face, text, fallback)
+    if face and face.getWidth then
+        local ok, width = pcall(face.getWidth, face, text)
+        if ok and type(width) == "number" then return width end
+    end
+    return #text * fallback * 0.52
+end
+local function wrapText(text, width, face, size)
+    local wrapped = {}
+    local fallback = scale(size)
+    for paragraph in (tostring(text or "") .. "\n"):gmatch("(.-)\n") do
+        if paragraph == "" then
+            wrapped[#wrapped + 1] = ""
+        else
+            local line = ""
+            for word in paragraph:gmatch("%S+") do
+                local candidate = line == "" and word or line .. " " .. word
+                if line ~= "" and textWidth(face, candidate, fallback) > width then
+                    wrapped[#wrapped + 1] = line
+                    line = word
+                else
+                    line = candidate
+                end
+            end
+            if line ~= "" then wrapped[#wrapped + 1] = line end
+        end
+    end
+    return table.concat(wrapped, "\n")
+end
 local function textWidget(text, width, size, bold, foreground)
+    local face = Font:getFace(bold and "cfont" or "smallinfofont", scale(size))
     return TextWidget:new{
-        text = tostring(text or ""), face = Font:getFace(bold and "cfont" or "smallinfofont", scale(size)),
+        text = tostring(text or ""), face = face,
         fgcolor = foreground or Blitbuffer.COLOR_BLACK, bold = bold or false, padding = 0, max_width = width,
+    }
+end
+local function bodyTextWidget(text, width, size, foreground)
+    local face = Font:getFace("smallinfofont", scale(size))
+    return TextWidget:new{
+        text = wrapText(text, width, face, size), face = face,
+        fgcolor = foreground or Blitbuffer.COLOR_BLACK, padding = 0, max_width = width,
     }
 end
 local Modal = InputContainer:extend{ mode=nil, title=nil, text=nil, image=nil, image_alt=nil, buttons=nil, duration=nil }
@@ -60,7 +97,7 @@ function Modal:init()
             end
         end
     end
-    self.body_widget = self.text and textWidget(self.text, self.card_w - scale(36), 14, false) or nil
+    self.body_widget = self.text and bodyTextWidget(self.text, self.card_w - scale(36), 14) or nil
     local body_dims
     if self.body_widget and self.body_widget.getSize then
         local ok,dims=pcall(self.body_widget.getSize,self.body_widget)

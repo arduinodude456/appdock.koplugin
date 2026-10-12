@@ -83,6 +83,9 @@ assert(paints > 0 and info.ges_events.TapAppDockModal[1].range() == info.dimen,
 assert(bb.text_calls[1] and bb.text_calls[1].fgcolor == 2 and bb.text_calls[1].last_fill == 4,
     "Dialog title text must be black over a light-gray title surface, never black over black")
 assert(info:onKeyRepeat() == true, "A custom AppDock modal must consume held page-key repeats")
+local update_text = "This is a deliberately long update description that must wrap inside the modal instead of running past the card width."
+local update_dialog = Dialogs.Modal:new{ title = "AppDock updated", text = update_text }
+assert(update_dialog.body_widget.text:find("\n", 1, true), "Update dialog text must be explicitly wrapped to the modal width")
 
 local selected = false
 local picker = Dialogs.ButtonDialog:new{
