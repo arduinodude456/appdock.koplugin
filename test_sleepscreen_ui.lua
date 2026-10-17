@@ -68,6 +68,7 @@ function Logo.availableKinds() return { "app_store", "palette", "reading", "anal
 package.preload["appdock_logo"] = function() return Logo end
 
 local saved, activated, installed, published, listed = {}, nil, 0, nil, 0
+local activation_fails = false
 local function definition(name)
     return { schema_version = 1, name = name or "New", description = "", background = "#FFFFFF", elements = {}, assets = {} }
 end
@@ -81,7 +82,11 @@ package.preload["appdock_sleepscreen_presets"] = function()
             if not replaced then saved[#saved + 1] = record end
             return record
         end,
-        activate = function(_, id) activated = id; return true end,
+        activate = function(_, id)
+            activated = id
+            if activation_fails then return nil, "simulated activation error" end
+            return true
+        end,
         remove = function(_, id) for index, record in ipairs(saved) do if record.id == id then table.remove(saved, index); return true end end; return nil, "missing" end,
         importAsset = function(draft, path, kind)
             local id = kind .. "_" .. tostring(#(draft.definition.assets or {}) + 1); draft.definition.assets[#draft.definition.assets + 1] = { id = id, kind = kind, extension = kind == "font" and "ttf" or "png" }; draft.asset_paths[id] = path; return id
@@ -118,6 +123,11 @@ end
 local function named(widget, title)
     return walk(widget, function(node, found) if node.title == title or node.label == title then found[#found + 1] = node end end)
 end
+local function hasText(widget, fragment)
+    return #walk(widget, function(node, found)
+        if type(node.text) == "string" and node.text:find(fragment, 1, true) then found[#found + 1] = node end
+    end) > 0
+end
 
 local AppStore = dofile(plugin_dir .. "appdock_appstore.lua")
 local instance, rebuilds = {}, 0
@@ -146,11 +156,37 @@ named(catalog_pane, "New sleepscreen")[1]:onTapPlayPill()
 local editor = shown[#shown]
 assert(editor and editor.draft and editor.draft.definition and editor[1], "New-draft callback must open the native live-preview editor")
 package.path = original_package_path
+local screen_tab, elements_tab, save_tab = named(editor, "Screen")[1], named(editor, "Elements")[1], named(editor, "Save")[1]
+assert(screen_tab and screen_tab.selected and elements_tab and save_tab, "Editor must group controls into clear Screen, Elements, Edit, and Save sections")
+elements_tab.callback()
+assert(editor.section == "elements" and #named(editor, "Text") > 0 and #named(editor, "Image") > 0,
+    "Elements section must offer visual building blocks instead of mixing them with screen settings")
+save_tab = named(editor, "Save")[1]
+save_tab.callback()
+assert(editor.section == "save" and #named(editor, "Save draft") > 0 and #named(editor, "Publish") > 0,
+    "Save section must keep local save, activation, and public sharing together")
+local landscape_dimen = editor.dimen
+editor.dimen = { w = 400, h = 800 }
+editor:rebuild()
+assert(editor[1].dimen.w == 400 and editor[1].dimen.h == 800 and #named(editor, "Save draft") > 0,
+    "Editor sections and save actions must remain available in portrait layout")
+editor.dimen = landscape_dimen
+editor:rebuild()
 editor:_addElement("text")
-assert(#editor.draft.definition.elements == 1 and dirty > 0, "Adding an element must commit to the draft and refresh the instant preview")
+assert(#editor.draft.definition.elements == 1 and dirty > 0 and editor.section == "edit",
+    "Adding an element must open its grouped editor and refresh the instant preview")
+assert(#named(editor, "Position x / y") > 0 and #named(editor, "Text") > 0 and #named(editor, "Font") > 0,
+    "Selected elements must expose grouped layout, content, and appearance controls")
 editor:_showInput("Text", "New text", "", function(value) editor.draft.definition.elements[1].text = value; return true end)
 local field = shown[#shown]; field.input = "Instant value"; field.buttons[1][2].callback()
 assert(editor.draft.definition.elements[1].text == "Instant value", "Applying an editor field must immediately update the underlying draft")
+local dirty_before_activation = dirty
+activation_fails = true
+editor:saveAndActivate()
+activation_fails = false
+assert(not editor.dirty and dirty > dirty_before_activation and hasText(editor, "Saved draft")
+    and not hasText(editor, "Unsaved changes") and shown[#shown].text:find("Saved, but could not activate", 1, true),
+    "A failed activation must still refresh the editor to the successfully saved state")
 editor:publish()
 local consent = shown[#shown]
 assert(consent.text:find("Name:", 1, true) and consent.text:find("Creator:", 1, true) and consent.text:find("Assets shared:", 1, true) and consent.text:find("No books", 1, true), "Publish must show exact name, creator, asset count, and privacy notice before sharing")

@@ -36,6 +36,11 @@ end
 
 local function scale(value) return Screen:scaleBySize(value) end
 local function trim(value) return type(value) == "string" and value:gsub("^%s+", ""):gsub("%s+$", "") or "" end
+local function shorten(value, limit)
+    value = tostring(value or "")
+    if #value <= limit then return value end
+    return value:sub(1, math.max(1, limit - 1)) .. "…"
+end
 local function copy(value, seen)
     if type(value) ~= "table" then return value end
     seen = seen or {}
@@ -95,7 +100,7 @@ function EditorButton:onTapSleepEditorButton() if self.callback then self.callba
 
 local SleepEditor = InputContainer:extend{
     appdock = nil, context = nil, record = nil, draft = nil, original = nil,
-    selected = nil, dirty = false, dimen = nil, covers_fullscreen = true,
+    selected = nil, section = nil, dirty = false, dimen = nil, covers_fullscreen = true,
 }
 
 function SleepEditor:_presets()
@@ -136,6 +141,7 @@ function SleepEditor:init()
     self.draft.asset_paths = self.draft.asset_paths or {}
     self.original = copy(self.draft)
     self.selected = #self:_definition().elements > 0 and 1 or nil
+    self.section = self.section or "screen"
     self:rebuild()
 end
 
@@ -167,6 +173,7 @@ function SleepEditor:_addElement(kind)
     elseif kind == "image" then element.images = {}; element.fit = "contain" end
     definition.elements[#definition.elements + 1] = element
     self.selected = #definition.elements
+    self.section = "edit"
     self:_changed()
 end
 
@@ -297,12 +304,19 @@ function SleepEditor:_save(activate)
     local saved, err = Presets.saveDraft(self.appdock, self.draft, self.record and self.record.id or nil)
     if not saved then notify(_("Could not save draft: ") .. tostring(err or "")); return nil end
     self.record, self.draft, self.original, self.dirty = saved, copy(saved), copy(saved), false
-    if activate and Presets.activate then
-        local ok, activate_err = Presets.activate(self.appdock, saved.id)
-        if not ok then notify(_("Saved, but could not activate: ") .. tostring(activate_err or "")); return saved end
-        notify(_("Saved and activated sleepscreen."))
-    else notify(_("Sleep-screen draft saved locally.")) end
+    local activation_error
+    if activate then
+        if Presets.activate then
+            local activated, activate_err = Presets.activate(self.appdock, saved.id)
+            if not activated then activation_error = activate_err end
+        else
+            activation_error = _("Activation is unavailable.")
+        end
+    end
     self:_rebuildHost(); self:rebuild(); UIManager:setDirty(self, "ui")
+    if activation_error then notify(_("Saved, but could not activate: ") .. tostring(activation_error or ""))
+    elseif activate then notify(_("Saved and activated sleepscreen."))
+    else notify(_("Sleep-screen draft saved locally.")) end
     return saved
 end
 function SleepEditor:save() self:_save(false) end
@@ -378,97 +392,258 @@ function SleepEditor:_preview(width, height, colors)
         background = colors.surface, blank(width, height) }
 end
 
-function SleepEditor:_controlRows(control_width, colors)
-    local items, gap = {}, scale(5)
-    local function add(title, subtitle, callback, selected)
-        items[#items + 1] = EditorButton:new{ title = title, subtitle = subtitle, callback = callback,
-            width = control_width, height = subtitle and scale(45) or scale(34), selected = selected,
-            background = selected and colors.primary or colors.surface, foreground = selected and colors.on_primary or colors.on_surface }
-        items[#items + 1] = require("ui/widget/verticalspan"):new{ width = gap }
+local function sectionDefinitions()
+    return {
+        { id = "screen", title = _("Screen") },
+        { id = "elements", title = _("Elements") },
+        { id = "edit", title = _("Edit") },
+        { id = "save", title = _("Save") },
+    }
+end
+
+function SleepEditor:_sectionTabs(width, colors)
+    local sections, entries = sectionDefinitions(), {}
+    local gap, height = scale(4), scale(32)
+    local tab_width = math.max(1, math.floor((width - gap * (#sections - 1)) / #sections))
+    for index, section in ipairs(sections) do
+        local id, title = section.id, section.title
+        local selected = self.section == id
+        local button_width = index == #sections and width - (index - 1) * (tab_width + gap) or tab_width
+        entries[#entries + 1] = { widget = EditorButton:new{
+            title = title, width = button_width, height = height, selected = selected,
+            background = selected and colors.primary or (colors.surface_variant or colors.surface),
+            foreground = selected and colors.on_primary or colors.on_surface,
+            callback = function()
+                self.section = id
+                self:rebuild()
+                UIManager:setDirty(self, "ui")
+            end,
+        }, x = (index - 1) * (tab_width + gap), y = 0 }
     end
+    return Layout.FixedStack:new{ width = width, height = height, entries = entries }
+end
+
+function SleepEditor:_sectionRows(panel_width, colors)
+    local items = {}
     local definition, element = self:_definition(), self:_element()
-    add(_("Preset name"), definition.name or "", function()
-        self:_showInput(_("Preset name"), definition.name, _("1–80 characters"), function(value)
-            if value == "" or #value > 80 then return false, _("Use a name from 1 to 80 characters.") end; definition.name = value; return true
-        end)
-    end)
-    add(_("Description"), definition.description or "", function()
-        self:_showInput(_("Description"), definition.description or "", _("Optional, up to 500 characters"), function(value)
-            if #value > 500 then return false, _("Use at most 500 characters.") end; definition.description = value; return true
-        end)
-    end)
-    add(_("Background"), definition.background or "#FFFFFF", function()
-        self:_showInput(_("Background color"), definition.background, _("#RRGGBB"), function(value)
-            if not value:match("^#[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]$") then return false, _("Use #RRGGBB.") end
-            definition.background = value:upper(); return true
-        end)
-    end)
-    add(_("Add element"), _("Text, image, card, or widget"), function() self:showAddMenu() end)
-    if #definition.elements == 0 then
-        add(_("No elements yet"), _("Add an element to edit its layout."), function() self:showAddMenu() end)
-    else
+    local padding, gap = scale(8), scale(6)
+    local VerticalSpan = require("ui/widget/verticalspan")
+
+    local function addGroup(title, description, fields)
+        local content_width = math.max(scale(80), panel_width - padding * 2)
+        local cell_width = math.max(1, math.floor((content_width - gap) / 2))
+        local button_height = scale(46)
+        local heading = TextWidget:new{ text = title, face = Font:getFace("cfont", scale(11)),
+            fgcolor = colors.on_surface, bold = true, max_width = content_width, padding = 0 }
+        local hint = description and description ~= "" and TextWidget:new{
+            text = description, face = Font:getFace("smallinfofont", scale(8)),
+            fgcolor = colors.on_variant, max_width = content_width, padding = 0,
+        } or nil
+        local entries = {
+            { widget = heading, x = padding, y = padding },
+        }
+        local y = padding + heading:getSize().h + scale(2)
+        if hint then
+            entries[#entries + 1] = { widget = hint, x = padding, y = y }
+            y = y + hint:getSize().h + scale(5)
+        else
+            y = y + scale(5)
+        end
+
+        local column = 0
+        for _, field in ipairs(fields) do
+            local wide = field.wide == true
+            if wide and column == 1 then y = y + button_height + gap; column = 0 end
+            local button_width = wide and content_width or cell_width
+            local x = padding + (wide and 0 or column * (cell_width + gap))
+            local selected = field.selected == true
+            local button = EditorButton:new{
+                title = field.title, subtitle = shorten(field.value or "", 38),
+                callback = field.callback, width = button_width, height = button_height,
+                selected = selected,
+                background = field.background or (selected and colors.primary or (colors.surface_variant or colors.surface)),
+                foreground = field.foreground or (selected and colors.on_primary or colors.on_surface),
+            }
+            entries[#entries + 1] = { widget = button, x = x, y = y }
+            if wide then
+                y = y + button_height + gap
+            elseif column == 0 then
+                column = 1
+            else
+                column = 0
+                y = y + button_height + gap
+            end
+        end
+        if column == 1 then y = y + button_height + gap end
+        local card_height = y + padding
+        items[#items + 1] = FrameContainer:new{
+            width = panel_width, height = card_height, padding = 0, bordersize = 0,
+            radius = scale(9), background = colors.surface,
+            Layout.FixedStack:new{ width = panel_width, height = card_height, entries = entries },
+        }
+        items[#items + 1] = VerticalSpan:new{ width = scale(7) }
+    end
+
+    local function field(title, value, callback, options)
+        options = options or {}
+        return { title = title, value = tostring(value or ""), callback = callback,
+            wide = options.wide, selected = options.selected,
+            background = options.background, foreground = options.foreground }
+    end
+
+    if self.section == "screen" then
+        addGroup(_("Screen basics"), _("Name and describe this sleep screen, then choose its background."), {
+            field(_("Name"), definition.name, function()
+                self:_showInput(_("Preset name"), definition.name, _("1–80 characters"), function(value)
+                    if value == "" or #value > 80 then return false, _("Use a name from 1 to 80 characters.") end
+                    definition.name = value; return true
+                end)
+            end),
+            field(_("Description"), definition.description ~= "" and definition.description or _("Optional"), function()
+                self:_showInput(_("Description"), definition.description or "", _("Optional, up to 500 characters"), function(value)
+                    if #value > 500 then return false, _("Use at most 500 characters.") end
+                    definition.description = value; return true
+                end)
+            end),
+            field(_("Background"), definition.background or "#FFFFFF", function()
+                self:_showInput(_("Background color"), definition.background, _("#RRGGBB"), function(value)
+                    if not value:match("^#[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]$") then return false, _("Use #RRGGBB.") end
+                    definition.background = value:upper(); return true
+                end)
+            end),
+        })
+    elseif self.section == "elements" then
+        addGroup(_("Add an element"), _("Build the screen from simple text, images, cards, or live widgets."), {
+            field(_("Text"), _("Text block"), function() self:_addElement("text") end),
+            field(_("Image"), _("Local image"), function() self:_addElement("image") end),
+            field(_("Card"), _("Text card"), function() self:_addElement("card") end),
+            field(_("Widget"), _("Clock, date, battery"), function() self:_addElement("widget") end),
+        })
+        local element_fields = {}
         for index, candidate in ipairs(definition.elements) do
-            add(string.format("%d · %s", index, candidate.type or _("element")), candidate.text or candidate.source or _("Layout element"), function()
-                self.selected = index; self:rebuild(); UIManager:setDirty(self, "ui")
-            end, index == self.selected)
+            local element_index = index
+            local summary = candidate.text or candidate.source or ""
+            if candidate.type == "image" then summary = string.format(_("%d image(s)"), #(candidate.images or {})) end
+            if summary == "" then summary = _("Tap to edit this element") end
+            element_fields[#element_fields + 1] = field(
+                string.format("%02d · %s", index, candidate.type or _("element")), summary,
+                function()
+                    self.selected, self.section = element_index, "edit"
+                    self:rebuild(); UIManager:setDirty(self, "ui")
+                end,
+                { wide = true, selected = element_index == self.selected })
         end
+        if #element_fields == 0 then
+            element_fields[1] = field(_("No elements yet"), _("Add one above to start arranging your screen."),
+                function() self:showAddMenu() end, { wide = true })
+        end
+        addGroup(_("Layers"), _("Select a layer to edit its content, position, or style."), element_fields)
+    elseif self.section == "edit" then
+        if not element then
+            addGroup(_("Nothing selected"), _("Choose an element from the Elements tab, or add your first one."), {
+                field(_("Open elements"), _("Add or select a layer"), function()
+                    self.section = "elements"; self:rebuild(); UIManager:setDirty(self, "ui")
+                end, { wide = true }),
+            })
+        else
+            addGroup(_("Layout & order"), _("Coordinates and size are percentages of the screen."), {
+                field(_("Position x / y"), string.format("%s%% / %s%%", tostring(element.x or 0), tostring(element.y or 0)), function()
+                    self:_showInput(_("Position x,y (%)"), string.format("%s,%s", tostring(element.x or 0), tostring(element.y or 0)), _("Example: 10,15"), function(value)
+                        local x, y = value:match("^(%d+)%s*,%s*(%d+)$"); x, y = tonumber(x), tonumber(y)
+                        if not x or not y or x > 100 or y > 100 or x + (tonumber(element.w) or 1) > 100 or y + (tonumber(element.h) or 1) > 100 then return false, _("Bounds must stay inside 0 to 100 percent.") end
+                        element.x, element.y = x, y; return true
+                    end)
+                end),
+                field(_("Size w / h"), string.format("%s%% / %s%%", tostring(element.w or 0), tostring(element.h or 0)), function()
+                    self:_showInput(_("Size width,height (%)"), string.format("%s,%s", tostring(element.w or 1), tostring(element.h or 1)), _("Example: 80,20"), function(value)
+                        local w, h = value:match("^(%d+)%s*,%s*(%d+)$"); w, h = tonumber(w), tonumber(h)
+                        if not w or not h or w < 1 or h < 1 or w > 100 or h > 100 or (tonumber(element.x) or 0) + w > 100 or (tonumber(element.y) or 0) + h > 100 then return false, _("Bounds must stay inside 0 to 100 percent.") end
+                        element.w, element.h = w, h; return true
+                    end)
+                end),
+                field(_("Move earlier"), _("Change layer order"), function() self:moveSelected(-1) end),
+                field(_("Move later"), _("Change layer order"), function() self:moveSelected(1) end),
+                field(_("Remove element"), _("Delete this draft layer"), function() self:removeSelected() end, {
+                    wide = true, background = colors.tertiary, foreground = colors.on_tertiary,
+                }),
+            })
+
+            local content_fields = {}
+            if element.type == "text" or element.type == "card" then
+                content_fields[#content_fields + 1] = field(_("Text"), element.text or _("Empty"), function()
+                    self:_showInput(_("Text"), element.text, _("Use {time}, {date}, {battery}, {device}, or {sleeping}"), function(value)
+                        element.text = value; return true
+                    end)
+                end, { wide = true })
+            elseif element.type == "widget" then
+                content_fields[#content_fields + 1] = field(_("Widget source"), element.source or "clock", function()
+                    local dialog; local choices = { "clock", "date", "battery", "device" }; local buttons = {}
+                    for _, source in ipairs(choices) do
+                        local selected_source = source
+                        buttons[#buttons + 1] = { { text = selected_source, callback = function()
+                            element.source = selected_source; UIManager:close(dialog); self:_changed()
+                        end } }
+                    end
+                    buttons[#buttons + 1] = { { text = _("Cancel"), callback = function() UIManager:close(dialog) end } }
+                    dialog = ButtonDialog:new{ title = _("Widget source"), buttons = buttons }; UIManager:show(dialog)
+                end, { wide = true })
+            elseif element.type == "image" then
+                content_fields[#content_fields + 1] = field(_("Images & fit"),
+                    string.format(_("%d image(s) · %s"), #(element.images or {}), element.fit or "contain"),
+                    function() self:showImageMenu() end, { wide = true })
+            end
+            if #content_fields > 0 then
+                addGroup(_("Content"), _("Edit what this layer displays."), content_fields)
+            end
+
+            if element.type ~= "image" then
+                addGroup(_("Appearance"), _("Tune typography and contrast for this layer."), {
+                    field(_("Font"), element.font or "cfont", function() self:showFontMenu() end),
+                    field(_("Font size"), tostring(element.font_size or 20), function()
+                        self:_showInput(_("Font size"), element.font_size or 20, _("8–96"), function(value)
+                            local n = tonumber(value)
+                            if not n or n < 8 or n > 96 then return false, _("Use a size from 8 to 96.") end
+                            element.font_size = math.floor(n); return true
+                        end)
+                    end),
+                    field(_("Text color"), element.color or "#000000", function()
+                        self:_showInput(_("Text color"), element.color or "#000000", _("#RRGGBB"), function(value)
+                            if not value:match("^#[0-9A-Fa-f]+$") or #value ~= 7 then return false, _("Use #RRGGBB.") end
+                            element.color = value:upper(); return true
+                        end)
+                    end),
+                    field(_("Element background"), element.background or "#FFFFFF", function()
+                        self:_showInput(_("Element background"), element.background or "#FFFFFF", _("#RRGGBB"), function(value)
+                            if not value:match("^#[0-9A-Fa-f]+$") or #value ~= 7 then return false, _("Use #RRGGBB.") end
+                            element.background = value:upper(); return true
+                        end)
+                    end),
+                    field(_("Alignment"), element.align or "left", function()
+                        local dialog; local buttons = {}
+                        for _, align in ipairs({ "left", "center", "right" }) do
+                            local selected_align = align
+                            buttons[#buttons + 1] = { { text = selected_align, callback = function()
+                                element.align = selected_align; UIManager:close(dialog); self:_changed()
+                            end } }
+                        end
+                        dialog = ButtonDialog:new{ title = _("Text alignment"), buttons = buttons }; UIManager:show(dialog)
+                    end),
+                    field(_("Bold"), element.bold and _("On") or _("Off"), function()
+                        element.bold = not element.bold; self:_changed()
+                    end),
+                })
+            end
+        end
+    else
+        addGroup(_("Save your work"), self.dirty and _("You have unsaved changes.") or _("Changes stay local until you save."), {
+            field(_("Save draft"), _("Keep editing later"), function() self:save() end),
+            field(_("Save & activate"), _("Use this while sleeping"), function() self:saveAndActivate() end),
+        })
+        addGroup(_("Share or leave"), _("Publishing is optional and requires confirmation."), {
+            field(_("Publish"), _("Share this preset publicly"), function() self:publish() end, { wide = true }),
+            field(_("Close editor"), self.dirty and _("Review unsaved changes") or _("Return to catalog"), function() self:closeEditor() end, { wide = true }),
+        })
     end
-    if element then
-        add(_("Move up / down"), _("Change render order"), function()
-            local dialog
-            dialog = ButtonDialog:new{ title = _("Reorder element"), buttons = {
-                { { text = _("Move up"), callback = function() UIManager:close(dialog); self:moveSelected(-1) end } },
-                { { text = _("Move down"), callback = function() UIManager:close(dialog); self:moveSelected(1) end } },
-                { { text = _("Cancel"), callback = function() UIManager:close(dialog) end } },
-            } }; UIManager:show(dialog)
-        end)
-        add(_("Remove element"), _("Deletes only this draft element"), function() self:removeSelected() end)
-        add(_("Position x / y"), string.format("%s%% / %s%%", tostring(element.x or 0), tostring(element.y or 0)), function()
-            self:_showInput(_("Position x,y (%)"), string.format("%s,%s", tostring(element.x or 0), tostring(element.y or 0)), _("Example: 10,15"), function(value)
-                local x, y = value:match("^(%d+)%s*,%s*(%d+)$"); x, y = tonumber(x), tonumber(y)
-                if not x or not y or x > 100 or y > 100 or x + (tonumber(element.w) or 1) > 100 or y + (tonumber(element.h) or 1) > 100 then return false, _("Bounds must stay inside 0 to 100 percent.") end
-                element.x, element.y = x, y; return true
-            end)
-        end)
-        add(_("Size w / h"), string.format("%s%% / %s%%", tostring(element.w or 0), tostring(element.h or 0)), function()
-            self:_showInput(_("Size width,height (%)"), string.format("%s,%s", tostring(element.w or 1), tostring(element.h or 1)), _("Example: 80,20"), function(value)
-                local w, h = value:match("^(%d+)%s*,%s*(%d+)$"); w, h = tonumber(w), tonumber(h)
-                if not w or not h or w < 1 or h < 1 or w > 100 or h > 100 or (tonumber(element.x) or 0) + w > 100 or (tonumber(element.y) or 0) + h > 100 then return false, _("Bounds must stay inside 0 to 100 percent.") end
-                element.w, element.h = w, h; return true
-            end)
-        end)
-        if element.type == "text" or element.type == "card" then
-            add(_("Text"), element.text or "", function() self:_showInput(_("Text"), element.text, _("Use {time}, {date}, {battery}, {device}, or {sleeping}"), function(value) element.text = value; return true end) end)
-        end
-        if element.type == "widget" then
-            add(_("Widget source"), element.source or "clock", function()
-                local dialog; local choices = { "clock", "date", "battery", "device" }; local buttons = {}
-                for _, source in ipairs(choices) do buttons[#buttons + 1] = { { text = source, callback = function() element.source = source; UIManager:close(dialog); self:_changed() end } } end
-                buttons[#buttons + 1] = { { text = _("Cancel"), callback = function() UIManager:close(dialog) end } }
-                dialog = ButtonDialog:new{ title = _("Widget source"), buttons = buttons }; UIManager:show(dialog)
-            end)
-        end
-        if element.type == "image" then add(_("Images & fit"), string.format(_("%d image(s) · %s"), #(element.images or {}), element.fit or "contain"), function() self:showImageMenu() end) end
-        if element.type ~= "image" then
-            add(_("Font"), element.font or "cfont", function() self:showFontMenu() end)
-            add(_("Font size"), tostring(element.font_size or 20), function() self:_showInput(_("Font size"), element.font_size or 20, _("8–96"), function(value)
-                local n = tonumber(value); if not n or n < 8 or n > 96 then return false, _("Use a size from 8 to 96.") end; element.font_size = math.floor(n); return true end) end)
-            add(_("Text color"), element.color or "#000000", function() self:_showInput(_("Text color"), element.color or "#000000", _("#RRGGBB"), function(value)
-                if not value:match("^#[0-9A-Fa-f]+$") or #value ~= 7 then return false, _("Use #RRGGBB.") end; element.color = value:upper(); return true end) end)
-            add(_("Element background"), element.background or "#FFFFFF", function() self:_showInput(_("Element background"), element.background or "#FFFFFF", _("#RRGGBB"), function(value)
-                if not value:match("^#[0-9A-Fa-f]+$") or #value ~= 7 then return false, _("Use #RRGGBB.") end; element.background = value:upper(); return true end) end)
-            add(_("Alignment"), element.align or "left", function()
-                local dialog; local buttons = {}
-                for _, align in ipairs({ "left", "center", "right" }) do buttons[#buttons + 1] = { { text = align, callback = function() element.align = align; UIManager:close(dialog); self:_changed() end } } end
-                dialog = ButtonDialog:new{ title = _("Text alignment"), buttons = buttons }; UIManager:show(dialog)
-            end)
-            add(element.bold and _("Bold: on") or _("Bold: off"), _("Tap to toggle"), function() element.bold = not element.bold; self:_changed() end)
-        end
-    end
-    add(_("Save draft"), _("Local only; no account needed"), function() self:save() end)
-    add(_("Save & activate"), _("Use this screen while sleeping"), function() self:saveAndActivate() end)
-    add(_("Publish"), _("Explicitly share this preset"), function() self:publish() end)
-    add(_("Close"), self.dirty and _("Unsaved changes") or _("Return to catalog"), function() self:closeEditor() end)
     return items
 end
 
@@ -496,18 +671,33 @@ function SleepEditor:rebuild()
     local preview_x = margin + math.floor((box_w - preview_w) / 2)
     local preview_y = margin + math.floor((box_h - preview_h) / 2)
     local preview = self:_preview(preview_w, preview_h, colors)
-    local rows = self:_controlRows(controls_w - ScrollableContainer:getScrollbarWidth(), colors)
-    local list_height = math.max(scale(40), #rows * (scale(39) + gap))
+    local control_width = controls_w - ScrollableContainer:getScrollbarWidth()
+    local rows = self:_sectionRows(control_width, colors)
     local list = require("ui/widget/verticalgroup"):new(rows)
-    local scroller = ScrollableContainer:new{ dimen = Geom:new{ w = controls_w, h = controls_h }, show_parent = self,
-        list, overlap_offset = { controls_x, controls_y } }
+    local header_height, tab_height = scale(32), scale(32)
+    local panel_gap = scale(5)
+    local tabs_y = controls_y + header_height
+    local body_y = tabs_y + tab_height + panel_gap
+    local body_height = math.max(scale(60), controls_h - header_height - tab_height - panel_gap * 2)
+    local status = self.dirty and _("Unsaved changes") or (self.record and _("Saved draft") or _("New draft"))
+    local tabs = self:_sectionTabs(controls_w, colors)
+    tabs.overlap_offset = { controls_x, tabs_y }
+    local scroller = ScrollableContainer:new{
+        dimen = Geom:new{ w = controls_w, h = body_height }, show_parent = self,
+        list, overlap_offset = { controls_x, body_y },
+    }
     self:clear()
     self[1] = OverlapGroup:new{ dimen = self.dimen, allow_mirroring = false,
         FrameContainer:new{ width = width, height = height, padding = 0, bordersize = 0, background = colors.background, blank(width, height) },
         FrameContainer:new{ width = preview_w, height = preview_h, padding = 0, bordersize = scale(1), color = colors.on_variant,
             background = colors.surface, preview, overlap_offset = { preview_x, preview_y } },
-        TextWidget:new{ text = _("Instant preview"), face = Font:getFace("smallinfofont", scale(10)), fgcolor = colors.on_surface,
-            bold = true, padding = 0, overlap_offset = { margin + scale(8), margin + scale(7) } },
+        TextWidget:new{ text = _("Live preview"), face = Font:getFace("smallinfofont", scale(10)), fgcolor = colors.on_surface,
+            bold = true, padding = 0, overlap_offset = { preview_x + scale(8), preview_y + scale(7) } },
+        TextWidget:new{ text = _("Sleep-screen editor"), face = Font:getFace("cfont", scale(13)), fgcolor = colors.on_surface,
+            bold = true, max_width = controls_w, padding = 0, overlap_offset = { controls_x, controls_y } },
+        TextWidget:new{ text = status .. _(" · Preview updates live"), face = Font:getFace("smallinfofont", scale(8)), fgcolor = colors.on_variant,
+            max_width = controls_w, padding = 0, overlap_offset = { controls_x, controls_y + scale(17) } },
+        tabs,
         scroller,
     }
 end
