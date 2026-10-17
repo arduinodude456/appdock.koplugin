@@ -140,9 +140,12 @@ begin
     -- This authoritative lookup also serialises quota/rate-limit checks for a
     -- creator.  p_creator_account_id originates from a hashed device credential,
     -- never from a client supplied creator field.
-    select display_name into v_display_name
+    -- RETURNS TABLE names are PL/pgSQL output variables; qualify columns to
+    -- avoid ambiguity between those variables and table columns.
+    select accounts.display_name into v_display_name
       from public.tbs_accounts
-     where id = p_creator_account_id
+           as accounts
+     where accounts.id = p_creator_account_id
      for update;
     if not found then
         outcome := 'not_found'; return next; return;
@@ -153,8 +156,8 @@ begin
             outcome := 'invalid'; return next; return;
         end if;
         select count(*) into v_count
-          from public.tbs_sleepscreen_presets
-         where creator_account_id = p_creator_account_id;
+          from public.tbs_sleepscreen_presets as presets
+         where presets.creator_account_id = p_creator_account_id;
         if v_count >= 50 then
             outcome := 'quota'; return next; return;
         end if;

@@ -1,9 +1,9 @@
 # Sleep-Screens-Backend bereitstellen
 
-> **Status: nicht bereitgestellt.** Dieses Repository enthält nur Migration, Edge
-> Function und Tests. Es wurde **keine** Supabase-Migration ausgeführt und **keine**
-> Function aus dieser Änderung deployed. Lokale Sleep-Screen-Entwürfe funktionieren
-> unabhängig davon; der öffentliche Katalog erst nach den folgenden Schritten.
+> **Deployment-Status:** Der Zustand der Supabase-Datenbank und der Edge Functions
+> ist nicht aus dem Repository allein ableitbar. Ein erreichbarer öffentlicher
+> Katalog bestätigt nicht, dass die private Publish-RPC korrekt bereitgestellt ist.
+> Lokale Sleep-Screen-Entwürfe funktionieren unabhängig vom Backend.
 
 ## Voraussetzungen
 
@@ -25,12 +25,14 @@
    supabase login
    supabase link --project-ref <PROJECT_REF>
    supabase db push
-   # Alternativ im SQL Editor zuerst 20261017_tbs_account.sql,
-   # danach 20261017_sleepscreens.sql ausführen.
+   # Alternativ im SQL Editor die Migrationen in dieser Reihenfolge ausführen:
+   # 20261017_tbs_account.sql → 20261017_sleepscreens.sql
+   # → 20261017163000_fix_sleepscreen_publish_ambiguity.sql.
    ```
 
    Bei manuellem SQL-Editor-Einsatz ist die Reihenfolge verbindlich:
-   `20261017_tbs_account.sql` → `20261017_sleepscreens.sql`.
+   `20261017_tbs_account.sql` → `20261017_sleepscreens.sql` →
+   `20261017163000_fix_sleepscreen_publish_ambiguity.sql`.
 
 2. Tests lokal ausführen. Deno wird für die Function-Tests benötigt; der
    Repository-Workflow installiert es automatisch:
