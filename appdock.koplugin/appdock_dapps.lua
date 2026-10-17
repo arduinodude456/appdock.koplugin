@@ -1085,6 +1085,7 @@ function DAppManager:_registerBuiltins()
         id = "app_store",
         title = _("AppStore"),
         subtitle = _("Discover trusted AppDock DApps"),
+        requires_tbs_account = true,
         symbol = "A",
         logo = "app_store",
         buildPane = function(instance, context)
@@ -1105,6 +1106,7 @@ function DAppManager:_registerBuiltins()
         id = "youtube",
         title = _("YouTube"),
         subtitle = _("Search, convert and watch E-Ink video"),
+        requires_tbs_account = true,
         symbol = "Y",
         logo = "youtube",
         buildPane = function(instance, context)
@@ -1118,6 +1120,7 @@ function DAppManager:_registerBuiltins()
         id = "youtube_music",
         title = _("YouTube Music"),
         subtitle = _("Audio-only downloads with full-color cover art"),
+        requires_tbs_account = true,
         symbol = "M",
         logo = "youtube_music",
         buildPane = function(instance, context)
@@ -1213,6 +1216,9 @@ function DAppManager:loadStoreDApp(file, source_path, restoring, expected_id, al
         openFile = type(definition.openFile) == "function" and definition.openFile or nil,
         file_extensions = normalizedExtensions(definition.file_extensions),
         file_handler_title = type(definition.file_handler_title) == "string" and Theme.ellipsize(definition.file_handler_title, 48) or nil,
+        -- DockUpdate predates the account property in its published DApp
+        -- contract; keep the id fallback until all catalog copies carry it.
+        requires_tbs_account = definition.requires_tbs_account == true or definition.id == "dock_update",
         workspace_restore = definition.workspace_restore == true,
         serializeState = type(definition.serializeState) == "function" and definition.serializeState or nil,
         restoreState = type(definition.restoreState) == "function" and definition.restoreState or nil,
@@ -2241,12 +2247,42 @@ function DAppManager:_persistWindowGeometry(id, rect)
     return true
 end
 
+-- One gate covers homescreen tiles, recents, files, split screen and windows.
+-- Keeping this here prevents an account requirement from being bypassed by an
+-- alternate launcher route as new hosts are added.
+function DAppManager:_authorizeLaunch(id, retry)
+    local definition = self.definitions[id]
+    if not definition or definition.requires_tbs_account ~= true then return true end
+    local ok, Account = pcall(require, "appdock_tbs_account")
+    if not ok or not Account or not Account.isSignedIn or not Account.require then
+        UIManager:show(InfoMessage:new{ text = _("TBS Account is unavailable. Update AppDock and try again.") })
+        return false
+    end
+    if Account.isSignedIn(self.appdock) then
+        if Account.recordAppUse then pcall(Account.recordAppUse, self.appdock, id) end
+        return true
+    end
+    self._tbs_access_prompts = self._tbs_access_prompts or {}
+    if self._tbs_access_prompts[id] then return false end
+    self._tbs_access_prompts[id] = true
+    Account.require(self.appdock, definition.title or id, function(ready)
+        self._tbs_access_prompts[id] = nil
+        if not ready or not Account.isSignedIn(self.appdock) then return end
+        if Account.recordAppUse then pcall(Account.recordAppUse, self.appdock, id) end
+        if retry then
+            if UIManager.nextTick then UIManager:nextTick(retry) else retry() end
+        end
+    end)
+    return false
+end
+
 function DAppManager:openWindow(id, source)
     local beta = self.appdock.settings.beta or {}
     local instance = self:_instanceFor(id)
     if beta.windows ~= true or not instance or instance.definition.host_kind == "plugin" then
         return false
     end
+    if not self:_authorizeLaunch(id, function() self:openWindow(id, source) end) then return false end
     if source then UIManager:close(source) end
     if self.active_host and self.active_host.is_window and self.active_host.addWindow then
         return self.active_host:addWindow(id)
@@ -2299,7 +2335,8 @@ end
 
 function DAppManager:activate(id, home)
     local instance = self:_instanceFor(id)
-    if not instance then return end
+    if not instance then return false end
+    if not self:_authorizeLaunch(id, function() self:activate(id, home) end) then return false end
     if home then UIManager:close(home) end
     if self.active_host then UIManager:close(self.active_host) end
     self.active_id = id
@@ -2312,11 +2349,13 @@ function DAppManager:activate(id, home)
     self.active_host = host
     UIManager:show(host)
     UIManager:nextTick(function() UIManager:setDirty(host, "ui"); if UIManager.forceRePaint then UIManager:forceRePaint() end end)
+    return true
 end
 
 function DAppManager:openDAppFile(id, file)
     local instance = self:_instanceFor(id)
     if not instance then return false, _("This DApp is not installed.") end
+    if not self:_authorizeLaunch(id, function() self:openDAppFile(id, file) end) then return false, _("Sign in to a TBS account first.") end
     local handler = instance.definition.openFile
     if not handler then return false, _("This DApp cannot open files from AppDock Files.") end
     local ok, accepted, reason = pcall(handler, instance, file)
@@ -2449,14 +2488,16 @@ function DAppManager:beginSplitSelection(first_id, recents)
 end
 
 function DAppManager:startSplit(first_id, second_id)
-    if first_id == second_id then return end
+    if first_id == second_id then return false end
     local first = self.instances[first_id]
     local second = self.instances[second_id]
-    if not first or not second then return end
+    if not first or not second then return false end
+    if not self:_authorizeLaunch(first_id, function() self:startSplit(first_id, second_id) end) then return false end
+    if not self:_authorizeLaunch(second_id, function() self:startSplit(first_id, second_id) end) then return false end
     if first.definition.can_split == false or second.definition.can_split == false then
         local blocked = first.definition.can_split == false and first or second
         self.appdock:notify({ title = _("Plugin host beta"), message = _("Plugin host beta sessions cannot use split screen."), source = blocked.definition.title, app_id = notificationAppId(blocked), priority = "high" })
-        return
+        return false
     end
     if self.active_host then UIManager:close(self.active_host) end
 
@@ -2476,6 +2517,7 @@ function DAppManager:startSplit(first_id, second_id)
     }
     self.active_host = host
     UIManager:show(host)
+    return true
 end
 
 function DAppManager:detachHost(host)
@@ -2761,116 +2803,188 @@ function DAppManager:showFeatureDialog()
 end
 
 function DAppManager:showSetupAssistant(instance, context, automatic)
+    -- A SettingsRow callback runs while the host is still handling its tap.
+    -- Replacing modals synchronously there made the first screen easy to lose
+    -- behind the next host repaint. Keep one owned session and move every
+    -- replacement to the next UI turn instead.
+    if self._setup_assistant_session then return false end
+    local session = { active = true, dialog = nil, transitioning = false }
+    self._setup_assistant_session = session
+
+    local function isActive()
+        return session.active and self._setup_assistant_session == session
+    end
+    local function defer(callback)
+        if UIManager.nextTick then UIManager:nextTick(callback) else callback() end
+    end
+    local function clearSession()
+        if self._setup_assistant_session == session then self._setup_assistant_session = nil end
+        session.active, session.dialog, session.transitioning = false, nil, false
+    end
+    local function closeDialog(dialog)
+        if not dialog then return end
+        if type(dialog.close) == "function" then dialog:close()
+        else UIManager:close(dialog) end
+    end
+    local function showDialog(dialog)
+        if not isActive() then return false end
+        local previous_on_close = dialog.onCloseWidget
+        dialog.onCloseWidget = function(widget, ...)
+            if previous_on_close then previous_on_close(widget, ...) end
+            -- Closing through Back/outside must release the guard too. During a
+            -- step change session.dialog is deliberately cleared beforehand.
+            if isActive() and session.dialog == widget and not session.transitioning then clearSession() end
+        end
+        session.dialog = dialog
+        UIManager:show(dialog)
+        return true
+    end
+    local function dismiss()
+        if not isActive() then return false end
+        local dialog = session.dialog
+        clearSession()
+        closeDialog(dialog)
+        return true
+    end
+    local function transition(show_next)
+        if not isActive() then return false end
+        local dialog = session.dialog
+        session.transitioning, session.dialog = true, nil
+        closeDialog(dialog)
+        defer(function()
+            if not isActive() then return end
+            session.transitioning = false
+            show_next()
+        end)
+        return true
+    end
+
+    -- Keep the old automatic feature-page route for callers from earlier
+    -- releases. Startup in current AppDock uses showFeatureDialog() instead,
+    -- so manual setup state remains independent from update-notice state.
     local feature_pages = type(self.appdock.getFeaturePages) == "function" and self.appdock:getFeaturePages() or {}
     if automatic and #feature_pages > 0 then
-        local page_index = 1
-        local dialog
-        local function show_page()
+        local page_index
+        local function showPage()
             local page = feature_pages[page_index]
             local last = page_index == #feature_pages
-            local buttons = { { { text = last and _("Fertig") or _("Weiter"), callback = function()
-                if last then self.appdock:completeSetupAssistant(); UIManager:close(dialog)
-                else page_index = page_index + 1; UIManager:close(dialog); show_page() end
-            end } }, { { text = _("Später"), callback = function() UIManager:close(dialog) end } } }
-            dialog = ButtonDialog:new{ title = (page.title or _("AppDock update")) .. "\n\n" .. (page.text or "") .. string.format("\n\n(%d/%d)", page_index, #feature_pages), buttons = buttons }
-            -- ButtonDialog is intentionally text-only here: ADF image paths are optional
-            -- and can be added later without making updates fail on monochrome devices.
+            local dialog = ButtonDialog:new{
+                setup = true,
+                title = (page.title or _("AppDock update")) .. "\n\n" .. (page.text or "")
+                    .. string.format("\n\n(%d/%d)", page_index, #feature_pages),
+                buttons = {
+                    { { text = last and _("Fertig") or _("Weiter"), is_default = true, callback = function()
+                        if last then
+                            self.appdock:completeSetupAssistant()
+                            dismiss()
+                        else
+                            page_index = page_index + 1
+                            transition(showPage)
+                        end
+                    end } },
+                    { { text = _("Später"), callback = dismiss } },
+                },
+            }
+            -- ButtonDialog is intentionally text-only here: ADF image paths are
+            -- optional and can be added later without failing on monochrome devices.
             dialog.description = page.text or ""
-            UIManager:show(dialog)
+            showDialog(dialog)
         end
-        show_page()
-        return
+        page_index = 1
+        defer(showPage)
+        return true
     end
-    local dialog
+
     local function refreshSettings()
-        if context and context.requestRebuild then context.requestRebuild("ui") end
-    end
-    local function closeDialog()
-        if dialog then UIManager:close(dialog) end
+        if context and type(context.requestRebuild) == "function" then context.requestRebuild("ui") end
     end
     local function finish()
+        if not isActive() then return false end
         self.appdock:completeSetupAssistant()
-        closeDialog()
-        refreshSettings()
-        self:showSettingsNotice(_("AppDock setup is complete. You can run the setup wizard again at any time from Settings → Other."))
+        dismiss()
+        defer(function()
+            refreshSettings()
+            self:showSettingsNotice(_("AppDock setup is complete. You can run the setup wizard again at any time from Settings → Other."))
+        end)
+        return true
     end
     local function showTBSAccountStep()
-        local existing = self.appdock.settings.tbs_account or {}
-        local account_dialog
-        account_dialog = InputDialog:new{
+        local status = self.appdock.getTBSAccountStatus and self.appdock:getTBSAccountStatus() or { signed_in = false }
+        local account_dialog = ButtonDialog:new{
             setup = true,
-            title = _("AppDock Setup · TBS account") .. "\n" .. _("Optional: create a local TBS profile. Its public name is also offered to DChat; no password is stored on this device."),
-            input = existing.username or "",
-            input_hint = _("TBS username (letters, numbers, . _ -)"),
-            buttons = { { { text = _("Skip"), callback = function() UIManager:close(account_dialog); finish() end },
-                { text = _("Create TBS account"), is_enter_default = true, callback = function()
-                    local username = account_dialog:getInputText()
-                    if self.appdock:setTBSAccount(username, username, true) then
-                        UIManager:close(account_dialog)
-                        finish()
-                    else
-                        account_dialog.input_hint = _("Choose a valid username (max. 32 characters).")
-                    end
-                end } }, { { text = _("Migrate from an old device over Wi-Fi"), callback = function()
-                    UIManager:close(account_dialog)
-                    self:showTransferMenu(instance, context)
-                end } } },
+            title = _("Setup 4/4 · TBS account") .. "\n" .. (status.signed_in
+                and _("Connected. AppStore, YouTube, YouTube Music and DockUpdate are available.")
+                or _("Optional now, required before using AppStore, YouTube, YouTube Music or DockUpdate. It backs up compact AppDock settings and supports secure device migration.")),
+            buttons = {
+                { { text = _("Finish setup"), callback = finish },
+                  { text = status.signed_in and _("TBS account connected") or _("Connect TBS account"), is_enter_default = true, callback = function()
+                    if status.signed_in then return finish() end
+                    transition(function()
+                        local ok, Account = pcall(require, "appdock_tbs_account")
+                        if not ok or not Account or not Account.require then
+                            self:showSettingsNotice(_("TBS Account is unavailable. Update AppDock and try again."))
+                            if isActive() then defer(showTBSAccountStep) end
+                            return
+                        end
+                        Account.require(self.appdock, _("TBS Account"), function(ready)
+                            if ready then finish()
+                            elseif isActive() then defer(showTBSAccountStep) end
+                        end)
+                    end)
+                end } },
+                { { text = _("Local Wi-Fi transfer"), callback = function()
+                    if dismiss() then defer(function() self:showTransferMenu(instance, context) end) end
+                end } },
+                { { text = _("Cancel"), callback = dismiss } },
+            },
         }
-        UIManager:show(account_dialog)
-        if account_dialog.onShowKeyboard then account_dialog:onShowKeyboard() end
+        showDialog(account_dialog)
     end
     local function showWorkspaceStep()
         local workspace = self.appdock.settings.workspace or {}
-        dialog = ButtonDialog:new{
+        local dialog = ButtonDialog:new{
             setup = true,
             title = _("Setup 3/4 · Local workspace") .. "\n" .. _("Optionally restore permitted local AppDock apps after a KOReader restart. No documents, browser pages or plugin hosts are restored."),
             buttons = {
                 { { text = workspace.restore_enabled and _("Keep restoration enabled") or _("Enable restoration"), callback = function()
                     self.appdock:setWorkspaceRestoreEnabled(true)
-                    closeDialog()
-                    showTBSAccountStep()
+                    transition(showTBSAccountStep)
                 end } },
                 { { text = workspace.restore_enabled and _("Disable restoration") or _("Keep disabled"), callback = function()
                     self.appdock:setWorkspaceRestoreEnabled(false)
-                    closeDialog()
-                    showTBSAccountStep()
+                    transition(showTBSAccountStep)
                 end } },
-                { { text = _("Continue without changing"), callback = function() closeDialog(); showTBSAccountStep() end } },
-                { { text = _("Cancel"), callback = closeDialog } },
+                { { text = _("Continue without changing"), callback = function() transition(showTBSAccountStep) end } },
+                { { text = _("Cancel"), callback = dismiss } },
             },
         }
-        UIManager:show(dialog)
+        showDialog(dialog)
     end
     local function showSearchStep()
         local layout = self.appdock.settings.layout or {}
-        dialog = ButtonDialog:new{
+        local dialog = ButtonDialog:new{
             setup = true,
             title = _("Setup 2/4 · Find apps") .. "\n" .. _("Choose whether the normal homescreen should show an optional local app search field."),
             buttons = {
                 { { text = layout.search_enabled and _("Keep app search enabled") or _("Enable app search"), callback = function()
                     self.appdock:setLauncherLayout({ search_enabled = true })
-                    closeDialog()
-                    showWorkspaceStep()
+                    transition(showWorkspaceStep)
                 end } },
                 { { text = layout.search_enabled and _("Hide app search") or _("Keep hidden"), callback = function()
                     self.appdock:setLauncherLayout({ search_enabled = false })
-                    closeDialog()
-                    showWorkspaceStep()
+                    transition(showWorkspaceStep)
                 end } },
-                { { text = _("Skip this step"), callback = function()
-                    closeDialog()
-                    showWorkspaceStep()
-                end } },
-                { { text = _("Cancel"), callback = closeDialog } },
+                { { text = _("Skip this step"), callback = function() transition(showWorkspaceStep) end } },
+                { { text = _("Cancel"), callback = dismiss } },
             },
         }
-        UIManager:show(dialog)
+        showDialog(dialog)
     end
     local function showAppearanceStep()
         local simple_mode = self.appdock:isSimpleModeEnabled("homescreen")
             or self.appdock:isSimpleModeEnabled("quick_settings")
             or self.appdock:isSimpleModeEnabled("focus_apps")
-        dialog = ButtonDialog:new{
+        local dialog = ButtonDialog:new{
             setup = true,
             title = _("Setup 1/4 · Appearance") .. "\n" .. _("Choose the full AppDock interface or the existing reduced Simple Mode. This choice only changes after you select an option."),
             buttons = {
@@ -2878,37 +2992,33 @@ function DAppManager:showSetupAssistant(instance, context, automatic)
                     self.appdock:setSimpleModeOption("homescreen", false)
                     self.appdock:setSimpleModeOption("quick_settings", false)
                     self.appdock:setSimpleModeOption("focus_apps", false)
-                    closeDialog()
-                    showSearchStep()
+                    transition(showSearchStep)
                 end } },
                 { { text = simple_mode and _("Keep Simple Mode") or _("Use Simple Mode"), callback = function()
                     self.appdock:setSimpleModeOption("homescreen", true)
                     self.appdock:setSimpleModeOption("quick_settings", true)
                     self.appdock:setSimpleModeOption("focus_apps", true)
-                    closeDialog()
-                    showSearchStep()
+                    transition(showSearchStep)
                 end } },
-                { { text = _("Skip this step"), callback = function()
-                    closeDialog()
-                    showSearchStep()
-                end } },
-                { { text = _("Cancel"), callback = closeDialog } },
+                { { text = _("Skip this step"), callback = function() transition(showSearchStep) end } },
+                { { text = _("Cancel"), callback = dismiss } },
             },
         }
-        UIManager:show(dialog)
+        showDialog(dialog)
     end
-    dialog = ButtonDialog:new{
-        setup = true,
-        title = automatic and _("AppDock was updated") or _("AppDock setup wizard"),
-        buttons = {
-            { { text = _("Start setup"), callback = function()
-                closeDialog()
-                showAppearanceStep()
-            end } },
-            { { text = automatic and _("Later") or _("Cancel"), callback = closeDialog } },
-        },
-    }
-    UIManager:show(dialog)
+    local function showStart()
+        local dialog = ButtonDialog:new{
+            setup = true,
+            title = _("AppDock setup wizard"),
+            buttons = {
+                { { text = _("Start setup"), is_default = true, callback = function() transition(showAppearanceStep) end } },
+                { { text = _("Cancel"), callback = dismiss } },
+            },
+        }
+        showDialog(dialog)
+    end
+    defer(showStart)
+    return true
 end
 
 function DAppManager:getIntegrityStatus()
@@ -3635,6 +3745,7 @@ function DAppManager:_buildSettingsPane(instance, context)
     local lockscreen_settings = self.appdock.settings.lockscreen or { enabled = false, method = "swipe" }
     local workspace_settings = self.appdock.settings.workspace or { restore_enabled = false, session = nil }
     local accessibility_settings = self.appdock.settings.accessibility or { text_scale = 1, high_contrast = false }
+    local tbs_status = self.appdock.getTBSAccountStatus and self.appdock:getTBSAccountStatus() or { signed_in = false }
     local refresh_interval = type(self.appdock.getRefreshInterval) == "function" and self.appdock:getRefreshInterval() or 60
     local rows_by_category = {
         network = {
@@ -3733,8 +3844,16 @@ function DAppManager:_buildSettingsPane(instance, context)
                 callback = function() self:showIntegrityStatus() end,
             },
             {
+                title = _("TBS Account & cloud sync"),
+                subtitle = tbs_status.signed_in and _("Connected · settings backup enabled") or _("Required for AppStore, YouTube, YouTube Music and DockUpdate"),
+                show_state = false,
+                callback = function()
+                    if self.appdock.showTBSAccount then self.appdock:showTBSAccount(instance, context) end
+                end,
+            },
+            {
                 title = _("Backup & migration"),
-                subtitle = _("Move settings, themes and local history over Wi-Fi"),
+                subtitle = _("Move local settings over Wi-Fi · TBS credentials stay private"),
                 show_state = false,
                 callback = function() self:showTransferMenu(instance, context) end,
             },
@@ -3779,10 +3898,18 @@ function DAppManager:_buildSettingsPane(instance, context)
                 end,
             },
             {
-                title = _("Setup wizard"),
-                subtitle = _("Review AppDock appearance and local options"),
+                title = _("Setup Wizard"),
+                subtitle = _("Guided setup for appearance and local options"),
                 show_state = false,
-                callback = function() self:showSetupAssistant(instance, context, false) end,
+                callback = function()
+                    -- Go through AppDock so Settings and other callers share
+                    -- the same guarded entry point. Keep the direct route as a
+                    -- compatibility fallback for an older paired main.lua.
+                    if self.appdock and type(self.appdock.showSetupAssistant) == "function" then
+                        return self.appdock:showSetupAssistant(instance, context)
+                    end
+                    return self:showSetupAssistant(instance, context, false)
+                end,
             },
             {
                 title = _("Update notice"),
@@ -4151,6 +4278,9 @@ function DAppWindowHost:addWindow(id)
     end
     local instance = self.manager:_instanceFor(id)
     if not instance or instance.definition.host_kind == "plugin" then return false end
+    if not self.manager:_authorizeLaunch(id, function()
+        if self.manager.active_host == self then self:addWindow(id) else self.manager:openWindow(id) end
+    end) then return false end
     local rect = self.manager:_windowGeometry(id, self.dimen)
     local saved_geometry = self.manager.appdock.settings.layout
         and self.manager.appdock.settings.layout.window_geometries

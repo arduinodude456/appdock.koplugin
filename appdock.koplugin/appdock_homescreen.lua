@@ -14,6 +14,9 @@ local Geom = require("ui/geometry")
 local GestureRange = require("ui/gesturerange")
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local AppDockKeyboard = require("appdock_keyboard")
+local AppDockDialogs = require("appdock_dialogs")
+local ButtonDialog = AppDockDialogs.ButtonDialog
+local InfoMessage = AppDockDialogs.InfoMessage
 local DeviceControls = require("appdock_device_controls")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local DAppLogo = require("appdock_logo")
@@ -242,6 +245,44 @@ local function toneFor(app, index)
         ["system:manage"] = 1,
     }
     return APP_TONES[system_tones[app.id] or ((index - 1) % #APP_TONES + 1)]
+end
+
+-- A group deliberately uses a drawn 2×2 preview instead of a full-size icon.
+-- It stays legible on E-Ink, avoids loading four image decoders per tile, and
+-- still gives each member a stable visual cue via its initial and app tone.
+local function groupPreview(app, tile_size)
+    local preview_size = math.max(scale(18), math.floor(tile_size * .56))
+    local gap = math.max(scale(1), math.floor(preview_size * .07))
+    local cell_size = math.max(scale(7), math.floor((preview_size - gap) / 2))
+    local entries = {}
+    for index = 1, 4 do
+        local member = (app.group_apps or {})[index]
+        if member then
+            local tone = toneFor(member, index)
+            local letter = TextWidget:new{
+                text = iconFor(member),
+                face = Font:getFace("cfont", math.max(scale(7), math.floor(cell_size * .48))),
+                fgcolor = tone.foreground,
+                bold = true,
+                padding = 0,
+            }
+            local row, column = math.floor((index - 1) / 2), (index - 1) % 2
+            entries[#entries + 1] = {
+                widget = FrameContainer:new{
+                    width = cell_size, height = cell_size, padding = 0, bordersize = 0,
+                    radius = math.max(scale(2), math.floor(cell_size * .22)), background = tone.background,
+                    CenterContainer:new{ dimen = Geom:new{ w = cell_size, h = cell_size }, letter },
+                },
+                x = column * (cell_size + gap),
+                y = row * (cell_size + gap),
+            }
+        end
+    end
+    return Layout.FixedStack:new{
+        width = preview_size,
+        height = preview_size,
+        entries = entries,
+    }
 end
 
 function InfoCard:init()
@@ -538,9 +579,9 @@ function AppTile:init()
         ["system:manage"] = "app_store",
     }
     local logo_kind = self.app.logo or builtin_logos[self.app.id]
-    local icon = self.symbol == "app_drawer" and AppDrawerGlyph:new{
+    local icon = self.app.is_group and groupPreview(self.app, self.tile_size) or (self.symbol == "app_drawer" and AppDrawerGlyph:new{
         size = icon_size, ink = self.foreground or PALETTE.on_primary_container,
-    } or nil
+    } or nil)
     if not icon then icon = is_plugin and self.app.custom_logo_path and Wallpaper.buildPath(self.app.custom_logo_path, icon_size, icon_size, true) or nil end
     if not icon and logo_kind then icon = DAppLogo:new{
         kind = logo_kind,
@@ -639,6 +680,12 @@ function AppTile:paintTo(bb, x, y)
     local result = InputContainer.paintTo(self, bb, x, y)
     local unread_count = self.appdock and self.app and self.appdock.getUnreadNotificationCountForApp
         and self.appdock:getUnreadNotificationCountForApp(self.app.id) or 0
+    if self.app and self.app.is_group and self.appdock and self.appdock.getUnreadNotificationCountForApp then
+        unread_count = 0
+        for _, member in ipairs(self.app.group_apps or {}) do
+            unread_count = unread_count + self.appdock:getUnreadNotificationCountForApp(member.id)
+        end
+    end
     if unread_count > 0 then
         local icon_x = x + math.floor((self.dimen.w - self.tile_size) / 2)
         local radius = math.max(scale(3), math.floor(self.tile_size * .08))
@@ -656,6 +703,10 @@ function AppTile:onTapSelectAppTile()
         self.home.selected_app_id = self.app.id
         self.home:build()
         UIManager:setDirty(self.home, "ui")
+        return true
+    end
+    if self.app.is_group and self.home then
+        self.home:showAppGroup(self.app)
         return true
     end
     UIManager:setDirty(self, "fast")
@@ -834,6 +885,42 @@ function AppDockHomeScreen:showAppSearch()
         end,
     }
     UIManager:show(keyboard)
+end
+
+function AppDockHomeScreen:showAppGroup(group)
+    if type(group) ~= "table" or group.is_group ~= true then return false end
+    local members = type(self.appdock.getAppGroupApps) == "function"
+        and self.appdock:getAppGroupApps(group.group_id or group.id) or group.group_apps or {}
+    if #members == 0 then
+        UIManager:show(InfoMessage:new{ text = _("This app group has no available apps.") })
+        return false
+    end
+    local dialog
+    local buttons = {}
+    for _, app in ipairs(members) do
+        table.insert(buttons, { {
+            text = app.title or app.id,
+            callback = function()
+                UIManager:close(dialog)
+                UIManager:nextTick(function() self.appdock:launchApp(app, self) end)
+            end,
+        } })
+    end
+    table.insert(buttons, { {
+        text = _("Manage group"),
+        callback = function()
+            UIManager:close(dialog)
+            UIManager:nextTick(function() self.appdock:showManager(self, group) end)
+        end,
+    } })
+    table.insert(buttons, { { text = _("Close"), callback = function() UIManager:close(dialog) end } })
+    dialog = ButtonDialog:new{
+        title = group.title or _("App group"),
+        buttons = buttons,
+        rows_per_page = { 5, 6, 7 },
+    }
+    UIManager:show(dialog)
+    return true
 end
 
 -- The DuckDuckGo bar hands the typed query to AppDock's JavaScript-free Web

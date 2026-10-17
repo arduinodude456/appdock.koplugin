@@ -23,7 +23,10 @@ local PluginLoader = require("pluginloader")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local _ = require("gettext")
+local AppDockGroups = require("appdock_groups")
 local AppDockOrder = require("appdock_order")
+
+local DEFAULT_WALLPAPER_PATH = MODULE_DIR .. "assets/wallpaper/appdock_default.svg"
 
 local AppDock = WidgetContainer:extend{
     name = "appdock",
@@ -53,6 +56,7 @@ local DEFAULT_SETTINGS = {
         "system:manage",
     },
     recent_apps = {},
+    app_groups = { next_id = 0, items = {} },
     widgets = {
         clock = true,
         status = true,
@@ -68,7 +72,7 @@ local DEFAULT_SETTINGS = {
     layout = { app_spacing = 16, logo_shape = "rounded", search_enabled = false, ddg_search = true, split_ratio = .5, widget_scales = {} },
     launch_on_start = false,
     notifications = { items = {}, next_id = 0 },
-    wallpaper = { enabled = false, path = "" },
+    wallpaper = { enabled = true, path = DEFAULT_WALLPAPER_PATH, source = "appdock_default" },
     lockscreen = { enabled = false, method = "swipe", secret_hash = nil, profile_name = "", profile_image_path = "" },
     beta = { black_borders = false, keep_wallpaper_original_in_night = false, plugin_dapp_host = false, windows = false, manual_app_spacing = false, plugin_custom_logos = false },
     quick_settings = { tiles = { "wifi", "night", "refresh", "edit", "rotate", "sleep", "power_saving", "wallpaper" } },
@@ -77,6 +81,9 @@ local DEFAULT_SETTINGS = {
     accessibility = { text_scale = 1, high_contrast = false },
     dapp_permissions = {},
     widget_generator = { items = {}, next_id = 0 },
+    -- Public cache only. The account/device credentials live separately under
+    -- G_reader_settings["appdock_tbs_session"] and are never LAN-migrated.
+    tbs_account = { enabled = false, username = "", display_name = "" },
     setup_assistant = { offered_version = "", completed_version = "" },
     update_dialog = { dismissed_version = "" },
     keyboard = { language = "auto", enabled = true },
@@ -227,9 +234,21 @@ end
 
 function AppDock:_loadSettings()
     local stored = G_reader_settings:readSetting(self.settings_key, {})
+    local Wallpaper = require("appdock_wallpaper")
+    -- A table means the user (or an earlier AppDock release) has already made
+    -- a wallpaper choice. Only an entirely missing setting receives the local,
+    -- bundled default; no existing path or disabled state is overwritten.
+    if type(Wallpaper.ensureDefault) == "function" then
+        Wallpaper.ensureDefault(stored, DEFAULT_WALLPAPER_PATH)
+    elseif type(stored.wallpaper) ~= "table" then
+        -- Keep minimal KOReader/test wallpaper adapters usable while retaining
+        -- the exact same first-run-only behavior as the helper above.
+        stored.wallpaper = { enabled = true, path = DEFAULT_WALLPAPER_PATH, source = "appdock_default" }
+    end
     self.settings = {
         pinned_apps = copyArray(stored.pinned_apps or DEFAULT_SETTINGS.pinned_apps),
         recent_apps = copyArray(stored.recent_apps or DEFAULT_SETTINGS.recent_apps),
+        app_groups = AppDockGroups.normalize(stored.app_groups),
         widgets = stored.widgets or {
             clock = DEFAULT_SETTINGS.widgets.clock,
             status = DEFAULT_SETTINGS.widgets.status,
@@ -245,7 +264,7 @@ function AppDock:_loadSettings()
         layout = stored.layout or {},
         launch_on_start = stored.launch_on_start == true,
         notifications = stored.notifications or { items = {}, next_id = 0 },
-        wallpaper = stored.wallpaper or { enabled = false, path = "" },
+        wallpaper = stored.wallpaper or { enabled = true, path = DEFAULT_WALLPAPER_PATH, source = "appdock_default" },
         lockscreen = stored.lockscreen or { enabled = false, method = "swipe", secret_hash = nil, profile_name = "", profile_image_path = "" },
         beta = stored.beta or { black_borders = false, keep_wallpaper_original_in_night = false, plugin_dapp_host = false, windows = false, manual_app_spacing = false, plugin_custom_logos = false },
         quick_settings = stored.quick_settings or { tiles = copyArray(DEFAULT_SETTINGS.quick_settings.tiles) },
@@ -254,6 +273,7 @@ function AppDock:_loadSettings()
         accessibility = stored.accessibility or { text_scale = 1, high_contrast = false },
         dapp_permissions = stored.dapp_permissions or {},
         widget_generator = stored.widget_generator or { items = {}, next_id = 0 },
+        tbs_account = stored.tbs_account or { enabled = false, username = "", display_name = "" },
         setup_assistant = stored.setup_assistant or { offered_version = "", completed_version = "" },
         update_dialog = stored.update_dialog or { dismissed_version = "" },
         keyboard = stored.keyboard or { language = "auto" },
@@ -356,6 +376,10 @@ function AppDock:_loadSettings()
             table.insert(self.settings.pinned_apps, insert_at or (#self.settings.pinned_apps + 1), "dapp:youtube_music")
         end
     end
+    -- Folder ids share the same ordered list as apps, so normalize it after
+    -- all legacy app migrations have finished. This also removes malformed
+    -- group records before they can occupy an invisible grid cell.
+    self:_normalizePinnedGroups()
     if self.settings.layout_version < DEFAULT_SETTINGS.layout_version then self.settings.layout_version = DEFAULT_SETTINGS.layout_version end
 
     if self.settings.widgets.clock == nil then
@@ -408,6 +432,7 @@ function AppDock:_loadSettings()
     self.settings.wallpaper = self.settings.wallpaper or { enabled = false, path = "" }
     self.settings.wallpaper.enabled = self.settings.wallpaper.enabled == true
     self.settings.wallpaper.path = type(self.settings.wallpaper.path) == "string" and self.settings.wallpaper.path:sub(1, 360) or ""
+    self.settings.wallpaper.source = self.settings.wallpaper.source == "appdock_default" and "appdock_default" or "user"
     self.settings.lockscreen = self.settings.lockscreen or { enabled = false, method = "swipe", secret_hash = nil, profile_name = "", profile_image_path = "" }
     self.settings.lockscreen.enabled = self.settings.lockscreen.enabled == true
     if self.settings.lockscreen.method ~= "pin" and self.settings.lockscreen.method ~= "pattern" then self.settings.lockscreen.method = "swipe" end
@@ -448,6 +473,17 @@ function AppDock:_loadSettings()
     self.settings.widget_generator = self.settings.widget_generator or { items = {}, next_id = 0 }
     self.settings.widget_generator.items = type(self.settings.widget_generator.items) == "table" and self.settings.widget_generator.items or {}
     self.settings.widget_generator.next_id = math.max(0, math.floor(tonumber(self.settings.widget_generator.next_id) or 0))
+    -- Do not retain any historical credential fields that may have been stored
+    -- by the pre-cloud prototype. DChat only needs this non-secret display
+    -- cache; the device session is deliberately a separate setting group.
+    local tbs = type(self.settings.tbs_account) == "table" and self.settings.tbs_account or {}
+    local tbs_display_name = boundedText(tbs.display_name, 80)
+    local tbs_username = boundedText(tbs.username, 80)
+    self.settings.tbs_account = {
+        enabled = tbs.enabled == true,
+        username = tbs_username ~= "" and tbs_username or tbs_display_name,
+        display_name = tbs_display_name,
+    }
     self.settings.setup_assistant = type(self.settings.setup_assistant) == "table" and self.settings.setup_assistant or {}
     self.settings.setup_assistant.offered_version = type(self.settings.setup_assistant.offered_version) == "string" and self.settings.setup_assistant.offered_version:sub(1, 24) or ""
     self.settings.setup_assistant.completed_version = type(self.settings.setup_assistant.completed_version) == "string" and self.settings.setup_assistant.completed_version:sub(1, 24) or ""
@@ -513,6 +549,24 @@ end
 
 function AppDock:_saveSettings()
     G_reader_settings:saveSetting(self.settings_key, self.settings)
+    -- Cloud writes are debounced and intentionally happen after a local save;
+    -- an unavailable connection can therefore never cost local settings.
+    if not self._tbs_sync_suspended then
+        local ok, Account = pcall(require, "appdock_tbs_account")
+        if ok and Account and Account.queueSync then pcall(Account.queueSync, self) end
+    end
+end
+
+function AppDock:getTBSAccountStatus()
+    local ok, Account = pcall(require, "appdock_tbs_account")
+    if not ok or not Account or not Account.status then return { signed_in = false } end
+    return Account.status(self)
+end
+
+function AppDock:showTBSAccount(instance, context)
+    local ok, Account = pcall(require, "appdock_tbs_account")
+    if not ok or not Account or not Account.showSettings then return false end
+    return Account.showSettings(self, context)
 end
 
 function AppDock:getSetupAssistantStatus()
@@ -533,6 +587,7 @@ function AppDock:markSetupAssistantOffered()
     self.settings.setup_assistant = self.settings.setup_assistant or {}
     self.settings.setup_assistant.offered_version = SETUP_ASSISTANT_VERSION
     self:_saveSettings()
+    return true
 end
 
 function AppDock:completeSetupAssistant()
@@ -540,6 +595,16 @@ function AppDock:completeSetupAssistant()
     self.settings.setup_assistant.offered_version = SETUP_ASSISTANT_VERSION
     self.settings.setup_assistant.completed_version = SETUP_ASSISTANT_VERSION
     self:_saveSettings()
+    return true
+end
+
+-- The setup wizard is an explicit Settings action.  Keep that separate from
+-- the release-notes dialog shown during startup: existing users may dismiss
+-- release notes without accidentally completing the local setup flow.
+function AppDock:showSetupAssistant(instance, context)
+    local manager = self:getDAppManager()
+    if not manager or type(manager.showSetupAssistant) ~= "function" then return false end
+    return manager:showSetupAssistant(instance, context, false) ~= false
 end
 
 function AppDock:shouldShowUpdateDialog()
@@ -1297,20 +1362,105 @@ function AppDock:getVisibleAppCatalog()
     return visible
 end
 
-function AppDock:getPinnedApps()
-    local catalog = self:getAppCatalog()
-    local apps, cleaned = {}, {}
-    for _, app_id in ipairs(self.settings.pinned_apps) do
-        local app = catalog[app_id]
-        if app then
-            if self:isSimpleModeAppAllowed(app) then table.insert(apps, app) end
-            table.insert(cleaned, app_id)
+local function sameIdList(left, right)
+    if #left ~= #right then return false end
+    for index, value in ipairs(left) do
+        if right[index] ~= value then return false end
+    end
+    return true
+end
+
+local function sameGroupState(left, right)
+    left, right = type(left) == "table" and left or {}, type(right) == "table" and right or {}
+    if tonumber(left.next_id) ~= tonumber(right.next_id) then return false end
+    local left_items, right_items = left.items or {}, right.items or {}
+    for id, left_group in pairs(left_items) do
+        local right_group = right_items[id]
+        if not right_group or left_group.title ~= right_group.title or not sameIdList(left_group.apps or {}, right_group.apps or {}) then
+            return false
+        end
+    end
+    for id in pairs(right_items) do
+        if not left_items[id] then return false end
+    end
+    return true
+end
+
+-- Reconcile the persisted group map with the single ordered list that drives
+-- the grid. A folder consumes one item in pinned_apps, and every child belongs
+-- to at most one visible tile. Supplying a catalog additionally prunes apps
+-- which are no longer launchable, matching the pre-folder pin cleanup.
+function AppDock:_normalizePinnedGroups(catalog)
+    local old_pins = self.settings.pinned_apps or {}
+    local old_groups = self.settings.app_groups
+    local groups = AppDockGroups.normalize(old_groups)
+    local pins, visible_items, claimed_members, seen_tiles = {}, {}, {}, {}
+
+    for _, item_id in ipairs(old_pins) do
+        if AppDockGroups.isGroupId(item_id) then
+            local record = groups.items[item_id]
+            if record and not seen_tiles[item_id] then
+                local members = {}
+                for _, app_id in ipairs(record.apps) do
+                    if not claimed_members[app_id] and (not catalog or catalog[app_id]) then
+                        members[#members + 1] = app_id
+                    end
+                end
+                if #members >= 2 then
+                    record.apps = members
+                    visible_items[item_id] = record
+                    pins[#pins + 1] = item_id
+                    seen_tiles[item_id] = true
+                    for _, app_id in ipairs(members) do claimed_members[app_id] = true end
+                elseif #members == 1 and not claimed_members[members[1]] then
+                    -- A group must contain multiple apps. If a removed app
+                    -- leaves one child, preserve that child at the same grid
+                    -- position instead of silently losing its launch tile.
+                    pins[#pins + 1] = members[1]
+                    claimed_members[members[1]] = true
+                end
+            end
+        elseif AppDockGroups.isValidAppId(item_id) and not seen_tiles[item_id]
+                and not claimed_members[item_id] and (not catalog or catalog[item_id]) then
+            pins[#pins + 1] = item_id
+            seen_tiles[item_id] = true
+            claimed_members[item_id] = true
         end
     end
 
-    if #cleaned ~= #self.settings.pinned_apps then
-        self.settings.pinned_apps = cleaned
+    groups.items = visible_items
+    self.settings.pinned_apps = pins
+    self.settings.app_groups = groups
+    return not sameIdList(old_pins, pins) or not sameGroupState(old_groups, groups)
+end
+
+function AppDock:getPinnedApps()
+    local catalog = self:getAppCatalog()
+    if self:_normalizePinnedGroups(catalog) then
         self:_saveSettings()
+    end
+    local apps = {}
+    for _, item_id in ipairs(self.settings.pinned_apps) do
+        if AppDockGroups.isGroupId(item_id) then
+            local record = self.settings.app_groups.items[item_id]
+            local members = {}
+            for _, app_id in ipairs(record and record.apps or {}) do
+                local app = catalog[app_id]
+                if app and self:isSimpleModeAppAllowed(app) then members[#members + 1] = app end
+            end
+            if #members > 0 then
+                table.insert(apps, {
+                    id = item_id,
+                    group_id = item_id,
+                    title = record.title,
+                    is_group = true,
+                    group_apps = members,
+                })
+            end
+        else
+            local app = catalog[item_id]
+            if app and self:isSimpleModeAppAllowed(app) then table.insert(apps, app) end
+        end
     end
     return apps
 end
@@ -1363,7 +1513,7 @@ function AppDock:isPinned(app_id)
             return true
         end
     end
-    return false
+    return AppDockGroups.findContaining(self.settings.app_groups, app_id) ~= nil
 end
 
 function AppDock:getPinnedPosition(app_id)
@@ -1382,6 +1532,7 @@ function AppDock:movePinned(app_id, delta)
 end
 
 function AppDock:togglePinned(app_id)
+    if not AppDockGroups.isValidAppId(app_id) or AppDockGroups.isGroupId(app_id) then return false end
     for index, pinned_id in ipairs(self.settings.pinned_apps) do
         if pinned_id == app_id then
             table.remove(self.settings.pinned_apps, index)
@@ -1389,7 +1540,166 @@ function AppDock:togglePinned(app_id)
             return false
         end
     end
+
+    local containing_group = AppDockGroups.findContaining(self.settings.app_groups, app_id)
+    if containing_group then
+        local record = self.settings.app_groups.items[containing_group]
+        local remaining = {}
+        for _, member_id in ipairs(record.apps) do
+            if member_id ~= app_id then remaining[#remaining + 1] = member_id end
+        end
+        if #remaining >= 2 then
+            record.apps = remaining
+        else
+            self.settings.app_groups.items[containing_group] = nil
+            for index, pinned_id in ipairs(self.settings.pinned_apps) do
+                if pinned_id == containing_group then
+                    table.remove(self.settings.pinned_apps, index)
+                    if remaining[1] then table.insert(self.settings.pinned_apps, index, remaining[1]) end
+                    break
+                end
+            end
+        end
+        self:_normalizePinnedGroups()
+        self:_saveSettings()
+        return false
+    end
     table.insert(self.settings.pinned_apps, app_id)
+    self:_saveSettings()
+    return true
+end
+
+function AppDock:isAppGroup(group_id)
+    return AppDockGroups.isGroupId(group_id) and self.settings.app_groups.items[group_id] ~= nil
+end
+
+function AppDock:getAppGroup(group_id)
+    local record = self:isAppGroup(group_id) and self.settings.app_groups.items[group_id] or nil
+    if not record then return nil end
+    return { id = group_id, title = record.title, apps = copyArray(record.apps) }
+end
+
+function AppDock:getAppGroupApps(group_id)
+    local record = self:isAppGroup(group_id) and self.settings.app_groups.items[group_id] or nil
+    if not record then return {} end
+    local catalog, apps = self:getAppCatalog(), {}
+    for _, app_id in ipairs(record.apps) do
+        local app = catalog[app_id]
+        if app and self:isSimpleModeAppAllowed(app) then apps[#apps + 1] = app end
+    end
+    return apps
+end
+
+function AppDock:createAppGroup(title, app_ids)
+    local members, selected, first_position = {}, {}, nil
+    for _, app_id in ipairs(type(app_ids) == "table" and app_ids or {}) do
+        local position = AppDockOrder.findPosition(self.settings.pinned_apps, app_id)
+        if AppDockGroups.isValidAppId(app_id) and not AppDockGroups.isGroupId(app_id) and position and not selected[app_id] then
+            members[#members + 1], selected[app_id] = app_id, true
+            first_position = math.min(first_position or position, position)
+        end
+    end
+    if #members < 2 then return false, "Select at least two homescreen apps." end
+    local groups = self.settings.app_groups
+    local group_count = 0
+    for _ in pairs(groups.items or {}) do group_count = group_count + 1 end
+    if group_count >= AppDockGroups.MAX_GROUPS then return false, "The app group limit has been reached." end
+
+    local group_id = AppDockGroups.nextId(groups)
+    groups.items[group_id] = { title = AppDockGroups.sanitizeTitle(title), apps = members }
+    local reordered = {}
+    for index, item_id in ipairs(self.settings.pinned_apps) do
+        if index == first_position then reordered[#reordered + 1] = group_id end
+        if not selected[item_id] then reordered[#reordered + 1] = item_id end
+    end
+    self.settings.pinned_apps = reordered
+    self:_normalizePinnedGroups()
+    self:_saveSettings()
+    return true, group_id
+end
+
+function AppDock:renameAppGroup(group_id, title)
+    if not self:isAppGroup(group_id) then return false end
+    self.settings.app_groups.items[group_id].title = AppDockGroups.sanitizeTitle(title)
+    self:_saveSettings()
+    return true
+end
+
+function AppDock:setAppGroupMembers(group_id, app_ids)
+    if not self:isAppGroup(group_id) then return false, "The app group no longer exists." end
+    local members, selected = {}, {}
+    for _, app_id in ipairs(type(app_ids) == "table" and app_ids or {}) do
+        if AppDockGroups.isValidAppId(app_id) and not AppDockGroups.isGroupId(app_id) and not selected[app_id] then
+            members[#members + 1], selected[app_id] = app_id, true
+            if #members >= AppDockGroups.MAX_MEMBERS then break end
+        end
+    end
+    if #members < 2 then return false, "An app group needs at least two apps." end
+
+    local groups = self.settings.app_groups
+    local removed_from_group = {}
+    for _, app_id in ipairs(groups.items[group_id].apps) do
+        if not selected[app_id] then removed_from_group[#removed_from_group + 1] = app_id end
+    end
+    groups.items[group_id].apps = members
+    local collapsed = {}
+    for other_id, record in pairs(groups.items) do
+        if other_id ~= group_id then
+            local kept = {}
+            for _, app_id in ipairs(record.apps) do
+                if not selected[app_id] then kept[#kept + 1] = app_id end
+            end
+            if #kept >= 2 then
+                record.apps = kept
+            else
+                groups.items[other_id] = nil
+                collapsed[other_id] = kept[1]
+            end
+        end
+    end
+    local reordered, seen = {}, {}
+    for _, item_id in ipairs(self.settings.pinned_apps) do
+        if item_id == group_id then
+            reordered[#reordered + 1], seen[item_id] = item_id, true
+            -- Editing a folder is equivalent to moving an app out of it, not
+            -- deleting that app. Keep removed members immediately after the
+            -- folder so the user never loses a launch tile by mistake.
+            for _, app_id in ipairs(removed_from_group) do
+                if not seen[app_id] then
+                    reordered[#reordered + 1], seen[app_id] = app_id, true
+                end
+            end
+        elseif AppDockGroups.isGroupId(item_id) then
+            local remaining = collapsed[item_id]
+            if remaining and not selected[remaining] and not seen[remaining] then
+                reordered[#reordered + 1], seen[remaining] = remaining, true
+            elseif groups.items[item_id] and not seen[item_id] then
+                reordered[#reordered + 1], seen[item_id] = item_id, true
+            end
+        elseif not selected[item_id] and not seen[item_id] then
+            reordered[#reordered + 1], seen[item_id] = item_id, true
+        end
+    end
+    self.settings.pinned_apps = reordered
+    self:_normalizePinnedGroups()
+    self:_saveSettings()
+    return true
+end
+
+function AppDock:ungroupAppGroup(group_id)
+    local record = self:isAppGroup(group_id) and self.settings.app_groups.items[group_id] or nil
+    if not record then return false end
+    local reordered = {}
+    for _, item_id in ipairs(self.settings.pinned_apps) do
+        if item_id == group_id then
+            for _, app_id in ipairs(record.apps) do reordered[#reordered + 1] = app_id end
+        else
+            reordered[#reordered + 1] = item_id
+        end
+    end
+    self.settings.app_groups.items[group_id] = nil
+    self.settings.pinned_apps = reordered
+    self:_normalizePinnedGroups()
     self:_saveSettings()
     return true
 end

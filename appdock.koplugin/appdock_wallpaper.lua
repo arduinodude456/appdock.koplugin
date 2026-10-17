@@ -9,6 +9,20 @@ local Wallpaper = {}
 
 local ALLOWED_SUFFIXES = { png = true, jpg = true, jpeg = true, gif = true, webp = true, svg = true }
 
+-- Only a missing wallpaper table denotes a new AppDock installation. An
+-- explicit disabled setting, an unreadable path, and every user-selected path
+-- are intentional choices and must therefore remain untouched.
+function Wallpaper.ensureDefault(settings, default_path)
+    if type(settings) ~= "table" or type(settings.wallpaper) == "table" then return false end
+    if not Wallpaper.isValidPath(default_path) then return false end
+    settings.wallpaper = {
+        enabled = true,
+        path = default_path,
+        source = "appdock_default",
+    }
+    return true
+end
+
 function Wallpaper.isValidPath(path)
     if type(path) ~= "string" or #path == 0 or #path > 360 or path:find("%z") then return false end
     local suffix = path:match("%.([%a%d]+)$")

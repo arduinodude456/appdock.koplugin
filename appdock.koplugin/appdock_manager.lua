@@ -4,6 +4,8 @@ Scrollable configuration dialog for AppDock.
 
 local AppDockDialogs = require("appdock_dialogs")
 local ButtonDialog = AppDockDialogs.ButtonDialog
+local InfoMessage = AppDockDialogs.InfoMessage
+local AppDockKeyboard = require("appdock_keyboard")
 local UIManager = require("ui/uimanager")
 local _ = require("gettext")
 
@@ -67,6 +69,21 @@ function AppDockManager:showDialog()
         end
     end
 
+    local function showNameEditor(title, value, on_submit)
+        local keyboard
+        keyboard = AppDockKeyboard:new{
+            title = title,
+            placeholder = _("App group"),
+            value = value or "",
+            on_cancel = function() UIManager:close(keyboard) end,
+            on_submit = function(name)
+                UIManager:close(keyboard)
+                UIManager:nextTick(function() on_submit(name) end)
+            end,
+        }
+        UIManager:show(keyboard)
+    end
+
     local function showMoveMenu()
         local position, total = selected_app and appdock:getPinnedPosition(selected_app.id)
         if not position then return end
@@ -102,6 +119,159 @@ function AppDockManager:showDialog()
             attachRecentSwipe(move_dialog)
             UIManager:show(move_dialog)
         end)
+    end
+
+    local function showGroupMembersMenu(group_id, selected_members)
+        UIManager:close(dialog)
+        UIManager:nextTick(function()
+            local group = appdock:getAppGroup(group_id)
+            if not group then
+                UIManager:show(InfoMessage:new{ text = _("This app group no longer exists.") })
+                return
+            end
+            local members, selected = {}, {}
+            for _, app_id in ipairs(selected_members or group.apps) do
+                if not selected[app_id] then members[#members + 1], selected[app_id] = app_id, true end
+            end
+            local member_dialog
+            local function reopen()
+                UIManager:close(member_dialog)
+                UIManager:nextTick(function() showGroupMembersMenu(group_id, members) end)
+            end
+            local function toggle(app_id)
+                if selected[app_id] then
+                    selected[app_id] = nil
+                    for index, member_id in ipairs(members) do
+                        if member_id == app_id then table.remove(members, index); break end
+                    end
+                else
+                    selected[app_id] = true
+                    members[#members + 1] = app_id
+                end
+                reopen()
+            end
+            local buttons = {}
+            table.insert(buttons, { { text = string.format(_("Apps in %s"), group.title), enabled = false } })
+            local catalog = type(appdock.getVisibleAppCatalog) == "function" and appdock:getVisibleAppCatalog() or appdock:getAppCatalog()
+            local apps = {}
+            for _, app in pairs(catalog) do apps[#apps + 1] = app end
+            table.sort(apps, function(left, right) return left.title:lower() < right.title:lower() end)
+            for _, app in ipairs(apps) do
+                local verb = selected[app.id] and _("Remove") or _("Add")
+                table.insert(buttons, { { text = string.format("%s: %s", verb, app.title), callback = function() toggle(app.id) end } })
+            end
+            table.insert(buttons, { { text = string.format(_("Save group (%d apps)"), #members), enabled = #members >= 2, callback = function()
+                if appdock:setAppGroupMembers(group_id, members) then
+                    UIManager:close(member_dialog)
+                    UIManager:nextTick(function()
+                        self.selected_app = nil
+                        self:showDialog()
+                    end)
+                end
+            end } })
+            table.insert(buttons, { { text = _("Cancel"), callback = function()
+                UIManager:close(member_dialog)
+                UIManager:nextTick(function() self:showDialog() end)
+            end } })
+            member_dialog = ButtonDialog:new{
+                title = group.title,
+                buttons = buttons,
+                rows_per_page = { 5, 6, 7 },
+            }
+            attachRecentSwipe(member_dialog)
+            UIManager:show(member_dialog)
+        end)
+    end
+
+    local function showCreateGroupMenu(selected_members)
+        UIManager:close(dialog)
+        UIManager:nextTick(function()
+            local members, selected = {}, {}
+            for _, app_id in ipairs(selected_members or {}) do
+                if not selected[app_id] then members[#members + 1], selected[app_id] = app_id, true end
+            end
+            local direct_apps = {}
+            for _, app in ipairs(appdock:getPinnedApps()) do
+                if not app.is_group then direct_apps[#direct_apps + 1] = app end
+            end
+            if #direct_apps < 2 then
+                UIManager:show(InfoMessage:new{ text = _("Add at least two individual apps to the homescreen before creating a group.") })
+                return
+            end
+            local create_dialog
+            local function reopen()
+                UIManager:close(create_dialog)
+                UIManager:nextTick(function() showCreateGroupMenu(members) end)
+            end
+            local function toggle(app_id)
+                if selected[app_id] then
+                    selected[app_id] = nil
+                    for index, member_id in ipairs(members) do
+                        if member_id == app_id then table.remove(members, index); break end
+                    end
+                else
+                    selected[app_id] = true
+                    members[#members + 1] = app_id
+                end
+                reopen()
+            end
+            local buttons = { { { text = _("Select two or more apps"), enabled = false } } }
+            for _, app in ipairs(direct_apps) do
+                local verb = selected[app.id] and _("Remove") or _("Add")
+                table.insert(buttons, { { text = string.format("%s: %s", verb, app.title), callback = function() toggle(app.id) end } })
+            end
+            table.insert(buttons, { { text = string.format(_("Create app group (%d apps)"), #members), enabled = #members >= 2, callback = function()
+                local ok, group_id = appdock:createAppGroup(_("App group"), members)
+                if ok then
+                    UIManager:close(create_dialog)
+                    UIManager:nextTick(function()
+                        self.selected_app = { id = group_id, group_id = group_id, title = _("App group"), is_group = true }
+                        self:showDialog()
+                    end)
+                end
+            end } })
+            table.insert(buttons, { { text = _("Cancel"), callback = function()
+                UIManager:close(create_dialog)
+                UIManager:nextTick(function() self:showDialog() end)
+            end } })
+            create_dialog = ButtonDialog:new{
+                title = _("Create app group"),
+                buttons = buttons,
+                rows_per_page = { 5, 6, 7 },
+            }
+            attachRecentSwipe(create_dialog)
+            UIManager:show(create_dialog)
+        end)
+    end
+
+    if selected_app and selected_app.is_group and appdock:isAppGroup(selected_app.group_id or selected_app.id) then
+        local group_id = selected_app.group_id or selected_app.id
+        local group = appdock:getAppGroup(group_id)
+        table.insert(buttons, { { text = string.format(_("App group: %s"), group.title), enabled = false } })
+        table.insert(buttons, { { text = _("Manage group apps"), callback = function() showGroupMembersMenu(group_id) end } })
+        table.insert(buttons, { { text = _("Rename group"), callback = function()
+            UIManager:close(dialog)
+            UIManager:nextTick(function()
+                showNameEditor(_("Rename app group"), group.title, function(name)
+                    appdock:renameAppGroup(group_id, name)
+                    self.selected_app = nil
+                    self:showDialog()
+                end)
+            end)
+        end } })
+        table.insert(buttons, { { text = _("Move group"), callback = showMoveMenu } })
+        table.insert(buttons, { { text = _("Ungroup apps"), callback = function()
+            appdock:ungroupAppGroup(group_id)
+            closeAndShowHome()
+        end } })
+        table.insert(buttons, { { text = _("Done"), callback = closeAndShowHome } })
+        dialog = ButtonDialog:new{
+            title = _("Manage app group"),
+            buttons = buttons,
+        }
+        attachRecentSwipe(dialog)
+        UIManager:show(dialog)
+        return
     end
 
     if selected_app and selected_app.id and appdock:isPinned(selected_app.id) then
@@ -152,6 +322,17 @@ function AppDockManager:showDialog()
             appdock:toggleStoreWidget(widget.widget_id)
             refresh()
         end } })
+    end
+
+    table.insert(buttons, { { text = _("App groups"), enabled = false } })
+    table.insert(buttons, { { text = _("Create app group"), callback = function() showCreateGroupMenu() end } })
+    for _, app in ipairs(appdock:getPinnedApps()) do
+        if app.is_group then
+            table.insert(buttons, { { text = string.format(_("Manage group: %s"), app.title), callback = function()
+                self.selected_app = app
+                refresh()
+            end } })
+        end
     end
 
     table.insert(buttons, { { text = _("Apps — tap to add or remove"), enabled = false } })
