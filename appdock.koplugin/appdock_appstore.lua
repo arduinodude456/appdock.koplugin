@@ -694,7 +694,9 @@ function AppStore:_ensureState(instance)
     }
     instance.app_store.query = type(instance.app_store.query) == "string" and instance.app_store.query or ""
     local category = instance.app_store.category
-    instance.app_store.category = (category == "dapp" or category == "widget" or category == "design") and category or "all"
+    -- `sleepscreen` is a store surface, not a manifest item kind. Keeping it
+    -- separate preserves the existing dapp/widget/design manifest semantics.
+    instance.app_store.category = (category == "dapp" or category == "widget" or category == "design" or category == "sleepscreen") and category or "all"
     return instance.app_store
 end
 
@@ -720,7 +722,7 @@ end
 
 function AppStore:cycleCategory(instance, context)
     local state = self:_ensureState(instance)
-    local categories = { "all", "dapp", "widget", "design" }
+    local categories = { "all", "dapp", "widget", "design", "sleepscreen" }
     local position = 1
     for index, category in ipairs(categories) do
         if category == state.category then position = index; break end
@@ -1044,6 +1046,24 @@ end
 
 function AppStore:buildPane(instance, context)
     local state = self:_ensureState(instance)
+    -- Sleepscreens have a separate data source and local-draft lifecycle.  The
+    -- catalog owns its pane, while this explicit UI table lets it retain the
+    -- existing Store bottom-navigation look without depending on private globals.
+    if state.category == "sleepscreen" then
+        local loaded, Catalog = pcall(require, "appdock_sleepscreen_catalog")
+        if loaded and Catalog and Catalog.buildPane then
+            return Catalog.buildPane(instance, context, {
+                PlayPill = PlayPill,
+                PlayNavTab = PlayNavTab,
+                PLAY = PLAY,
+                scale = scale,
+                emptySizedWidget = emptySizedWidget,
+            })
+        end
+        -- A missing optional UI module must not make the established catalog
+        -- unusable on an interrupted plugin update.
+        state.category = "all"
+    end
     local width, height = context.dimen.w, context.dimen.h
     local margin, gap = scale(12), scale(8)
     local query = trim(state.query or "")
@@ -1355,6 +1375,7 @@ function AppStore:buildPane(instance, context)
         { id = "dapp", label = _("Apps"), icon = "apps" },
         { id = "widget", label = _("Widgets"), icon = "widgets" },
         { id = "design", label = _("Designs"), icon = "designs" },
+        { id = "sleepscreen", label = _("Sleepscreens"), icon = "designs" },
     }
     local tab_width = math.floor(width / #tabs)
     for index, tab in ipairs(tabs) do

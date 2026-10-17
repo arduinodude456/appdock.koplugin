@@ -92,6 +92,9 @@ local DEFAULT_SETTINGS = {
     volume_percent = 100,
     refresh_interval = 60,
     sleepscreen_enabled = false,
+    -- Only a local selection lives in settings; media and presets have their
+    -- own bounded registry in the KOReader data directory.
+    sleepscreens = { active_id = nil },
     youtube = {
         ytdlp_path = "",
         ffmpeg_path = "",
@@ -214,7 +217,7 @@ end
 function AppDock:onSuspend()
     if self.settings.sleepscreen_enabled then
         local ok, SleepScreen = pcall(require, "appdock_sleepscreen")
-        if ok and SleepScreen and SleepScreen.show then SleepScreen.show() end
+        if ok and SleepScreen and SleepScreen.show then SleepScreen.show(self) end
     end
     -- Lock only after an actual device suspend/resume cycle. Normal DApp
     -- navigation must not be mistaken for a fresh AppDock entry.
@@ -282,6 +285,11 @@ function AppDock:_loadSettings()
         volume_percent = math.max(0, math.min(100, tonumber(stored.volume_percent) or 100)),
         refresh_interval = tonumber(stored.refresh_interval) or DEFAULT_SETTINGS.refresh_interval,
         sleepscreen_enabled = stored.sleepscreen_enabled == true,
+        sleepscreens = { active_id = type(stored.sleepscreens) == "table"
+            and type(stored.sleepscreens.active_id) == "string"
+            and #stored.sleepscreens.active_id <= 80
+            and stored.sleepscreens.active_id:match("^[%w_%-]+$")
+            and stored.sleepscreens.active_id or nil },
         youtube = normalizeYouTubeSettings(stored.youtube),
         layout_version = stored.layout_version or 1,
     }

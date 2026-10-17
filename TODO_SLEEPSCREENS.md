@@ -1,0 +1,8 @@
+# Sleepscreens-Erweiterung
+
+- [ ] Im bestehenden AppStore gibt es einen neuen Bereich **Sleepscreens**. Nutzer können dort Presets mit Vorschau, Name und Creator aus einem TBS-Konto durchsuchen und ausdrücklich bestätigt herunterladen. Die bestehenden Apps, Widgets und Designs bleiben erreichbar.
+- [ ] Presets unterstützen ein oder mehrere Bilder, Texte, integrierte und importierte Schriften, passive Widgets, Info-Cards einschließlich Akkustand, Farben sowie Positionierung und Ebenenreihenfolge. Die Layoutdaten führen niemals fremden Code aus.
+- [ ] Ein nativer Editor ermöglicht das Erstellen und Bearbeiten eigener Sleepscreens mit sichtbarer, sofort nach Änderungen aktualisierter Vorschau. Speichern, Aktivieren und Offline-Nutzung erfordern kein TBS-Konto; Veröffentlichen erfordert Konto und sichtbare Zustimmung zu den geteilten Daten.
+- [ ] Globale Speicherung ist implementiert: versionierte Metadaten in PostgreSQL, Binärdateien im privaten Supabase Storage und eine Edge Function mit TBS-Geräteauthentifizierung, serverseitiger Creator-Zuordnung, validierten Uploads und Revisionsschutz. Backend-Bereitstellung wird separat dokumentiert und nicht als bereits erfolgt behauptet.
+- [x] Der Suspend-Handler reicht die AppDock-Instanz an den Sleepscreen weiter, lädt keine Netzwerkdaten und fällt bei fehlenden/beschädigten Presets auf den bisherigen AppDock-Screen zurück. Lokale Auswahl wird in den Einstellungen gespeichert.
+- [ ] Bestehende Plugin-Stile und Dateistruktur werden beibehalten. Neue Module, betroffene Integration und Sicherheitsfälle werden getestet; bestätigte Integrationsfehler werden behoben. Änderungen werden auf einem eigenen GitHub-Branch mit Pull Request bereitgestellt.

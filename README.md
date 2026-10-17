@@ -2,6 +2,12 @@
 
 **AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **8.1.1** ergänzt einen stabilisierten Android-inspirierten Setup-Assistenten, App-Gruppen, einen Standardhintergrund und optionale TBS-Kontosynchronisierung sowie den zuverlässigen Bildschirm-Neuaufbau nach der TBS-Kontoerstellung. [Details](RELEASE_NOTES_8.1.1.md).
 
+### Sleepscreen-Presets
+
+Unter **AppStore → Sleepscreens** lassen sich eigene Schlafbildschirme erstellen, lokal speichern und aktivieren sowie Presets aus dem globalen Katalog herunterladen. Der native Editor zeigt eine Live-Vorschau für Texte, Bilder/Bildwechsel, Schriften, Farben, Widgets und Info-Cards. Uhrzeit, Datum und Akkustand werden auf dem Reader eingesetzt; die Vorschau benutzt Beispieldaten. Lokal gespeicherte Sleepscreens funktionieren ohne Internet und ohne Konto.
+
+Zum Veröffentlichen ist ein **TBS-Konto** erforderlich. Der Store zeigt den vom Server zugeordneten Creator, Namen und die Layout-Vorschau; das Öffnen lädt auch Bilder und Schriften für die vollständige Vorschau. Nur ausdrücklich ausgewählte Preset-Medien werden geteilt, niemals lokale Pfade, Bücher oder TBS-Zugangsdaten. Presets sind validierte JSON-Daten, keine ausführbaren DApps. Für den globalen Katalog muss der Betreiber die zusätzliche Migration und Edge Function bereitstellen: [Architektur und Format](docs/SLEEPSCREENS.md), [Server-Einrichtung](docs/SLEEPSCREENS_DEPLOYMENT.md). Der installierbare aktuelle Plugin-Code liegt in `appdock.koplugin/`, nicht in den älteren Root-Kopien.
+
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst Androids Formensprache, nicht dessen Daueranimationen, Unschärfen oder Transparenzeffekte. Auf E-Ink wechseln App-Seiten und Recently-used-Drawer direkt und ohne Zwischenanimation. Damit bleibt die Darstellung auf monochromen Readern kontrastreich, sparsam und frei von unnötigem Ghosting.
 
 > **3.0.1-Fix:** Der DApp-Berechtigungsdialog überschattet die Übersetzungsfunktion nicht mehr. Ein aktivierter AppDock-only Lockscreen erscheint nach KOReaders Suspend-/Resume-Zyklus, aber nicht beim normalen Schließen einer DApp. Details stehen in [`RELEASE_NOTES_3.0.1.md`](RELEASE_NOTES_3.0.1.md).
