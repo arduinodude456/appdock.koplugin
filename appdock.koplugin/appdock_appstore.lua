@@ -32,6 +32,15 @@ local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local _ = require("gettext")
 
+local MODULE_DIR = (debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "")
+local function requireAppDockModule(name)
+    local previous_path = package.path
+    package.path = MODULE_DIR .. "?.lua;" .. previous_path
+    local ok, module = pcall(require, name)
+    package.path = previous_path
+    return ok and module or nil
+end
+
 local ok_lfs, lfs = pcall(require, "libs/libkoreader-lfs")
 if not ok_lfs then lfs = require("lfs") end
 
@@ -1050,8 +1059,8 @@ function AppStore:buildPane(instance, context)
     -- catalog owns its pane, while this explicit UI table lets it retain the
     -- existing Store bottom-navigation look without depending on private globals.
     if state.category == "sleepscreen" then
-        local loaded, Catalog = pcall(require, "appdock_sleepscreen_catalog")
-        if loaded and Catalog and Catalog.buildPane then
+        local Catalog = requireAppDockModule("appdock_sleepscreen_catalog")
+        if Catalog and Catalog.buildPane then
             return Catalog.buildPane(instance, context, {
                 PlayPill = PlayPill,
                 PlayNavTab = PlayNavTab,

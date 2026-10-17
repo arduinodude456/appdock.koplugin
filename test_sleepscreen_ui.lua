@@ -127,11 +127,16 @@ local state = store:_ensureState(instance)
 local store_pane = store:buildPane(instance, context)
 local tabs = named(store_pane, "Sleepscreens")
 assert(#tabs > 0 and #walk(store_pane, function(node, found) if node.ges_events and node.ges_events.TapPlayNavTab then found[#found + 1] = node end end) == 5, "AppStore must expose five bottom navigation tabs including Sleepscreens")
+local original_package_path = package.path
+-- KOReader or another plugin may replace package.path while handling an event.
+-- AppDock's dynamic screens must still resolve their own sibling modules.
+package.path = "./plugins/vocabbuilder.koplugin/lib/?.lua;./plugins/wallabag.koplugin/lib/?.lua;"
 tabs[1]:onTapPlayNavTab()
 assert(state.category == "sleepscreen", "Sleepscreens tab must select the separate catalog category")
 
-local Catalog = require("appdock_sleepscreen_catalog")
 local catalog_pane = store:buildPane(instance, context)
+local Catalog = package.loaded.appdock_sleepscreen_catalog
+assert(Catalog, "AppStore must load its catalog from the AppDock plugin directory")
 assert(#named(catalog_pane, "New sleepscreen") > 0, "Local catalog must offer draft creation without an account")
 named(catalog_pane, "Apps")[1]:onTapPlayNavTab()
 assert(state.category == "dapp", "Leaving Sleepscreens must switch the parent Store category, not just a nested field")
@@ -140,6 +145,7 @@ catalog_pane = store:buildPane(instance, context)
 named(catalog_pane, "New sleepscreen")[1]:onTapPlayPill()
 local editor = shown[#shown]
 assert(editor and editor.draft and editor.draft.definition and editor[1], "New-draft callback must open the native live-preview editor")
+package.path = original_package_path
 editor:_addElement("text")
 assert(#editor.draft.definition.elements == 1 and dirty > 0, "Adding an element must commit to the draft and refresh the instant preview")
 editor:_showInput("Text", "New text", "", function(value) editor.draft.definition.elements[1].text = value; return true end)

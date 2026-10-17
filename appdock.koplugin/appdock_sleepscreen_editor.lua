@@ -24,6 +24,15 @@ local _ = require("gettext")
 
 local Editor = {}
 local Screen = Device.screen
+local MODULE_DIR = (debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "")
+
+local function requireAppDockModule(name)
+    local previous_path = package.path
+    package.path = MODULE_DIR .. "?.lua;" .. previous_path
+    local ok, module = pcall(require, name)
+    package.path = previous_path
+    return ok and module or nil
+end
 
 local function scale(value) return Screen:scaleBySize(value) end
 local function trim(value) return type(value) == "string" and value:gsub("^%s+", ""):gsub("%s+$", "") or "" end
@@ -90,16 +99,13 @@ local SleepEditor = InputContainer:extend{
 }
 
 function SleepEditor:_presets()
-    local ok, Presets = pcall(require, "appdock_sleepscreen_presets")
-    return ok and Presets or nil
+    return requireAppDockModule("appdock_sleepscreen_presets")
 end
 function SleepEditor:_renderer()
-    local ok, Renderer = pcall(require, "appdock_sleepscreen_renderer")
-    return ok and Renderer or nil
+    return requireAppDockModule("appdock_sleepscreen_renderer")
 end
 function SleepEditor:_store()
-    local ok, Store = pcall(require, "appdock_sleepscreen_store")
-    return ok and Store or nil
+    return requireAppDockModule("appdock_sleepscreen_store")
 end
 function SleepEditor:_rebuildHost()
     if self.context and self.context.requestRebuild then self.context.requestRebuild("ui") end

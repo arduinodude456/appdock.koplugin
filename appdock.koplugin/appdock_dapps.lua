@@ -48,6 +48,15 @@ local _ = require("gettext")
 local ok_lfs, lfs = pcall(require, "libs/libkoreader-lfs")
 if not ok_lfs then lfs = require("lfs") end
 
+local MODULE_DIR = (debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "")
+local function requireAppDockModule(name)
+    local previous_path = package.path
+    package.path = MODULE_DIR .. "?.lua;" .. previous_path
+    local ok, module = pcall(require, name)
+    package.path = previous_path
+    return ok and module or nil
+end
+
 local Screen = Device.screen
 local ACTIVE_APPDOCK = nil
 local MAX_WINDOW_COUNT = 8
@@ -3902,8 +3911,12 @@ function DAppManager:_buildSettingsPane(instance, context)
                 subtitle = _("Create a preset with live preview · more in AppStore → Sleepscreens"),
                 show_state = false,
                 callback = function()
-                    local Presets = require("appdock_sleepscreen_presets")
-                    local Editor = require("appdock_sleepscreen_editor")
+                    local Presets = requireAppDockModule("appdock_sleepscreen_presets")
+                    local Editor = requireAppDockModule("appdock_sleepscreen_editor")
+                    if not Presets or not Editor or not Editor.show then
+                        UIManager:show(InfoMessage:new{ text = _("Sleepscreen editor modules are unavailable.") })
+                        return
+                    end
                     Editor.show(self.appdock, context, Presets.getActive(self.appdock))
                 end,
             },

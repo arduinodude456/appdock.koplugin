@@ -25,6 +25,7 @@ local _ = require("gettext")
 local Catalog = {}
 local Screen = Device.screen
 local PAGE_SIZE = 12
+local MODULE_DIR = (debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "")
 
 local function scale(value) return Screen:scaleBySize(value) end
 local function trim(value) return type(value) == "string" and value:gsub("^%s+", ""):gsub("%s+$", "") or "" end
@@ -65,7 +66,10 @@ local function stateFor(instance)
     return state
 end
 local function safeRequire(name)
+    local previous_path = package.path
+    package.path = MODULE_DIR .. "?.lua;" .. previous_path
     local ok, module = pcall(require, name)
+    package.path = previous_path
     return ok and module or nil
 end
 local function creatorName(entry)
