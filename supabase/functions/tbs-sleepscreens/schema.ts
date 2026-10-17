@@ -35,6 +35,7 @@ export interface SleepElement {
   font_size?: number;
   color?: string;
   background?: string;
+  background_alpha?: number;
   bold?: boolean;
   align?: "left" | "center" | "right";
   source?: "clock" | "date" | "battery" | "device";
@@ -172,6 +173,9 @@ function normalizeElement(value: unknown): SleepElement {
   const background = optionalColor(input.background, "Element background");
   if (color) element.color = color;
   if (background) element.background = background;
+  if (input.background_alpha !== undefined) {
+    element.background_alpha = numberInRange(input.background_alpha, 0, 1, "Element background opacity");
+  }
   const bold = optionalBoolean(input.bold, "Element bold");
   if (bold !== undefined) element.bold = bold;
   if (input.align !== undefined) {

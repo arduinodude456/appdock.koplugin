@@ -54,6 +54,14 @@ end
 
 local normalized = assert(Presets.normalize(baseDefinition()))
 assert(normalized.background == "#FFFFFF" and normalized.ignored == nil)
+baseDefinition().elements[1].background = "#445566"
+baseDefinition().elements[1].background_alpha = 0.35
+local transparent = baseDefinition()
+transparent.elements[1].background = "#445566"
+transparent.elements[1].background_alpha = 0.35
+assert(Presets.normalize(transparent).elements[1].background_alpha == 0.35, "background opacity must be preserved")
+transparent.elements[1].background_alpha = 1.1
+assert(not Presets.normalize(transparent), "background opacity above 1 must be rejected")
 assert(not Presets.normalize({ schema_version = 1, name = "bad", description = "", background = "#FFFFFF", assets = {}, elements = {
     { type = "text", x = 90, y = 0, w = 11, h = 5, text = "no" },
 } }), "out-of-bounds elements must be rejected")

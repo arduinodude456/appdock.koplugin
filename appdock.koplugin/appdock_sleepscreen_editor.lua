@@ -618,6 +618,14 @@ function SleepEditor:_sectionRows(panel_width, colors)
                             element.background = value:upper(); return true
                         end)
                     end),
+                    field(_("Background opacity"), string.format("%d%%", math.floor((element.background_alpha == nil and 1 or element.background_alpha) * 100 + 0.5)), function()
+                        self:_showInput(_("Background opacity"), math.floor((element.background_alpha == nil and 1 or element.background_alpha) * 100 + 0.5), _("0–100%"), function(value)
+                            local n = tonumber(value)
+                            if not n or n < 0 or n > 100 then return false, _("Use a value from 0 to 100%.") end
+                            element.background_alpha = n / 100
+                            return true
+                        end)
+                    end),
                     field(_("Alignment"), element.align or "left", function()
                         local dialog; local buttons = {}
                         for _, align in ipairs({ "left", "center", "right" }) do

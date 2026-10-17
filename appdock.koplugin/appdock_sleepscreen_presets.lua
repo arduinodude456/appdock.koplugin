@@ -265,6 +265,12 @@ local function normalizeElement(element, asset_by_id)
         if not isColor(element.background) then return nil, "invalid element background" end
         result.background = element.background:upper()
     end
+    if element.background_alpha ~= nil then
+        if not isFiniteNumber(element.background_alpha) or element.background_alpha < 0 or element.background_alpha > 1 then
+            return nil, "invalid element background opacity"
+        end
+        result.background_alpha = element.background_alpha
+    end
     if element.bold ~= nil then
         if type(element.bold) ~= "boolean" then return nil, "invalid element bold value" end
         result.bold = element.bold

@@ -231,6 +231,13 @@ assert(color_device_canvas.entries[1].widget.background.red == 0x44
     "color-capable readers must retain the declared element RGB value")
 color_device_canvas:free()
 
+local transparent_canvas = Renderer.build(definition({
+    { type = "text", x = 0, y = 0, w = 20, h = 20, text = "Color", background = "#445566", background_alpha = 0.35 },
+}, "#112233"), 100, 100, {})
+assert(transparent_canvas.entries[1].widget.background.alpha == 89,
+    "element background opacity must be encoded in the RGB alpha channel")
+transparent_canvas:free()
+
 -- contain delegates centering and original-size preservation to ImageWidget;
 -- cover first probes actual original dimensions, then chooses the centered crop
 -- scale for the selected image. Both the probe and returned widget free once.

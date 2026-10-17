@@ -58,7 +58,7 @@ local function hasColorScreen()
     return false
 end
 
-local function color(value, fallback)
+local function color(value, fallback, alpha)
     if type(value) ~= "string" then return fallback end
     local hex = value:match("^#?([%da-fA-F][%da-fA-F])([%da-fA-F][%da-fA-F])([%da-fA-F][%da-fA-F])$")
     if not hex then return fallback end
@@ -67,7 +67,8 @@ local function color(value, fallback)
     local green = tonumber(value:sub(offset + 2, offset + 3), 16)
     local blue = tonumber(value:sub(offset + 4, offset + 5), 16)
     if hasColorScreen() and type(Blitbuffer.ColorRGB32) == "function" then
-        local ok, rgb = pcall(Blitbuffer.ColorRGB32, red, green, blue, 0xFF)
+        alpha = alpha == nil and 1 or clamp(safeNumber(alpha, 1), 0, 1)
+        local ok, rgb = pcall(Blitbuffer.ColorRGB32, red, green, blue, math.floor(alpha * 255 + 0.5))
         if ok and rgb then return rgb end
     end
     if type(Blitbuffer.colorFromString) == "function" then
@@ -84,7 +85,9 @@ end
 
 local function paintRect(bb, x, y, width, height, fill)
     if not fill then return end
-    if hasColorScreen() and type(bb.paintRectRGB32) == "function" then
+    if hasColorScreen() and fill.alpha and fill.alpha < 255 and type(bb.blendRectRGB32) == "function" then
+        bb:blendRectRGB32(x, y, width, height, fill)
+    elseif hasColorScreen() and type(bb.paintRectRGB32) == "function" then
         bb:paintRectRGB32(x, y, width, height, fill)
     elseif bb.paintRect then
         bb:paintRect(x, y, width, height, fill)
@@ -373,7 +376,7 @@ function Renderer.build(definition, width, height, options)
         else
             child = buildText(element, element_width, element_height, width, asset_paths, values)
         end
-        local background = element.background and color(element.background, nil) or nil
+        local background = element.background and color(element.background, nil, element.background_alpha) or nil
         -- image elements may have an explicit color behind letterboxed contain
         -- media; cards render their declared fill even when text creation fails.
         if child or background then
