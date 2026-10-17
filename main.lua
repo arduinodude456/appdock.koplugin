@@ -59,6 +59,8 @@ local DEFAULT_SETTINGS = {
     dapp_permissions = {},
     widget_generator = { items = {}, next_id = 0 },
     setup_assistant = { offered_version = "", completed_version = "" },
+    -- DChat has no password-based backend; only the public TBS handle is kept.
+    tbs_account = { enabled = false, username = "", display_name = "" },
     power_saving = false,
     refresh_interval = 60,
     sleepscreen_enabled = false,
@@ -143,6 +145,7 @@ function AppDock:_loadSettings()
         dapp_permissions = stored.dapp_permissions or {},
         widget_generator = stored.widget_generator or { items = {}, next_id = 0 },
         setup_assistant = stored.setup_assistant or { offered_version = "", completed_version = "" },
+        tbs_account = stored.tbs_account or { enabled = false, username = "", display_name = "" },
         power_saving = stored.power_saving == true,
         refresh_interval = tonumber(stored.refresh_interval) or DEFAULT_SETTINGS.refresh_interval,
         sleepscreen_enabled = stored.sleepscreen_enabled == true,
@@ -263,6 +266,10 @@ function AppDock:_loadSettings()
     self.settings.setup_assistant = type(self.settings.setup_assistant) == "table" and self.settings.setup_assistant or {}
     self.settings.setup_assistant.offered_version = type(self.settings.setup_assistant.offered_version) == "string" and self.settings.setup_assistant.offered_version:sub(1, 24) or ""
     self.settings.setup_assistant.completed_version = type(self.settings.setup_assistant.completed_version) == "string" and self.settings.setup_assistant.completed_version:sub(1, 24) or ""
+    self.settings.tbs_account = type(self.settings.tbs_account) == "table" and self.settings.tbs_account or {}
+    self.settings.tbs_account.enabled = self.settings.tbs_account.enabled == true
+    self.settings.tbs_account.username = type(self.settings.tbs_account.username) == "string" and self.settings.tbs_account.username:sub(1, 32) or ""
+    self.settings.tbs_account.display_name = type(self.settings.tbs_account.display_name) == "string" and self.settings.tbs_account.display_name:sub(1, 48) or ""
     local normalized_generated = {}
     local generated_count = 0
     for id, item in pairs(self.settings.widget_generator.items) do
@@ -331,7 +338,19 @@ function AppDock:completeSetupAssistant()
     self.settings.setup_assistant.completed_version = SETUP_ASSISTANT_VERSION
     self:_saveSettings()
 end
-
+function AppDock:setTBSAccount(username, display_name, enabled)
+    username = type(username) == "string" and username:match("^%s*(.-)%s*$") or ""
+    display_name = type(display_name) == "string" and display_name:match("^%s*(.-)%s*$") or username
+    if username == "" or #username > 32 or not username:match("^[%w_.%-]+$") then return false end
+    if display_name == "" or #display_name > 48 then display_name = username end
+    self.settings.tbs_account = { enabled = enabled ~= false, username = username, display_name = display_name }
+    self:_saveSettings()
+    return true
+end
+function AppDock:clearTBSAccount()
+    self.settings.tbs_account = { enabled = false, username = "", display_name = "" }
+    self:_saveSettings()
+end
 function AppDock:setLaunchOnStart(enabled)
     self.settings.launch_on_start = not not enabled
     self:_saveSettings()

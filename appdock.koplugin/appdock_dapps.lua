@@ -31,6 +31,7 @@ local Help = require("appdock_help")
 local WebBrowser = require("appdock_browser")
 local FileBrowser = require("appdock_filemanager")
 local AppStore = require("appdock_appstore")
+local Transfer = require("appdock_transfer")
 local YouTube = require("appdock_youtube")
 local YouTubeMusic = require("appdock_ytmusic")
 local Draw = require("appdock_draw")
@@ -2641,7 +2642,77 @@ end
 function DAppManager:showSettingsNotice(text)
     UIManager:show(InfoMessage:new{ text = text })
 end
-
+function DAppManager:showTransferMenu(instance, context)
+    local menu
+    local function closeMenu() if menu then UIManager:close(menu) end end
+    local function sendBackup()
+        closeMenu()
+        local code = Transfer.newCode()
+        self:showSettingsNotice(string.format(_("On the old device, keep this AppDock open.\n\nPairing code: %s\nPort: %d\n\nOn the new device choose Receive backup and enter this device's Wi-Fi IP address and the code."), code, Transfer.PORT))
+        UIManager:nextTick(function()
+            local ok, detail = Transfer.startSender(code, 120)
+            self:showSettingsNotice(ok and _("Backup sent successfully. The new device can now restart AppDock.") or (_("Backup transfer failed: ") .. tostring(detail or _("unknown error"))))
+        end)
+    end
+    local function confirmImport(payload)
+        local confirmation
+        confirmation = ConfirmBox:new{
+            title = _("Import AppDock backup"),
+            text = _("This will replace AppDock settings, themes, local history and supported DApp data on this device. Continue only if this is the intended old device."),
+            ok_text = _("Import"),
+            cancel_text = _("Cancel"),
+            ok_callback = function()
+                local ok, detail = Transfer.apply(payload)
+                if ok then
+                    if context and context.requestRebuild then context.requestRebuild("ui") end
+                    self:showSettingsNotice(_("Backup imported. Restart KOReader to reload all migrated settings and DApp data."))
+                else
+                    self:showSettingsNotice(_("Backup import failed: ") .. tostring(detail or _("unknown error")))
+                end
+            end,
+        }
+        UIManager:show(confirmation)
+    end
+    local function receiveBackup()
+        closeMenu()
+        local address_dialog
+        address_dialog = InputDialog:new{
+            title = _("Receive backup · source device"),
+            input_hint = _("Wi-Fi IP address of the old device"),
+            buttons = { { { text = _("Cancel"), callback = function() UIManager:close(address_dialog) end }, { text = _("Next"), is_enter_default = true, callback = function()
+                local ip = address_dialog:getInputText()
+                UIManager:close(address_dialog)
+                local code_dialog
+                code_dialog = InputDialog:new{
+                    title = _("Receive backup · pairing code"),
+                    input_hint = _("Six-digit code shown on the old device"),
+                    buttons = { { { text = _("Cancel"), callback = function() UIManager:close(code_dialog) end }, { text = _("Connect"), is_enter_default = true, callback = function()
+                        local code = code_dialog:getInputText()
+                        UIManager:close(code_dialog)
+                        UIManager:nextTick(function()
+                            local payload, err = Transfer.receive(ip, code, 30)
+                            if not payload then self:showSettingsNotice(_("Backup receive failed: ") .. tostring(err or _("unknown error")))
+                            else confirmImport(payload) end
+                        end)
+                    end } } },
+                }
+                UIManager:show(code_dialog)
+                if code_dialog.onShowKeyboard then code_dialog:onShowKeyboard() end
+            end } } },
+        }
+        UIManager:show(address_dialog)
+        if address_dialog.onShowKeyboard then address_dialog:onShowKeyboard() end
+    end
+    menu = ButtonDialog:new{
+        title = _("Backup & migration") .. "\n" .. _("Both devices must be connected to the same Wi-Fi network."),
+        buttons = {
+            { { text = _("Send backup from this device"), callback = sendBackup } },
+            { { text = _("Receive backup from old device"), callback = receiveBackup } },
+            { { text = _("Cancel"), callback = closeMenu } },
+        },
+    }
+    UIManager:show(menu)
+end
 function DAppManager:showFeatureDialog()
     if self._feature_dialog then return false end
     local feature_pages = type(self.appdock.getFeaturePages) == "function" and self.appdock:getFeaturePages() or {}
@@ -2719,20 +2790,48 @@ function DAppManager:showSetupAssistant(instance, context, automatic)
         refreshSettings()
         self:showSettingsNotice(_("AppDock setup is complete. You can run the setup wizard again at any time from Settings → Other."))
     end
+    local function showTBSAccountStep()
+        local existing = self.appdock.settings.tbs_account or {}
+        local account_dialog
+        account_dialog = InputDialog:new{
+            setup = true,
+            title = _("AppDock Setup · TBS account") .. "\n" .. _("Optional: create a local TBS profile. Its public name is also offered to DChat; no password is stored on this device."),
+            input = existing.username or "",
+            input_hint = _("TBS username (letters, numbers, . _ -)"),
+            buttons = { { { text = _("Skip"), callback = function() UIManager:close(account_dialog); finish() end },
+                { text = _("Create TBS account"), is_enter_default = true, callback = function()
+                    local username = account_dialog:getInputText()
+                    if self.appdock:setTBSAccount(username, username, true) then
+                        UIManager:close(account_dialog)
+                        finish()
+                    else
+                        account_dialog.input_hint = _("Choose a valid username (max. 32 characters).")
+                    end
+                end } }, { { text = _("Migrate from an old device over Wi-Fi"), callback = function()
+                    UIManager:close(account_dialog)
+                    self:showTransferMenu(instance, context)
+                end } } },
+        }
+        UIManager:show(account_dialog)
+        if account_dialog.onShowKeyboard then account_dialog:onShowKeyboard() end
+    end
     local function showWorkspaceStep()
         local workspace = self.appdock.settings.workspace or {}
         dialog = ButtonDialog:new{
-            title = _("Setup 3/3 · Local workspace") .. "\n" .. _("Optionally restore permitted local AppDock apps after a KOReader restart. No documents, browser pages or plugin hosts are restored."),
+            setup = true,
+            title = _("Setup 3/4 · Local workspace") .. "\n" .. _("Optionally restore permitted local AppDock apps after a KOReader restart. No documents, browser pages or plugin hosts are restored."),
             buttons = {
                 { { text = workspace.restore_enabled and _("Keep restoration enabled") or _("Enable restoration"), callback = function()
                     self.appdock:setWorkspaceRestoreEnabled(true)
-                    finish()
+                    closeDialog()
+                    showTBSAccountStep()
                 end } },
                 { { text = workspace.restore_enabled and _("Disable restoration") or _("Keep disabled"), callback = function()
                     self.appdock:setWorkspaceRestoreEnabled(false)
-                    finish()
+                    closeDialog()
+                    showTBSAccountStep()
                 end } },
-                { { text = _("Finish without changing"), callback = finish } },
+                { { text = _("Continue without changing"), callback = function() closeDialog(); showTBSAccountStep() end } },
                 { { text = _("Cancel"), callback = closeDialog } },
             },
         }
@@ -2741,7 +2840,8 @@ function DAppManager:showSetupAssistant(instance, context, automatic)
     local function showSearchStep()
         local layout = self.appdock.settings.layout or {}
         dialog = ButtonDialog:new{
-            title = _("Setup 2/3 · Find apps") .. "\n" .. _("Choose whether the normal homescreen should show an optional local app search field."),
+            setup = true,
+            title = _("Setup 2/4 · Find apps") .. "\n" .. _("Choose whether the normal homescreen should show an optional local app search field."),
             buttons = {
                 { { text = layout.search_enabled and _("Keep app search enabled") or _("Enable app search"), callback = function()
                     self.appdock:setLauncherLayout({ search_enabled = true })
@@ -2767,7 +2867,8 @@ function DAppManager:showSetupAssistant(instance, context, automatic)
             or self.appdock:isSimpleModeEnabled("quick_settings")
             or self.appdock:isSimpleModeEnabled("focus_apps")
         dialog = ButtonDialog:new{
-            title = _("Setup 1/3 · Appearance") .. "\n" .. _("Choose the full AppDock interface or the existing reduced Simple Mode. This choice only changes after you select an option."),
+            setup = true,
+            title = _("Setup 1/4 · Appearance") .. "\n" .. _("Choose the full AppDock interface or the existing reduced Simple Mode. This choice only changes after you select an option."),
             buttons = {
                 { { text = simple_mode and _("Use full AppDock") or _("Keep full AppDock"), callback = function()
                     self.appdock:setSimpleModeOption("homescreen", false)
@@ -2793,6 +2894,7 @@ function DAppManager:showSetupAssistant(instance, context, automatic)
         UIManager:show(dialog)
     end
     dialog = ButtonDialog:new{
+        setup = true,
         title = automatic and _("AppDock was updated") or _("AppDock setup wizard"),
         buttons = {
             { { text = _("Start setup"), callback = function()
@@ -3625,6 +3727,12 @@ function DAppManager:_buildSettingsPane(instance, context)
                 subtitle = _("Calculating local AppDock data"),
                 show_state = false,
                 callback = function() self:showIntegrityStatus() end,
+            },
+            {
+                title = _("Backup & migration"),
+                subtitle = _("Move settings, themes and local history over Wi-Fi"),
+                show_state = false,
+                callback = function() self:showTransferMenu(instance, context) end,
             },
         },
         simple = {

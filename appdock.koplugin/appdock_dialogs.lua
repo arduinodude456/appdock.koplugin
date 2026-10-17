@@ -351,7 +351,9 @@ function Modal:paintTo(bb, x, y)
             -- Keep foreground black on a white/light fill for every action,
             -- including the primary action. Outlines and fill distinguish
             -- choices without relying on white text over a black rectangle.
-            local bg = (disabled or primary) and Blitbuffer.COLOR_LIGHT_GRAY or Blitbuffer.COLOR_WHITE
+            local bg = self.setup == true and primary and not disabled
+                and (Blitbuffer.COLOR_LIGHT_GREEN or Blitbuffer.COLOR_LIGHT_GRAY)
+                or ((disabled or primary) and Blitbuffer.COLOR_LIGHT_GRAY or Blitbuffer.COLOR_WHITE)
             local fg = Blitbuffer.COLOR_BLACK
             bb:paintRect(bx,row_y,w,self.row_h-scale(4),bg)
             bb:paintRect(bx,row_y,w,scale(1),Blitbuffer.COLOR_BLACK)
