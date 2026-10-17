@@ -24,6 +24,9 @@ local color8_levels = {}
 local Blitbuffer = {
     COLOR_BLACK = { gray = 0 },
     COLOR_WHITE = { gray = 255 },
+    ColorRGB32 = function(red, green, blue, alpha)
+        return { red = red, green = green, blue = blue, alpha = alpha }
+    end,
     -- Force the renderer's documented grayscale fallback in these tests.
     colorFromString = function() return nil end,
     Color8 = function(level)
@@ -66,6 +69,7 @@ function TextBoxWidget:free()
     self.free_calls = (self.free_calls or 0) + 1
 end
 
+local Device = { model = "Mock KOReader" }
 local image_sizes = {
     ["/one.png"] = { w = 100, h = 100 },
     ["/two.png"] = { w = 100, h = 50 },
@@ -98,7 +102,7 @@ function ImageWidget:free()
 end
 
 package.preload["ffi/blitbuffer"] = function() return Blitbuffer end
-package.preload["device"] = function() return { model = "Mock KOReader" } end
+package.preload["device"] = function() return Device end
 package.preload["ui/font"] = function() return Font end
 package.preload["ui/geometry"] = function()
     return { new = function(_, value) return value end }
@@ -211,6 +215,21 @@ local colors_canvas = Renderer.build(definition({
 assert(colors_canvas.background.gray == 76 and colors_canvas.entries[1].widget.background.gray == 29,
     "grayscale fallback must preserve distinct red and blue luminance")
 colors_canvas:free()
+
+-- Color-capable readers must retain RGB declarations for both canvas and
+-- element fills instead of sending them through the grayscale Color8 path.
+Device.screen = { isColorEnabled = function() return true end }
+local color_device_canvas = Renderer.build(definition({
+    { type = "text", x = 0, y = 0, w = 20, h = 20, text = "Color", background = "#445566" },
+}, "#112233"), 100, 100, {})
+assert(color_device_canvas.background.red == 0x11 and color_device_canvas.background.green == 0x22
+    and color_device_canvas.background.blue == 0x33,
+    "color-capable readers must retain the declared canvas RGB value")
+assert(color_device_canvas.entries[1].widget.background.red == 0x44
+    and color_device_canvas.entries[1].widget.background.green == 0x55
+    and color_device_canvas.entries[1].widget.background.blue == 0x66,
+    "color-capable readers must retain the declared element RGB value")
+color_device_canvas:free()
 
 -- contain delegates centering and original-size preservation to ImageWidget;
 -- cover first probes actual original dimensions, then chooses the centered crop

@@ -41,26 +41,54 @@ local function safeNumber(value, fallback)
     return value
 end
 
+local function hasColorScreen()
+    -- Some KOReader targets expose isColorScreen(), others only expose
+    -- isColorEnabled(). Accept either so declared RGB colors are not silently
+    -- converted to grayscale on color-capable readers.
+    if Device and Device.screen then
+        if type(Device.screen.isColorScreen) == "function" then
+            local ok, enabled = pcall(Device.screen.isColorScreen, Device.screen)
+            if ok and enabled == true then return true end
+        end
+        if type(Device.screen.isColorEnabled) == "function" then
+            local ok, enabled = pcall(Device.screen.isColorEnabled, Device.screen)
+            if ok and enabled == true then return true end
+        end
+    end
+    return false
+end
+
 local function color(value, fallback)
     if type(value) ~= "string" then return fallback end
+    local hex = value:match("^#?([%da-fA-F][%da-fA-F])([%da-fA-F][%da-fA-F])([%da-fA-F][%da-fA-F])$")
+    if not hex then return fallback end
+    local offset = value:sub(1, 1) == "#" and 2 or 1
+    local red = tonumber(value:sub(offset, offset + 1), 16)
+    local green = tonumber(value:sub(offset + 2, offset + 3), 16)
+    local blue = tonumber(value:sub(offset + 4, offset + 5), 16)
+    if hasColorScreen() and type(Blitbuffer.ColorRGB32) == "function" then
+        local ok, rgb = pcall(Blitbuffer.ColorRGB32, red, green, blue, 0xFF)
+        if ok and rgb then return rgb end
+    end
     if type(Blitbuffer.colorFromString) == "function" then
         local ok, parsed = pcall(Blitbuffer.colorFromString, value)
         if ok and parsed then return parsed end
     end
-
-    -- colorFromString is available in KOReader's BlitBuffer.  This fallback
-    -- also keeps older/minimal grayscale targets legible without collapsing
-    -- every declared colour to the same black/white default.
-    local hex = value:match("^#?([%da-fA-F][%da-fA-F])([%da-fA-F][%da-fA-F])([%da-fA-F][%da-fA-F])$")
-    if hex and type(Blitbuffer.Color8) == "function" then
-        local red = tonumber(value:sub(value:sub(1, 1) == "#" and 2 or 1, value:sub(1, 1) == "#" and 3 or 2), 16)
-        local green = tonumber(value:sub(value:sub(1, 1) == "#" and 4 or 3, value:sub(1, 1) == "#" and 5 or 4), 16)
-        local blue = tonumber(value:sub(value:sub(1, 1) == "#" and 6 or 5, value:sub(1, 1) == "#" and 7 or 6), 16)
+    if type(Blitbuffer.Color8) == "function" then
         local luminance = math.floor((299 * red + 587 * green + 114 * blue) / 1000 + 0.5)
         local ok, grayscale = pcall(Blitbuffer.Color8, luminance)
         if ok and grayscale then return grayscale end
     end
     return fallback
+end
+
+local function paintRect(bb, x, y, width, height, fill)
+    if not fill then return end
+    if hasColorScreen() and type(bb.paintRectRGB32) == "function" then
+        bb:paintRectRGB32(x, y, width, height, fill)
+    elseif bb.paintRect then
+        bb:paintRect(x, y, width, height, fill)
+    end
 end
 
 local function localPowerCapacity()
@@ -135,7 +163,7 @@ function ClippedElement:getSize()
 end
 
 function ClippedElement:paintTo(bb, x, y)
-    if self.background and bb.paintRect then bb:paintRect(x, y, self.width, self.height, self.background) end
+    paintRect(bb, x, y, self.width, self.height, self.background)
     if not self.child or type(self.child.paintTo) ~= "function" then return end
     local size = childSize(self.child)
     local child_x = 0
@@ -190,7 +218,7 @@ function SleepCanvas:getSize()
 end
 
 function SleepCanvas:paintTo(bb, x, y)
-    if bb.paintRect then bb:paintRect(x, y, self.width, self.height, self.background) end
+    paintRect(bb, x, y, self.width, self.height, self.background)
     for _, entry in ipairs(self.entries) do
         if entry and entry.widget then entry.widget:paintTo(bb, x + entry.x, y + entry.y) end
     end
