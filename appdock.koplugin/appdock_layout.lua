@@ -46,6 +46,29 @@ function FixedStack:paintTo(bb, x, y)
     end
 end
 
+-- FixedStack is a layout widget, but its entries may be interactive widgets.
+-- Painting them is not enough: Widget's default handleEvent does not walk
+-- children, so buttons nested in a stack would be visible but untappable.
+-- Check later entries first, matching the visual top-to-bottom order used by
+-- OverlapGroup, and let the child consume the event when it can.
+function FixedStack:propagateEvent(event)
+    local entries = self.entries or {}
+    for index = #entries, 1, -1 do
+        local child = entries[index] and entries[index].widget
+        if child and child.handleEvent and child:handleEvent(event) then
+            return true
+        end
+    end
+    return false
+end
+
+function FixedStack:handleEvent(event)
+    if self:propagateEvent(event) then
+        return true
+    end
+    return Widget.handleEvent(self, event)
+end
+
 return {
     FixedStack = FixedStack,
 }
