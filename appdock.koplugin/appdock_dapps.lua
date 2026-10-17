@@ -31,7 +31,6 @@ local Help = require("appdock_help")
 local WebBrowser = require("appdock_browser")
 local FileBrowser = require("appdock_filemanager")
 local AppStore = require("appdock_appstore")
-local Transfer = require("appdock_transfer")
 local YouTube = require("appdock_youtube")
 local YouTubeMusic = require("appdock_ytmusic")
 local Draw = require("appdock_draw")
@@ -2643,6 +2642,11 @@ function DAppManager:showSettingsNotice(text)
     UIManager:show(InfoMessage:new{ text = text })
 end
 function DAppManager:showTransferMenu(instance, context)
+    local ok_transfer, Transfer = pcall(require, "appdock_transfer")
+    if not ok_transfer or type(Transfer) ~= "table" then
+        self:showSettingsNotice(_("Backup & migration is unavailable on this KOReader build."))
+        return
+    end
     local menu
     local function closeMenu() if menu then UIManager:close(menu) end end
     local function sendBackup()
