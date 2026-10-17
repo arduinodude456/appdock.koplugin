@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **8.1.1** ergänzt einen stabilisierten Android-inspirierten Setup-Assistenten, App-Gruppen, einen Standardhintergrund und optionale TBS-Kontosynchronisierung sowie den zuverlässigen Bildschirm-Neuaufbau nach der TBS-Kontoerstellung. [Details](RELEASE_NOTES_8.1.1.md).
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **8.2.0** ergänzt einen Sleepscreens-Store mit globalen Presets, Creator-Anzeige, Offline-Downloads und einem Editor mit Live-Vorschau. [Details](RELEASE_NOTES_8.2.0.md).
 
 ### Sleepscreen-Presets
 
