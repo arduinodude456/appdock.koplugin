@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **7.9.33** verbessert Theme-Kontrast, Lockscreen, YouTube-Stabilität, Files-Sortierung und die DuckDuckGo-API-Suche. [Details](RELEASE_NOTES_7.9.30.md).
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **8.1.0** ergänzt einen stabilisierten Android-inspirierten Setup-Assistenten, App-Gruppen, einen Standardhintergrund und optionale TBS-Kontosynchronisierung. [Details](RELEASE_NOTES_8.1.0.md).
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst Androids Formensprache, nicht dessen Daueranimationen, Unschärfen oder Transparenzeffekte. Auf E-Ink wechseln App-Seiten und Recently-used-Drawer direkt und ohne Zwischenanimation. Damit bleibt die Darstellung auf monochromen Readern kontrastreich, sparsam und frei von unnötigem Ghosting.
 

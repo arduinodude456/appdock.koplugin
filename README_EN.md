@@ -4,7 +4,7 @@
 
 # New releases regulary commited at 3:00 AM CET
 
-**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **7.9.12** adds genuine full-screen YouTube playback with on-screen controls and a return to the still-playing MiniPlayer. [Details](RELEASE_NOTES_7.9.12.md).
+**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **8.1.0** adds a more reliable Android-inspired setup wizard, app groups, a default wallpaper, and optional TBS account sync. [Details](RELEASE_NOTES_8.1.0.md).
 
 > **E-Ink approach:** AppDock deliberately borrows the visual language and information structure, not Android's animations, blur, or transparency effects. This keeps updates economical and maintains contrast on monochrome readers.
 
