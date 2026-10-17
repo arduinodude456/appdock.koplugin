@@ -3,6 +3,7 @@
 -- against a small KOReader stand-in that actually paints the widget tree, so
 -- layout and painter regressions fail here instead of on the device.
 local plugin_dir = os.getenv("APPDOCK_PLUGIN_DIR") or "./appdock.koplugin/"
+package.path = plugin_dir .. "?.lua;" .. package.path
 
 local function baseClass(prototype)
     prototype = prototype or {}
@@ -106,6 +107,15 @@ package.preload["ui/uimanager"] = function()
 end
 package.preload["appdock_keyboard"] = function() return { attach = function() return true end } end
 package.preload["gettext"] = function() return function(value) return value end end
+
+-- Modal presentation and image decoding have separate tests. The store's
+-- confirmation contracts should be observable without a native KOReader UI.
+package.preload["appdock_dialogs"] = function()
+    return { ConfirmBox = Widget, InputDialog = Widget, InfoMessage = Widget }
+end
+package.preload["appdock_wallpaper"] = function()
+    return { isUsableImage = function() return false end }
+end
 
 local Theme = dofile(plugin_dir .. "appdock_theme.lua")
 local Layout = dofile(plugin_dir .. "appdock_layout.lua")
@@ -271,7 +281,7 @@ state.category = "all"
 pane = store:buildPane(context.instance, context)
 assert(#find_control(pane, "TapPlayCard") > 0, "The recommendation shelf must expose tappable cards")
 assert(#find_control(pane, "TapPlayRow") >= #entries, "Every visible catalog entry must render a Play list row")
-assert(#find_control(pane, "TapPlayNavTab") == 4, "The Play bottom navigation must render all four category tabs")
+assert(#find_control(pane, "TapPlayNavTab") == 5, "The Store bottom navigation must preserve existing categories and add Sleepscreens")
 local scrollers = walk(pane, function(node, found)
     if node.show_parent == context.host and node.dimen then found[#found + 1] = node end
 end)

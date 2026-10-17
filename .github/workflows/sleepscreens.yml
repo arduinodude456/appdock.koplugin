@@ -1,0 +1,33 @@
+name: Sleepscreen preset tests
+on:
+  pull_request:
+    paths:
+      - 'appdock.koplugin/**'
+      - 'test_sleepscreen*.lua'
+      - 'test_appstore_play.lua'
+      - 'supabase/**'
+      - 'scripts/test_sleepscreens.sh'
+      - '.github/workflows/sleepscreens.yml'
+  push:
+    branches: [main, feature/sleepscreen-presets]
+    paths:
+      - 'appdock.koplugin/**'
+      - 'test_sleepscreen*.lua'
+      - 'test_appstore_play.lua'
+      - 'supabase/**'
+      - 'scripts/test_sleepscreens.sh'
+      - '.github/workflows/sleepscreens.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Lua test dependencies
+        run: sudo apt-get update -qq && sudo apt-get install -y luajit lua-filesystem lua-cjson lua-socket
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Validate native plugin and preset service
+        run: bash scripts/test_sleepscreens.sh

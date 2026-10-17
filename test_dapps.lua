@@ -363,7 +363,7 @@ local files_source = assert(io.open(plugin_dir .. "appdock_filemanager.lua", "rb
 assert(files_source:find("local margin, gap = scale(12), scale(8)", 1, true) and files_source:find("local search_h = scale(40)", 1, true), "Files must use compact Google Files spacing and a prominent search pill")
 assert(files_source:find("Layout.FixedStack:new", 1, true) and files_source:find("function FileBrowser:openEntry", 1, true), "File rows and tiles must draw through fixed bounds and preserve safe open dispatch")
 local sleepscreen_source = assert(io.open(plugin_dir .. "appdock_sleepscreen.lua", "rb")):read("*a")
-assert(sleepscreen_source:find("function Sleep.show", 1, true) and sleepscreen_source:find("function Sleep.close", 1, true) and sleepscreen_source:find("Sleeping", 1, true), "The optional Sleep screen must provide a minimal full-screen show/close widget")
+assert(sleepscreen_source:find("function Sleep.show(appdock)", 1, true) and sleepscreen_source:find("function Sleep.close", 1, true) and sleepscreen_source:find("Renderer.build", 1, true), "The optional Sleep screen must render local presets while preserving full-screen show/close")
 local design_definition = Theme.normalizeDesignDefinition({
     id = "galaxy", title = "Galaxy", version = "1.0.0", highlight = "#A98BFF", background = "#111126",
     button = "#282653", text = "#F8F7FF", dropdown = "#181634", button_style = "3d", logo_shape = "circle",

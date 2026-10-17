@@ -3898,6 +3898,16 @@ function DAppManager:_buildSettingsPane(instance, context)
                 end,
             },
             {
+                title = _("Sleepscreen editor"),
+                subtitle = _("Create a preset with live preview · more in AppStore → Sleepscreens"),
+                show_state = false,
+                callback = function()
+                    local Presets = require("appdock_sleepscreen_presets")
+                    local Editor = require("appdock_sleepscreen_editor")
+                    Editor.show(self.appdock, context, Presets.getActive(self.appdock))
+                end,
+            },
+            {
                 title = _("Setup Wizard"),
                 subtitle = _("Guided setup for appearance and local options"),
                 show_state = false,
