@@ -518,9 +518,10 @@ function Catalog.buildPane(instance, context, ui)
     elseif #state.entries == 0 then
         appendCard(_("No matching sleepscreens"), _("Change the search or try again later."), nil, nil, { { title = _("Search"), primary = true, callback = function() Catalog.promptSearch(instance, context, state) end } })
     else
-        for _, entry in ipairs(state.entries) do
-            appendCard(entry.name or _("Untitled sleepscreen"), _("Creator: ") .. creatorName(entry), entry.definition, nil, {
-                { title = _("Open"), primary = true, callback = function() Catalog.openRemote(instance, context, state, entry) end },
+        for entry_index, entry in ipairs(state.entries) do
+            local current_entry = entry
+            appendCard(current_entry.name or _("Untitled sleepscreen"), _("Creator: ") .. creatorName(current_entry), current_entry.definition, nil, {
+                { title = _("Open"), primary = true, callback = function() Catalog.openRemote(instance, context, state, current_entry) end },
             })
         end
         local pager_y = rows._height or 0

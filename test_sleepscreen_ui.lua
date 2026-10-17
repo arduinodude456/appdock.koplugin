@@ -165,6 +165,8 @@ local catalog_state = instance.app_store.sleepscreen_catalog
 catalog_state.view, catalog_state.entries, catalog_state.opened = "browse", nil, nil
 Catalog.refresh(instance, context, catalog_state)
 assert(listed == 1 and catalog_state.entries[1].creator.display_name == "Mira", "Public browsing must call Store.list without an account and retain creator data")
+local public_results_pane = store:buildPane(instance, context)
+assert(#named(public_results_pane, "Open") == 1, "Rendering public results must preserve the gettext function and show an Open action")
 Catalog.openRemote(instance, context, catalog_state, catalog_state.entries[1])
 assert(catalog_state.opened and installed == 0, "Opening a remote preset may load its full preview but must not install it")
 Catalog.confirmDownload(context, catalog_state, true, false)
