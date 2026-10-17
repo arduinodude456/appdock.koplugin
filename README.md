@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **8.1.0** ergänzt einen stabilisierten Android-inspirierten Setup-Assistenten, App-Gruppen, einen Standardhintergrund und optionale TBS-Kontosynchronisierung. [Details](RELEASE_NOTES_8.1.0.md).
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **8.1.1** ergänzt einen stabilisierten Android-inspirierten Setup-Assistenten, App-Gruppen, einen Standardhintergrund und optionale TBS-Kontosynchronisierung sowie den zuverlässigen Bildschirm-Neuaufbau nach der TBS-Kontoerstellung. [Details](RELEASE_NOTES_8.1.1.md).
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst Androids Formensprache, nicht dessen Daueranimationen, Unschärfen oder Transparenzeffekte. Auf E-Ink wechseln App-Seiten und Recently-used-Drawer direkt und ohne Zwischenanimation. Damit bleibt die Darstellung auf monochromen Readern kontrastreich, sparsam und frei von unnötigem Ghosting.
 
@@ -124,6 +124,8 @@ Ein Antippen startet die zugewiesene Aktion. Langes Drücken auf eine App starte
 | Integrität | **Settings → Storage** zeigt den lokalen Zustand installierter Store-Dateien, geöffneter Apps und Arbeitsbereichsmetadaten. Die Ansicht ist rein lesend und ändert oder löscht keine Dateien selbstständig. |
 
 ## Installation
+
+**Wichtig bei GitHub:** Das automatisch erzeugte **Source code (zip)** ist kein direkt installierbarer Pluginordner. Öffne darin den äußeren Projektordner `appdock.koplugin-<Version>` und kopiere **nur den darin liegenden Ordner `appdock.koplugin`** nach `…/plugins/`. Benenne den äußeren Projektordner nicht in `.koplugin` um; KOReader braucht `_meta.lua` und `main.lua` direkt im `appdock.koplugin`-Ordner.
 
 Entpacke das Installationsarchiv und kopiere den vollständigen Ordner `appdock.koplugin` in den Plugin-Ordner deiner KOReader-Installation:
 

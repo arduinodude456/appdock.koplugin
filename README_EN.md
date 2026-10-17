@@ -120,6 +120,8 @@ Tap an app tile to start its assigned action. Long-press an app to enter homescr
 
 ## Installation
 
+**Important for GitHub downloads:** The automatically generated **Source code (zip)** is not itself the installable plugin folder. Open the outer `appdock.koplugin-<Version>` project folder and copy **only its inner `appdock.koplugin` folder** to `…/plugins/`. Do not rename the outer project folder to `.koplugin`; KOReader needs `_meta.lua` and `main.lua` directly inside `appdock.koplugin`.
+
 Extract the release archive and copy the complete `appdock.koplugin` directory into the plugin directory of your KOReader installation:
 
 ```text

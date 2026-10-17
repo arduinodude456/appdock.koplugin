@@ -3,6 +3,7 @@ package.path = plugin_dir .. "?.lua;" .. package.path
 
 local saves = 0
 local reader_settings = {}
+local ui_log = { shown = {}, closed = {}, order = {}, rebuilds = 0 }
 _G.G_reader_settings = {
     readSetting = function(_, key, fallback) return reader_settings[key] or fallback end,
     saveSetting = function(_, key, value) reader_settings[key] = value end,
@@ -18,10 +19,19 @@ package.preload["socket.url"] = function()
 end
 package.preload["ui/uimanager"] = function()
     return {
-        show = function() end,
-        close = function() end,
+        show = function(_, widget)
+            ui_log.shown[#ui_log.shown + 1] = widget
+            ui_log.order[#ui_log.order + 1] = "show"
+        end,
+        close = function(_, widget)
+            ui_log.closed[#ui_log.closed + 1] = widget
+            ui_log.order[#ui_log.order + 1] = "close"
+        end,
         scheduleIn = function() end,
-        nextTick = function(_, callback) if callback then callback() end end,
+        nextTick = function(_, callback)
+            ui_log.order[#ui_log.order + 1] = "nextTick"
+            if callback then callback() end
+        end,
     }
 end
 package.preload["appdock_dialogs"] = function()
@@ -103,5 +113,47 @@ assert(reader_settings.appdock_tbs_session.device_secret == raw.device_secret, "
 assert(#reader_settings.appdock_tbs_session.pending_installations == 1, "stored installations must remain available for AppStore restoration")
 assert(appdock.settings.tbs_account.device_secret == nil, "the transferable AppDock settings must not hold the device secret")
 assert(saves > 0, "account operations must persist locally")
+
+-- Creating an account from Settings must close the one-time recovery dialog
+-- before asking the active DApp host to rebuild and show the signed-in state.
+reader_settings.appdock_tbs_session = nil
+local unsigned_appdock = {
+    settings = { tbs_account = { enabled = false, username = "", display_name = "" } },
+    _saveSettings = function() saves = saves + 1 end,
+}
+local original_register = Account.register
+Account.register = function(target, display_name)
+    local created_account = {
+        account_id = "78e7c3a1-79d2-44c7-97b0-5cd882982f57",
+        device_id = "tbs_abcdefghijklmnopqrstuv",
+        device_secret = "abcdefghijklmnopqrstuvwxyz1234567890ABCDEFGH",
+        endpoint = "https://example.test/functions/v1/tbs-account",
+        publishable_key = "sb_publishable_example",
+        display_name = display_name,
+    }
+    reader_settings.appdock_tbs_session = created_account
+    target.settings.tbs_account = { enabled = true, username = display_name, display_name = display_name }
+    return { account = created_account, recovery_code = "TBS-ONCE-ONLY" }
+end
+local refresh_context = { requestRebuild = function(kind)
+    assert(kind == "ui", "TBS account creation must request a full UI rebuild")
+    ui_log.rebuilds = ui_log.rebuilds + 1
+    ui_log.order[#ui_log.order + 1] = "rebuild"
+end }
+assert(Account.showSettings(unsigned_appdock, refresh_context) == false, "unsigned TBS settings should start account creation")
+local gate_dialog = ui_log.shown[#ui_log.shown]
+gate_dialog.buttons[1][1].callback()
+local input_dialog = ui_log.shown[#ui_log.shown]
+input_dialog.input = "New Reader"
+input_dialog.buttons[1][2].callback()
+local recovery_dialog = ui_log.shown[#ui_log.shown]
+assert(recovery_dialog.title == "Save your TBS recovery code", "account creation must show the one-time recovery code")
+local order_before_ack = #ui_log.order
+recovery_dialog.buttons[1][1].callback()
+assert(ui_log.rebuilds == 1, "successful TBS account creation must refresh the active Settings pane")
+assert(ui_log.order[order_before_ack + 1] == "close" and ui_log.order[order_before_ack + 2] == "nextTick"
+    and ui_log.order[order_before_ack + 3] == "rebuild",
+    "the TBS UI rebuild must happen on the next UI tick after the recovery dialog closes")
+Account.register = original_register
 
 print("TBS account test: OK")

@@ -489,6 +489,11 @@ local function showNotice(text)
     UIManager:show(InfoMessage:new{ text = text })
 end
 
+local function afterDialogClose(callback)
+    if type(callback) ~= "function" then return end
+    if UIManager.nextTick then UIManager:nextTick(callback) else callback() end
+end
+
 local function attachKeyboard(dialog)
     local ok, Keyboard = pcall(require, "appdock_keyboard")
     if ok and Keyboard and Keyboard.attach then Keyboard.attach(dialog) end
@@ -504,7 +509,9 @@ local function showRecoveryCode(account, recovery_code, done)
         title = _("Save your TBS recovery code"),
         buttons = { { { text = _("I wrote it down"), callback = function()
             UIManager:close(dialog)
-            if done then done(true) end
+            -- Let KOReader finish closing the modal before the owner rebuilds
+            -- its Settings pane or retries the protected app launch.
+            afterDialogClose(function() if done then done(true) end end)
         end } } },
         text = message,
     }
