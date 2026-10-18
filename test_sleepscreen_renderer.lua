@@ -27,6 +27,14 @@ local Blitbuffer = {
     ColorRGB32 = function(red, green, blue, alpha)
         return { red = red, green = green, blue = blue, alpha = alpha }
     end,
+    new = function(width, height)
+        return {
+            getWidth = function() return width end,
+            getHeight = function() return height end,
+            fill = function() end,
+            free = function() end,
+        }
+    end,
     -- Force the renderer's documented grayscale fallback in these tests.
     colorFromString = function() return nil end,
     Color8 = function(level)
@@ -234,8 +242,18 @@ color_device_canvas:free()
 local transparent_canvas = Renderer.build(definition({
     { type = "text", x = 0, y = 0, w = 20, h = 20, text = "Color", background = "#445566", background_alpha = 0.35 },
 }, "#112233"), 100, 100, {})
-assert(transparent_canvas.entries[1].widget.background.alpha == 89,
-    "element background opacity must be encoded in the RGB alpha channel")
+assert(transparent_canvas.entries[1].widget.background_alpha == 0.35,
+    "element background opacity must be retained by the clipped element")
+local alpha_blit
+local target_bb = {
+    getType = function() return "mock" end,
+    addblitFrom = function(_, _, x, y, _, _, width, height, alpha)
+        alpha_blit = { x = x, y = y, width = width, height = height, alpha = alpha }
+    end,
+    paintRect = function() end,
+}
+transparent_canvas:paintTo(target_bb, 0, 0)
+assert(alpha_blit and alpha_blit.alpha == 0.35, "transparent backgrounds must use addblitFrom opacity compositing")
 transparent_canvas:free()
 
 local custom_definition = definition({

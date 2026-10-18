@@ -66,7 +66,7 @@ local function color(value, fallback, alpha)
     local red = tonumber(value:sub(offset, offset + 1), 16)
     local green = tonumber(value:sub(offset + 2, offset + 3), 16)
     local blue = tonumber(value:sub(offset + 4, offset + 5), 16)
-    if (hasColorScreen() or alpha ~= nil) and type(Blitbuffer.ColorRGB32) == "function" then
+    if hasColorScreen() and type(Blitbuffer.ColorRGB32) == "function" then
         alpha = alpha == nil and 1 or clamp(safeNumber(alpha, 1), 0, 1)
         local ok, rgb = pcall(Blitbuffer.ColorRGB32, red, green, blue, math.floor(alpha * 255 + 0.5))
         if ok and rgb then return rgb end
@@ -154,6 +154,8 @@ local ClippedElement = Widget:extend{
     background = nil,
     align = "left",
     vertical_align = "center",
+    background_alpha = 1,
+    background_bb = nil,
     dimen = nil,
     _freed = false,
 }
@@ -162,6 +164,7 @@ function ClippedElement:init()
     self.width = math.max(1, math.floor(safeNumber(self.width, 1)))
     self.height = math.max(1, math.floor(safeNumber(self.height, 1)))
     self.dimen = Geom:new{ w = self.width, h = self.height }
+    self.background_alpha = clamp(safeNumber(self.background_alpha, 1), 0, 1)
 end
 
 function ClippedElement:getSize()
@@ -169,7 +172,24 @@ function ClippedElement:getSize()
 end
 
 function ClippedElement:paintTo(bb, x, y)
-    paintRect(bb, x, y, self.width, self.height, self.background)
+    if self.background and self.background_alpha > 0 then
+        if self.background_alpha >= 1 then
+            paintRect(bb, x, y, self.width, self.height, self.background)
+        else
+            -- Compose an opaque temporary rectangle and blend the result into
+            -- the target. addblitFrom works for grayscale as well as RGB
+            -- buffers, unlike an alpha field on ColorRGB32.
+            if not self.background_bb
+                or self.background_bb:getWidth() ~= self.width
+                or self.background_bb:getHeight() ~= self.height
+            then
+                if self.background_bb then self.background_bb:free() end
+                self.background_bb = Blitbuffer.new(self.width, self.height, bb:getType())
+            end
+            self.background_bb:fill(self.background)
+            bb:addblitFrom(self.background_bb, x, y, 0, 0, self.width, self.height, self.background_alpha)
+        end
+    end
     if not self.child or type(self.child.paintTo) ~= "function" then return end
     local size = childSize(self.child)
     local child_x = 0
@@ -201,6 +221,7 @@ function ClippedElement:free()
     self._freed = true
     if self.child and type(self.child.free) == "function" then pcall(self.child.free, self.child) end
     self.child = nil
+    if self.background_bb then self.background_bb:free(); self.background_bb = nil end
 end
 
 local SleepCanvas = Widget:extend{
@@ -414,7 +435,9 @@ function Renderer.build(definition, width, height, options)
         else
             child = buildText(element, element_width, element_height, width, asset_paths, values)
         end
-        local background = element.background and color(element.background, nil, element.background_alpha) or nil
+        -- The opacity is applied by ClippedElement via addblitFrom. Keep the
+        -- temporary source color opaque so this also works on grayscale BBs.
+        local background = element.background and color(element.background, nil) or nil
         -- image elements may have an explicit color behind letterboxed contain
         -- media; cards render their declared fill even when text creation fails.
         if child or background then
@@ -426,6 +449,7 @@ function Renderer.build(definition, width, height, options)
                     height = element_height,
                     child = child,
                     background = background,
+                    background_alpha = element.background_alpha,
                     align = element.align or "left",
                     vertical_align = "center",
                 },
