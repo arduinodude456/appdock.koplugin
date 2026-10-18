@@ -125,6 +125,7 @@ function SleepEditor:_definition()
     self.draft.definition = self.draft.definition or { schema_version = 1, name = "Untitled sleepscreen", description = "", background = "#FFFFFF", elements = {}, assets = {} }
     self.draft.definition.elements = self.draft.definition.elements or {}
     self.draft.definition.assets = self.draft.definition.assets or {}
+    self.draft.definition.widgets = self.draft.definition.widgets or {}
     return self.draft.definition
 end
 function SleepEditor:_element()
@@ -186,6 +187,79 @@ function SleepEditor:showAddMenu()
         { { text = _("Widget"), callback = function() UIManager:close(dialog); self:_addElement("widget") end } },
         { { text = _("Cancel"), callback = function() UIManager:close(dialog) end } },
     } }
+    UIManager:show(dialog)
+end
+
+function SleepEditor:_customWidgets()
+    local definition = self:_definition()
+    definition.widgets = definition.widgets or {}
+    return definition.widgets
+end
+
+function SleepEditor:_editCustomWidget(widget)
+    local dialog
+    local function input(title, value, hint, apply)
+        UIManager:close(dialog)
+        self:_showInput(title, value, hint, apply)
+    end
+    dialog = ButtonDialog:new{ title = widget.name or _("Custom widget"), text = _("Configure without code: text, time rules, or cycle animation."), buttons = {
+        { { text = _("Name"), callback = function() input(_("Widget name"), widget.name, _("1–60 characters"), function(value)
+            if value == "" or #value > 60 then return false, _("Use a name from 1 to 60 characters.") end
+            widget.name = value; return true
+        end) end } },
+        { { text = _("Base text"), callback = function() input(_("Widget text"), widget.text or "", _("Tokens: {time}, {date}, {battery}, {device}"), function(value)
+            if #value > 2000 then return false, _("Use at most 2000 characters.") end
+            widget.text = value; return true
+        end) end } },
+        { { text = _("Animation frames"), callback = function()
+            local values = {}; for _, frame in ipairs(widget.frames or {}) do values[#values + 1] = frame.text end
+            input(_("Animation frames"), table.concat(values, "|"), _("Separate frames with |"), function(value)
+                widget.frames = {}
+                if value ~= "" then for frame in (value .. "|"):gmatch("(.-)|") do widget.frames[#widget.frames + 1] = { text = frame, duration = 1 } end end
+                if #widget.frames == 0 then widget.frames = nil end
+                return true
+            end)
+        end } },
+        { { text = _("Time-based texts"), callback = function()
+            input(_("Time-based texts"), widget.schedule_text or "", _("06:00-12:00=Good morning;18:00-23:59=Good evening"), function(value)
+                widget.schedule, widget.schedule_text = {}, value
+                for rule in (value .. ";"):gmatch("(.-);") do
+                    local range, text = rule:match("^(%d%d:%d%d%-%d%d:%d%d)=(.*)$")
+                    if range then
+                        local from, to = range:match("^(%d%d:%d%d)%-(%d%d:%d%d)$")
+                        widget.schedule[#widget.schedule + 1] = { from = from, to = to, text = text }
+                    elseif rule ~= "" then return false, _("Use time ranges like 06:00-12:00=Text.") end
+                end
+                if #widget.schedule == 0 then widget.schedule = nil end
+                return true
+            end)
+        end } },
+        { { text = _("Done"), callback = function() UIManager:close(dialog); self:_changed() end } },
+    } }
+    UIManager:show(dialog)
+end
+
+function SleepEditor:_createCustomWidget()
+    local widgets = self:_customWidgets()
+    if #widgets >= 16 then notify(_("A sleepscreen can contain at most 16 custom widgets.")); return end
+    local widget = { id = "widget-" .. tostring(os.time()) .. "-" .. tostring(#widgets + 1), name = _("New widget"), text = "{time}" }
+    widgets[#widgets + 1] = widget
+    self:_editCustomWidget(widget)
+end
+
+function SleepEditor:showCustomWidgetMenu()
+    local widgets, buttons, dialog = self:_customWidgets(), {}, nil
+    for _, widget in ipairs(widgets) do
+        local selected = widget
+        buttons[#buttons + 1] = { { text = selected.name, callback = function()
+            UIManager:close(dialog)
+            local element = self:_element()
+            if element and element.type == "widget" then element.source = nil; element.widget_id = selected.id; self:_changed() end
+        end } }
+    end
+    buttons[#buttons + 1] = { { text = _("Create custom widget"), callback = function() UIManager:close(dialog); self:_createCustomWidget() end } }
+    buttons[#buttons + 1] = { { text = _("Cancel"), callback = function() UIManager:close(dialog) end } }
+    dialog = ButtonDialog:new{ title = _("Custom widget"), text = _("Choose a code-free widget for this layer."), buttons = buttons }
     UIManager:show(dialog)
 end
 
@@ -396,6 +470,7 @@ local function sectionDefinitions()
     return {
         { id = "screen", title = _("Screen") },
         { id = "elements", title = _("Elements") },
+        { id = "widgets", title = _("Custom widgets") },
         { id = "edit", title = _("Edit") },
         { id = "save", title = _("Save") },
     }
@@ -518,6 +593,7 @@ function SleepEditor:_sectionRows(panel_width, colors)
             field(_("Image"), _("Local image"), function() self:_addElement("image") end),
             field(_("Card"), _("Text card"), function() self:_addElement("card") end),
             field(_("Widget"), _("Clock, date, battery"), function() self:_addElement("widget") end),
+            field(_("Custom widget"), _("Use a code-free widget"), function() self:_addElement("widget"); self:showCustomWidgetMenu() end),
         })
         local element_fields = {}
         for index, candidate in ipairs(definition.elements) do
@@ -538,6 +614,18 @@ function SleepEditor:_sectionRows(panel_width, colors)
                 function() self:showAddMenu() end, { wide = true })
         end
         addGroup(_("Layers"), _("Select a layer to edit its content, position, or style."), element_fields)
+    elseif self.section == "widgets" then
+        local widget_fields = {
+            field(_("Create custom widget"), _("Text, time rules, or animation — no code"), function() self:_createCustomWidget() end, { wide = true }),
+        }
+        for _, widget in ipairs(self:_customWidgets()) do
+            local selected = widget
+            local summary = selected.text or _("Configured widget")
+            if selected.frames then summary = _("Animated · ") .. tostring(#selected.frames) .. _(" frames") end
+            if selected.schedule then summary = summary .. _(" · Time rules") end
+            widget_fields[#widget_fields + 1] = field(selected.name, summary, function() self:_editCustomWidget(selected) end, { wide = true })
+        end
+        addGroup(_("Your widgets"), _("Create reusable declarative widgets without writing code."), widget_fields)
     elseif self.section == "edit" then
         if not element then
             addGroup(_("Nothing selected"), _("Choose an element from the Elements tab, or add your first one."), {
@@ -575,6 +663,8 @@ function SleepEditor:_sectionRows(panel_width, colors)
                         element.text = value; return true
                     end)
                 end, { wide = true })
+            elseif element.type == "widget" and element.widget_id then
+                content_fields[#content_fields + 1] = field(_("Custom widget"), element.widget_id, function() self:showCustomWidgetMenu() end, { wide = true })
             elseif element.type == "widget" then
                 content_fields[#content_fields + 1] = field(_("Widget source"), element.source or "clock", function()
                     local dialog; local choices = { "clock", "date", "battery", "device" }; local buttons = {}

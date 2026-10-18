@@ -66,7 +66,7 @@ local function color(value, fallback, alpha)
     local red = tonumber(value:sub(offset, offset + 1), 16)
     local green = tonumber(value:sub(offset + 2, offset + 3), 16)
     local blue = tonumber(value:sub(offset + 4, offset + 5), 16)
-    if hasColorScreen() and type(Blitbuffer.ColorRGB32) == "function" then
+    if (hasColorScreen() or alpha ~= nil) and type(Blitbuffer.ColorRGB32) == "function" then
         alpha = alpha == nil and 1 or clamp(safeNumber(alpha, 1), 0, 1)
         local ok, rgb = pcall(Blitbuffer.ColorRGB32, red, green, blue, math.floor(alpha * 255 + 0.5))
         if ok and rgb then return rgb end
@@ -85,7 +85,10 @@ end
 
 local function paintRect(bb, x, y, width, height, fill)
     if not fill then return end
-    if hasColorScreen() and fill.alpha and fill.alpha < 255 and type(bb.blendRectRGB32) == "function" then
+    -- blendRectRGB32 performs the actual source-over operation. Do not gate it
+    -- on the device probe: some KOReader sleep/suspend paths expose a reduced
+    -- Device.screen object even though the destination blitbuffer is RGB.
+    if fill.alpha and fill.alpha < 255 and type(bb.blendRectRGB32) == "function" then
         bb:blendRectRGB32(x, y, width, height, fill)
     elseif hasColorScreen() and type(bb.paintRectRGB32) == "function" then
         bb:paintRectRGB32(x, y, width, height, fill)
@@ -337,7 +340,42 @@ local function buildImage(path, width, height, fit)
     return make(math.max(width / source_w, height / source_h))
 end
 
-local function widgetText(element, values)
+local function minutes(value)
+    if type(value) ~= "string" then return nil end
+    local hour, minute = value:match("^(%d%d):(%d%d)$")
+    if not hour then return nil end
+    return tonumber(hour) * 60 + tonumber(minute)
+end
+
+local function customWidgetText(element, definition, values, cycle)
+    local widgets = definition.widgets or {}
+    local selected
+    for _, widget in ipairs(widgets) do
+        if widget.id == element.widget_id then selected = widget; break end
+    end
+    if not selected then return "" end
+    local now = minutes(os.date("%H:%M")) or 0
+    for _, rule in ipairs(selected.schedule or {}) do
+        local from, to = minutes(rule.from), minutes(rule.to)
+        if from and to and ((from <= to and now >= from and now < to) or (from > to and (now >= from or now < to))) then
+            return substitute(rule.text, values)
+        end
+    end
+    if selected.frames and #selected.frames > 0 then
+        local total, position = 0, math.floor(safeNumber(cycle, 0))
+        for _, frame in ipairs(selected.frames) do total = total + math.max(1, tonumber(frame.duration) or 1) end
+        position = total > 0 and (position % total) or 0
+        for _, frame in ipairs(selected.frames) do
+            local duration = math.max(1, tonumber(frame.duration) or 1)
+            if position < duration then return substitute(frame.text, values) end
+            position = position - duration
+        end
+    end
+    return substitute(selected.text or "", values)
+end
+
+local function widgetText(element, values, definition, cycle)
+    if element.widget_id then return customWidgetText(element, definition, values, cycle) end
     local source = element.source
     if source == "clock" then return values.time end
     if source == "date" then return values.date end
@@ -371,7 +409,7 @@ function Renderer.build(definition, width, height, options)
         elseif element.type == "widget" then
             local display = {}
             for key, value in pairs(element) do display[key] = value end
-            display.text = widgetText(element, values)
+            display.text = widgetText(element, values, definition, options.cycle)
             child = buildText(display, element_width, element_height, width, asset_paths, values)
         else
             child = buildText(element, element_width, element_height, width, asset_paths, values)

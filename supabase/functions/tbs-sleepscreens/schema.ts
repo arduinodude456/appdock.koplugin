@@ -2,6 +2,8 @@
 // its tests.  This module deliberately has no database or Storage dependency.
 
 export const MAX_ELEMENTS = 32;
+export const MAX_CUSTOM_WIDGETS = 16;
+export const MAX_WIDGET_FRAMES = 12;
 export const MAX_ASSETS = 12;
 export const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 export const MAX_FONT_BYTES = 1 * 1024 * 1024;
@@ -39,6 +41,7 @@ export interface SleepElement {
   bold?: boolean;
   align?: "left" | "center" | "right";
   source?: "clock" | "date" | "battery" | "device";
+  widget_id?: string;
   images?: string[];
   fit?: "contain" | "cover";
 }
@@ -50,6 +53,15 @@ export interface SleepDefinition {
   background: string;
   elements: SleepElement[];
   assets: AssetDescriptor[];
+  widgets: CustomWidget[];
+}
+
+export interface CustomWidget {
+  id: string;
+  name: string;
+  text: string;
+  frames?: { text: string; duration: number }[];
+  schedule?: { from: string; to: string; text: string }[];
 }
 
 export interface ValidatedPackage {
@@ -188,7 +200,11 @@ function normalizeElement(value: unknown): SleepElement {
     }
     element.source = input.source as SleepElement["source"];
   }
-  if (type === "widget" && element.source === undefined) throw new PackageValidationError("A widget source is required.");
+  if (input.widget_id !== undefined) {
+    if (type !== "widget" || typeof input.widget_id !== "string" || !ASSET_ID.test(input.widget_id)) throw new PackageValidationError("Custom widget reference is invalid.");
+    element.widget_id = input.widget_id;
+  }
+  if (type === "widget" && element.source === undefined && element.widget_id === undefined) throw new PackageValidationError("A widget source or custom widget is required.");
   if (input.images !== undefined) {
     if (type !== "image") throw new PackageValidationError("Only image elements may reference images.");
     const images = exactArray(input.images, "Element images");
@@ -206,6 +222,39 @@ function normalizeElement(value: unknown): SleepElement {
   return element;
 }
 
+function normalizeCustomWidget(value: unknown): CustomWidget {
+  const input = record(value);
+  if (!input || typeof input.id !== "string" || !ASSET_ID.test(input.id) || typeof input.name !== "string" || input.name.length < 1 || input.name.length > 60) {
+    throw new PackageValidationError("Custom widget identity is invalid.");
+  }
+  const text = input.text === undefined ? "" : cleanText(input.text, 2000, "Custom widget text", false, true);
+  const widget: CustomWidget = { id: input.id, name: input.name, text };
+  if (input.frames !== undefined) {
+    const frames = exactArray(input.frames, "Custom widget frames");
+    if (frames.length < 1 || frames.length > MAX_WIDGET_FRAMES) throw new PackageValidationError("Custom widget frames are invalid.");
+    widget.frames = frames.map((value) => {
+      const frame = record(value);
+      if (!frame || typeof frame.text !== "string" || frame.text.length > 2000) throw new PackageValidationError("Custom widget frame is invalid.");
+      const duration = frame.duration === undefined ? 1 : numberInRange(frame.duration, 1, 60, "Custom widget frame duration");
+      if (!Number.isInteger(duration)) throw new PackageValidationError("Custom widget frame duration is invalid.");
+      return { text: frame.text, duration };
+    });
+  }
+  if (input.schedule !== undefined) {
+    const schedule = exactArray(input.schedule, "Custom widget schedule");
+    if (schedule.length > 12) throw new PackageValidationError("Custom widget schedule is invalid.");
+    widget.schedule = schedule.map((value) => {
+      const rule = record(value);
+      if (!rule || typeof rule.from !== "string" || typeof rule.to !== "string" || typeof rule.text !== "string"
+        || !/^\d\d:[0-5]\d$/.test(rule.from) || !/^\d\d:[0-5]\d$/.test(rule.to) || Number(rule.from.slice(0, 2)) > 23 || Number(rule.to.slice(0, 2)) > 23) {
+        throw new PackageValidationError("Custom widget time rule is invalid.");
+      }
+      return { from: rule.from, to: rule.to, text: rule.text };
+    });
+  }
+  return widget;
+}
+
 export function normalizeDefinition(value: unknown): SleepDefinition {
   if (!hasOnlySafeKeys(value)) throw new PackageValidationError("Control keys are not allowed.");
   const input = record(value);
@@ -216,9 +265,14 @@ export function normalizeDefinition(value: unknown): SleepDefinition {
   if (typeof input.background !== "string" || !HEX_COLOR.test(input.background)) throw new PackageValidationError("Background is invalid.");
   const rawElements = exactArray(input.elements, "Elements");
   const rawAssets = exactArray(input.assets, "Assets");
-  if (rawElements.length > MAX_ELEMENTS || rawAssets.length > MAX_ASSETS) throw new PackageValidationError("The preset exceeds its element or asset limit.");
+  const rawWidgets = exactArray(input.widgets ?? [], "Widgets");
+  if (rawElements.length > MAX_ELEMENTS || rawAssets.length > MAX_ASSETS || rawWidgets.length > MAX_CUSTOM_WIDGETS) throw new PackageValidationError("The preset exceeds its element, widget, or asset limit.");
   const elements = rawElements.map(normalizeElement);
   const assets = rawAssets.map(normalizeDescriptor);
+  const widgets = rawWidgets.map(normalizeCustomWidget);
+  if (new Set(widgets.map((widget) => widget.id)).size !== widgets.length) throw new PackageValidationError("Custom widget IDs must be unique.");
+  const widgetIds = new Set(widgets.map((widget) => widget.id));
+  for (const element of elements) if (element.widget_id && !widgetIds.has(element.widget_id)) throw new PackageValidationError("A custom widget reference is missing.");
   if (new Set(assets.map((asset) => asset.id)).size !== assets.length) throw new PackageValidationError("Asset IDs must be unique.");
 
   const descriptors = new Map(assets.map((asset) => [asset.id, asset]));
@@ -238,7 +292,7 @@ export function normalizeDefinition(value: unknown): SleepDefinition {
 
   // Unknown declarative fields are intentionally not copied into the canonical
   // document.  This implements the v1 forward-compatibility contract safely.
-  return { schema_version: 1, name, description, background: input.background.toUpperCase(), elements, assets };
+  return { schema_version: 1, name, description, background: input.background.toUpperCase(), elements, assets, widgets };
 }
 
 function decodeBase64(value: unknown, id: string): Uint8Array {

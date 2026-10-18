@@ -238,6 +238,16 @@ assert(transparent_canvas.entries[1].widget.background.alpha == 89,
     "element background opacity must be encoded in the RGB alpha channel")
 transparent_canvas:free()
 
+local custom_definition = definition({
+    { type = "widget", x = 0, y = 0, w = 100, h = 20, widget_id = "greeting", font = "infofont", font_size = 18, color = "#000000" },
+})
+custom_definition.widgets = {
+    { id = "greeting", name = "Greeting", text = "Fallback", frames = { { text = "One", duration = 1 }, { text = "Two", duration = 1 } } },
+}
+local custom_canvas = Renderer.build(custom_definition, 100, 100, { preview = true, cycle = 1 })
+assert(custom_canvas.entries[1].widget.child.text == "Two", "custom widget animation must select the frame for the current cycle")
+custom_canvas:free()
+
 -- contain delegates centering and original-size preservation to ImageWidget;
 -- cover first probes actual original dimensions, then chooses the centered crop
 -- scale for the selected image. Both the probe and returned widget free once.

@@ -16,6 +16,8 @@ local has_rapidjson, rapidjson = pcall(require, "rapidjson")
 local Presets = {}
 
 local MAX_ELEMENTS = 32
+local MAX_CUSTOM_WIDGETS = 16
+local MAX_WIDGET_FRAMES = 12
 local MAX_ASSETS = 12
 local MAX_IMAGE_BYTES = 2 * 1024 * 1024
 local MAX_FONT_BYTES = 1024 * 1024
@@ -305,6 +307,10 @@ local function normalizeElement(element, asset_by_id)
         if result.type ~= "widget" or not WIDGET_SOURCES[element.source] then return nil, "invalid widget source" end
         result.source = element.source
     end
+    if element.widget_id ~= nil then
+        if result.type ~= "widget" or not isId(element.widget_id) then return nil, "invalid custom widget reference" end
+        result.widget_id = element.widget_id
+    end
     if element.images ~= nil then
         if result.type ~= "image" then return nil, "only image elements may reference images" end
         local count = asArray(element.images, MAX_ASSETS)
@@ -320,10 +326,47 @@ local function normalizeElement(element, asset_by_id)
         end
     end
 
-    if result.type == "widget" and not result.source then return nil, "widget requires a source" end
+    if result.type == "widget" and not result.source and not result.widget_id then return nil, "widget requires a source or custom widget" end
     if result.type == "image" and not result.images then return nil, "image requires an image asset" end
     if (result.type == "text" or result.type == "card") and result.text == nil then
         return nil, "text and card elements require text"
+    end
+    return result
+end
+
+local function normalizeCustomWidget(widget)
+    if type(widget) ~= "table" or not isId(widget.id) then return nil, "invalid custom widget id" end
+    if type(widget.name) ~= "string" or #widget.name < 1 or #widget.name > 60 then return nil, "invalid custom widget name" end
+    local result = { id = widget.id, name = widget.name, text = "" }
+    if widget.text ~= nil then
+        if type(widget.text) ~= "string" or #widget.text > MAX_TEXT_BYTES then return nil, "invalid custom widget text" end
+        result.text = widget.text
+    end
+    if widget.frames ~= nil then
+        local count = asArray(widget.frames, MAX_WIDGET_FRAMES)
+        if not count or count == 0 then return nil, "invalid custom widget frames" end
+        result.frames = {}
+        for index, frame in ipairs(widget.frames) do
+            if type(frame) ~= "table" or type(frame.text) ~= "string" or #frame.text > MAX_TEXT_BYTES then return nil, "invalid custom widget frame" end
+            local duration = frame.duration == nil and 1 or frame.duration
+            if not isInteger(duration) or duration < 1 or duration > 60 then return nil, "invalid custom widget frame duration" end
+            result.frames[index] = { text = frame.text, duration = duration }
+        end
+    end
+    if widget.schedule ~= nil then
+        local count = asArray(widget.schedule, 12)
+        if not count then return nil, "invalid custom widget schedule" end
+        result.schedule = {}
+        for index, rule in ipairs(widget.schedule) do
+            if type(rule) ~= "table" or type(rule.from) ~= "string" or type(rule.to) ~= "string" or type(rule.text) ~= "string"
+                or not rule.from:match("^%d%d:%d%d$") or not rule.to:match("^%d%d:%d%d$") or #rule.text > MAX_TEXT_BYTES then
+                return nil, "invalid custom widget time rule"
+            end
+            local fh, fm = rule.from:match("^(%d%d):(%d%d)$")
+            local th, tm = rule.to:match("^(%d%d):(%d%d)$")
+            if tonumber(fh) > 23 or tonumber(fm) > 59 or tonumber(th) > 23 or tonumber(tm) > 59 then return nil, "invalid custom widget time rule" end
+            result.schedule[index] = { from = rule.from, to = rule.to, text = rule.text }
+        end
     end
     return result
 end
@@ -339,7 +382,8 @@ function Presets.normalize(definition)
     if not isColor(definition.background) then return fail("invalid background color") end
     local asset_count = asArray(definition.assets, MAX_ASSETS)
     local element_count = asArray(definition.elements, MAX_ELEMENTS)
-    if asset_count == nil or element_count == nil then return fail("invalid element or asset list") end
+    local widget_count = asArray(definition.widgets or {}, MAX_CUSTOM_WIDGETS)
+    if asset_count == nil or element_count == nil or widget_count == nil then return fail("invalid element, widget, or asset list") end
 
     local result = {
         schema_version = 1,
@@ -348,6 +392,7 @@ function Presets.normalize(definition)
         background = definition.background:upper(),
         assets = newArray(),
         elements = newArray(),
+        widgets = newArray(),
     }
     local asset_by_id = {}
     for index, asset in ipairs(definition.assets) do
@@ -361,6 +406,17 @@ function Presets.normalize(definition)
         local normalized, err = normalizeElement(element, asset_by_id)
         if not normalized then return fail(err) end
         result.elements[index] = normalized
+    end
+    local widget_by_id = {}
+    for index, widget in ipairs(definition.widgets or {}) do
+        local normalized, err = normalizeCustomWidget(widget)
+        if not normalized then return fail(err) end
+        if widget_by_id[normalized.id] then return fail("duplicate custom widget id") end
+        widget_by_id[normalized.id] = normalized
+        result.widgets[index] = normalized
+    end
+    for _, element in ipairs(result.elements) do
+        if element.widget_id and not widget_by_id[element.widget_id] then return fail("unknown custom widget") end
     end
     return result
 end

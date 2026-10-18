@@ -62,6 +62,12 @@ transparent.elements[1].background_alpha = 0.35
 assert(Presets.normalize(transparent).elements[1].background_alpha == 0.35, "background opacity must be preserved")
 transparent.elements[1].background_alpha = 1.1
 assert(not Presets.normalize(transparent), "background opacity above 1 must be rejected")
+local custom = baseDefinition()
+custom.widgets = { { id = "greeting", name = "Greeting", text = "Hello", frames = { { text = "One", duration = 1 } } } }
+custom.elements[1] = { type = "widget", x = 0, y = 0, w = 100, h = 10, widget_id = "greeting", font = "infofont", font_size = 16, color = "#000000" }
+assert(Presets.normalize(custom).widgets[1].id == "greeting", "custom widget definitions must normalize")
+custom.elements[1].widget_id = "missing"
+assert(not Presets.normalize(custom), "unknown custom widget references must be rejected")
 assert(not Presets.normalize({ schema_version = 1, name = "bad", description = "", background = "#FFFFFF", assets = {}, elements = {
     { type = "text", x = 90, y = 0, w = 11, h = 5, text = "no" },
 } }), "out-of-bounds elements must be rejected")
