@@ -1208,8 +1208,16 @@ function DAppManager:inspectStoreDApp(file, expected_id)
 end
 
 function DAppManager:loadStoreDApp(file, source_path, restoring, expected_id, allow_replace, stored_file)
-    local definition, inspect_err = self:inspectStoreDApp(file, expected_id)
-    if not definition then return false, inspect_err end
+    local definition
+    if restoring then
+        -- Restore installed entries directly, without the Store schema/error
+        -- inspection. A broken file may now abort AppDock startup by request.
+        definition = dofile(file)
+    else
+        local inspect_err
+        definition, inspect_err = self:inspectStoreDApp(file, expected_id)
+        if not definition then return false, inspect_err end
+    end
     local installed = self.appdock.settings.store and self.appdock.settings.store.installed or {}
     local existing_record = installed[definition.id]
     if self.definitions[definition.id] and not restoring and not (allow_replace and existing_record) then
@@ -1298,8 +1306,16 @@ function DAppManager:showFileHandlerChoices(path, handlers)
 end
 
 function DAppManager:loadStoreWidget(file, source_path, restoring, expected_id, allow_replace, stored_file)
-    local definition, inspect_err = self:inspectStoreWidget(file, expected_id)
-    if not definition then return false, inspect_err end
+    local definition
+    if restoring then
+        -- Restore installed entries directly, without the Store schema/error
+        -- inspection. A broken file may now abort AppDock startup by request.
+        definition = dofile(file)
+    else
+        local inspect_err
+        definition, inspect_err = self:inspectStoreWidget(file, expected_id)
+        if not definition then return false, inspect_err end
+    end
     local installed = self.appdock.settings.store and self.appdock.settings.store.installed or {}
     local existing_record = installed[definition.id]
     if self.widget_definitions[definition.id] and not restoring and not (allow_replace and existing_record) then
@@ -4054,10 +4070,10 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("About AppDock"),
-                subtitle = string.format(_("Version %s · AppDock overview"), self.appdock.getRelease and self.appdock:getRelease() or "8.2.14"),
+                subtitle = string.format(_("Version %s · AppDock overview"), self.appdock.getRelease and self.appdock:getRelease() or "8.2.15"),
                 show_state = false,
                 callback = function()
-                    local release = self.appdock.getRelease and self.appdock:getRelease() or "8.2.14"
+                    local release = self.appdock.getRelease and self.appdock:getRelease() or "8.2.15"
                     self:showSettingsNotice(string.format(_("AppDock %s\n\nAn E-Ink-friendly homescreen and app manager for KOReader. Settings and TBS account status are available locally; app shortcuts can be managed without disabling KOReader plugins."), release))
                 end,
             },
