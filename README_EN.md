@@ -8,46 +8,23 @@
 
 > **E-Ink approach:** AppDock deliberately borrows the visual language and information structure, not Android's animations, blur, or transparency effects. This keeps updates economical and maintains contrast on monochrome readers.
 
-> **3.2.0:** Settings → Storage now retains the complete LuaFileSystem iterator contract and reports readable local files again. The AppDock-only lockscreen can show an optional local name and profile image; neither is device encryption or a device-level lock. Bluetooth is visible only on Kobo Libra Colour and opens the menu of an already installed compatible Bluetooth plugin. See [`RELEASE_NOTES_3.2.0.md`](RELEASE_NOTES_3.2.0.md).
 
-> **4.0.0 “Bueno”:** **Settings → Display → Beta features** can route enabled plugin tiles through an AppDock plugin host. Cooperating plugins can provide a local pane contract and use AppDock notifications; unadapted plugins receive a safe action-list fallback. Plugin hosts deliberately never support split screen, and AppDock does not globally intercept arbitrary plugin dialogs. See [`RELEASE_NOTES_4.0.0.md`](RELEASE_NOTES_4.0.0.md).
 
-> **4.0.1 “Bueno”:** The plugin host adds a local TouchMenu adapter for dynamic Text editor-style submenus and starts AppStore-style actions only after the host menu has closed in the next UI cycle. See [`RELEASE_NOTES_4.0.1.md`](RELEASE_NOTES_4.0.1.md).
 
-> **4.0.2 “Bueno”:** A plugin with exactly one published main-menu action now starts that action automatically after its AppDock session has opened. Text editor therefore opens its dynamic first submenu immediately, and AppStore starts its native browser immediately. See [`RELEASE_NOTES_4.0.2.md`](RELEASE_NOTES_4.0.2.md).
 
-> **4.1.0 “Bueno”:** Web Browser renders supported static web images through a bounded local resource cache. Relative and HTTPS image sources are resolved safely; unavailable, oversized, or unsupported sources fall back to alt text. See [`RELEASE_NOTES_4.1.0.md`](RELEASE_NOTES_4.1.0.md).
 
-> **4.1.1 “Bueno”:** The plugin host renders standard plugin menus, confirmations, and information messages opened from a hosted action as AppDock overlays. Input dialogs first show an AppDock shell and hand text editing through an AppDock-created editor back to the original plugin object. Complex standalone plugin windows are deliberately not globally rewritten. See [`RELEASE_NOTES_4.1.1.md`](RELEASE_NOTES_4.1.1.md).
 
-> **6.0.0 “Continuity”:** The normal AppDock interface receives stronger Material-oriented surfaces for the homescreen, Control Center, Open Apps, and DApp navigation. **Simple Mode intentionally remains unchanged:** its 4×3 grid, reduced Control Center, and focused app selection receive no extra cards, status areas, or decoration. Workspace restoration is disabled by default, bounded locally, and resumes only explicitly permitted DApps. See [`RELEASE_NOTES_6.0.0.md`](RELEASE_NOTES_6.0.0.md) for details.
 
-> **7.5.2:** The store reserves space for its scrollbar so app rows and actions remain visible while scrolling. DuckDuckGo searches now trigger a full screen refresh. [Details](RELEASE_NOTES_7.5.2.md).
 
-> **7.5.1:** The store header now uses only AppDock’s own **AppDock Store** name and existing AppStore logo. External Play branding has been removed. [Details](RELEASE_NOTES_7.5.1.md).
 
-> **7.5.0:** The first homescreen page gained a branded **DuckDuckGo search bar**; the catalog was redesigned with search, recommendations, install actions, and bottom category navigation. It shows only real catalog data — no invented ratings or screenshots. See [`RELEASE_NOTES_7.5.0.md`](RELEASE_NOTES_7.5.0.md).
 
-> **7.9.11:** Speeds up YouTube color video conversion with precomputed multi-color dither patterns and improves Draw toolbar label readability. [Details](RELEASE_NOTES_7.9.11.md).
-> **7.9.10:** YouTube color videos now combine more than two palette colors through error diffusion; audio stops reliably when leaving the app. [Details](RELEASE_NOTES_7.9.10.md).
-> **7.9.9:** Fixes the Draw startup crash on color devices, improves YouTube mixed-color dithering, and restores the proven raw PCM audio path for Kobo MTK. [Details](RELEASE_NOTES_7.9.9.md).
-> **7.8.32:** Restores the immediate audio/video startup behavior from 7.8.27 and adds a YouTube setting for a delay from immediate to 2 seconds between audio and video startup. [Details](RELEASE_NOTES_7.8.32.md).
-> **7.8.31:** Fixes YouTube audio/video synchronization during GStreamer audio initialization, including startup timeouts without a recognized log signal. [Details](RELEASE_NOTES_7.8.31.md).
-> **7.8.30:** Speeds up YouTube conversion: FFmpeg handles 1-bit conversion by default, BWR2 skips unnecessary Lua RLE scans, and frame processing uses larger CPU batches. Bayer remains selectable. [Details](RELEASE_NOTES_7.8.30.md).
 
-> **7.8.29:** Recognizes `Setting pipeline to PLAYING` and `New clock:` as readiness signals. If neither is logged, audio continues rather than being terminated after the timeout. [Details](RELEASE_NOTES_7.8.29.md).
 
-> **7.8.28:** Waits for GStreamer's audio playback clock before starting the video clock; if readiness is not confirmed, the late audio process is stopped instead of drifting in out of sync. [Details](RELEASE_NOTES_7.8.28.md).
 
-> **7.8.27:** Fixes WAV chunk parsing and audio seeking, calibrates small A/V duration differences, and writes new videos as compressed, indexed BWR2; BWR1 remains readable. [Details](RELEASE_NOTES_7.8.27.md).
 
-> **7.8.26:** YouTube setup and job progress bars now redraw with current status through throttled partial pane rebuilds. [Details](RELEASE_NOTES_7.8.26.md).
 
-> **7.8.25:** A video now remains loaded when transitioning from the library to the player. [Details](RELEASE_NOTES_7.8.25.md).
 
-> **7.8.24:** YouTube progress indicators now update during downloads and conversion. Conversion processes frames in time-bounded batches instead of being capped at two frames per second; E-Ink refreshes remain throttled. [Details](RELEASE_NOTES_7.8.24.md).
 
-> **7.8.23:** YouTube downloads now use yt-dlp’s Android player client to avoid rejected browser-client streams. The progress view also identifies common causes such as bot checks, HTTP 403, and network errors. [Details](RELEASE_NOTES_7.8.23.md).
 
 ## UI on real hardware
 
@@ -285,5 +262,3 @@ The first six pinned apps occupy the current 3×2 page. Further apps appear on a
 [7] [KOReader: File Manager helpers and library folder](https://github.com/koreader/koreader/blob/master/frontend/apps/filemanager/filemanagerutil.lua)
 
 [8] [KOReader: ReaderUI and safe document startup](https://github.com/koreader/koreader/blob/master/frontend/apps/reader/readerui.lua)
-> **7.9.12:** YouTube playback now uses the full AppDock display with transport controls and returns to the MiniPlayer without interrupting playback. [Details](RELEASE_NOTES_7.9.12.md).
-> **7.9.11:** Speeds up YouTube color video conversion with precomputed multi-color dither patterns and improves Draw toolbar label readability. [Details](RELEASE_NOTES_7.9.11.md).

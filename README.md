@@ -10,81 +10,36 @@ Zum Veröffentlichen ist ein **TBS-Konto** erforderlich. Der Store zeigt den vom
 
 > **E-Ink-Ansatz:** AppDock übernimmt bewusst Androids Formensprache, nicht dessen Daueranimationen, Unschärfen oder Transparenzeffekte. Auf E-Ink wechseln App-Seiten und Recently-used-Drawer direkt und ohne Zwischenanimation. Damit bleibt die Darstellung auf monochromen Readern kontrastreich, sparsam und frei von unnötigem Ghosting.
 
-> **3.0.1-Fix:** Der DApp-Berechtigungsdialog überschattet die Übersetzungsfunktion nicht mehr. Ein aktivierter AppDock-only Lockscreen erscheint nach KOReaders Suspend-/Resume-Zyklus, aber nicht beim normalen Schließen einer DApp. Details stehen in [`RELEASE_NOTES_3.0.1.md`](RELEASE_NOTES_3.0.1.md).
 
-> **3.1.0:** Die Store-DApp **WidgetGenerator** erstellt ohne Lua-Programmierung lokale Homescreen-Widgets aus eigenem Text, Uhrzeit, Datum und verfügbarem Akkustand. Konfigurationen sind auf 20 begrenzt, enthalten nie ausführbaren Nutzer-Code und lassen sich in WidgetGenerator aktualisieren, ausblenden oder löschen. Details stehen in [`RELEASE_NOTES_3.1.0.md`](RELEASE_NOTES_3.1.0.md).
 
-> **3.2.0:** Die Speicheransicht verwendet die vollständige LuaFileSystem-Iterator-Schnittstelle und zeigt lesbare lokale Dateien wieder mit Größe an. Der AppDock-only Lockscreen kann einen optionalen lokalen Namen und ein lokales Profilbild anzeigen; beides ist keine Gerätesperre oder Verschlüsselung. Bluetooth bietet eine AppDock-eigene Steuerung über die Standard-Schnittstelle `bluetoothctl` und ist nicht auf ein einzelnes Kobo-Modell beschränkt. Details stehen in [`RELEASE_NOTES_3.2.0.md`](RELEASE_NOTES_3.2.0.md).
 
-> **4.0.0 „Bueno“:** Unter **Settings → Display → Beta features** können bereits aktivierte Plugin-Kacheln in einem AppDock-Plugin-Host geöffnet werden. Kooperierende Plugins können einen lokalen Panevertrag und AppDock-Benachrichtigungen nutzen; nicht angepasste Plugins erhalten eine sichere Aktionsliste. Plugin-Hosts sind bewusst **nicht** splittbar, und fremde Plugin-Dialoge werden nicht global abgefangen. Details stehen in [`RELEASE_NOTES_4.0.0.md`](RELEASE_NOTES_4.0.0.md).
 
-> **4.0.1 „Bueno“:** Der Plugin-Host ergänzt einen lokalen TouchMenu-Adapter für dynamische Texteditor-Untermenüs und startet AppStore-ähnliche Aktionen erst nach dem Schließen des Hostmenüs im nächsten UI-Zyklus. Details stehen in [`RELEASE_NOTES_4.0.1.md`](RELEASE_NOTES_4.0.1.md).
 
-> **4.0.2 „Bueno“:** Ein Plugin mit genau einer veröffentlichten Hauptmenüaktion startet diese nach dem Aufbau seiner AppDock-Sitzung automatisch. Text editor öffnet damit sofort sein dynamisches Untermenü, und AppStore startet sofort seinen nativen Browser. Details stehen in [`RELEASE_NOTES_4.0.2.md`](RELEASE_NOTES_4.0.2.md).
 
-> **4.1.0 „Bueno“:** Web Browser zeigt unterstützte statische Webbilder über einen begrenzten lokalen Ressourcen-Cache an. Relative und HTTPS-Bildquellen werden sicher aufgelöst; nicht verfügbare, zu große oder nicht unterstützte Quellen fallen auf Alt-Text zurück. Details stehen in [`RELEASE_NOTES_4.1.0.md`](RELEASE_NOTES_4.1.0.md).
 
-> **4.1.1 „Bueno“:** Der Plugin-Host stellt Standard-Pluginmenüs, Bestätigungen und Infomeldungen, die aus einer gehosteten Aktion heraus geöffnet werden, als AppDock-Overlay dar. Eingabedialoge zeigen zunächst eine AppDock-Hülle und übergeben die Texteingabe an einen AppDock-erzeugten Editor zurück an das originale Pluginobjekt. Komplexe eigenständige Pluginfenster werden bewusst nicht global umgeschrieben. Details stehen in [`RELEASE_NOTES_4.1.1.md`](RELEASE_NOTES_4.1.1.md).
 
-> **6.0.0 „Continuity“:** Die normale AppDock-Oberfläche erhält stärkere Material-orientierte Oberflächen für Homescreen, Kontrollzentrum, Open Apps und DApp-Navigation. **Simple Mode bleibt absichtlich unverändert:** sein 4×3-Raster, die reduzierte Kontrollzentrale und die fokussierte Appauswahl erhalten keine zusätzlichen Karten, Statusbereiche oder Dekorationen. Arbeitsbereichswiederherstellung ist standardmäßig aus, lokal begrenzt und setzt nur ausdrücklich freigegebene DApps fort. Details stehen in [`RELEASE_NOTES_6.0.0.md`](RELEASE_NOTES_6.0.0.md).
 
-> **7.5.2:** Der Store reserviert Platz für die Scrollbar, damit App-Zeilen und Aktionen nicht darunter abgeschnitten werden. Nach der DuckDuckGo-Suche wird der Bildschirm vollständig aktualisiert. [Details](RELEASE_NOTES_7.5.2.md).
 
-> **7.5.1:** Der Store-Kopf trägt jetzt ausschließlich die AppDock-Eigenmarke **AppDock Store** und das vorhandene AppStore-Logo. Das externe Play-Zeichen und der entsprechende Schriftzug wurden entfernt. [Details](RELEASE_NOTES_7.5.1.md).
 
-> **7.5.0:** Die erste Homescreen-Seite erhielt eine gebrandete **DuckDuckGo-Suchleiste**; der AppStore wurde mit Suchfeld, Empfehlungskarten, Installationsaktionen und unterer Kategorienavigation neu gestaltet. Angezeigt werden weiterhin nur echte Katalogdaten, ohne erfundene Bewertungen oder Screenshots. Details stehen in [`RELEASE_NOTES_7.5.0.md`](RELEASE_NOTES_7.5.0.md).
 
-> **7.9.11:** Beschleunigt YouTube-Farbvideos mit vorberechneten Mehrfarben-Dithermustern und verbessert die Lesbarkeit der Draw-Schaltflächen. [Details](RELEASE_NOTES_7.9.11.md).
-> **7.9.10:** YouTube-Farbvideos kombinieren nun durch Fehlerdiffusion mehr als zwei Palettefarben; der Audioprozess wird beim Verlassen der App zuverlässig beendet. [Details](RELEASE_NOTES_7.9.10.md).
-> **7.9.9:** Behebt den Draw-Absturz auf Farbgeräten, verbessert das Dithering für YouTube-Mischfarben und stellt den bewährten rohen PCM-Audiopfad für Kobo-MTK wieder her. [Details](RELEASE_NOTES_7.9.9.md).
-> **7.9.8:** Korrigiert den Kontrast der neuen AppDock-Dialoge: Titel, Aktionslabels und Seitennavigation erscheinen mit schwarzer Schrift auf hellen Flächen, damit die Beschriftungen auf allen KOReader-Renderpfaden lesbar bleiben. [Details](RELEASE_NOTES_7.9.8.md).
-> **7.9.7:** Beschleunigt die S/W- und BRC2-Farbkonvertierung, stärkt AppDock-eigene Dialoge und Meldungen, härtet Draw gegen unvollständige Displaywerte und ergänzt verschiebbare sowie skalierbare DApp-Fenster als Beta. Blättertasten ändern die Helligkeit jetzt in allen AppDock-Hauptoberflächen; ihre gedrückt gehaltenen Power-/Bildschirmschoner-Aktionen bleiben erhalten. [Details](RELEASE_NOTES_7.9.7.md).
-> **7.9.6:** Setzt die BWR2/BRC2-Decodierung bei übersprungenen Frames im selben Keyframe-Block am letzten Cache-Frame fort, statt bereits decodierte Pakete erneut zu verarbeiten. [Details](RELEASE_NOTES_7.9.6.md).
-> **7.9.5:** Zieht Renderzeit vom nächsten Frameintervall ab und verwendet den Decoder-Framebuffer wieder, statt pro Frame einen neuen anzulegen. [Details](RELEASE_NOTES_7.9.5.md).
-> **7.9.4:** Beschleunigt die BRC2-Farbframe-Expansion durch vorberechnete FFI-Paletteneinträge und direkten Zugriff auf Pixelindizes; Farbpalette und Graustufen-Fallback bleiben unverändert. [Details](RELEASE_NOTES_7.9.4.md).
-> **7.9.3:** Bewahrt das Page-Key-Hold-Verhalten aus 7.8.51; repariert AppDock-eigene Dialoge, Draw-Start/Touchbereiche und BRC2-Farbvideo-Wiedergabe; ersetzt die Draw-Schnellkachel durch **Rotate** und migriert gespeicherte Kacheleinstellungen einmalig. [Details](RELEASE_NOTES_7.9.3.md).
-> **7.9.2:** Korrigiert die Draw-Zeichenfläche: Werkzeugleiste und Canvas werden nun von einem `OverlapGroup` anhand ihrer absoluten Offsets platziert, statt am oberen linken Ursprung zu überlagern. [Details](RELEASE_NOTES_7.9.2.md).
-> **7.9.1:** Stellt die YouTube-Oberfläche aus 7.8.51 mit MiniPlayer für alle Videos als Standard wieder her; Vollbild bleibt eine bewusste Aktion. Die Farbkonvertierung verwendet für schnellere Skalierung `fast_bilinear`, ohne den reinen Fünf-Farben-Ausgabepfad oder die eingestellte Auflösung/FPS zu ändern. Draw erhält eine konfigurierbare Quick-Settings-Kachel, die bei vorhandenen Installationen einmalig ergänzt wird. [Details](RELEASE_NOTES_7.9.1.md).
-> **7.9.0:** Ergänzt **Draw** als integrierte DApp und optionales YouTube-Video in reinen RGB-Farben. Auswahl-, Eingabe-, Bestätigungs- und Statusdialoge der AppDock-Oberfläche verwenden jetzt eigene AppDock-Overlays; WLAN-Statusfenster stammen ebenfalls aus AppDock. [Details](RELEASE_NOTES_7.9.0.md).
-> **7.8.32:** Stellt den sofortigen Audio-/Videostart aus 7.8.27 wieder her und ergänzt in den YouTube-Einstellungen eine Verzögerung von sofort bis 2 Sekunden zwischen Audio- und Videostart. [Details](RELEASE_NOTES_7.8.32.md).
-> **7.8.31:** Korrigiert die YouTube-Audio-/Video-Synchronisation während der GStreamer-Audioinitialisierung und berücksichtigt auch Startup-Timeouts ohne bekanntes Logsignal. [Details](RELEASE_NOTES_7.8.31.md).
-> **7.8.30:** Beschleunigt die YouTube-Konvertierung: FFmpeg übernimmt standardmäßig die 1-Bit-Umwandlung, BWR2 überspringt unnötige Lua-RLE-Scans, und die Frameverarbeitung nutzt größere CPU-Batches. Bayer bleibt auswählbar. [Details](RELEASE_NOTES_7.8.30.md).
 
-> **7.8.29:** Erkennt `Setting pipeline to PLAYING` und `New clock:` als Startbestätigung. Kommt kein bekanntes Logsignal, läuft der Ton weiter, statt nach dem Timeout abgeschaltet zu werden. [Details](RELEASE_NOTES_7.8.29.md).
 
-> **7.8.28:** Wartet beim GStreamer-Audiostart auf die zugewiesene Wiedergabeuhr, bevor die Videouhr beginnt; bei ausbleibender Bestätigung wird der verspätete Audioprozess beendet statt asynchron nachzustarten. [Details](RELEASE_NOTES_7.8.28.md).
 
-> **7.8.27:** Korrigiert WAV-Chunk-Erkennung und Audio-Seeking, kalibriert kleine A/V-Laufzeitabweichungen und schreibt neue Videos als komprimiertes BWR2 mit Keyframe-Index; BWR1 bleibt lesbar. [Details](RELEASE_NOTES_7.8.27.md).
 
-> **7.8.26:** Fortschrittsbalken im YouTube-Setup und bei Jobs werden in gedrosselten partiellen Pane-Neuaufbauten mit dem aktuellen Status neu gezeichnet. [Details](RELEASE_NOTES_7.8.26.md).
 
-> **7.8.25:** Beim Wechsel aus der Videobibliothek in den Player bleibt das geladene Video jetzt geöffnet. [Details](RELEASE_NOTES_7.8.25.md).
 
-> **7.8.24:** YouTube-Fortschrittsanzeigen werden während Downloads und Konvertierung aktualisiert. Die Konvertierung verarbeitet Frames in zeitbegrenzten Batches statt höchstens zwei Frames pro Sekunde; E-Ink-Refreshes bleiben gedrosselt. [Details](RELEASE_NOTES_7.8.24.md).
 
-> **7.8.23:** YouTube-Downloads verwenden jetzt den yt-dlp-Android-Client, um Probleme mit abgewiesenen Browser-Client-Streams zu vermeiden. Die Fortschrittsansicht benennt außerdem typische Ursachen wie Bot-Prüfung, HTTP 403 oder Netzwerkfehler. [Details](RELEASE_NOTES_7.8.23.md).
 
-> **7.8.22:** Das ARMv7-musl-Python-Archiv enthält jetzt Kopien statt Symlinks. Damit lässt es sich auch auf Kobo-Speichern entpacken, auf denen `tar` keine Symlinks anlegen darf. [Details](RELEASE_NOTES_7.8.22.md).
 
-> **7.8.21:** ARMv7-Geräte mit glibc unter 2.17, ARMv7/musl und nicht ermittelbarer ARMv7-libc starten die aktuelle yt-dlp-Python-Zipapp nun mit einer SHA-256-geprüften, separaten Alpine/musl-Python-Laufzeit. AppDock ersetzt oder verändert keine KOReader-Systembibliotheken. [Details](RELEASE_NOTES_7.8.21.md).
 
-> **7.8.20:** ARMv7-Geräte mit glibc 2.17–2.30 nutzen eine portable Python-Laufzeit und die aktuelle yt-dlp-Zipapp statt einer inkompatiblen PyInstaller-Bibliothek. Details stehen in [`RELEASE_NOTES_7.8.20.md`](RELEASE_NOTES_7.8.20.md).
 
-> **7.8.19:** Lange Shell-Fehler werden in der YouTube-Setup-Ansicht jetzt vollständig umbrochen statt abgeschnitten. Details stehen in [`RELEASE_NOTES_7.8.19.md`](RELEASE_NOTES_7.8.19.md).
 
-> **7.8.18:** Die YouTube-Setup-Ansicht zeigt jetzt die letzten Shell-Ausgaben einschließlich Downloadfortschritt und yt-dlp-Starttest live an. Details stehen in [`RELEASE_NOTES_7.8.18.md`](RELEASE_NOTES_7.8.18.md).
 
-> **7.8.17:** Korrigiert den Hintergrund-Launcher: `set -e` konnte den Exit-Marker vorzeitig verhindern, sodass Timeouts und Installerfehler in der Oberfläche nicht erschienen. Details stehen in [`RELEASE_NOTES_7.8.17.md`](RELEASE_NOTES_7.8.17.md).
 
-> **7.8.16:** Begrenzt den yt-dlp-`--version`-Kompatibilitätstest auf zwei Minuten und meldet einen Timeout als Setup-Fehler, statt den Reader unbegrenzt warten zu lassen. Details stehen in [`RELEASE_NOTES_7.8.16.md`](RELEASE_NOTES_7.8.16.md).
 
-> **7.8.15:** Korrigiert das Entpacken des ARMv7-yt-dlp-Archivs samt `_internal`-Laufzeitdateien und zeigt Download, SHA-256-Berechnung sowie Entpacken als getrennte Einrichtungsphasen. Details stehen in [`RELEASE_NOTES_7.8.15.md`](RELEASE_NOTES_7.8.15.md).
 
-> **7.8.14:** Behebt den nil-Aufruf im asynchronen YouTube-Setup-Callback, der beim ersten Nachladen der Werkzeuge den DApp-Absturz auslöste. Details stehen in [`RELEASE_NOTES_7.8.14.md`](RELEASE_NOTES_7.8.14.md).
 
-> **7.8.13:** YouTube prüft beim ersten Öffnen auf **yt-dlp** und **ffmpeg**, lädt fehlende Werkzeuge mit Prüfsummenprüfung im Hintergrund und installiert sie unter `appdock/tools`. Danach öffnet sich die Suche automatisch. Details stehen in [`RELEASE_NOTES_7.8.13.md`](RELEASE_NOTES_7.8.13.md).
 
-> **7.8.12:** Die neue DApp **YouTube** sucht und lädt Videos mit **yt-dlp**, wandelt sie mit **ffmpeg** in das Schwarzweiß-Containerformat **BWR1** um und spielt sie im Reader ab. Das Format und die Dither-Matrix sind byte-kompatibel zum Konverter aus dem Release **„Snake“** von `videoplayer.koplugin`. Beide Werkzeuge werden nicht mitgeliefert und können manuell ergänzt werden. Details stehen in [`RELEASE_NOTES_7.8.12.md`](RELEASE_NOTES_7.8.12.md).
 
 ## Neu in 3.0.0 „Cappuccino“
 
@@ -377,10 +332,6 @@ Die Version-1.0-Oberfläche konzentrierte sich auf eine **ruhige, zusammenhänge
 [7] [KOReader: File-Manager-Hilfsfunktionen und Bibliotheksordner](https://github.com/koreader/koreader/blob/master/frontend/apps/filemanager/filemanagerutil.lua)
 
 [8] [KOReader: ReaderUI und sicherer Dokumentstart](https://github.com/koreader/koreader/blob/master/frontend/apps/reader/readerui.lua)
-> **7.9.16:** Verschluckt YouTube-Music-Suchfehler nicht mehr, verwendet denselben Android-YouTube-Client wie den Audio-Download und zeigt bei leeren/fehlgeschlagenen Suchen die yt-dlp-Diagnose mit **Erneut versuchen** und **Zur Mediathek**. [Details](RELEASE_NOTES_7.9.16.md).
-> **7.9.15:** Repariert YouTube-Music-Suche mit verwertbaren Teilergebnissen, Timeout und Metadaten-only-Abfrage. Der Player erhält ein dunkles Coverlayout mit Künstlerangabe, Timeline und üblichen Musiksteuerungen; die Wiedergabe läuft beim Minimieren weiter. [Details](RELEASE_NOTES_7.9.15.md).
-> **7.9.14:** Ergänzt YouTube Music mit Audio-only-Downloads und Vollfarb-Covern, beschleunigt YouTube-Konvertierungen, überarbeitet Draw zur Malprogramm-Oberfläche mit Undo/Redo, behebt YouTube-Vollbild-Taps und Fensterrefresh nach Ziehen/Skalieren und reduziert den Spitzen-Speicherbedarf der Videowiedergabe. [Details](RELEASE_NOTES_7.9.14.md).
-> **7.9.11:** Beschleunigt YouTube-Farbvideos mit vorberechneten Mehrfarben-Dithermustern und verbessert die Lesbarkeit der Draw-Schaltflächen. [Details](RELEASE_NOTES_7.9.11.md).
 
 ## Vorschlagsdatenbank
 
