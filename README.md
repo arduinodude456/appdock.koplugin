@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **8.2.15** rendert mehrzeilige Store-Texte transparent auf der vorhandenen Fläche. Bei der Wiederherstellung gespeicherter Store-Apps werden ihre Dateien nicht mehr auf Fehler oder das erwartete Schema geprüft; defekte Dateien können den AppDock-Start abbrechen. [Details](RELEASE_NOTES_8.2.15.md).
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **8.2.16** nutzt wieder KOReaders natives TextBoxWidget für Store-DApps, stellt die Prüfung installierter Store-Dateien beim Wiederherstellen wieder her und zeigt den konkreten DApp-Fehler an. [Details](RELEASE_NOTES_8.2.16.md).
 
 ### Sleepscreen-Presets
 
