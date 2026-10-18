@@ -4,7 +4,7 @@
 
 # New releases regulary commited at 3:00 AM CET
 
-**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **8.2.14** renders multiline Store text transparently over the existing surface while retaining KOReader glyph antialiasing and night-mode behavior. [Release notes](RELEASE_NOTES_8.2.14.md).
+**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **8.2.15** renders multiline Store text transparently over the existing surface. Stored Store-app files are no longer checked for errors or the expected schema during restore; a broken file can abort AppDock startup. [Release notes](RELEASE_NOTES_8.2.15.md).
 
 > **E-Ink approach:** AppDock deliberately borrows the visual language and information structure, not Android's animations, blur, or transparency effects. This keeps updates economical and maintains contrast on monochrome readers.
 

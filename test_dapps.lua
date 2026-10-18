@@ -480,6 +480,28 @@ assert(Theme.getButtonFrameStyle(appdock, 48, 12).bordersize == 1, "The Galaxy d
 local manager = DAppManager:new(appdock)
 appdock.settings.quick_settings.tiles = { "wifi", "night", "refresh", "edit", "rotate", "sleep", "power_saving", "wallpaper" }
 do
+    local unchecked_app = "/tmp/appdock_unchecked_restore.lua"
+    local unchecked_widget = "/tmp/appdock_unchecked_widget_restore.lua"
+    local app_file = assert(io.open(unchecked_app, "wb"))
+    app_file:write("return { id = 'unchecked_restore', title = 'Unchecked Restore', buildPane = function() return {} end }")
+    app_file:close()
+    local widget_file = assert(io.open(unchecked_widget, "wb"))
+    widget_file:write("return { id = 'unchecked_widget_restore', title = 'Unchecked Widget Restore', buildWidget = function() return {} end }")
+    widget_file:close()
+    manager.inspectStoreDApp = function() error("Stored DApp inspection must be bypassed during restore") end
+    local app_loaded, app_id = manager:loadStoreDApp(unchecked_app, "unchecked_restore.lua", true, "different_expected_id")
+    manager.inspectStoreWidget = function() error("Stored widget inspection must be bypassed during restore") end
+    local widget_loaded, widget_id = manager:loadStoreWidget(unchecked_widget, "unchecked_widget_restore.lua", true, "different_expected_id")
+    manager.inspectStoreDApp, manager.inspectStoreWidget = nil, nil
+    assert(app_loaded and app_id == "unchecked_restore", "Restoring an installed Store DApp must skip all inspection checks")
+    assert(widget_loaded and widget_id == "unchecked_widget_restore", "Restoring an installed Store widget must skip all inspection checks")
+    manager.definitions.unchecked_restore = nil
+    manager.widget_definitions.unchecked_widget_restore = nil
+    manager.widget_instances.unchecked_widget_restore = nil
+    os.remove(unchecked_app)
+    os.remove(unchecked_widget)
+end
+do
     manager:activate("draw")
     assert(manager.instances.draw and manager.instances.draw.pane and manager.instances.draw.pane.dimen and manager.instances.draw.pane[1], "The built-in Draw DApp must build its pane successfully in the real DApp host")
     assert(manager:closeDApp("draw"), "The Draw host startup regression must cleanly close its test instance")

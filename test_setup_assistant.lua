@@ -124,7 +124,7 @@ local AppDock = dofile(plugin_dir .. "main.lua")
 local ui = { menu = { registerToMainMenu = function() end } }
 local first = AppDock:new{ ui = ui }
 local first_status = first:getSetupAssistantStatus()
-assert(first_status.version == "8.2.14" and not first_status.offered and not first_status.completed, "The setup wizard remains an independent manual flow")
+assert(first_status.version == "8.2.15" and not first_status.offered and not first_status.completed, "The setup wizard remains an independent manual flow")
 assert(log.offers == 1 and first:shouldShowUpdateDialog(), "The update dialog must be shown on startup until explicitly dismissed")
 assert(first:getFeaturePages()[1].image and first:getFeaturePages()[1].image:match("assets/logos/appdock%.png$"), "The update dialog must receive its packaged test image")
 local manual_instance, manual_context = {}, {}
