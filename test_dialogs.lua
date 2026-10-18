@@ -48,13 +48,16 @@ local UIManager = {
 }
 
 package.preload["ffi/blitbuffer"] = function()
-    return { COLOR_WHITE = 1, COLOR_BLACK = 2, COLOR_GRAY_8 = 3, COLOR_LIGHT_GRAY = 4 }
+    return { COLOR_WHITE = 1, COLOR_BLACK = 2, COLOR_GRAY_8 = 3, COLOR_LIGHT_GRAY = 4,
+        COLOR_DARK_GRAY = 5, COLOR_GRAY = 6,
+        ColorRGB32 = function(r, g, b, a) return { r = r, g = g, b = b, a = a } end }
 end
 package.preload["device"] = function()
     return {
         screen = {
             getSize = function() return { w = 600, h = 800 } end,
             scaleBySize = function(_, value) return value end,
+            isColorEnabled = function() return true end,
         },
         hasKeys = function() return false end,
     }
@@ -91,11 +94,16 @@ end
 local Dialogs = dofile(plugin_dir .. "appdock_dialogs.lua")
 local paints = 0
 local bb = {
-    rectangles = {}, text_calls = {},
+    rectangles = {}, rgb_rectangles = {}, text_calls = {},
     paintRect = function(self, x, y, width, height, color)
         paints = paints + 1
         self.last_fill = color
         self.rectangles[#self.rectangles + 1] = { x = x, y = y, w = width, h = height, color = color }
+    end,
+    paintRectRGB32 = function(self, x, y, width, height, color)
+        paints = paints + 1
+        self.last_fill = color
+        self.rgb_rectangles[#self.rgb_rectangles + 1] = { x = x, y = y, w = width, h = height, color = color }
     end,
 }
 local info = Dialogs.InfoMessage:new{ title = "Status", text = "Connecting to Wi-Fi…", duration = 0 }
@@ -103,7 +111,7 @@ local paint_ok, paint_error = pcall(info.paintTo, info, bb, 0, 0)
 assert(paint_ok, "A custom status dialog must paint without treating GestureRange.range as a geometry: " .. tostring(paint_error))
 assert(paints > 0 and info.ges_events.TapAppDockModal[1].range() == info.dimen,
     "The status dialog must paint and its tap callback must resolve to the full-screen geometry")
-assert(bb.text_calls[1] and bb.text_calls[1].fgcolor == 2,
+assert(bb.text_calls[1] and bb.text_calls[1].fgcolor.r == 38,
     "Dialog title text must use a high-contrast foreground over the light glass surface")
 assert(info:onKeyRepeat() == true, "A custom AppDock modal must consume held page-key repeats")
 local update_text = "This is a deliberately long update description that must wrap inside the modal instead of running past the card width."
@@ -141,16 +149,17 @@ local picker = Dialogs.ButtonDialog:new{
 }
 assert(pcall(picker.paintTo, picker, bb, 0, 0) and #picker._hits > 0, "An AppDock selection dialog must build visible tap targets")
 for _, text_call in ipairs(bb.text_calls) do
-    assert(text_call.fgcolor == 2, "Every label in AppDock dialogs must use black foreground text")
+    assert(type(text_call.fgcolor) == "table" or text_call.fgcolor == 2,
+        "Every label in AppDock dialogs must use a valid high-contrast foreground")
 end
 local first_hit = picker._hits[1]
 local first_fill
-for _, rect in ipairs(bb.rectangles) do
+for _, rect in ipairs(bb.rgb_rectangles) do
     if rect.x >= first_hit.x and rect.x + rect.w <= first_hit.x + first_hit.w
         and rect.y >= first_hit.y and rect.y + rect.h <= first_hit.y + first_hit.h
-        and rect.color == 1 then first_fill = rect.color; break end
+        and rect.color.r == 251 and rect.color.g == 252 and rect.color.b == 248 then first_fill = rect.color; break end
 end
-assert(first_fill == 1, "Standard action labels must be drawn on a white button surface")
+assert(first_fill, "Standard action labels must be drawn on a light button surface")
 local selection_hit = picker._hits[1]
 assert(picker:onTapAppDockModal(nil, { pos = { x = selection_hit.x + 1, y = selection_hit.y + 1 } })
     and selected and picker._closed, "Selecting a custom dialog row must run the callback and close the modal")
@@ -159,8 +168,19 @@ local confirmed = false
 local confirm = Dialogs.ConfirmBox:new{ ok_callback = function() confirmed = true end }
 assert(pcall(confirm.paintTo, confirm, bb, 0, 0) and #confirm._hits == 2, "An AppDock confirmation must expose both choices")
 local confirm_hit = confirm._hits[1]
+local primary_fill
+for _, rect in ipairs(bb.rgb_rectangles) do
+    if rect.x >= confirm_hit.x and rect.x + rect.w <= confirm_hit.x + confirm_hit.w
+        and rect.y >= confirm_hit.y and rect.y + rect.h <= confirm_hit.y + confirm_hit.h
+        and rect.color.r == 102 and rect.color.g == 119 and rect.color.b == 68 then primary_fill = rect.color; break end
+end
+assert(primary_fill and confirm.button_labels[1][1].lines[1].fgcolor.r == 255,
+    "The active primary action must use an olive RGB32 fill and contrasting white text")
+assert(#bb.rgb_rectangles > 0, "Color dialog surfaces must be painted with KOReader paintRectRGB32")
 confirm:onTapAppDockModal(nil, { pos = { x = confirm_hit.x + 1, y = confirm_hit.y + 1 } })
 assert(confirmed and confirm._closed, "The confirmation's positive action must run through the custom tap handler")
+local disabled_dialog = Dialogs.ButtonDialog:new{ buttons = { { { text = "Disabled", disabled = true } } } }
+assert(pcall(disabled_dialog.paintTo, disabled_dialog, bb, 0, 0), "Disabled buttons must also paint safely through the RGB32 renderer")
 
 local long_label = Dialogs.ButtonDialog:new{ buttons = { { { text = "A deliberately long action label that must wrap into several readable lines instead of being cut off" } } } }
 assert(#long_label.button_labels[1][1].lines > 1, "Long action labels must wrap automatically rather than being ellipsized")

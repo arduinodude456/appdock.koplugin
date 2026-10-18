@@ -49,11 +49,20 @@ local COLORS = {
     panel = dialogColor("#FBFCF8", 255, GRAY.panel), ink = dialogColor("#26301D", 255, GRAY.ink),
     muted = dialogColor("#5C6553", 255, GRAY.muted), outline = dialogColor("#A8B196", 255, GRAY.outline),
     disabled = dialogColor("#E7E8E3", 255, GRAY.disabled),
+    on_olive = dialogColor("#FFFFFF", 255, GRAY.panel),
 }
+local function drawRectRGB32(bb, x, y, width, height, fill)
+    -- KOReader's BlitBuffer exposes paintRectRGB32 (rather than drawRectRGB32).
+    -- Keep every custom RGB fill on that path; grayscale targets use paintRect.
+    if color_enabled and bb.paintRectRGB32 then
+        return bb:paintRectRGB32(x, y, width, height, fill)
+    end
+    return bb:paintRect(x, y, width, height, fill)
+end
 local function drawRoundedRect(bb, x, y, width, height, radius, fill)
     width, height = math.max(1, math.floor(width)), math.max(1, math.floor(height))
     radius = math.max(0, math.min(math.floor(radius or 0), math.floor(width / 2), math.floor(height / 2)))
-    if radius == 0 then bb:paintRect(x, y, width, height, fill); return end
+    if radius == 0 then drawRectRGB32(bb, x, y, width, height, fill); return end
     for row = 0, height - 1 do
         local inset = 0
         if row < radius then
@@ -63,7 +72,7 @@ local function drawRoundedRect(bb, x, y, width, height, radius, fill)
             local dy = row - (height - radius) + .5
             inset = math.max(0, math.ceil(radius - math.sqrt(math.max(0, radius * radius - dy * dy))))
         end
-        bb:paintRect(x + inset, y + row, math.max(1, width - 2 * inset), 1, fill)
+        drawRectRGB32(bb, x + inset, y + row, math.max(1, width - 2 * inset), 1, fill)
     end
 end
 local function drawGlassRoundedRect(bb, x, y, width, height, radius, opaque_fallback)
@@ -466,13 +475,13 @@ function Modal:paintTo(bb, x, y)
     local pad, border = scale(18), math.max(1, scale(1))
     -- Slim olive title rule, rather than a heavy full-width title band.
     drawRoundedRect(bb, self.card_x + pad, self.card_y + self.margin + self.title_h + scale(3),
-        self.card_w - 2 * pad, scale(3), scale(2), GRAY.olive)
+        self.card_w - 2 * pad, scale(3), scale(2), COLORS.olive)
     local text_y = self.card_y + self.margin
     if self.title_lines then self.title_lines:paintTo(bb, self.card_x + pad, text_y) end
     local y0 = self.card_y + self.top_h
     if self.mode == "input" then
         local input_y, input_h = y0, scale(48)
-        drawRoundedRect(bb, self.card_x + pad, input_y, self.card_w - pad * 2, input_h, scale(9), GRAY.olive_soft)
+        drawRoundedRect(bb, self.card_x + pad, input_y, self.card_w - pad * 2, input_h, scale(9), COLORS.olive_soft)
         self:_paintText(bb, (self.input_value ~= "" and self.input_value or self.input_hint or "Tap to enter text"),
             self.card_x + pad + scale(8), input_y + scale(12), self.card_w - pad * 2 - scale(16), 14, false, COLORS.ink)
         self._hits[#self._hits + 1] = { x = self.card_x + pad, y = input_y, w = self.card_w - pad * 2, h = input_h, input = true }
@@ -500,13 +509,15 @@ function Modal:paintTo(bb, x, y)
             local bx = self.card_x + pad + (columns == 1 and 0 or (col - 1) * (width + gap))
             local disabled = button.enabled == false or button.disabled
             local primary = button.is_default or button.is_enter_default
-            local fill = disabled and GRAY.disabled or (primary and GRAY.olive_soft or GRAY.panel)
-            local outline = disabled and GRAY.outline or (primary and GRAY.olive or GRAY.outline)
+            local fill = disabled and COLORS.disabled or (primary and COLORS.olive or COLORS.panel)
+            local outline = disabled and COLORS.outline or (primary and COLORS.olive_dark or COLORS.outline)
+            local foreground = disabled and COLORS.muted or (primary and COLORS.on_olive or COLORS.ink)
             drawRoundedRect(bb, bx, row_y, width, row_height - scale(4), scale(9), outline)
             drawRoundedRect(bb, bx + border, row_y + border, width - border * 2, row_height - scale(4) - border * 2,
                 scale(8), fill)
             local label = self.button_labels[index][col]
             local size = label:getSize()
+            for _, text_line in ipairs(label.lines) do text_line.fgcolor = foreground end
             label:paintTo(bb, bx + scale(9), row_y + math.max(scale(4), math.floor((row_height - size.h) / 2) - scale(2)))
             self._hits[#self._hits + 1] = { x = bx, y = row_y, w = width, h = row_height, button = button }
         end
@@ -519,7 +530,7 @@ function Modal:paintTo(bb, x, y)
         local button_w, button_h = scale(80), scale(32)
         if self.page > 1 then
             local bx = self.card_x + pad
-            drawRoundedRect(bb, bx, footer_y + scale(7), button_w, button_h, scale(10), GRAY.olive_soft)
+            drawRoundedRect(bb, bx, footer_y + scale(7), button_w, button_h, scale(10), COLORS.olive_soft)
             self:_paintText(bb, _("‹ Previous"), bx + scale(5), footer_y + scale(16), button_w - scale(10), 10, true, COLORS.ink)
             self._hits[#self._hits + 1] = { x = bx, y = footer_y, w = button_w, h = self.footer_h, action = function()
                 self.page = self.page - 1; self:_paginate(); UIManager:setDirty(self, "ui"); return true
@@ -527,7 +538,7 @@ function Modal:paintTo(bb, x, y)
         end
         if self.page < self.pages then
             local bx = self.card_x + self.card_w - pad - button_w
-            drawRoundedRect(bb, bx, footer_y + scale(7), button_w, button_h, scale(10), GRAY.olive_soft)
+            drawRoundedRect(bb, bx, footer_y + scale(7), button_w, button_h, scale(10), COLORS.olive_soft)
             self:_paintText(bb, _("Next ›"), bx + scale(8), footer_y + scale(16), button_w - scale(12), 10, true, COLORS.ink)
             self._hits[#self._hits + 1] = { x = bx, y = footer_y, w = button_w, h = self.footer_h, action = function()
                 self.page = self.page + 1; self:_paginate(); UIManager:setDirty(self, "ui"); return true

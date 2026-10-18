@@ -599,11 +599,11 @@ function SleepEditor:_sectionRows(panel_width, colors)
         local widget_fields = {
             field(_("Create custom widget"), _("Start with a live-preview widget"), function() self:_createCustomWidget() end, { wide = true }),
         }
-        for _, candidate in ipairs(self:_customWidgets()) do
-            local selected_widget = candidate
-            local summary = selected_widget.text or _("No text")
-            if selected_widget.weather then summary = _("Open-Meteo weather") .. " · " .. (selected_widget.weather_cache and selected_widget.weather_cache.temperature or _("not fetched")) end
-            if selected_widget.frames then summary = summary .. " · " .. tostring(#selected_widget.frames) .. _(" frames") end
+        local gettext = _
+        for _, selected_widget in ipairs(self:_customWidgets()) do
+            local summary = selected_widget.text or gettext("No text")
+            if selected_widget.weather then summary = gettext("Open-Meteo weather") .. " · " .. (selected_widget.weather_cache and selected_widget.weather_cache.temperature or gettext("not fetched")) end
+            if selected_widget.frames then summary = summary .. " · " .. tostring(#selected_widget.frames) .. gettext(" frames") end
             widget_fields[#widget_fields + 1] = field((self.selected_widget_id == selected_widget.id and "● " or "") .. selected_widget.name,
                 summary, function() self.selected_widget_id = selected_widget.id; self:_changed() end, { wide = true, selected = self.selected_widget_id == selected_widget.id })
         end

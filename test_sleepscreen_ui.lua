@@ -189,6 +189,11 @@ assert(created_widget and editor.draft.definition.elements[2].widget_id == creat
     "new custom widgets must be connected to the selected screen layer without a picker dialog")
 assert(editor.section == "widgets" and #named(editor, "Text template") > 0 and #named(editor, "Weather API") > 0,
     "custom widget controls must be presented together in the live-preview editor")
+local weather_toggle = named(editor, "Weather API")[1]
+local weather_tap_ok, weather_tap_error = pcall(weather_toggle.callback)
+assert(weather_tap_ok, "Tapping the custom widget weather toggle must rebuild the editor safely: " .. tostring(weather_tap_error))
+assert(created_widget.weather and #named(editor, "Latitude") > 0 and #named(editor, "Fetch current weather") > 0,
+    "Enabling weather must show coordinate and manual-fetch controls without crashing")
 local dirty_before_activation = dirty
 activation_fails = true
 editor:saveAndActivate()
