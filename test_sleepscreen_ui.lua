@@ -180,6 +180,15 @@ assert(#named(editor, "Position x / y") > 0 and #named(editor, "Text") > 0 and #
 editor:_showInput("Text", "New text", "", function(value) editor.draft.definition.elements[1].text = value; return true end)
 local field = shown[#shown]; field.input = "Instant value"; field.buttons[1][2].callback()
 assert(editor.draft.definition.elements[1].text == "Instant value", "Applying an editor field must immediately update the underlying draft")
+-- Creating a custom widget from the element picker must connect it immediately
+-- and expose its controls in the live-preview Custom widgets section.
+editor:_addElement("widget")
+editor:_createCustomWidget()
+local created_widget = editor.draft.definition.widgets[1]
+assert(created_widget and editor.draft.definition.elements[2].widget_id == created_widget.id,
+    "new custom widgets must be connected to the selected screen layer without a picker dialog")
+assert(editor.section == "widgets" and #named(editor, "Text template") > 0 and #named(editor, "Weather API") > 0,
+    "custom widget controls must be presented together in the live-preview editor")
 local dirty_before_activation = dirty
 activation_fails = true
 editor:saveAndActivate()

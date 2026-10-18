@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **8.2.9** korrigiert die Transparenz von Element-Hintergründen auf dem Kobo Libra Colour. [Details](RELEASE_NOTES_8.2.9.md).
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **8.2.10** gestaltet die AppDock-eigenen Dialoge neu und verbessert den Sleepscreen-Widget-Editor mit Open-Meteo-Wetterdaten. [Details](RELEASE_NOTES_8.2.10.md).
 
 ### Sleepscreen-Presets
 

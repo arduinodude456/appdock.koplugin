@@ -15,6 +15,113 @@ pcall(function() ImageWidget = require("ui/widget/imagewidget") end)
 local Screen = Device.screen
 local function scale(n) return Screen:scaleBySize(n) end
 local function clamp(n, lo, hi) return math.max(lo, math.min(hi, n)) end
+local function rgb(hex, alpha, fallback)
+    local red = tonumber(hex:sub(2, 3), 16)
+    local green = tonumber(hex:sub(4, 5), 16)
+    local blue = tonumber(hex:sub(6, 7), 16)
+    if type(Blitbuffer.ColorRGB32) == "function" then
+        local ok, value = pcall(Blitbuffer.ColorRGB32, red, green, blue, alpha or 255)
+        if ok and value then return value end
+    end
+    return fallback or Blitbuffer.COLOR_DARK_GRAY or Blitbuffer.COLOR_BLACK
+end
+local GRAY = {
+    olive = Blitbuffer.COLOR_GRAY_8 or Blitbuffer.COLOR_DARK_GRAY,
+    olive_dark = Blitbuffer.COLOR_DARK_GRAY or Blitbuffer.COLOR_BLACK,
+    olive_soft = Blitbuffer.COLOR_LIGHT_GRAY or Blitbuffer.COLOR_WHITE,
+    glass = Blitbuffer.COLOR_LIGHT_GRAY or Blitbuffer.COLOR_WHITE,
+    panel = Blitbuffer.COLOR_WHITE, ink = Blitbuffer.COLOR_BLACK,
+    muted = Blitbuffer.COLOR_DARK_GRAY or Blitbuffer.COLOR_BLACK,
+    outline = Blitbuffer.COLOR_GRAY or Blitbuffer.COLOR_GRAY_8,
+    disabled = Blitbuffer.COLOR_LIGHT_GRAY or Blitbuffer.COLOR_WHITE,
+}
+local color_enabled = false
+if Screen and type(Screen.isColorEnabled) == "function" then
+    local ok, value = pcall(Screen.isColorEnabled, Screen)
+    color_enabled = ok and value == true
+end
+local function dialogColor(hex, alpha, grayscale)
+    return color_enabled and rgb(hex, alpha, grayscale) or grayscale
+end
+local COLORS = {
+    olive = dialogColor("#667744", 255, GRAY.olive), olive_dark = dialogColor("#40512A", 255, GRAY.olive_dark),
+    olive_soft = dialogColor("#E8EDDE", 255, GRAY.olive_soft), glass = dialogColor("#F7F8F3", 168, GRAY.glass),
+    panel = dialogColor("#FBFCF8", 255, GRAY.panel), ink = dialogColor("#26301D", 255, GRAY.ink),
+    muted = dialogColor("#5C6553", 255, GRAY.muted), outline = dialogColor("#A8B196", 255, GRAY.outline),
+    disabled = dialogColor("#E7E8E3", 255, GRAY.disabled),
+}
+local function drawRoundedRect(bb, x, y, width, height, radius, fill)
+    width, height = math.max(1, math.floor(width)), math.max(1, math.floor(height))
+    radius = math.max(0, math.min(math.floor(radius or 0), math.floor(width / 2), math.floor(height / 2)))
+    if radius == 0 then bb:paintRect(x, y, width, height, fill); return end
+    for row = 0, height - 1 do
+        local inset = 0
+        if row < radius then
+            local dy = radius - row - .5
+            inset = math.max(0, math.ceil(radius - math.sqrt(math.max(0, radius * radius - dy * dy))))
+        elseif row >= height - radius then
+            local dy = row - (height - radius) + .5
+            inset = math.max(0, math.ceil(radius - math.sqrt(math.max(0, radius * radius - dy * dy))))
+        end
+        bb:paintRect(x + inset, y + row, math.max(1, width - 2 * inset), 1, fill)
+    end
+end
+local function drawGlassRoundedRect(bb, x, y, width, height, radius, opaque_fallback)
+    width, height = math.max(1, math.floor(width)), math.max(1, math.floor(height))
+    radius = math.max(0, math.min(math.floor(radius or 0), math.floor(width / 2), math.floor(height / 2)))
+    local scratch
+    if not bb.blendRectRGB32 and bb.addblitFrom and Blitbuffer.new and bb.getType then
+        local ok, buffer = pcall(Blitbuffer.new, width, 1, bb:getType())
+        if ok and buffer then scratch = buffer; pcall(scratch.fill, scratch, GRAY.panel) end
+    end
+    local glass_color
+    if bb.blendRectRGB32 and type(Blitbuffer.ColorRGB32) == "function" then
+        local ok, value = pcall(Blitbuffer.ColorRGB32, 248, 250, 242, 202)
+        if ok then glass_color = value end
+    end
+    for row = 0, height - 1 do
+        local inset = 0
+        if row < radius then
+            local dy = radius - row - .5
+            inset = math.max(0, math.ceil(radius - math.sqrt(math.max(0, radius * radius - dy * dy))))
+        elseif row >= height - radius then
+            local dy = row - (height - radius) + .5
+            inset = math.max(0, math.ceil(radius - math.sqrt(math.max(0, radius * radius - dy * dy))))
+        end
+        local row_x, row_width = x + inset, math.max(1, width - 2 * inset)
+        if glass_color then
+            local ok = pcall(bb.blendRectRGB32, bb, row_x, y + row, row_width, 1, glass_color)
+            if not ok then bb:paintRect(row_x, y + row, row_width, 1, opaque_fallback) end
+        elseif scratch then
+            local ok = pcall(bb.addblitFrom, bb, scratch, row_x, y + row, 0, 0, row_width, 1, .78)
+            if not ok then bb:paintRect(row_x, y + row, row_width, 1, opaque_fallback) end
+        else
+            bb:paintRect(row_x, y + row, row_width, 1, opaque_fallback)
+        end
+    end
+    if scratch and scratch.free then pcall(scratch.free, scratch) end
+end
+local function paintFrostedVeil(bb, width, height)
+    -- True backdrop blur is not available on all KOReader targets (especially
+    -- grayscale E-Ink); alpha blending keeps the page visible through a soft,
+    -- light-tinted veil and reads as frosted glass without replacing the page.
+    if bb.blendRectRGB32 and type(Blitbuffer.ColorRGB32) == "function" then
+        local ok, tint = pcall(Blitbuffer.ColorRGB32, 238, 241, 229, 112)
+        if ok and tint then pcall(bb.blendRectRGB32, bb, 0, 0, width, height, tint); return end
+    end
+    if bb.addblitFrom and Blitbuffer.new and bb.getType then
+        local ok, overlay = pcall(Blitbuffer.new, width, height, bb:getType())
+        if ok and overlay then
+            local fill = GRAY.glass
+            pcall(overlay.fill, overlay, fill)
+            pcall(bb.addblitFrom, bb, overlay, 0, 0, 0, 0, width, height, .34)
+            if overlay.free then pcall(overlay.free, overlay) end
+            return
+        end
+    end
+    -- Safe fallback for reduced/mock buffers without alpha-compositing APIs.
+    bb:paintRect(0, 0, width, height, GRAY.glass)
+end
 local function textWidth(face, text, fallback)
     if face and face.getWidth then
         local ok, width = pcall(face.getWidth, face, text)
@@ -31,12 +138,33 @@ local function wrapText(text, width, face, size)
         else
             local line = ""
             for word in paragraph:gmatch("%S+") do
+                -- Break an unusually long token at UTF-8 codepoint boundaries
+                -- rather than letting TextWidget silently clip it at max_width.
+                if textWidth(face, word, fallback) > width then
+                    if line ~= "" then wrapped[#wrapped + 1] = line; line = "" end
+                    local chunk, position = "", 1
+                    while position <= #word do
+                        local byte = word:byte(position) or 0
+                        local char_width = byte >= 240 and 4 or (byte >= 224 and 3 or (byte >= 192 and 2 or 1))
+                        local character = word:sub(position, position + char_width - 1)
+                        local candidate = chunk .. character
+                        if chunk ~= "" and textWidth(face, candidate, fallback) > width then
+                            wrapped[#wrapped + 1] = chunk
+                            chunk = character
+                        else
+                            chunk = candidate
+                        end
+                        position = position + char_width
+                    end
+                    line = chunk
+                else
                 local candidate = line == "" and word or line .. " " .. word
                 if line ~= "" and textWidth(face, candidate, fallback) > width then
                     wrapped[#wrapped + 1] = line
                     line = word
                 else
                     line = candidate
+                end
                 end
             end
             if line ~= "" then wrapped[#wrapped + 1] = line end
@@ -104,7 +232,11 @@ function Modal:init()
     self.card_x = math.floor((screen.w - self.card_w) / 2)
     self.max_card_h = math.max(scale(120), screen.h - self.margin * 2)
     self.content_w = self.card_w - scale(36)
-    self.title_h = self.title and scale(42) or scale(14)
+    self.palette = COLORS
+    self.gray = GRAY
+    self.corner = scale(16)
+    self.title_lines = self.title and bodyTextWidget(self.title, self.card_w - scale(48), 18, COLORS.ink) or nil
+    self.title_h = self.title_lines and math.max(scale(32), self.title_lines:getSize().h) or scale(12)
     self.image_widget = nil
     self.image_w = 0
     self.image_h = 0
@@ -151,6 +283,7 @@ function Modal:init()
     elseif self.mode == "info" then
         self.rows = { { { text=_("Done"), callback=function() self:close() end } } }
     end
+    self:_measureButtonRows()
     self:_paginate()
     self._hits = {}
     self.ges_events = { TapAppDockModal = { GestureRange:new{ ges="tap", range=function() return self.dimen end } } }
@@ -192,14 +325,46 @@ function Modal:_normalizeRows(rows)
     end
     return normalized
 end
-function Modal:_paginate()
-    local fixed = self.top_h + self.footer_h + scale(14)
-    self.visible_rows = math.max(1, math.floor((self.max_card_h-fixed)/self.row_h))
-    self.pages = math.max(1, math.ceil(#self.rows/self.visible_rows))
-    self.page = clamp(self.page or 1, 1, self.pages)
-    self.card_h = math.min(self.max_card_h, fixed + math.min(#self.rows,self.visible_rows)*self.row_h)
-    self.card_y = math.floor((self.screen_h-self.card_h)/2)
+function Modal:_measureButtonRows()
+    self.row_heights, self.button_labels = {}, {}
+    local pad, gap = scale(18), scale(6)
+    local inner = self.card_w - 2 * pad
+    for row_index, row in ipairs(self.rows) do
+        local columns = #row > 1 and 2 or 1
+        local cell_width = columns == 1 and inner or math.floor((inner - gap) / 2)
+        local line_height, row_height = scale(17), scale(42)
+        self.button_labels[row_index] = {}
+        for col, button in ipairs(row) do
+            local label = bodyTextWidget(tostring(button.text or ""), cell_width - scale(18), 13, COLORS.ink)
+            self.button_labels[row_index][col] = label
+            row_height = math.max(row_height, label:getSize().h + scale(12))
+        end
+        self.row_heights[row_index] = row_height + scale(4)
+    end
 end
+function Modal:_paginate()
+    local fixed = self.top_h + self.footer_h + scale(14) + self.input_h
+    local available = math.max(scale(38), self.max_card_h - fixed)
+    self.page_ranges = {}
+    local first, height = 1, 0
+    for index, row_height in ipairs(self.row_heights) do
+        if height > 0 and height + row_height > available then
+            self.page_ranges[#self.page_ranges + 1] = { first = first, last = index - 1, rows_height = height }
+            first, height = index, 0
+        end
+        height = height + math.min(row_height, available)
+    end
+    if #self.row_heights > 0 then
+        self.page_ranges[#self.page_ranges + 1] = { first = first, last = #self.row_heights, rows_height = height }
+    end
+    if #self.page_ranges == 0 then self.page_ranges[1] = { first = 1, last = 0, rows_height = 0 } end
+    self.pages = #self.page_ranges
+    self.page = clamp(self.page or 1, 1, self.pages)
+    local current = self.page_ranges[self.page]
+    self.card_h = math.min(self.max_card_h, fixed + current.rows_height)
+    self.card_y = math.floor((self.screen_h - self.card_h) / 2)
+end
+
 function Modal:getInputText() return self.input_value or "" end
 function Modal:setInputText(value)
     self.input_value = tostring(value or "")
@@ -292,37 +457,27 @@ function Modal:_paintText(bb, text, x, y, width, size, bold, foreground)
     return dims.h
 end
 function Modal:paintTo(bb, x, y)
-    x,y=0,0
-    self._hits={}
-    -- A soft E-Ink veil and a light title band keep every text surface
-    -- readable. Do not put labels on solid-black fills: some KOReader render
-    -- paths invert text independently from custom-painted rectangles.
-    bb:paintRect(0,0,self.screen_w,self.screen_h,Blitbuffer.COLOR_LIGHT_GRAY)
-    bb:paintRect(self.card_x + scale(3),self.card_y + scale(4),self.card_w,self.card_h,Blitbuffer.COLOR_GRAY_8)
-    bb:paintRect(self.card_x,self.card_y,self.card_w,self.card_h,Blitbuffer.COLOR_WHITE)
-    local border=math.max(1,scale(2))
-    bb:paintRect(self.card_x,self.card_y,self.card_w,border,Blitbuffer.COLOR_BLACK)
-    bb:paintRect(self.card_x,self.card_y+self.card_h-border,self.card_w,border,Blitbuffer.COLOR_BLACK)
-    bb:paintRect(self.card_x,self.card_y,border,self.card_h,Blitbuffer.COLOR_BLACK)
-    bb:paintRect(self.card_x+self.card_w-border,self.card_y,border,self.card_h,Blitbuffer.COLOR_BLACK)
-    local pad=scale(18)
-    local text_y=self.card_y+self.margin
-    if self.title then
-        local band_h = math.min(self.card_h - border * 2, self.title_h + self.margin)
-        bb:paintRect(self.card_x + border,self.card_y + border,self.card_w - border * 2,band_h,Blitbuffer.COLOR_LIGHT_GRAY)
-        self:_paintText(bb,self.title,self.card_x+pad,text_y,self.card_w-pad*2,18,true,Blitbuffer.COLOR_BLACK)
-    end
-    local y0=self.card_y+self.top_h
-    if self.mode=="input" then
-        local input_y=y0
-        local input_h=scale(48)
-        bb:paintRect(self.card_x+pad,input_y,self.card_w-pad*2,input_h,Blitbuffer.COLOR_WHITE)
-        bb:paintRect(self.card_x+pad,input_y,self.card_w-pad*2,scale(1),Blitbuffer.COLOR_BLACK)
-        bb:paintRect(self.card_x+pad,input_y+input_h-scale(1),self.card_w-pad*2,scale(1),Blitbuffer.COLOR_BLACK)
-        self:_paintText(bb,(self.input_value~="" and self.input_value or self.input_hint or "Tap to enter text"),self.card_x+pad+scale(6),input_y+scale(12),self.card_w-pad*2-scale(12),14,false)
-        self._hits[#self._hits+1]={x=self.card_x+pad,y=input_y,w=self.card_w-pad*2,h=input_h,input=true}
+    x, y = 0, 0
+    self._hits = {}
+    paintFrostedVeil(bb, self.screen_w, self.screen_h)
+    local shadow = dialogColor("#DCE2D1", 255, GRAY.disabled)
+    drawRoundedRect(bb, self.card_x + scale(2), self.card_y + scale(4), self.card_w, self.card_h, self.corner, shadow)
+    drawGlassRoundedRect(bb, self.card_x, self.card_y, self.card_w, self.card_h, self.corner, COLORS.panel)
+    local pad, border = scale(18), math.max(1, scale(1))
+    -- Slim olive title rule, rather than a heavy full-width title band.
+    drawRoundedRect(bb, self.card_x + pad, self.card_y + self.margin + self.title_h + scale(3),
+        self.card_w - 2 * pad, scale(3), scale(2), GRAY.olive)
+    local text_y = self.card_y + self.margin
+    if self.title_lines then self.title_lines:paintTo(bb, self.card_x + pad, text_y) end
+    local y0 = self.card_y + self.top_h
+    if self.mode == "input" then
+        local input_y, input_h = y0, scale(48)
+        drawRoundedRect(bb, self.card_x + pad, input_y, self.card_w - pad * 2, input_h, scale(9), GRAY.olive_soft)
+        self:_paintText(bb, (self.input_value ~= "" and self.input_value or self.input_hint or "Tap to enter text"),
+            self.card_x + pad + scale(8), input_y + scale(12), self.card_w - pad * 2 - scale(16), 14, false, COLORS.ink)
+        self._hits[#self._hits + 1] = { x = self.card_x + pad, y = input_y, w = self.card_w - pad * 2, h = input_h, input = true }
     else
-        local body_y = self.card_y + self.margin + self.title_h
+        local body_y = self.card_y + self.margin + self.title_h + scale(14)
         if self.image_widget then
             body_y = body_y + scale(8)
             local image_x = self.card_x + pad + math.floor((self.content_w - self.image_w) / 2)
@@ -330,58 +485,53 @@ function Modal:paintTo(bb, x, y)
             body_y = body_y + self.image_h
         end
         if self.body_widget then
-            body_y = body_y + scale(12)
+            body_y = body_y + scale(8)
             self.body_widget:paintTo(bb, self.card_x + pad, body_y)
         end
     end
-    local start=(self.page-1)*self.visible_rows+1
-    local finish=math.min(#self.rows,start+self.visible_rows-1)
-    local rows_drawn=0
-    local rows_y=y0+self.input_h
-    for index=start,finish do
-        local row=self.rows[index]; local row_y=rows_y+rows_drawn*self.row_h
-        local cols=#row>1 and 2 or 1
-        for col,button in ipairs(row) do
-            local gap=scale(6)
-            local inner_w=self.card_w-pad*2
-            local w=cols==1 and inner_w or math.floor((inner_w-gap)/2)
-            local bx=self.card_x+pad+(cols==1 and 0 or (col-1)*(w+gap))
+    local range = self.page_ranges[self.page]
+    local rows_y, row_y = y0 + self.input_h, y0 + self.input_h
+    for index = range.first, range.last do
+        local row, row_height = self.rows[index], self.row_heights[index]
+        local columns = #row > 1 and 2 or 1
+        local gap, inner_w = scale(7), self.card_w - pad * 2
+        local width = columns == 1 and inner_w or math.floor((inner_w - gap) / 2)
+        for col, button in ipairs(row) do
+            local bx = self.card_x + pad + (columns == 1 and 0 or (col - 1) * (width + gap))
             local disabled = button.enabled == false or button.disabled
             local primary = button.is_default or button.is_enter_default
-            -- Keep foreground black on a white/light fill for every action,
-            -- including the primary action. Outlines and fill distinguish
-            -- choices without relying on white text over a black rectangle.
-            local bg = self.setup == true and primary and not disabled
-                and (Blitbuffer.COLOR_LIGHT_GREEN or Blitbuffer.COLOR_LIGHT_GRAY)
-                or ((disabled or primary) and Blitbuffer.COLOR_LIGHT_GRAY or Blitbuffer.COLOR_WHITE)
-            local fg = Blitbuffer.COLOR_BLACK
-            bb:paintRect(bx,row_y,w,self.row_h-scale(4),bg)
-            bb:paintRect(bx,row_y,w,scale(1),Blitbuffer.COLOR_BLACK)
-            bb:paintRect(bx,row_y+self.row_h-scale(5),w,scale(1),Blitbuffer.COLOR_BLACK)
-            local title=tostring(button.text or "")
-            self:_paintText(bb,title,bx+scale(7),row_y+scale(12),w-scale(14),13,true,fg)
-            self._hits[#self._hits+1]={x=bx,y=row_y,w=w,h=self.row_h,button=button}
+            local fill = disabled and GRAY.disabled or (primary and GRAY.olive_soft or GRAY.panel)
+            local outline = disabled and GRAY.outline or (primary and GRAY.olive or GRAY.outline)
+            drawRoundedRect(bb, bx, row_y, width, row_height - scale(4), scale(9), outline)
+            drawRoundedRect(bb, bx + border, row_y + border, width - border * 2, row_height - scale(4) - border * 2,
+                scale(8), fill)
+            local label = self.button_labels[index][col]
+            local size = label:getSize()
+            label:paintTo(bb, bx + scale(9), row_y + math.max(scale(4), math.floor((row_height - size.h) / 2) - scale(2)))
+            self._hits[#self._hits + 1] = { x = bx, y = row_y, w = width, h = row_height, button = button }
         end
-        rows_drawn=rows_drawn+1
+        row_y = row_y + row_height
     end
-    if self.pages>1 then
-        local footer_y=self.card_y+self.card_h-self.footer_h
-        local label=string.format(_("Page %d of %d"),self.page,self.pages)
-        local button_w, button_h = scale(76), scale(32)
-        self:_paintText(bb,label,self.card_x+math.floor((self.card_w-scale(88))/2),footer_y+scale(10),scale(88),12,false)
-        if self.page>1 then
+    if self.pages > 1 then
+        local footer_y = self.card_y + self.card_h - self.footer_h
+        local label = string.format(_("Page %d of %d"), self.page, self.pages)
+        self:_paintText(bb, label, self.card_x + math.floor((self.card_w - scale(100)) / 2), footer_y + scale(11), scale(100), 11, false, COLORS.muted)
+        local button_w, button_h = scale(80), scale(32)
+        if self.page > 1 then
             local bx = self.card_x + pad
-            bb:paintRect(bx,footer_y+scale(7),button_w,button_h,Blitbuffer.COLOR_WHITE)
-            bb:paintRect(bx,footer_y+scale(7),button_w,scale(1),Blitbuffer.COLOR_BLACK)
-            self:_paintText(bb,_('‹ Previous'),bx+scale(6),footer_y+scale(16),button_w-scale(12),11,true)
-            self._hits[#self._hits+1]={x=bx,y=footer_y,w=button_w,h=self.footer_h,action=function() self.page=self.page-1; UIManager:setDirty(self,"ui"); return true end}
+            drawRoundedRect(bb, bx, footer_y + scale(7), button_w, button_h, scale(10), GRAY.olive_soft)
+            self:_paintText(bb, _("‹ Previous"), bx + scale(5), footer_y + scale(16), button_w - scale(10), 10, true, COLORS.ink)
+            self._hits[#self._hits + 1] = { x = bx, y = footer_y, w = button_w, h = self.footer_h, action = function()
+                self.page = self.page - 1; self:_paginate(); UIManager:setDirty(self, "ui"); return true
+            end }
         end
-        if self.page<self.pages then
-            local bx = self.card_x+self.card_w-pad-button_w
-            bb:paintRect(bx,footer_y+scale(7),button_w,button_h,Blitbuffer.COLOR_WHITE)
-            bb:paintRect(bx,footer_y+scale(7),button_w,scale(1),Blitbuffer.COLOR_BLACK)
-            self:_paintText(bb,_('Next ›'),bx+scale(11),footer_y+scale(16),button_w-scale(16),11,true)
-            self._hits[#self._hits+1]={x=bx,y=footer_y,w=button_w,h=self.footer_h,action=function() self.page=self.page+1; UIManager:setDirty(self,"ui"); return true end}
+        if self.page < self.pages then
+            local bx = self.card_x + self.card_w - pad - button_w
+            drawRoundedRect(bb, bx, footer_y + scale(7), button_w, button_h, scale(10), GRAY.olive_soft)
+            self:_paintText(bb, _("Next ›"), bx + scale(8), footer_y + scale(16), button_w - scale(12), 10, true, COLORS.ink)
+            self._hits[#self._hits + 1] = { x = bx, y = footer_y, w = button_w, h = self.footer_h, action = function()
+                self.page = self.page + 1; self:_paginate(); UIManager:setDirty(self, "ui"); return true
+            end }
         end
     end
 end

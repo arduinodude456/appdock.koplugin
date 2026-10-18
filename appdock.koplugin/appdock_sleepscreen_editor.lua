@@ -196,47 +196,12 @@ function SleepEditor:_customWidgets()
     return definition.widgets
 end
 
-function SleepEditor:_editCustomWidget(widget)
-    local dialog
-    local function input(title, value, hint, apply)
-        UIManager:close(dialog)
-        self:_showInput(title, value, hint, apply)
+function SleepEditor:_selectedCustomWidget()
+    local widgets = self:_customWidgets()
+    for _, widget in ipairs(widgets) do
+        if widget.id == self.selected_widget_id then return widget end
     end
-    dialog = ButtonDialog:new{ title = widget.name or _("Custom widget"), text = _("Configure without code: text, time rules, or cycle animation."), buttons = {
-        { { text = _("Name"), callback = function() input(_("Widget name"), widget.name, _("1–60 characters"), function(value)
-            if value == "" or #value > 60 then return false, _("Use a name from 1 to 60 characters.") end
-            widget.name = value; return true
-        end) end } },
-        { { text = _("Base text"), callback = function() input(_("Widget text"), widget.text or "", _("Tokens: {time}, {date}, {battery}, {device}"), function(value)
-            if #value > 2000 then return false, _("Use at most 2000 characters.") end
-            widget.text = value; return true
-        end) end } },
-        { { text = _("Animation frames"), callback = function()
-            local values = {}; for _, frame in ipairs(widget.frames or {}) do values[#values + 1] = frame.text end
-            input(_("Animation frames"), table.concat(values, "|"), _("Separate frames with |"), function(value)
-                widget.frames = {}
-                if value ~= "" then for frame in (value .. "|"):gmatch("(.-)|") do widget.frames[#widget.frames + 1] = { text = frame, duration = 1 } end end
-                if #widget.frames == 0 then widget.frames = nil end
-                return true
-            end)
-        end } },
-        { { text = _("Time-based texts"), callback = function()
-            input(_("Time-based texts"), widget.schedule_text or "", _("06:00-12:00=Good morning;18:00-23:59=Good evening"), function(value)
-                widget.schedule, widget.schedule_text = {}, value
-                for rule in (value .. ";"):gmatch("(.-);") do
-                    local range, text = rule:match("^(%d%d:%d%d%-%d%d:%d%d)=(.*)$")
-                    if range then
-                        local from, to = range:match("^(%d%d:%d%d)%-(%d%d:%d%d)$")
-                        widget.schedule[#widget.schedule + 1] = { from = from, to = to, text = text }
-                    elseif rule ~= "" then return false, _("Use time ranges like 06:00-12:00=Text.") end
-                end
-                if #widget.schedule == 0 then widget.schedule = nil end
-                return true
-            end)
-        end } },
-        { { text = _("Done"), callback = function() UIManager:close(dialog); self:_changed() end } },
-    } }
-    UIManager:show(dialog)
+    return widgets[1]
 end
 
 function SleepEditor:_createCustomWidget()
@@ -244,24 +209,35 @@ function SleepEditor:_createCustomWidget()
     if #widgets >= 16 then notify(_("A sleepscreen can contain at most 16 custom widgets.")); return end
     local widget = { id = "widget-" .. tostring(os.time()) .. "-" .. tostring(#widgets + 1), name = _("New widget"), text = "{time}" }
     widgets[#widgets + 1] = widget
-    self:_editCustomWidget(widget)
+    self.selected_widget_id = widget.id
+    local element = self:_element()
+    if element and element.type == "widget" then element.source = nil; element.widget_id = widget.id end
+    self.section = "widgets"
+    self:_changed()
 end
 
-function SleepEditor:showCustomWidgetMenu()
-    local widgets, buttons, dialog = self:_customWidgets(), {}, nil
-    for _, widget in ipairs(widgets) do
-        local selected = widget
-        buttons[#buttons + 1] = { { text = selected.name, callback = function()
-            UIManager:close(dialog)
-            local element = self:_element()
-            if element and element.type == "widget" then element.source = nil; element.widget_id = selected.id; self:_changed() end
-        end } }
+function SleepEditor:_deleteCustomWidget(widget)
+    local widgets = self:_customWidgets()
+    for index, candidate in ipairs(widgets) do
+        if candidate.id == widget.id then table.remove(widgets, index); break end
     end
-    buttons[#buttons + 1] = { { text = _("Create custom widget"), callback = function() UIManager:close(dialog); self:_createCustomWidget() end } }
-    buttons[#buttons + 1] = { { text = _("Cancel"), callback = function() UIManager:close(dialog) end } }
-    dialog = ButtonDialog:new{ title = _("Custom widget"), text = _("Choose a code-free widget for this layer."), buttons = buttons }
-    UIManager:show(dialog)
+    for _, element in ipairs(self:_definition().elements) do
+        if element.widget_id == widget.id then element.widget_id = nil; element.source = "clock" end
+    end
+    self.selected_widget_id = widgets[1] and widgets[1].id or nil
+    self:_changed()
 end
+
+function SleepEditor:_refreshWeather(widget)
+    local ok, Weather = pcall(require, "appdock_sleepscreen_weather")
+    if not ok or not Weather or not Weather.fetch then notify(_("Weather support is unavailable.")); return end
+    local result, err = Weather.fetch(widget.latitude, widget.longitude)
+    if not result then notify(_("Could not update weather: ") .. tostring(err or "")); return end
+    widget.weather_cache = result
+    self:_changed()
+    notify(_("Weather updated: ") .. result.temperature .. " · " .. result.description)
+end
+
 
 function SleepEditor:showFontMenu()
     local element = self:_element(); if not element then return end
@@ -403,6 +379,10 @@ function SleepEditor:_publishAfterAccount()
     local package, export_err = Presets.exportPackage(saved)
     if not package then notify(_("Could not prepare preset: ") .. tostring(export_err or "")); return end
     local assets = #((package.definition or {}).assets or {})
+    local weather_widgets = 0
+    for _, widget in ipairs((package.definition or {}).widgets or {}) do
+        if widget.weather then weather_widgets = weather_widgets + 1 end
+    end
     local remote_id, revision = saved.remote_id, saved.revision
     local creator_label = _("your TBS account")
     local account_ok, Account = pcall(require, "appdock_tbs_account")
@@ -419,7 +399,8 @@ function SleepEditor:_publishAfterAccount()
     dialog = ConfirmBox:new{
         text = _("Publish sleepscreen publicly?") .. "\n\n" .. _("Name: ") .. tostring((package.definition or {}).name or "")
             .. "\n" .. _("Creator: ") .. tostring(creator_label) .. "\n" .. _("Assets shared: ") .. tostring(assets)
-            .. "\n\n" .. _("Only this preset definition and the selected assets are shared. No books, local paths, device values, or account secrets are uploaded."),
+            .. "\n" .. _("Weather widgets: ") .. tostring(weather_widgets)
+            .. "\n\n" .. _("Only this preset definition and the selected assets are shared. Weather widget coordinates and cached conditions are included if configured. No books, local paths, device values, or account secrets are uploaded."),
         ok_text = remote_id and _("Update public preset") or _("Publish"),
         ok_callback = function()
             UIManager:close(dialog)
@@ -593,7 +574,7 @@ function SleepEditor:_sectionRows(panel_width, colors)
             field(_("Image"), _("Local image"), function() self:_addElement("image") end),
             field(_("Card"), _("Text card"), function() self:_addElement("card") end),
             field(_("Widget"), _("Clock, date, battery"), function() self:_addElement("widget") end),
-            field(_("Custom widget"), _("Use a code-free widget"), function() self:_addElement("widget"); self:showCustomWidgetMenu() end),
+            field(_("Custom widget"), _("Create and connect a live-preview widget"), function() self:_addElement("widget"); self:_createCustomWidget() end),
         })
         local element_fields = {}
         for index, candidate in ipairs(definition.elements) do
@@ -616,16 +597,81 @@ function SleepEditor:_sectionRows(panel_width, colors)
         addGroup(_("Layers"), _("Select a layer to edit its content, position, or style."), element_fields)
     elseif self.section == "widgets" then
         local widget_fields = {
-            field(_("Create custom widget"), _("Text, time rules, or animation — no code"), function() self:_createCustomWidget() end, { wide = true }),
+            field(_("Create custom widget"), _("Start with a live-preview widget"), function() self:_createCustomWidget() end, { wide = true }),
         }
-        for _, widget in ipairs(self:_customWidgets()) do
-            local selected = widget
-            local summary = selected.text or _("Configured widget")
-            if selected.frames then summary = _("Animated · ") .. tostring(#selected.frames) .. _(" frames") end
-            if selected.schedule then summary = summary .. _(" · Time rules") end
-            widget_fields[#widget_fields + 1] = field(selected.name, summary, function() self:_editCustomWidget(selected) end, { wide = true })
+        for _, candidate in ipairs(self:_customWidgets()) do
+            local selected_widget = candidate
+            local summary = selected_widget.text or _("No text")
+            if selected_widget.weather then summary = _("Open-Meteo weather") .. " · " .. (selected_widget.weather_cache and selected_widget.weather_cache.temperature or _("not fetched")) end
+            if selected_widget.frames then summary = summary .. " · " .. tostring(#selected_widget.frames) .. _(" frames") end
+            widget_fields[#widget_fields + 1] = field((self.selected_widget_id == selected_widget.id and "● " or "") .. selected_widget.name,
+                summary, function() self.selected_widget_id = selected_widget.id; self:_changed() end, { wide = true, selected = self.selected_widget_id == selected_widget.id })
         end
-        addGroup(_("Your widgets"), _("Create reusable declarative widgets without writing code."), widget_fields)
+        addGroup(_("Widget library"), _("Select a widget to edit it. Changes appear in the preview as soon as you apply them."), widget_fields)
+        local widget = self:_selectedCustomWidget()
+        if widget then
+            self.selected_widget_id = widget.id
+            addGroup(_("Edit: ") .. widget.name, _("Reusable content, time rules, animation, and live data."), {
+                field(_("Name"), widget.name, function() self:_showInput(_("Widget name"), widget.name, _("1–60 characters"), function(value)
+                    if value == "" or #value > 60 then return false, _("Use a name from 1 to 60 characters.") end
+                    widget.name = value; return true
+                end) end, { wide = true }),
+                field(_("Text template"), widget.text or "", function() self:_showInput(_("Widget text"), widget.text or "", _("{time}, {date}, {battery}, {device}, {temperature}, {weather}"), function(value)
+                    if #value > 2000 then return false, _("Use at most 2000 characters.") end
+                    widget.text = value; return true
+                end) end, { wide = true }),
+                field(_("Animation frames"), widget.frames and tostring(#widget.frames) or _("Off"), function()
+                    local values = {}; for _, frame in ipairs(widget.frames or {}) do values[#values + 1] = frame.text end
+                    self:_showInput(_("Animation frames"), table.concat(values, "|"), _("Separate frames with |"), function(value)
+                        local frames = {}
+                        if value ~= "" then for frame in (value .. "|"):gmatch("(.-)|") do frames[#frames + 1] = { text = frame, duration = 1 } end end
+                        if #frames > 12 then return false, _("Use at most 12 frames.") end
+                        widget.frames = #frames > 0 and frames or nil
+                        return true
+                    end)
+                end, { wide = true }),
+                field(_("Time rules"), widget.schedule_text or _("Off"), function()
+                    self:_showInput(_("Time-based texts"), widget.schedule_text or "", _("06:00-12:00=Good morning;18:00-23:59=Good evening"), function(value)
+                        local schedule = {}
+                        for rule in (value .. ";"):gmatch("(.-);") do
+                            local from, to, text = rule:match("^(%d%d:%d%d)%-(%d%d:%d%d)=(.*)$")
+                            if from then schedule[#schedule + 1] = { from = from, to = to, text = text }
+                            elseif rule ~= "" then return false, _("Use HH:MM-HH:MM=Text; separate rules with semicolons.") end
+                        end
+                        if #schedule > 12 then return false, _("Use at most 12 time rules.") end
+                        widget.schedule, widget.schedule_text = #schedule > 0 and schedule or nil, value
+                        return true
+                    end)
+                end, { wide = true }),
+                field(_("Weather API"), widget.weather and _("Open-Meteo enabled") or _("Off · no API key needed"), function()
+                    widget.weather = not widget.weather
+                    if widget.weather then widget.latitude, widget.longitude = widget.latitude or "52.5200", widget.longitude or "13.4050" end
+                    self:_changed()
+                end),
+            })
+            if widget.weather then
+                addGroup(_("Open-Meteo · current conditions"), _("Public weather API; no key required. Fetch manually so sleep-screen rendering never waits on the network."), {
+                    field(_("Latitude"), widget.latitude or "52.5200", function() self:_showInput(_("Latitude"), widget.latitude or "52.5200", _("−90 to 90"), function(value)
+                        local n = tonumber(value); if not n or n < -90 or n > 90 then return false, _("Enter a latitude from −90 to 90.") end
+                        widget.latitude = value; return true
+                    end) end),
+                    field(_("Longitude"), widget.longitude or "13.4050", function() self:_showInput(_("Longitude"), widget.longitude or "13.4050", _("−180 to 180"), function(value)
+                        local n = tonumber(value); if not n or n < -180 or n > 180 then return false, _("Enter a longitude from −180 to 180.") end
+                        widget.longitude = value; return true
+                    end) end),
+                    field(_("Fetch current weather"), widget.weather_cache and ((widget.weather_cache.temperature or "") .. " · " .. (widget.weather_cache.description or "")) or _("Tap to fetch"), function() self:_refreshWeather(widget) end, { wide = true }),
+                })
+            end
+            local bound = false
+            for _, layer in ipairs(definition.elements) do if layer.type == "widget" and layer.widget_id == widget.id then bound = true end end
+            addGroup(_("Use this widget"), bound and _("This widget is shown in a screen layer; preview reflects your edits.") or _("Add it to the selected layer to see it on the preview."), {
+                field(bound and _("Widget is connected") or _("Add to selected widget layer"), element and element.type == "widget" and _("Use selected layer") or _("Create a widget layer first in Elements"), function()
+                    if element and element.type == "widget" then element.source, element.widget_id = nil, widget.id; self:_changed()
+                    else notify(_("Add a Widget element first in the Elements tab.")) end
+                end, { wide = true }),
+                field(_("Delete widget"), _("Remove it from the library and layers"), function() self:_deleteCustomWidget(widget) end, { wide = true, background = colors.tertiary, foreground = colors.on_tertiary }),
+            })
+        end
     elseif self.section == "edit" then
         if not element then
             addGroup(_("Nothing selected"), _("Choose an element from the Elements tab, or add your first one."), {
@@ -664,7 +710,10 @@ function SleepEditor:_sectionRows(panel_width, colors)
                     end)
                 end, { wide = true })
             elseif element.type == "widget" and element.widget_id then
-                content_fields[#content_fields + 1] = field(_("Custom widget"), element.widget_id, function() self:showCustomWidgetMenu() end, { wide = true })
+                content_fields[#content_fields + 1] = field(_("Custom widget"), element.widget_id, function()
+                    self.selected_widget_id, self.section = element.widget_id, "widgets"
+                    self:rebuild(); UIManager:setDirty(self, "ui")
+                end, { wide = true })
             elseif element.type == "widget" then
                 content_fields[#content_fields + 1] = field(_("Widget source"), element.source or "clock", function()
                     local dialog; local choices = { "clock", "date", "battery", "device" }; local buttons = {}

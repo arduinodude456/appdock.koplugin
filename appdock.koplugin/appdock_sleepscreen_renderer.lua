@@ -29,6 +29,8 @@ local PREVIEW_VALUES = {
     battery = "73%",
     device = "KOReader",
     sleeping = "Sleeping",
+    temperature = "18.5°C",
+    weather = "Partly cloudy",
 }
 
 local function clamp(value, minimum, maximum)
@@ -127,6 +129,8 @@ local function replacementValues(preview)
         battery = localPowerCapacity() or "—",
         device = localDeviceName(),
         sleeping = "Sleeping",
+        temperature = "—",
+        weather = "—",
     }
 end
 
@@ -375,6 +379,13 @@ local function customWidgetText(element, definition, values, cycle)
         if widget.id == element.widget_id then selected = widget; break end
     end
     if not selected then return "" end
+    if selected.weather and selected.weather_cache then
+        local widget_values = {}
+        for key, value in pairs(values) do widget_values[key] = value end
+        widget_values.temperature = selected.weather_cache.temperature or "—"
+        widget_values.weather = selected.weather_cache.description or "—"
+        values = widget_values
+    end
     local now = minutes(os.date("%H:%M")) or 0
     for _, rule in ipairs(selected.schedule or {}) do
         local from, to = minutes(rule.from), minutes(rule.to)

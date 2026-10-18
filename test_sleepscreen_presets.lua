@@ -66,6 +66,14 @@ local custom = baseDefinition()
 custom.widgets = { { id = "greeting", name = "Greeting", text = "Hello", frames = { { text = "One", duration = 1 } } } }
 custom.elements[1] = { type = "widget", x = 0, y = 0, w = 100, h = 10, widget_id = "greeting", font = "infofont", font_size = 16, color = "#000000" }
 assert(Presets.normalize(custom).widgets[1].id == "greeting", "custom widget definitions must normalize")
+custom.widgets[1].weather = true
+custom.widgets[1].latitude, custom.widgets[1].longitude = 52.52, 13.405
+custom.widgets[1].weather_cache = { temperature = "18.5°C", description = "Partly cloudy", updated = "2026-10-18 09:00" }
+local weather_normalized = assert(Presets.normalize(custom))
+assert(weather_normalized.widgets[1].weather_cache.temperature == "18.5°C", "weather cache must persist as bounded local widget data")
+custom.widgets[1].latitude = 100
+assert(not Presets.normalize(custom), "invalid weather coordinates must be rejected")
+custom.widgets[1].latitude = 52.52
 custom.elements[1].widget_id = "missing"
 assert(not Presets.normalize(custom), "unknown custom widget references must be rejected")
 assert(not Presets.normalize({ schema_version = 1, name = "bad", description = "", background = "#FFFFFF", assets = {}, elements = {

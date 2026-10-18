@@ -353,6 +353,24 @@ local function normalizeCustomWidget(widget)
             result.frames[index] = { text = frame.text, duration = duration }
         end
     end
+    if widget.weather ~= nil then
+        if type(widget.weather) ~= "boolean" then return nil, "invalid custom widget weather setting" end
+        result.weather = widget.weather
+    end
+    if widget.weather then
+        local latitude, longitude = tonumber(widget.latitude), tonumber(widget.longitude)
+        if not latitude or latitude < -90 or latitude > 90 or not longitude or longitude < -180 or longitude > 180 then
+            return nil, "invalid weather coordinates"
+        end
+        result.latitude, result.longitude = latitude, longitude
+        if widget.weather_cache ~= nil then
+            local cache = widget.weather_cache
+            if type(cache) ~= "table" or type(cache.temperature) ~= "string" or #cache.temperature > 24
+                or type(cache.description) ~= "string" or #cache.description > 48
+                or type(cache.updated) ~= "string" or #cache.updated > 24 then return nil, "invalid cached weather data" end
+            result.weather_cache = { temperature = cache.temperature, description = cache.description, updated = cache.updated }
+        end
+    end
     if widget.schedule ~= nil then
         local count = asArray(widget.schedule, 12)
         if not count then return nil, "invalid custom widget schedule" end

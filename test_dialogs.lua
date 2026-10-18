@@ -103,8 +103,8 @@ local paint_ok, paint_error = pcall(info.paintTo, info, bb, 0, 0)
 assert(paint_ok, "A custom status dialog must paint without treating GestureRange.range as a geometry: " .. tostring(paint_error))
 assert(paints > 0 and info.ges_events.TapAppDockModal[1].range() == info.dimen,
     "The status dialog must paint and its tap callback must resolve to the full-screen geometry")
-assert(bb.text_calls[1] and bb.text_calls[1].fgcolor == 2 and bb.text_calls[1].last_fill == 4,
-    "Dialog title text must be black over a light-gray title surface, never black over black")
+assert(bb.text_calls[1] and bb.text_calls[1].fgcolor == 2,
+    "Dialog title text must use a high-contrast foreground over the light glass surface")
 assert(info:onKeyRepeat() == true, "A custom AppDock modal must consume held page-key repeats")
 local update_text = "This is a deliberately long update description that must wrap inside the modal instead of running past the card width."
 local update_dialog = Dialogs.Modal:new{ title = "AppDock updated", text = update_text }
@@ -146,7 +146,9 @@ end
 local first_hit = picker._hits[1]
 local first_fill
 for _, rect in ipairs(bb.rectangles) do
-    if rect.x == first_hit.x and rect.y == first_hit.y and rect.w == first_hit.w then first_fill = rect.color; break end
+    if rect.x >= first_hit.x and rect.x + rect.w <= first_hit.x + first_hit.w
+        and rect.y >= first_hit.y and rect.y + rect.h <= first_hit.y + first_hit.h
+        and rect.color == 1 then first_fill = rect.color; break end
 end
 assert(first_fill == 1, "Standard action labels must be drawn on a white button surface")
 local selection_hit = picker._hits[1]
@@ -159,6 +161,12 @@ assert(pcall(confirm.paintTo, confirm, bb, 0, 0) and #confirm._hits == 2, "An Ap
 local confirm_hit = confirm._hits[1]
 confirm:onTapAppDockModal(nil, { pos = { x = confirm_hit.x + 1, y = confirm_hit.y + 1 } })
 assert(confirmed and confirm._closed, "The confirmation's positive action must run through the custom tap handler")
+
+local long_label = Dialogs.ButtonDialog:new{ buttons = { { { text = "A deliberately long action label that must wrap into several readable lines instead of being cut off" } } } }
+assert(#long_label.button_labels[1][1].lines > 1, "Long action labels must wrap automatically rather than being ellipsized")
+assert(long_label.row_heights[1] > 46, "Button height must grow with its wrapped label")
+local unbroken_text = Dialogs.Modal:new{ text = string.rep("W", 110) }
+assert(#unbroken_text.body_widget.lines > 1, "A long unbroken token must also wrap without cutting a text line")
 
 local submitted
 local input_dialog

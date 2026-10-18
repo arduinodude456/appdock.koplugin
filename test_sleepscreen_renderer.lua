@@ -266,6 +266,15 @@ local custom_canvas = Renderer.build(custom_definition, 100, 100, { preview = tr
 assert(custom_canvas.entries[1].widget.child.text == "Two", "custom widget animation must select the frame for the current cycle")
 custom_canvas:free()
 
+local weather_definition = definition({
+    { type = "widget", x = 0, y = 0, w = 100, h = 20, widget_id = "forecast", font = "infofont", font_size = 18, color = "#000000" },
+})
+weather_definition.widgets = { { id = "forecast", name = "Weather", text = "{temperature} · {weather}", weather = true,
+    latitude = 52.52, longitude = 13.405, weather_cache = { temperature = "18.5°C", description = "Partly cloudy", updated = "2026-10-18 09:00" } } }
+local weather_canvas = Renderer.build(weather_definition, 100, 100, { preview = false })
+assert(weather_canvas.entries[1].widget.child.text == "18.5°C · Partly cloudy", "renderer must substitute only cached weather values without fetching")
+weather_canvas:free()
+
 -- contain delegates centering and original-size preservation to ImageWidget;
 -- cover first probes actual original dimensions, then chooses the centered crop
 -- scale for the selected image. Both the probe and returned widget free once.
