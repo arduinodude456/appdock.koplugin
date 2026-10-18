@@ -26,7 +26,7 @@ local HorizontalSpan = require("ui/widget/horizontalspan")
 local AppDockDialogs = require("appdock_dialogs")
 local InputDialog = AppDockDialogs.InputDialog
 local OverlapGroup = require("ui/widget/overlapgroup")
-local TextBoxWidget = require("ui/widget/textboxwidget")
+local TextBoxWidget = require("appdock_text").TextBoxWidget
 local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
@@ -1263,6 +1263,7 @@ function Music:_buildSearchPane(instance, context, state)
     table.insert(content, title)
     if failed then
         local diagnostic = TextBoxWidget:new{
+            bgcolor = Blitbuffer.COLOR_WHITE,
             text = state.search_error or "",
             face = Font:getFace("smallinfofont", scale(10)),
             fgcolor = Blitbuffer.COLOR_DARK_GRAY,

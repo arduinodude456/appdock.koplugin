@@ -33,7 +33,7 @@ local InputContainer = require("ui/widget/container/inputcontainer")
 local InputDialog = AppDockDialogs.InputDialog
 local OverlapGroup = require("ui/widget/overlapgroup")
 local TextWidget = require("ui/widget/textwidget")
-local TextBoxWidget = require("ui/widget/textboxwidget")
+local TextBoxWidget = require("appdock_text").TextBoxWidget
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local _ = require("gettext")
@@ -3137,6 +3137,7 @@ function YouTube:_buildSetupPane(instance, context, state)
     output_label.overlap_offset = { margin, bootstrap.error and scale(174) or scale(158) }
     table.insert(content, output_label)
     local output_widget = TextBoxWidget:new{
+        bgcolor = Blitbuffer.COLOR_WHITE,
         text = bootstrap.live_output or YouTube.liveLogPreview(""),
         face = Font:getFace("smallinfofont", scale(9)),
         fgcolor = Blitbuffer.COLOR_DARK_GRAY,
