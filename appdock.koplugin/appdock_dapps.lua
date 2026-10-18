@@ -2101,20 +2101,23 @@ function DAppManager:_newContext(host, instance, assigned_dimen)
             }
         end,
         requestRefresh = function(refreshtype, region)
-            if self.active_host == host then
+            if self.active_host == host and not host._closed then
                 UIManager:setDirty(host, refreshtype or "ui", region)
                 if UIManager.forceRePaint then UIManager:forceRePaint() end
             end
         end,
         requestRebuild = function(refreshtype)
-            if self.active_host == host then
+            if self.active_host == host and not host._closed then
+                local rebuilt
                 if host.is_window and host.window_states then
-                    host:rebuild({ dapp_id = instance.id })
+                    rebuilt = pcall(host.rebuild, host, { dapp_id = instance.id })
                 else
-                    host:rebuild()
+                    rebuilt = pcall(host.rebuild, host)
                 end
-                UIManager:setDirty(host, refreshtype or "ui")
-                if UIManager.forceRePaint then UIManager:forceRePaint() end
+                if rebuilt then
+                    UIManager:setDirty(host, refreshtype or "ui")
+                    if UIManager.forceRePaint then UIManager:forceRePaint() end
+                end
             end
         end,
         requestFullscreen = function(enabled)
@@ -2128,6 +2131,79 @@ function DAppManager:_newContext(host, instance, assigned_dimen)
             return self.appdock:notify(payload)
         end,
     }
+end
+
+local function conciseDAppError(value)
+    return tostring(value or "unknown error"):gsub("[%c%s]+", " "):sub(1, 160)
+end
+
+-- Store DApps and optional plugin hosts are extension boundaries.  A broken
+-- pane must become a recoverable AppDock view, never a KOReader event-loop
+-- exception.  The same guard is used for cleanup hooks below.
+function DAppManager:_safeDeactivate(instance, pane)
+    if type(pane) ~= "table" or type(pane.onDeactivate) ~= "function" then return true end
+    local ok, err = pcall(pane.onDeactivate, pane)
+    if not ok and instance then instance.last_lifecycle_error = conciseDAppError(err) end
+    return ok
+end
+
+function DAppManager:_buildFailurePane(instance, context, err)
+    local dimen = context and context.dimen or { w = scale(280), h = scale(180) }
+    local width, height = math.max(1, dimen.w or scale(280)), math.max(1, dimen.h or scale(180))
+    local pane = WidgetContainer:new{ dimen = Geom:new{ w = width, h = height } }
+    local margin = math.min(math.max(1, math.floor(width * .06)), math.max(1, math.floor((width - 1) / 2)))
+    local title = (instance and instance.definition and instance.definition.title) or _("This app")
+    local title_widget = TextWidget:new{
+        text = Theme.fitLabel(title, width - margin * 2, scale(17), 0),
+        face = Font:getFace("cfont", scale(17)), fgcolor = PALETTE.on_surface,
+        bold = true, max_width = width - margin * 2, padding = 0,
+    }
+    local body_widget = TextWidget:new{
+        text = _("AppDock isolated an error in this app. Other apps and your local settings are still available."),
+        face = Font:getFace("smallinfofont", scale(13)), fgcolor = PALETTE.on_variant,
+        max_width = width - margin * 2, padding = 0,
+    }
+    local retry_width = math.min(width - margin * 2, scale(150))
+    local retry = ActionChip:new{
+        title = _("Retry app"), symbol = "↻", width = retry_width, height = scale(38),
+        background = PALETTE.primary, foreground = PALETTE.on_primary,
+        callback = function()
+            if context and context.requestRebuild then context.requestRebuild("ui") end
+        end,
+    }
+    local card_h = math.max(1, math.min(math.max(1, height - margin * 2), math.max(scale(150), title_widget:getSize().h + body_widget:getSize().h + retry:getSize().h + scale(54))))
+    local card_y = math.max(0, math.floor((height - card_h) / 2))
+    retry.overlap_offset = { math.max(margin, math.floor((width - retry_width) / 2)), card_y + card_h - retry:getSize().h - scale(14) }
+    pane[1] = OverlapGroup:new{
+        dimen = pane.dimen, allow_mirroring = false,
+        FrameContainer:new{
+            width = width, height = height, padding = 0, bordersize = 0,
+            background = PALETTE.background, emptySizedWidget(width, height),
+        },
+        FrameContainer:new{
+            width = width - margin * 2, height = card_h, padding = 0, bordersize = scale(1),
+            color = PALETTE.outline, radius = scale(14), background = PALETTE.surface,
+            emptySizedWidget(width - margin * 2, card_h), overlap_offset = { margin, card_y },
+        },
+        title_widget,
+        body_widget,
+        retry,
+    }
+    title_widget.overlap_offset = { margin * 2, card_y + scale(16) }
+    body_widget.overlap_offset = { margin * 2, card_y + scale(48) }
+    pane.appdock_error = conciseDAppError(err)
+    return pane
+end
+
+function DAppManager:_buildPaneSafely(instance, context)
+    local definition = instance and instance.definition
+    if type(definition) ~= "table" or type(definition.buildPane) ~= "function" then
+        return self:_buildFailurePane(instance, context, "missing pane contract")
+    end
+    local ok, pane = pcall(definition.buildPane, instance, context)
+    if ok and type(pane) == "table" then return pane end
+    if instance then instance.last_build_error = conciseDAppError(ok and "pane was not a widget" or pane) end
+    return self:_buildFailurePane(instance, context, ok and "pane was not a widget" or pane)
 end
 
 function DAppManager:_backgroundContext(instance, options)
@@ -2534,7 +2610,7 @@ function DAppManager:detachHost(host)
     for _, id in ipairs(host.dapp_ids or { self.active_id }) do
         local instance = self.instances[id]
         if instance and instance.pane and instance.pane.onDeactivate then
-            instance.pane:onDeactivate()
+            self:_safeDeactivate(instance, instance.pane)
         end
         if instance then
             instance.visible = false
@@ -3854,7 +3930,9 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("TBS Account & cloud sync"),
-                subtitle = tbs_status.signed_in and _("Connected · settings backup enabled") or _("Required for AppStore, YouTube, YouTube Music and DockUpdate"),
+                subtitle = tbs_status.signed_in
+                    and string.format(_("Connected · %d queued Store item(s) · settings backup"), tbs_status.pending_installation_count or 0)
+                    or _("Optional cloud backup · restore on another reader"),
                 show_state = false,
                 callback = function()
                     if self.appdock.showTBSAccount then self.appdock:showTBSAccount(instance, context) end
@@ -3974,10 +4052,11 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("About AppDock"),
-                subtitle = _( "Version 7.9.49 · Reliability update"),
+                subtitle = string.format(_("Version %s · AppDock overview"), self.appdock.getRelease and self.appdock:getRelease() or "8.2.12"),
                 show_state = false,
                 callback = function()
-                    self:showSettingsNotice(_("AppDock 7.9.49 · Reliability update\n\nThis version adds a boot rollback guard, a safer sequential YouTube conversion pipeline, a persistent virtual file sorter, keyboard language selection and contrast-safe Store-DApp text roles."))
+                    local release = self.appdock.getRelease and self.appdock:getRelease() or "8.2.12"
+                    self:showSettingsNotice(string.format(_("AppDock %s\n\nAn E-Ink-friendly homescreen and app manager for KOReader. Settings and TBS account status are available locally; app shortcuts can be managed without disabling KOReader plugins."), release))
                 end,
             },
             {
@@ -4003,7 +4082,7 @@ function DAppManager:_buildSettingsPane(instance, context)
                     local currently_enabled = not self.appdock.getKeyboardEnabled or self.appdock:getKeyboardEnabled()
                     if currently_enabled then
                         local confirmation = ConfirmBox:new{
-                            title = _("Wirklich??"),
+                            title = _("Disable AppDock keyboard?"),
                             text = _("Disable the AppDock keyboard and use the KOReader keyboard instead?"),
                             ok_text = _("Disable"),
                             cancel_text = _("Cancel"),
@@ -4242,6 +4321,7 @@ function DAppManager:_buildSettingsPane(instance, context)
 end
 
 local function hostShowBrightness(host, state)
+    if not host or host._closed then return end
     local indicator = DeviceControls.buildIndicator(state)
     if not indicator then return end
     host._brightness_indicator = indicator
@@ -4250,10 +4330,11 @@ local function hostShowBrightness(host, state)
     host:rebuild(true)
     UIManager:setDirty(host, "ui")
     UIManager:scheduleIn(1.1, function()
-        if host._brightness_generation == generation then
+        if not host._closed and host.manager and host.manager.active_host == host
+            and host._brightness_generation == generation then
             host._brightness_indicator = nil
-            host:rebuild(true)
-            UIManager:setDirty(host, "ui")
+            local rebuilt = pcall(host.rebuild, host, true)
+            if rebuilt then UIManager:setDirty(host, "ui") end
         end
     end)
 end
@@ -4350,7 +4431,7 @@ function DAppWindowHost:minimizeWindow(id)
     state.minimized = true
     local instance = self.manager.instances[id]
     if instance then
-        if instance.pane and instance.pane.onDeactivate then instance.pane:onDeactivate() end
+        if instance.pane and instance.pane.onDeactivate then self.manager:_safeDeactivate(instance, instance.pane) end
         instance.pane, instance.visible = nil, false
     end
     if self.manager.active_id == id then
@@ -4373,7 +4454,7 @@ function DAppWindowHost:removeWindow(id)
     local was_active = self.manager.active_id == id
     local instance = self.manager.instances[id]
     if instance then
-        if instance.pane and instance.pane.onDeactivate then instance.pane:onDeactivate() end
+        if instance.pane and instance.pane.onDeactivate then self.manager:_safeDeactivate(instance, instance.pane) end
         instance.pane, instance.visible, instance.in_window = nil, false, false
         instance.in_split = false
     end
@@ -4481,7 +4562,7 @@ function DAppWindowHost:setDAppFullscreen(id, enabled)
     enabled = enabled == true
     if enabled == (state.fullscreen == true) then return true end
     local instance = self.manager.instances[id]
-    if instance and instance.pane and instance.pane.onDeactivate then instance.pane:onDeactivate() end
+    if instance and instance.pane and instance.pane.onDeactivate then self.manager:_safeDeactivate(instance, instance.pane) end
     if instance then instance.pane = nil end
     if enabled then
         local rect = state.rect or self.manager:_windowGeometry(id, Screen:getSize())
@@ -4517,7 +4598,7 @@ function DAppWindowHost:rebuild(preserve_active)
         if not self.is_fullscreen then focused_state.rect = self.window_rect end
     end
     if not preserve_active then
-        for _, pane in ipairs(self.active_panes or {}) do if pane.onDeactivate then pane:onDeactivate() end end
+        for _, pane in ipairs(self.active_panes or {}) do self.manager:_safeDeactivate(nil, pane) end
     end
     self.active_panes, self.active_pane = {}, nil
     local border, title_h = math.max(scale(2), 1), math.max(scale(40), scale(36))
@@ -4547,13 +4628,15 @@ function DAppWindowHost:rebuild(preserve_active)
             if (reuse_all or (rebuild_target and window_id ~= rebuild_target)) and instance.pane then
                 pane = instance.pane
             else
-                if rebuild_target == window_id and instance.pane and instance.pane.onDeactivate then instance.pane:onDeactivate() end
+                if rebuild_target == window_id and instance.pane and instance.pane.onDeactivate then
+                    self.manager:_safeDeactivate(instance, instance.pane)
+                end
                 local context = self.manager:_newContext(self, instance, content)
                 if instance.workspace_state ~= nil and instance.definition.restoreState and not instance._workspace_state_applied then
                     pcall(instance.definition.restoreState, instance, instance.workspace_state, context)
                     instance._workspace_state_applied, instance.workspace_state = true, nil
                 end
-                pane = instance.definition.buildPane(instance, context)
+                pane = self.manager:_buildPaneSafely(instance, context)
             end
             instance.pane, instance.visible, instance.in_split, instance.in_window = pane, true, false, true
             pane.overlap_offset = { content.x, content.y }
@@ -4582,7 +4665,9 @@ function DAppWindowHost:rebuild(preserve_active)
             end
             layout_windows[window_id] = { rect = rect, content = content, fullscreen = is_foreground_fullscreen, minimized = false }
         elseif instance and state then
-            if instance.pane and not state._hidden and instance.pane.onDeactivate then instance.pane:onDeactivate() end
+            if instance.pane and not state._hidden and instance.pane.onDeactivate then
+                self.manager:_safeDeactivate(instance, instance.pane)
+            end
             instance.pane, instance.visible = nil, false
             state._hidden = true
             layout_windows[window_id] = { rect = state.rect, fullscreen = state.fullscreen == true, minimized = state.minimized == true }
@@ -4644,6 +4729,8 @@ function DAppWindowHost:rebuild(preserve_active)
 end
 
 function DAppWindowHost:onCloseWidget()
+    self._closed = true
+    self._brightness_generation = (self._brightness_generation or 0) + 1
     self.manager:detachHost(self)
     UIManager:setDirty("all", "ui")
 end
@@ -4774,7 +4861,7 @@ function DAppHost:rebuild(preserve_active)
     local content_top, content_bottom = appbar_height, height - navigation_height
     if not preserve_active then
         for _, pane in ipairs(self.active_panes or {}) do
-            if pane.onDeactivate then pane:onDeactivate() end
+            self.manager:_safeDeactivate(nil, pane)
         end
     end
     self.active_panes = {}
@@ -4798,7 +4885,10 @@ function DAppHost:rebuild(preserve_active)
         pane_regions = { Geom:new{ x = 0, y = content_top, w = width, h = math.max(1, content_bottom - content_top) } }
     end
 
-    local title = self.split and _("Split screen") or self.manager.instances[ids[1]].definition.title
+    local primary_instance = self.manager.instances[ids[1]]
+    local title = self.split and _("Split screen")
+        or (primary_instance and primary_instance.definition and primary_instance.definition.title)
+        or _("AppDock")
     local host_title = TextWidget:new{
         text = title,
         face = Font:getFace("smallinfofont", expressive and Theme.adjustText(self.manager.appdock, scale(17), scale(11)) or scale(17)),
@@ -4849,24 +4939,26 @@ function DAppHost:rebuild(preserve_active)
     for index, id in ipairs(ids) do
         local instance = self.manager:_instanceFor(id)
         local region = pane_regions[index]
-        local context = self.manager:_newContext(self, instance, region)
-        if instance.workspace_state ~= nil and instance.definition.restoreState and not instance._workspace_state_applied then
-            pcall(instance.definition.restoreState, instance, instance.workspace_state, context)
-            instance._workspace_state_applied = true
-            instance.workspace_state = nil
-        end
-        local pane = instance.definition.buildPane(instance, context)
-        instance.pane = pane
-        instance.visible = true
-        instance.in_split = self.split
-        pane.overlap_offset = { region.x, region.y }
-        table.insert(self.active_panes, pane)
-        table.insert(chrome, pane)
-        if instance.definition.host_kind == "plugin" then
-            local overlay = self.manager:_buildPluginHostOverlay(instance, context)
-            if overlay then
-                overlay.overlap_offset = { region.x, region.y }
-                table.insert(chrome, overlay)
+        if instance and region then
+            local context = self.manager:_newContext(self, instance, region)
+            if instance.workspace_state ~= nil and instance.definition.restoreState and not instance._workspace_state_applied then
+                pcall(instance.definition.restoreState, instance, instance.workspace_state, context)
+                instance._workspace_state_applied = true
+                instance.workspace_state = nil
+            end
+            local pane = self.manager:_buildPaneSafely(instance, context)
+            instance.pane = pane
+            instance.visible = true
+            instance.in_split = self.split
+            pane.overlap_offset = { region.x, region.y }
+            table.insert(self.active_panes, pane)
+            table.insert(chrome, pane)
+            if instance.definition.host_kind == "plugin" then
+                local overlay = self.manager:_buildPluginHostOverlay(instance, context)
+                if overlay then
+                    overlay.overlap_offset = { region.x, region.y }
+                    table.insert(chrome, overlay)
+                end
             end
         end
     end
@@ -4943,6 +5035,8 @@ function DAppHost:rebuild(preserve_active)
 end
 
 function DAppHost:onCloseWidget()
+    self._closed = true
+    self._brightness_generation = (self._brightness_generation or 0) + 1
     self.manager:detachHost(self)
     UIManager:setDirty("all", "ui")
 end

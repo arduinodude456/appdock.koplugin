@@ -4,7 +4,7 @@
 
 # New releases regulary commited at 3:00 AM CET
 
-**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **8.2.11** restores the olive accent on primary dialog actions on color devices and fixes a crash when enabling weather in the sleep-screen editor. [Release notes](RELEASE_NOTES_8.2.11.md).
+**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **8.2.12** hardens plugin and DApp lifecycle boundaries against crashes, clarifies TBS accounts, and bounds Wi-Fi migration data. [Release notes](RELEASE_NOTES_8.2.12.md).
 
 > **E-Ink approach:** AppDock deliberately borrows the visual language and information structure, not Android's animations, blur, or transparency effects. This keeps updates economical and maintains contrast on monochrome readers.
 

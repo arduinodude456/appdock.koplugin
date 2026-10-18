@@ -1,6 +1,6 @@
 # AppDock Homescreen für KOReader
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **8.2.11** stellt die Oliv-Akzentfarbe primärer Dialogaktionen auf RGB-Geräten wieder her und behebt einen Absturz beim Aktivieren von Wetter im Sleepscreen-Editor. [Details](RELEASE_NOTES_8.2.11.md).
+**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **8.2.12** härtet die Plugin- und DApp-Lifecycle-Grenzen gegen Abstürze, erklärt TBS-Konten verständlicher und begrenzt WLAN-Migrationsdaten. [Details](RELEASE_NOTES_8.2.12.md).
 
 ### Sleepscreen-Presets
 

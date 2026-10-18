@@ -12,6 +12,7 @@ Transfer.MAX_TOTAL_ASSET_BYTES = 8 * 1024 * 1024
 Transfer.SETTINGS_KEYS = {
     "appdock_homescreen", "appdock_dchat_v1", "language", "night_mode",
 }
+Transfer.MAX_PAYLOAD_BYTES = 12 * 1024 * 1024
 local function randomCode()
     local file = io.open("/dev/urandom", "rb")
     local data = file and file:read(6) or nil
@@ -27,10 +28,20 @@ local function socketLib()
     return socket
 end
 local function readLine(client)
-    local line, err = client:receive("*l")
-    if not line then return nil, err or "The transfer connection closed." end
-    if #line > 16 * 1024 * 1024 then return nil, "The transfer payload is too large." end
-    return line
+    local parts, size = {}, 0
+    while true do
+        local chunk, err, partial = client:receive(1)
+        local value = chunk or partial
+        if value and value ~= "\n" and value ~= "\r" then
+            size = size + #value
+            if size > Transfer.MAX_PAYLOAD_BYTES then return nil, "The transfer payload is too large." end
+            parts[#parts + 1] = value
+        end
+        if chunk == "\n" then return table.concat(parts) end
+        if not chunk and (not partial or partial == "") then
+            return nil, err or "The transfer connection closed."
+        end
+    end
 end
 local function sendLine(client, value)
     local ok, err = client:send(value .. "\n")
@@ -114,14 +125,18 @@ function Transfer.apply(payload)
     local path_map, imported = {}, 0
     local asset_root = DataStorage:getDataDir() .. "/appdock_migration_assets"
     pcall(lfs.mkdir, asset_root)
+    local total_asset_bytes = 0
     for index, asset in ipairs(type(payload.assets) == "table" and payload.assets or {}) do
         if index > 16 or type(asset) ~= "table" or type(asset.data) ~= "string" then break end
+        if #asset.data > math.ceil(Transfer.MAX_ASSET_BYTES * 4 / 3) then break end
         local bytes = base64Decode(asset.data)
         local name = tostring(asset.name or ("asset_" .. index)):gsub("[^%w%._%-]", "_"):sub(1, 96)
-        if bytes and #bytes <= Transfer.MAX_ASSET_BYTES then
+        if bytes and #bytes <= Transfer.MAX_ASSET_BYTES and total_asset_bytes + #bytes <= Transfer.MAX_TOTAL_ASSET_BYTES then
             local target = asset_root .. "/" .. name
             local file = io.open(target, "wb")
-            if file then file:write(bytes); file:close(); path_map[asset.source_path] = target end
+            if file then file:write(bytes); file:close(); total_asset_bytes = total_asset_bytes + #bytes
+                if type(asset.source_path) == "string" then path_map[asset.source_path] = target end
+            end
         end
     end
     for _, key in ipairs(Transfer.SETTINGS_KEYS) do

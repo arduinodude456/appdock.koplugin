@@ -4,7 +4,7 @@ It exposes selected KOReader plugin menu actions as configurable app tiles.
 --]]--
 
 local MODULE_DIR = (debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "")
-local APPDOCK_RELEASE = "8.2.11"
+local APPDOCK_RELEASE = "8.2.12"
 local AppDockRecovery
 local recovery_context
 do
@@ -139,10 +139,17 @@ function AppDock:getFeaturePages() return readFeaturePages() end
 
 local function copyArray(source)
     local result = {}
-    for index, value in ipairs(source or {}) do
+    for index, value in ipairs(type(source) == "table" and source or {}) do
         result[index] = value
     end
     return result
+end
+
+-- Settings are user data: an interrupted transfer, an older AppDock release or
+-- a manual edit must never turn a scalar value into a KOReader start-up crash.
+local function tableValue(value, fallback)
+    if type(value) == "table" then return value end
+    return fallback or {}
 end
 
 -- The YouTube DApp owns its own tool paths and conversion defaults. They are
@@ -185,7 +192,9 @@ end
 
 function AppDock:init()
     self:_loadSettings()
-    self.ui.menu:registerToMainMenu(self)
+    if self.ui and self.ui.menu and self.ui.menu.registerToMainMenu then
+        self.ui.menu:registerToMainMenu(self)
+    end
     self:_scheduleScreenRefresh()
     self:_scheduleDAppTasks()
     UIManager:nextTick(function()
@@ -236,7 +245,11 @@ function AppDock:onResume()
 end
 
 function AppDock:_loadSettings()
-    local stored = G_reader_settings:readSetting(self.settings_key, {})
+    local stored = {}
+    if _G.G_reader_settings and type(G_reader_settings.readSetting) == "function" then
+        local ok, value = pcall(G_reader_settings.readSetting, G_reader_settings, self.settings_key, {})
+        if ok and type(value) == "table" then stored = value end
+    end
     local Wallpaper = require("appdock_wallpaper")
     -- A table means the user (or an earlier AppDock release) has already made
     -- a wallpaper choice. Only an entirely missing setting receives the local,
@@ -249,38 +262,38 @@ function AppDock:_loadSettings()
         stored.wallpaper = { enabled = true, path = DEFAULT_WALLPAPER_PATH, source = "appdock_default" }
     end
     self.settings = {
-        pinned_apps = copyArray(stored.pinned_apps or DEFAULT_SETTINGS.pinned_apps),
-        recent_apps = copyArray(stored.recent_apps or DEFAULT_SETTINGS.recent_apps),
-        app_groups = AppDockGroups.normalize(stored.app_groups),
-        widgets = stored.widgets or {
+        pinned_apps = copyArray(tableValue(stored.pinned_apps, DEFAULT_SETTINGS.pinned_apps)),
+        recent_apps = copyArray(tableValue(stored.recent_apps, DEFAULT_SETTINGS.recent_apps)),
+        app_groups = AppDockGroups.normalize(tableValue(stored.app_groups)),
+        widgets = tableValue(stored.widgets, {
             clock = DEFAULT_SETTINGS.widgets.clock,
             status = DEFAULT_SETTINGS.widgets.status,
             reading_hint = DEFAULT_SETTINGS.widgets.reading_hint,
             store = {},
             store_order = {},
-        },
+        }),
         did_seed = stored.did_seed or false,
-        theme = stored.theme or { selected = "lavender", custom = {} },
-        design = stored.design or { active_id = nil, installed = {} },
-        plugin_logos = stored.plugin_logos or {},
-        store = stored.store or { installed = {} },
-        layout = stored.layout or {},
+        theme = tableValue(stored.theme, { selected = "lavender", custom = {} }),
+        design = tableValue(stored.design, { active_id = nil, installed = {} }),
+        plugin_logos = tableValue(stored.plugin_logos),
+        store = tableValue(stored.store, { installed = {} }),
+        layout = tableValue(stored.layout),
         launch_on_start = stored.launch_on_start == true,
-        notifications = stored.notifications or { items = {}, next_id = 0 },
-        wallpaper = stored.wallpaper or { enabled = true, path = DEFAULT_WALLPAPER_PATH, source = "appdock_default" },
-        lockscreen = stored.lockscreen or { enabled = false, method = "swipe", secret_hash = nil, profile_name = "", profile_image_path = "" },
-        beta = stored.beta or { black_borders = false, keep_wallpaper_original_in_night = false, plugin_dapp_host = false, windows = false, manual_app_spacing = false, plugin_custom_logos = false },
-        quick_settings = stored.quick_settings or { tiles = copyArray(DEFAULT_SETTINGS.quick_settings.tiles) },
-        simple_mode = stored.simple_mode or { homescreen = false, quick_settings = false, focus_apps = false },
-        workspace = stored.workspace or { restore_enabled = false, session = nil },
-        accessibility = stored.accessibility or { text_scale = 1, high_contrast = false },
-        dapp_permissions = stored.dapp_permissions or {},
-        widget_generator = stored.widget_generator or { items = {}, next_id = 0 },
-        tbs_account = stored.tbs_account or { enabled = false, username = "", display_name = "" },
-        setup_assistant = stored.setup_assistant or { offered_version = "", completed_version = "" },
-        update_dialog = stored.update_dialog or { dismissed_version = "" },
-        keyboard = stored.keyboard or { language = "auto" },
-        file_browser = stored.file_browser or { sort_category = "all", show_hidden = false, hidden_paths = {} },
+        notifications = tableValue(stored.notifications, { items = {}, next_id = 0 }),
+        wallpaper = tableValue(stored.wallpaper, { enabled = true, path = DEFAULT_WALLPAPER_PATH, source = "appdock_default" }),
+        lockscreen = tableValue(stored.lockscreen, { enabled = false, method = "swipe", secret_hash = nil, profile_name = "", profile_image_path = "" }),
+        beta = tableValue(stored.beta, { black_borders = false, keep_wallpaper_original_in_night = false, plugin_dapp_host = false, windows = false, manual_app_spacing = false, plugin_custom_logos = false }),
+        quick_settings = tableValue(stored.quick_settings, { tiles = copyArray(DEFAULT_SETTINGS.quick_settings.tiles) }),
+        simple_mode = tableValue(stored.simple_mode, { homescreen = false, quick_settings = false, focus_apps = false }),
+        workspace = tableValue(stored.workspace, { restore_enabled = false, session = nil }),
+        accessibility = tableValue(stored.accessibility, { text_scale = 1, high_contrast = false }),
+        dapp_permissions = tableValue(stored.dapp_permissions),
+        widget_generator = tableValue(stored.widget_generator, { items = {}, next_id = 0 }),
+        tbs_account = tableValue(stored.tbs_account, { enabled = false, username = "", display_name = "" }),
+        setup_assistant = tableValue(stored.setup_assistant, { offered_version = "", completed_version = "" }),
+        update_dialog = tableValue(stored.update_dialog, { dismissed_version = "" }),
+        keyboard = tableValue(stored.keyboard, { language = "auto" }),
+        file_browser = tableValue(stored.file_browser, { sort_category = "all", show_hidden = false, hidden_paths = {} }),
         power_saving = stored.power_saving == true,
         volume_percent = math.max(0, math.min(100, tonumber(stored.volume_percent) or 100)),
         refresh_interval = tonumber(stored.refresh_interval) or DEFAULT_SETTINGS.refresh_interval,
@@ -291,7 +304,7 @@ function AppDock:_loadSettings()
             and stored.sleepscreens.active_id:match("^[%w_%-]+$")
             and stored.sleepscreens.active_id or nil },
         youtube = normalizeYouTubeSettings(stored.youtube),
-        layout_version = stored.layout_version or 1,
+        layout_version = math.max(1, math.floor(tonumber(stored.layout_version) or 1)),
     }
 
     local normalized_recent, recent_seen = {}, {}
@@ -400,13 +413,13 @@ function AppDock:_loadSettings()
         self.settings.widgets.reading_hint = self.settings.widgets.hint ~= false
     end
     self.settings.widgets.hint = nil
-    self.settings.widgets.store = self.settings.widgets.store or {}
-    self.settings.widgets.store_order = self.settings.widgets.store_order or {}
+    self.settings.widgets.store = tableValue(self.settings.widgets.store)
+    self.settings.widgets.store_order = copyArray(self.settings.widgets.store_order)
     self.settings.theme = self.settings.theme or { selected = "lavender", custom = {} }
     self.settings.theme.selected = self.settings.theme.selected or "lavender"
-    self.settings.theme.custom = self.settings.theme.custom or {}
+    self.settings.theme.custom = tableValue(self.settings.theme.custom)
     self.settings.design = self.settings.design or { active_id = nil, installed = {} }
-    self.settings.design.installed = self.settings.design.installed or {}
+    self.settings.design.installed = tableValue(self.settings.design.installed)
     local Theme = require("appdock_theme")
     local normalized_designs = {}
     for id, record in pairs(self.settings.design.installed) do
@@ -432,10 +445,10 @@ function AppDock:_loadSettings()
         end
     end
     self.settings.plugin_logos = normalized_plugin_logos
-    self.settings.store = self.settings.store or { installed = {} }
-    self.settings.store.installed = self.settings.store.installed or {}
-    self.settings.notifications = self.settings.notifications or { items = {}, next_id = 0 }
-    self.settings.notifications.items = self.settings.notifications.items or {}
+    self.settings.store = tableValue(self.settings.store, { installed = {} })
+    self.settings.store.installed = tableValue(self.settings.store.installed)
+    self.settings.notifications = tableValue(self.settings.notifications, { items = {}, next_id = 0 })
+    self.settings.notifications.items = tableValue(self.settings.notifications.items)
     self.settings.notifications.next_id = tonumber(self.settings.notifications.next_id) or 0
     self.settings.wallpaper = self.settings.wallpaper or { enabled = false, path = "" }
     self.settings.wallpaper.enabled = self.settings.wallpaper.enabled == true
@@ -477,9 +490,9 @@ function AppDock:_loadSettings()
     local stored_text_scale = tonumber(self.settings.accessibility.text_scale) or 1
     self.settings.accessibility.text_scale = allowed_text_scales[stored_text_scale] and stored_text_scale or 1
     self.settings.accessibility.high_contrast = self.settings.accessibility.high_contrast == true
-    self.settings.dapp_permissions = self.settings.dapp_permissions or {}
-    self.settings.widget_generator = self.settings.widget_generator or { items = {}, next_id = 0 }
-    self.settings.widget_generator.items = type(self.settings.widget_generator.items) == "table" and self.settings.widget_generator.items or {}
+    self.settings.dapp_permissions = tableValue(self.settings.dapp_permissions)
+    self.settings.widget_generator = tableValue(self.settings.widget_generator, { items = {}, next_id = 0 })
+    self.settings.widget_generator.items = tableValue(self.settings.widget_generator.items)
     self.settings.widget_generator.next_id = math.max(0, math.floor(tonumber(self.settings.widget_generator.next_id) or 0))
     -- Do not retain any historical credential fields that may have been stored
     -- by the pre-cloud prototype. DChat only needs this non-secret display
@@ -565,16 +578,22 @@ function AppDock:_saveSettings()
     end
 end
 
+function AppDock:getRelease()
+    return APPDOCK_RELEASE
+end
+
 function AppDock:getTBSAccountStatus()
     local ok, Account = pcall(require, "appdock_tbs_account")
     if not ok or not Account or not Account.status then return { signed_in = false } end
-    return Account.status(self)
+    local status_ok, status = pcall(Account.status, self)
+    return status_ok and type(status) == "table" and status or { signed_in = false }
 end
 
 function AppDock:showTBSAccount(instance, context)
     local ok, Account = pcall(require, "appdock_tbs_account")
     if not ok or not Account or not Account.showSettings then return false end
-    return Account.showSettings(self, context)
+    local shown, result = pcall(Account.showSettings, self, context)
+    return shown and result == true
 end
 
 function AppDock:getSetupAssistantStatus()
@@ -1140,11 +1159,13 @@ function AppDock:_scheduleDAppTasks()
     -- DApps such as DChat may opt in to a one-minute background check; each
     -- DApp still enforces its own interval and explicit permission.
     self._dapp_task_tick = function()
-        if not self.settings.power_saving then
-            local manager = self:getDAppManager()
-            if manager and manager.runPermittedBackgroundTasks then manager:runPermittedBackgroundTasks() end
-        end
-        UIManager:scheduleIn(60, self._dapp_task_tick)
+        pcall(function()
+            if not self.settings.power_saving then
+                local manager = self:getDAppManager()
+                if manager and manager.runPermittedBackgroundTasks then manager:runPermittedBackgroundTasks() end
+            end
+        end)
+        if self._dapp_task_tick then UIManager:scheduleIn(60, self._dapp_task_tick) end
     end
     UIManager:scheduleIn(60, self._dapp_task_tick)
 end
@@ -1152,6 +1173,8 @@ end
 function AppDock:onCloseWidget()
     if self.dapp_manager and self.dapp_manager.stopBackgroundJobs then self.dapp_manager:stopBackgroundJobs() end
     if self.dapp_manager and self.dapp_manager.captureWorkspace then self.dapp_manager:captureWorkspace() end
+    local account_ok, Account = pcall(require, "appdock_tbs_account")
+    if account_ok and Account and Account.cancelQueuedSync then pcall(Account.cancelQueuedSync, self) end
     if self._screen_refresh_tick then
         UIManager:unschedule(self._screen_refresh_tick)
     end
@@ -1182,6 +1205,12 @@ function AppDock:addToMainMenu(menu_items)
     }
 end
 
+function AppDock:_showSafeError(text)
+    local ok, dialog = pcall(InfoMessage.new, InfoMessage, { text = text })
+    if ok and dialog then pcall(UIManager.show, UIManager, dialog) end
+    return false
+end
+
 function AppDock:showHome(skip_lock, on_ready)
     if self.settings.lockscreen.enabled and not skip_lock then
         local ok, LockScreen = pcall(require, "appdock_lockscreen")
@@ -1198,26 +1227,45 @@ function AppDock:showHome(skip_lock, on_ready)
             return
         end
     end
-    local HomeScreen = require("appdock_homescreen")
-    UIManager:show(HomeScreen:new{ appdock = self })
+    local loaded, HomeScreen = pcall(require, "appdock_homescreen")
+    if not loaded or not HomeScreen then
+        return self:_showSafeError(_("AppDock homescreen could not be opened. Restart KOReader; the previous working plugin version can then be restored."))
+    end
+    local built, home = pcall(HomeScreen.new, HomeScreen, { appdock = self })
+    if not built or not home then
+        return self:_showSafeError(_("AppDock homescreen could not be built. Your local AppDock settings were kept unchanged."))
+    end
+    local shown = pcall(UIManager.show, UIManager, home)
+    if not shown then return self:_showSafeError(_("AppDock homescreen could not be shown safely.")) end
     if on_ready then UIManager:nextTick(on_ready) end
+    return true
 end
 
 function AppDock:showManager(home, selected_app)
-    local AppDockManager = require("appdock_manager")
-    AppDockManager:show{ appdock = self, parent_home = home, selected_app = selected_app }
+    local loaded, AppDockManager = pcall(require, "appdock_manager")
+    if not loaded or not AppDockManager or type(AppDockManager.show) ~= "function" then
+        return self:_showSafeError(_("AppDock management is unavailable. Restart KOReader and try again."))
+    end
+    local shown = pcall(AppDockManager.show, AppDockManager, { appdock = self, parent_home = home, selected_app = selected_app })
+    if not shown then return self:_showSafeError(_("AppDock management could not be opened safely.")) end
+    return true
 end
 
 function AppDock:getDAppManager()
     if not self.dapp_manager then
-local DAppManager = require("appdock_dapps")
-        self.dapp_manager = DAppManager:new(self)
+        local loaded, DAppManager = pcall(require, "appdock_dapps")
+        if not loaded or not DAppManager or type(DAppManager.new) ~= "function" then return nil end
+        local created, manager = pcall(DAppManager.new, DAppManager, self)
+        if not created or not manager then return nil end
+        self.dapp_manager = manager
     end
     return self.dapp_manager
 end
 
 function AppDock:showOpenApps(home)
-    self:getDAppManager():showRecents(home)
+    local manager = self:getDAppManager()
+    if manager and manager.showRecents then return manager:showRecents(home) end
+    return self:_showSafeError(_("Open apps is unavailable because the AppDock DApp service could not be loaded."))
 end
 
 function AppDock:getSystemApps()
@@ -1280,7 +1328,8 @@ function AppDock:getSystemApps()
 end
 
 function AppDock:_makePluginApp(plugin_module)
-    if plugin_module.name == self.name then
+    if type(plugin_module) ~= "table" or type(plugin_module.name) ~= "string"
+        or type(self.ui) ~= "table" or plugin_module.name == self.name then
         return nil
     end
 
@@ -1321,8 +1370,8 @@ function AppDock:_makePluginApp(plugin_module)
     return {
         id = "plugin:" .. plugin_module.name,
         plugin_name = plugin_module.name,
-        title = plugin_module.fullname or plugin_module.name,
-        subtitle = plugin_module.description or plugin_module.name,
+        title = type(plugin_module.fullname) == "string" and plugin_module.fullname or plugin_module.name,
+        subtitle = type(plugin_module.description) == "string" and plugin_module.description or plugin_module.name,
         actions = actions,
         instance = instance,
         custom_logo_path = self:getPluginLogo("plugin:" .. plugin_module.name),
@@ -1331,16 +1380,21 @@ function AppDock:_makePluginApp(plugin_module)
 end
 
 function AppDock:getDAppApps()
-    return self:getDAppManager():getCatalogApps()
+    local manager = self:getDAppManager()
+    if manager and manager.getCatalogApps then
+        local ok, apps = pcall(manager.getCatalogApps, manager)
+        if ok and type(apps) == "table" then return apps end
+    end
+    return {}
 end
 
 function AppDock:getPluginApps()
     local apps = {}
-    for _, plugin_module in ipairs(PluginLoader:loadPlugins()) do
-        local app = self:_makePluginApp(plugin_module)
-        if app then
-            table.insert(apps, app)
-        end
+    local loaded, plugins = pcall(PluginLoader.loadPlugins, PluginLoader)
+    if not loaded or type(plugins) ~= "table" then return apps end
+    for _, plugin_module in ipairs(plugins) do
+        local ok, app = pcall(self._makePluginApp, self, plugin_module)
+        if ok and app then table.insert(apps, app) end
     end
     table.sort(apps, function(left, right)
         return left.title:lower() < right.title:lower()
@@ -1721,7 +1775,10 @@ end
 function AppDock:getStoreWidgets()
     local manager = self:getDAppManager()
     local available, by_id = {}, {}
-    for _, widget in ipairs(manager:getStoreWidgets()) do
+    if not manager or type(manager.getStoreWidgets) ~= "function" then return available end
+    local ok, widgets = pcall(manager.getStoreWidgets, manager)
+    if not ok or type(widgets) ~= "table" then return available end
+    for _, widget in ipairs(widgets) do
         if self.settings.widgets.store[widget.widget_id] == nil then
             self.settings.widgets.store[widget.widget_id] = true
         end
@@ -1799,8 +1856,9 @@ end
 function AppDock:_launchPluginAction(app, action)
     local item = action.item
     if type(item.callback) == "function" then
-        item.callback()
-        return
+        local ok = pcall(item.callback)
+        if ok then return true end
+        return self:_showSafeError(_("This plugin action failed. AppDock remains open; try restarting the affected plugin."))
     end
     if type(item.sub_item_table) == "table" then
         local buttons = {}
@@ -1830,13 +1888,15 @@ function AppDock:launchApp(app, home)
     end
     self:_recordRecentApp(app)
     if app.kind == "dapp" then
-        self:getDAppManager():activate(app.dapp_id, home)
-        return
+        local manager = self:getDAppManager()
+        if manager and manager.activate then return manager:activate(app.dapp_id, home) end
+        return self:_showSafeError(_("This AppDock app is currently unavailable."))
     end
 
     if app.plugin_name and app.actions and self.settings.beta and self.settings.beta.plugin_dapp_host then
-        self:getDAppManager():activatePlugin(app, home)
-        return
+        local manager = self:getDAppManager()
+        if manager and manager.activatePlugin then return manager:activatePlugin(app, home) end
+        return self:_showSafeError(_("This plugin host is currently unavailable."))
     end
 
     if app.id == "system:manage" or app.id == "system:open_apps" then
