@@ -37,6 +37,7 @@ local Draw = require("appdock_draw")
 local InfoMessage = AppDockDialogs.InfoMessage
 local OverlapGroup = require("ui/widget/overlapgroup")
 local TextWidget = require("ui/widget/textwidget")
+local AppDockText = require("appdock_text")
 local ScrollHtmlWidget = require("ui/widget/scrollhtmlwidget")
 local ScrollableContainer = require("ui/widget/container/scrollablecontainer")
 local UIManager = require("ui/uimanager")
@@ -2084,6 +2085,7 @@ function DAppManager:_newContext(host, instance, assigned_dimen)
         manager = self,
         appdock = self.appdock,
         palette = appdock_palette,
+        text = AppDockText,
         instance = instance,
         host = host,
         -- Single and split hosts both hand out an explicit local pane rectangle.
@@ -4052,10 +4054,10 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("About AppDock"),
-                subtitle = string.format(_("Version %s · AppDock overview"), self.appdock.getRelease and self.appdock:getRelease() or "8.2.12"),
+                subtitle = string.format(_("Version %s · AppDock overview"), self.appdock.getRelease and self.appdock:getRelease() or "8.2.14"),
                 show_state = false,
                 callback = function()
-                    local release = self.appdock.getRelease and self.appdock:getRelease() or "8.2.12"
+                    local release = self.appdock.getRelease and self.appdock:getRelease() or "8.2.14"
                     self:showSettingsNotice(string.format(_("AppDock %s\n\nAn E-Ink-friendly homescreen and app manager for KOReader. Settings and TBS account status are available locally; app shortcuts can be managed without disabling KOReader plugins."), release))
                 end,
             },

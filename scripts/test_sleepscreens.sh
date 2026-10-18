@@ -8,7 +8,7 @@ command -v "$LUA_BIN" >/dev/null || { echo "Install LuaJIT (or set LUA_BIN=lua5.
 for module in appdock.koplugin/appdock_sleepscreen*.lua appdock.koplugin/main.lua appdock.koplugin/appdock_appstore.lua appdock.koplugin/appdock_dapps.lua; do
     "$LUA_BIN" -e "assert(loadfile([[$module]]))"
 done
-for test in test_sleepscreen*.lua test_appstore_play.lua test_tbs_account.lua test_setup_assistant.lua test_lockscreen.lua test_theme_contrast.lua; do
+for test in test_appdock_text.lua test_sleepscreen*.lua test_appstore_play.lua test_tbs_account.lua test_setup_assistant.lua test_lockscreen.lua test_theme_contrast.lua; do
     echo "==> $test"
     "$LUA_BIN" "$test"
 done

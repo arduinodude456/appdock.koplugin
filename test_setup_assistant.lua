@@ -62,6 +62,7 @@ package.preload["ui/geometry"] = function() return { new = function(_, args) ret
 package.preload["ui/gesturerange"] = function() return { new = function(_, args) return args end } end
 package.preload["ui/widget/container/inputcontainer"] = function() return WidgetContainer end
 package.preload["ui/widget/textwidget"] = function() return WidgetContainer end
+package.preload["ui/widget/textboxwidget"] = function() return WidgetContainer end
 package.preload["ui/uimanager"] = function()
     return {
         nextTick = function(_, callback) callback() end,
@@ -77,7 +78,7 @@ package.preload["ui/uimanager"] = function()
     }
 end
 package.preload["appdock_theme"] = function()
-    return { normalizeDesignDefinition = function() return nil end }
+    return { normalizeDesignDefinition = function() return nil end, getPalette = function() return {} end }
 end
 package.preload["appdock_wallpaper"] = function()
     return { isValidPath = function() return false end }
@@ -123,7 +124,7 @@ local AppDock = dofile(plugin_dir .. "main.lua")
 local ui = { menu = { registerToMainMenu = function() end } }
 local first = AppDock:new{ ui = ui }
 local first_status = first:getSetupAssistantStatus()
-assert(first_status.version == "8.2.12" and not first_status.offered and not first_status.completed, "The setup wizard remains an independent manual flow")
+assert(first_status.version == "8.2.14" and not first_status.offered and not first_status.completed, "The setup wizard remains an independent manual flow")
 assert(log.offers == 1 and first:shouldShowUpdateDialog(), "The update dialog must be shown on startup until explicitly dismissed")
 assert(first:getFeaturePages()[1].image and first:getFeaturePages()[1].image:match("assets/logos/appdock%.png$"), "The update dialog must receive its packaged test image")
 local manual_instance, manual_context = {}, {}
@@ -206,6 +207,11 @@ local wizard_appdock = {
     completeSetupAssistant = function() wizard_log.completed = wizard_log.completed + 1; return true end,
 }
 local wizard_manager = setmetatable({ appdock = wizard_appdock }, DAppManager)
+local render_context = wizard_manager:_newContext({ dimen = { w = 600, h = 800 } },
+    { id = "render_test", definition = { title = "Render Test" } }, { w = 600, h = 748 })
+assert(render_context.text and render_context.text.TextBoxWidget
+    and render_context.text.TextBoxWidget ~= WidgetContainer,
+    "The DApp context must expose a local transparent TextBox subclass without changing native widgets")
 function wizard_manager:showSettingsNotice(text) wizard_log.notice = text end
 local wizard_context = {
     requestRebuild = function(kind)
