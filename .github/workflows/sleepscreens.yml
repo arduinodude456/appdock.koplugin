@@ -5,6 +5,7 @@ on:
       - 'appdock.koplugin/**'
       - 'test_sleepscreen*.lua'
       - 'test_appstore_play.lua'
+      - 'test_appdock_manager.lua'
       - 'supabase/**'
       - 'scripts/test_sleepscreens.sh'
       - '.github/workflows/sleepscreens.yml'
@@ -14,6 +15,7 @@ on:
       - 'appdock.koplugin/**'
       - 'test_sleepscreen*.lua'
       - 'test_appstore_play.lua'
+      - 'test_appdock_manager.lua'
       - 'supabase/**'
       - 'scripts/test_sleepscreens.sh'
       - '.github/workflows/sleepscreens.yml'
@@ -31,3 +33,5 @@ jobs:
           deno-version: v2.x
       - name: Validate native plugin and preset service
         run: bash scripts/test_sleepscreens.sh
+      - name: Validate app group manager dialog flow
+        run: APPDOCK_PLUGIN_DIR="$GITHUB_WORKSPACE/appdock.koplugin/" luajit test_appdock_manager.lua
