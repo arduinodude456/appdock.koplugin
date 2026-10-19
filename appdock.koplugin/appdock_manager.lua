@@ -156,7 +156,7 @@ function AppDockManager:showDialog()
             local apps = {}
             for _, app in pairs(catalog) do apps[#apps + 1] = app end
             table.sort(apps, function(left, right) return left.title:lower() < right.title:lower() end)
-            for _, app in ipairs(apps) do
+            for app_index, app in ipairs(apps) do
                 local verb = selected[app.id] and _("Remove") or _("Add")
                 table.insert(buttons, { { text = string.format("%s: %s", verb, app.title), callback = function() toggle(app.id) end } })
             end
@@ -184,7 +184,6 @@ function AppDockManager:showDialog()
     end
 
     local function showCreateGroupMenu(selected_members)
-        UIManager:close(dialog)
         UIManager:nextTick(function()
             local members, selected = {}, {}
             for _, app_id in ipairs(selected_members or {}) do
@@ -216,7 +215,7 @@ function AppDockManager:showDialog()
                 reopen()
             end
             local buttons = { { { text = _("Select two or more apps"), enabled = false } } }
-            for _, app in ipairs(direct_apps) do
+            for app_index, app in ipairs(direct_apps) do
                 local verb = selected[app.id] and _("Remove") or _("Add")
                 table.insert(buttons, { { text = string.format("%s: %s", verb, app.title), callback = function() toggle(app.id) end } })
             end
@@ -325,8 +324,13 @@ function AppDockManager:showDialog()
     end
 
     table.insert(buttons, { { text = _("App groups"), enabled = false } })
-    table.insert(buttons, { { text = _("Create app group"), callback = function() showCreateGroupMenu() end } })
-    for _, app in ipairs(appdock:getPinnedApps()) do
+    table.insert(buttons, { { text = _("Create app group"), callback = function()
+        -- Close this manager dialog once. The selection menu reopens itself
+        -- after each toggle and must not close this already-dismissed parent.
+        UIManager:close(dialog)
+        UIManager:nextTick(function() showCreateGroupMenu() end)
+    end } })
+    for app_index, app in ipairs(appdock:getPinnedApps()) do
         if app.is_group then
             table.insert(buttons, { { text = string.format(_("Manage group: %s"), app.title), callback = function()
                 self.selected_app = app
