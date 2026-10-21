@@ -4057,10 +4057,10 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("About AppDock"),
-                subtitle = string.format(_("Version %s · AppDock overview"), self.appdock.getRelease and self.appdock:getRelease() or "8.2.17"),
+                subtitle = string.format(_("Version %s · AppDock overview"), self.appdock.getRelease and self.appdock:getRelease() or "8.2.18"),
                 show_state = false,
                 callback = function()
-                    local release = self.appdock.getRelease and self.appdock:getRelease() or "8.2.17"
+                    local release = self.appdock.getRelease and self.appdock:getRelease() or "8.2.18"
                     self:showSettingsNotice(string.format(_("AppDock %s\n\nAn E-Ink-friendly homescreen and app manager for KOReader. Settings and TBS account status are available locally; app shortcuts can be managed without disabling KOReader plugins."), release))
                 end,
             },

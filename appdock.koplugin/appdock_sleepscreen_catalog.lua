@@ -398,7 +398,10 @@ local function nav(ui, content, state, context, width, height, colors, store_sta
             bordersize = 0, radius = scale(14), background = colors.green_container or colors.primary,
             blank(tab_width - scale(10), nav_height - scale(14)), overlap_offset = { x + scale(5), nav_y + scale(7) } } end
         local callback = function()
-            if tab.id ~= "sleepscreen" then removePreview(state); state.opened = nil end
+            if tab.id ~= "sleepscreen" then
+                removePreview(state); state.opened = nil
+                if context.host and context.host.cropping_widget then context.host.cropping_widget = nil end
+            end
             -- The category belongs to AppStore, not its nested catalog state.
             store_state.category = tab.id
             if context.requestRebuild then context.requestRebuild("ui") end
@@ -537,9 +540,17 @@ function Catalog.buildPane(instance, context, ui)
     local content_height = math.max(list_height, rows._height or list_height)
     rows._height = nil
     local list_content = OverlapGroup:new{ dimen = Geom:new{ w = row_width, h = content_height }, allow_mirroring = false, unpack(rows) }
-    content[#content + 1] = ScrollableContainer:new{ dimen = Geom:new{ w = row_width + ScrollableContainer:getScrollbarWidth(), h = list_height },
+    local scrollable = ScrollableContainer:new{ dimen = Geom:new{ w = row_width + ScrollableContainer:getScrollbarWidth(), h = list_height },
         show_parent = context.host, list_content, overlap_offset = { margin, action_y } }
-    return WidgetContainer:new{ dimen = Geom:new{ w = width, h = height }, content }
+    content[#content + 1] = scrollable
+    -- KOReader uses this marker on the widget shown by UIManager to route
+    -- self-refreshes from children through the scroll viewport. Public
+    -- previews contain renderer/image widgets; without the marker, a refresh
+    -- during scrolling can target the full host and crash on affected builds.
+    local pane = WidgetContainer:new{ dimen = Geom:new{ w = width, h = height }, content }
+    pane.cropping_widget = scrollable
+    if context.host then context.host.cropping_widget = scrollable end
+    return pane
 end
 
 function Catalog.cleanup(instance)
