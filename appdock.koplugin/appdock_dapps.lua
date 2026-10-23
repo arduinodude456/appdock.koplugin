@@ -32,7 +32,8 @@ local WebBrowser = require("appdock_browser")
 local FileBrowser = require("appdock_filemanager")
 local AppStore = require("appdock_appstore")
 local YouTube = require("appdock_youtube")
-local YouTubeShorts = require("appdock_shorts")
+local ok_youtube_shorts, YouTubeShorts = pcall(require, "appdock_shorts")
+if not ok_youtube_shorts then YouTubeShorts = nil end
 local YouTubeMusic = require("appdock_ytmusic")
 local Draw = require("appdock_draw")
 local InfoMessage = AppDockDialogs.InfoMessage
@@ -1043,7 +1044,7 @@ function DAppManager:new(appdock)
         file_browser = FileBrowser:new(),
         app_store = AppStore:new(),
         youtube = YouTube:new(appdock),
-        youtube_shorts = YouTubeShorts:new(appdock),
+        youtube_shorts = YouTubeShorts and YouTubeShorts:new(appdock) or nil,
         youtube_music = YouTubeMusic:new(appdock),
         draw = Draw:new(),
         help = Help:new({
@@ -1131,20 +1132,22 @@ function DAppManager:_registerBuiltins()
             if self.youtube and self.youtube.player then self.youtube.player:stop() end
         end,
     }
-    self.definitions.youtube_shorts = {
-        id = "youtube_shorts",
-        title = _("YouTube Shorts"),
-        subtitle = _("A local, personalized Shorts feed"),
-        requires_tbs_account = true,
-        symbol = "S",
-        logo = "youtube",
-        buildPane = function(instance, context)
-            return self.youtube_shorts:buildPane(instance, context)
-        end,
-        onClose = function(instance)
-            if self.youtube_shorts then self.youtube_shorts:stop(instance) end
-        end,
-    }
+    if YouTubeShorts and self.youtube_shorts then
+        self.definitions.youtube_shorts = {
+            id = "youtube_shorts",
+            title = _("YouTube Shorts"),
+            subtitle = _("A local, personalized Shorts feed"),
+            requires_tbs_account = true,
+            symbol = "S",
+            logo = "youtube",
+            buildPane = function(instance, context)
+                return self.youtube_shorts:buildPane(instance, context)
+            end,
+            onClose = function(instance)
+                if self.youtube_shorts then self.youtube_shorts:stop(instance) end
+            end,
+        }
+    end
     self.definitions.youtube_music = {
         id = "youtube_music",
         title = _("YouTube Music"),

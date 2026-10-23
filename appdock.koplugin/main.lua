@@ -4,7 +4,7 @@ It exposes selected KOReader plugin menu actions as configurable app tiles.
 --]]--
 
 local MODULE_DIR = (debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "")
-local APPDOCK_RELEASE = "8.2.19"
+local APPDOCK_RELEASE = "8.2.20"
 local AppDockRecovery
 local recovery_context
 do
@@ -19,7 +19,8 @@ end
 local AppDockDialogs = require("appdock_dialogs")
 local ButtonDialog = AppDockDialogs.ButtonDialog
 local InfoMessage = AppDockDialogs.InfoMessage
-local AppDockAnnouncements = require("appdock_announcements")
+local ok_appdock_announcements, AppDockAnnouncements = pcall(require, "appdock_announcements")
+if not ok_appdock_announcements then AppDockAnnouncements = nil end
 local PluginLoader = require("pluginloader")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
@@ -684,14 +685,14 @@ function AppDock:_showRemoteNotice(notice)
 end
 
 function AppDock:checkRemoteNotice()
-    if self._remote_notice_checking then return false end
+    if not AppDockAnnouncements or self._remote_notice_checking then return false end
     -- Let the built-in release notes finish first; the next poll will pick up
     -- the remote status without stacking two full-screen dialogs.
     if self:shouldShowUpdateDialog() then return false end
     self._remote_notice_checking = true
-    local notice = AppDockAnnouncements.fetch()
+    local ok, notice = pcall(AppDockAnnouncements.fetch)
     self._remote_notice_checking = false
-    if notice then return self:_showRemoteNotice(notice) end
+    if ok and notice then return self:_showRemoteNotice(notice) end
     return false
 end
 
