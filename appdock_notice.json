@@ -1,0 +1,10 @@
+{
+  "id": "example-maintenance-2026-10-23",
+  "enabled": false,
+  "priority": "high",
+  "title": "Technische Hinweise",
+  "message": "Aktuell kann es bei AppDock zu Einschränkungen kommen. Wir arbeiten bereits an einer Lösung.",
+  "details": "Diese Meldung kannst du live über appdock_notice.json aktualisieren. Setze enabled auf true und ändere id, title oder message.",
+  "source": "AppDock Status",
+  "expires_at": 0
+}
