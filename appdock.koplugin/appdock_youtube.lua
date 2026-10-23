@@ -1407,6 +1407,10 @@ function YouTube:_startJob(instance, context, spec)
         source = spec.source,
         title = spec.title or spec.slug,
         video_id = spec.video_id,
+        -- A Shorts prefetch uses the same bounded conversion pipeline but must
+        -- not replace the currently visible player pane while it runs.
+        prefetch = spec.prefetch == true,
+        prefetch_index = spec.prefetch_index,
         duration = spec.duration,
         work = work,
         target = target,
@@ -1430,7 +1434,7 @@ function YouTube:_startJob(instance, context, spec)
         return nil
     end
     state.job = job
-    state.view = "job"
+    if not job.prefetch then state.view = "job" end
     state.note = ""
 
     if spec.kind == "file" then
@@ -1450,7 +1454,7 @@ function YouTube:_startJob(instance, context, spec)
         end
     end
 
-    if context and context.requestRebuild then context.requestRebuild("ui") end
+    if not job.prefetch and context and context.requestRebuild then context.requestRebuild("ui") end
     if job.stage == "error" then releaseConversion(job) end
     self:_schedule(instance, context)
     return job
@@ -1685,7 +1689,7 @@ function YouTube:_finishJob(instance, context, job, without_audio)
     state.selected_path = job.target
     -- A rebuild would close the player pane, so a finished job never
     -- interrupts ongoing playback; the library is already up to date.
-    if state.view ~= "play" then
+    if not job.prefetch and state.view ~= "play" then
         state.view = "home"
         if context and context.requestRebuild then context.requestRebuild("ui") end
     end

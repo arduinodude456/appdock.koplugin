@@ -221,7 +221,7 @@ local EXTENDED_KINDS = {
     "dictionary", "document", "download", "gallery", "location", "mail", "map", "music", "palette",
     "notes", "podcast", "reading", "rss", "search", "security", "sync", "tasks", "terminal",
     "timer", "translate", "upload", "weather", "battery", "dchat", "dockupdate", "minecraft", "rotation",
-    "youtube", "youtube_music", "draw",
+    "youtube", "youtube_shorts", "youtube_music", "draw",
 }
 
 function DAppLogo.availableKinds()
@@ -308,6 +308,21 @@ function DAppLogo:_paintExtended(bb, x, y, size, kind)
         local rows = math.max(1, triangle_bottom - triangle_top)
         for row = 0, rows - 1 do
             local position = row / (rows - 1)
+            local width = triangle_width * (1 - math.abs(2 * position - 1))
+            rect(triangle_left, triangle_top + row, math.max(1, math.floor(width + 0.5)), 1)
+        end
+    elseif kind == "youtube_shorts" then
+        -- A tall Shorts frame with a play mark keeps the relationship to
+        -- YouTube while distinguishing its vertical feed in the launcher.
+        hollow(x + math.floor(size * 0.27), y + math.floor(size * 0.08),
+            math.floor(size * 0.46), math.floor(size * 0.84), stroke)
+        local triangle_top = y + math.floor(size * 0.35)
+        local triangle_bottom = y + math.floor(size * 0.65)
+        local triangle_left = x + math.floor(size * 0.45)
+        local triangle_width = math.floor(size * 0.15)
+        local rows = math.max(1, triangle_bottom - triangle_top)
+        for row = 0, rows - 1 do
+            local position = row / math.max(1, rows - 1)
             local width = triangle_width * (1 - math.abs(2 * position - 1))
             rect(triangle_left, triangle_top + row, math.max(1, math.floor(width + 0.5)), 1)
         end

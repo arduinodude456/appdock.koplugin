@@ -33,5 +33,7 @@ jobs:
           deno-version: v2.x
       - name: Validate native plugin and preset service
         run: bash scripts/test_sleepscreens.sh
+      - name: Validate YouTube and Shorts pipeline
+        run: LUA_PATH="$GITHUB_WORKSPACE/appdock.koplugin/?.lua;;" APPDOCK_PLUGIN_DIR="$GITHUB_WORKSPACE/appdock.koplugin/" luajit test_youtube.lua
       - name: Validate app group manager dialog flow
         run: APPDOCK_PLUGIN_DIR="$GITHUB_WORKSPACE/appdock.koplugin/" luajit test_appdock_manager.lua

@@ -1137,12 +1137,16 @@ function DAppManager:_registerBuiltins()
         subtitle = _("Short-only recommendations with likes and preloading"),
         requires_tbs_account = true,
         symbol = "S",
-        logo = "youtube",
+        logo = "youtube_shorts",
         buildPane = function(instance, context)
             return self.youtube_shorts:buildPane(instance, context)
         end,
-        onClose = function()
-            if self.youtube_shorts and self.youtube_shorts.player then self.youtube_shorts.player:stop() end
+        onClose = function(instance)
+            if self.youtube_shorts and self.youtube_shorts.onDAppClose then
+                self.youtube_shorts:onDAppClose(instance)
+            elseif self.youtube_shorts and self.youtube_shorts.player then
+                self.youtube_shorts.player:stop()
+            end
         end,
     }
     self.definitions.youtube_music = {

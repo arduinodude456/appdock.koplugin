@@ -506,13 +506,17 @@ assert(appdock:setBetaOption("plugin_custom_logos", true) and appdock:setPluginL
 appdock:setBetaOption("manual_app_spacing", true)
 assert(appdock.settings.beta.manual_app_spacing and appdock:setLauncherLayout({ app_spacing = 21 }) and appdock.settings.layout.app_spacing == 21, "Manual spacing Beta must persist a bounded launcher spacing value through the layout contract")
 local catalog = manager:getCatalogApps()
-assert(#catalog == 9, "DApp registry must expose all built-in catalog apps, found " .. tostring(#catalog))
+assert(#catalog == 10, "DApp registry must expose all built-in catalog apps, found " .. tostring(#catalog))
 for _, entry in ipairs(catalog) do
     assert(entry.id, "Every catalog entry must carry an id")
     if entry.id == "dapp:youtube" then log.youtube_entry = entry end
+    if entry.id == "dapp:youtube_shorts" then log.youtube_shorts_entry = entry end
     if entry.id == "dapp:youtube_music" then log.youtube_music_entry = entry end
 end
 assert(log.youtube_entry and log.youtube_entry.logo == "youtube" and log.youtube_entry.kind == "dapp", "The built-in YouTube DApp must be part of the AppDock catalog")
+assert(log.youtube_shorts_entry and log.youtube_shorts_entry.logo == "youtube_shorts"
+    and manager.definitions.youtube_shorts.requires_tbs_account and log.youtube_shorts_entry.kind == "dapp",
+    "The built-in YouTube Shorts DApp must have its own gated catalog entry and vertical logo")
 assert(log.youtube_music_entry and log.youtube_music_entry.logo == "youtube_music" and log.youtube_music_entry.kind == "dapp",
     "The built-in YouTube Music DApp must be part of the AppDock catalog")
 do

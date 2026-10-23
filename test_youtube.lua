@@ -159,6 +159,8 @@ package.preload["appdock_bwr"] = function() return BWR end
 local Player = dofile(plugin_dir .. "appdock_player.lua")
 package.preload["appdock_player"] = function() return Player end
 local YouTube = dofile(plugin_dir .. "appdock_youtube.lua")
+package.preload["appdock_youtube"] = function() return YouTube end
+local Shorts = dofile(plugin_dir .. "appdock_youtube_shorts.lua")
 
 ----------------------------------------------------------------
 -- Pure helpers
@@ -280,6 +282,81 @@ local context = {
 local state = youtube:_state(instance)
 assert(state.view == "home", "A new instance must start on the home view")
 assert(type(state.tools) == "table", "Tool detection must always produce a result table")
+
+----------------------------------------------------------------
+-- YouTube Shorts: source identity, local recommendation profile and prefetch
+----------------------------------------------------------------
+
+local shorts_helpers = Shorts._test
+assert(shorts_helpers.isShortUrl("https://www.youtube.com/shorts/abcdefghijk", "abcdefghijk"),
+    "A canonical /shorts/ URL must be accepted as a verified Short")
+assert(not shorts_helpers.isShortUrl("https://www.youtube.com/watch?v=abcdefghijk", "abcdefghijk"),
+    "A normal watch URL must never enter the Shorts feed")
+local parsed_shorts = shorts_helpers.parseShortsOutput(
+    "abcdefghijk\tCat moment #cats\tNA\tCat Channel\thttps://img.example/cat.jpg\thttps://www.youtube.com/watch?v=abcdefghijk\thttps://www.youtube.com/shorts/abcdefghijk\t@CatChannel\tUCabcdefghijk\n"
+    .. "lmnopqrstuv\tNormal short video\t120\tChannel\thttps://img.example/normal.jpg\thttps://www.youtube.com/watch?v=lmnopqrstuv\thttps://www.youtube.com/watch?v=lmnopqrstuv\t@Channel\tUClmnopqrstuv\n")
+assert(#parsed_shorts == 1 and parsed_shorts[1].id == "abcdefghijk" and parsed_shorts[1].duration == nil,
+    "Only canonical Shorts URLs must survive parsing, including flat feeds without duration")
+local profiles, profile_order = shorts_helpers.parseLikeProfiles(
+    "abcdefghijk|@CatChannel|cats,funny", "bad,abc")
+assert(profiles.abcdefghijk and #profile_order == 1,
+    "Like profiles must retain only valid, structured local preference records")
+local sources = shorts_helpers.recommendationSources(
+    { shorts_hashtags = "#science #cats" }, profiles, profile_order)
+assert(sources[1].url == "https://www.youtube.com/hashtag/science/shorts"
+    and sources[2].url == "https://www.youtube.com/hashtag/cats/shorts",
+    "Selected hashtags must become dedicated YouTube Shorts-tab sources")
+local found_liked_channel = false
+for _, source in ipairs(sources) do
+    if source.url == "https://www.youtube.com/@CatChannel/shorts" then found_liked_channel = true end
+end
+assert(found_liked_channel, "A like must contribute its creator's Shorts tab as a later feed source")
+local ranked = shorts_helpers.rankResults({
+    { id = "newshort001", title = "A new #cats Short", uploader_id = "@CatChannel" },
+    { id = "abcdefghijk", title = "Already liked", uploader_id = "@CatChannel" },
+}, profiles, {})
+assert(#ranked == 1 and ranked[1].id == "newshort001" and ranked[1].recommendation_score > 0,
+    "Liked creators and hashtags must rank new Shorts while previously liked items are skipped")
+
+local shorts = Shorts:new(appdock)
+local shorts_instance = {}
+local shorts_state = shorts:_state(shorts_instance)
+shorts_state.tools = { ytdlp = "/tools/yt-dlp", ffmpeg = "/tools/ffmpeg", ready = true }
+shorts:toggleLike(shorts_instance, context, parsed_shorts[1])
+assert(stored.shorts_liked_ids:find("abcdefghijk", 1, true)
+    and stored.shorts_liked_profiles:find("@CatChannel", 1, true),
+    "Liking a Short must persist an ID, creator and hashtags for future recommendations")
+local scheduled_before_shorts = #scheduled
+local shorts_command
+shorts._startDetached = function(_, command, work, tag)
+    shorts_command = command
+    return { pid = 0, log = work .. "/search.log", exit = work .. "/search.exit" }
+end
+assert(shorts:startSearch(shorts_instance, context, "#science #cats"),
+    "A hashtag selection must start a strict Shorts-tab query")
+assert(shorts_command:find("youtube%.com/hashtag/science/shorts", 1),
+    "The Shorts query must target a dedicated hashtag Shorts tab, not unrestricted ytsearch")
+local shorts_work = shorts_state.search and shorts_state.search.work
+shorts_state.search = nil
+if shorts_work then os.execute("rm -rf '" .. shorts_work:gsub("'", "'\\''") .. "'") end
+while #scheduled > scheduled_before_shorts do table.remove(scheduled) end
+local prefetched_result
+shorts_state.short_queue = {
+    { id = "abcdefghijk", title = "Current", url = "https://www.youtube.com/shorts/abcdefghijk", path = "/tmp/current.bwr" },
+    { id = "nextshort01", title = "Next", url = "https://www.youtube.com/shorts/nextshort01" },
+}
+shorts_state.short_index, shorts_state.job = 1, nil
+shorts._startShort = function(_, _, _, result, prefetch, prefetch_index)
+    prefetched_result = { result = result, prefetch = prefetch, index = prefetch_index }
+    return { prefetch = prefetch, prefetch_index = prefetch_index }
+end
+assert(shorts:_queuePrefetch(shorts_instance, context) and prefetched_result.prefetch
+    and prefetched_result.index == 2 and prefetched_result.result.id == "nextshort01",
+    "Playing one Short must schedule the next verified Short as an explicit background prefetch")
+shorts_state.view = "home"
+local shorts_pane = shorts:buildPane(shorts_instance, context)
+assert(shorts_pane and shorts_pane.dimen and shorts_pane.dimen.w == 600 and shorts_pane.onDeactivate,
+    "The Shorts DApp must build a full-size vertical feed pane with its own lifecycle")
 
 local settings = youtube:_settings()
 assert(settings.fps == 12 and settings.dither == "ffmpeg" and settings.resolution_percent == 100

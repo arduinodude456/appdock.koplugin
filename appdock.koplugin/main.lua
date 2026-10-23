@@ -4,7 +4,7 @@ It exposes selected KOReader plugin menu actions as configurable app tiles.
 --]]--
 
 local MODULE_DIR = (debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "")
-local APPDOCK_RELEASE = "8.2.22"
+local APPDOCK_RELEASE = "8.2.23"
 local AppDockRecovery
 local recovery_context
 do
@@ -45,6 +45,7 @@ local DEFAULT_SETTINGS = {
         "dapp:file_manager",
         "dapp:app_store",
         "dapp:youtube",
+        "dapp:youtube_shorts",
         "dapp:youtube_music",
         "dapp:draw",
         "dapp:analog_clock",
@@ -107,8 +108,11 @@ local DEFAULT_SETTINGS = {
         dither = "ffmpeg",
         color_mode = false,
         color_dither = true,
+        shorts_liked_ids = "",
+        shorts_hashtags = "",
+        shorts_liked_profiles = "",
     },
-    layout_version = 25,
+    layout_version = 26,
 }
 
 
@@ -192,6 +196,7 @@ local function normalizeYouTubeSettings(stored)
         -- backwards compatible with older AppDock settings files.
         shorts_liked_ids = boundedText(stored.shorts_liked_ids, 4000),
         shorts_hashtags = boundedText(stored.shorts_hashtags, 500),
+        shorts_liked_profiles = boundedText(stored.shorts_liked_profiles, 4000),
     }
 end
 
@@ -400,6 +405,21 @@ function AppDock:_loadSettings()
                 if app_id == "dapp:youtube" or app_id == "dapp:draw" then insert_at = index + 1 break end
             end
             table.insert(self.settings.pinned_apps, insert_at or (#self.settings.pinned_apps + 1), "dapp:youtube_music")
+        end
+    end
+    if self.settings.layout_version < 26 then
+        -- Shorts is a separate opt-out tile. Add it once beside YouTube without
+        -- changing the order a reader chose after the migration.
+        local pinned_shorts = false
+        for _, app_id in ipairs(self.settings.pinned_apps) do
+            if app_id == "dapp:youtube_shorts" then pinned_shorts = true; break end
+        end
+        if not pinned_shorts then
+            local insert_at
+            for index, app_id in ipairs(self.settings.pinned_apps) do
+                if app_id == "dapp:youtube" then insert_at = index + 1; break end
+            end
+            table.insert(self.settings.pinned_apps, insert_at or (#self.settings.pinned_apps + 1), "dapp:youtube_shorts")
         end
     end
     -- Folder ids share the same ordered list as apps, so normalize it after
