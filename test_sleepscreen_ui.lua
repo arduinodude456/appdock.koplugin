@@ -96,12 +96,26 @@ package.preload["appdock_sleepscreen_presets"] = function()
         installPackage = function(_, package, entry) installed = installed + 1; return { id = "installed", definition = package.definition, asset_paths = package.asset_paths or {}, remote_id = entry.id, revision = entry.revision, creator = entry.creator } end,
     }
 end
+local renderer_builds = 0
 package.preload["appdock_sleepscreen_renderer"] = function()
-    return { build = function(def, width, height, options) return WidgetContainer:new{ dimen = { w = width, h = height }, rendered_definition = def, rendered_options = options } end }
+    return { build = function(def, width, height, options)
+        renderer_builds = renderer_builds + 1
+        return WidgetContainer:new{ dimen = { w = width, h = height }, rendered_definition = def, rendered_options = options }
+    end }
 end
 package.preload["appdock_sleepscreen_store"] = function()
     return {
-        list = function(_, query, offset) listed = listed + 1; assert(offset == 0); return { entries = { { id = "remote-1", name = "Ocean", description = "Calm", creator = { account_id = "other", display_name = "Mira" }, revision = 3, definition = definition("Ocean") } }, has_more = true } end,
+        list = function(_, query, offset)
+            listed = listed + 1; assert(offset == 0)
+            local entries = {}
+            for index = 1, 12 do
+                local name = index == 1 and "Ocean" or ("Public " .. tostring(index))
+                entries[index] = { id = index == 1 and "remote-1" or ("remote-" .. tostring(index)), name = name,
+                    description = "Calm", creator = { account_id = "other", display_name = "Mira" },
+                    revision = 3, definition = definition(name) }
+            end
+            return { entries = entries, has_more = true }
+        end,
         get = function(_, id) assert(id == "remote-1"); return { entry = { id = id, name = "Ocean", creator = { account_id = "other", display_name = "Mira" }, revision = 3, definition = definition("Ocean") }, package = { definition = definition("Ocean"), assets = {}, asset_paths = {} } } end,
         publish = function(_, package, id, revision) published = { package = package, id = id, revision = revision }; return { id = id or "published-1", revision = 4, creator = { account_id = "me", display_name = "Me" } } end,
         unpublish = function() return true end,
@@ -213,14 +227,21 @@ assert(shown[#shown].record.id == editor.record.id, "An owned/local draft edit m
 
 local catalog_state = instance.app_store.sleepscreen_catalog
 catalog_state.view, catalog_state.entries, catalog_state.opened = "browse", nil, nil
+renderer_builds = 0
 Catalog.refresh(instance, context, catalog_state)
 assert(listed == 1 and catalog_state.entries[1].creator.display_name == "Mira", "Public browsing must call Store.list without an account and retain creator data")
 local public_results_pane = store:buildPane(instance, context)
-assert(#named(public_results_pane, "Open") == 1, "Rendering public results must preserve the gettext function and show an Open action")
+assert(#named(public_results_pane, "Open") == 12, "Rendering a full public page must show every Open action")
+assert(renderer_builds == 0 and hasText(public_results_pane, "Tap Open"), "Public scrolling must use lightweight placeholders instead of eagerly building every public renderer tree")
 assert(public_results_pane.cropping_widget, "Public sleepscreen results must expose their ScrollableContainer as cropping_widget")
 assert(context.host.cropping_widget == public_results_pane.cropping_widget, "The active DApp host must route public preview repaints through the crop widget")
+assert(public_results_pane.cropping_widget[1].dimen.h > public_results_pane.cropping_widget.dimen.h,
+    "A full public page must have a scrollable content area larger than its viewport")
 Catalog.openRemote(instance, context, catalog_state, catalog_state.entries[1])
 assert(catalog_state.opened and installed == 0, "Opening a remote preset may load its full preview but must not install it")
+local public_detail_pane = store:buildPane(instance, context)
+assert(renderer_builds == 1 and #named(public_detail_pane, "Download & use") == 1,
+    "Opening one public preset must build its full preview only in the detail view")
 Catalog.confirmDownload(context, catalog_state, true, false)
 local download_consent = shown[#shown]
 assert(download_consent.text:find("Download", 1, true) and download_consent.text:find("Creator: Mira", 1, true), "Download must require an explicit creator-labelled confirmation")

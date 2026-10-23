@@ -235,6 +235,21 @@ local function previewWidget(definition, asset_paths, width, height, appdock, co
         background = colors.surface, blank(width, height) }
 end
 
+-- Do not build renderer trees for every untrusted public result at once. The
+-- public list can contain a full page of arbitrary user-authored elements and
+-- asset references; creating dozens of native text/image widgets up front can
+-- exhaust KOReader's UI memory while its ScrollableContainer is painting.
+-- The complete, validated preview is built after the user opens one result.
+local function publicPreviewPlaceholder(width, height, colors)
+    local CenterContainer = require("ui/widget/container/centercontainer")
+    return FrameContainer:new{ width = width, height = height, padding = 0, bordersize = 0,
+        radius = scale(8), background = colors.surface_variant or colors.surface,
+        CenterContainer:new{ dimen = Geom:new{ w = width, h = height }, TextWidget:new{
+            text = _("Tap Open"), face = Font:getFace("smallinfofont", scale(9)),
+            fgcolor = colors.on_variant, max_width = width - scale(8), padding = 0,
+        } } }
+end
+
 function Catalog.refresh(instance, context, state)
     state = state or stateFor(instance)
     local Store = storeModule()
@@ -456,12 +471,14 @@ function Catalog.buildPane(instance, context, ui)
     end
     local row_width, row_height = width - 2 * margin, scale(118)
     local rows = {}
-    local function appendCard(title_text, detail, definition, asset_paths, actions)
+    local function appendCard(title_text, detail, definition, asset_paths, actions, defer_public_preview)
         local row_y = (#rows == 0 and 0 or rows._height or 0)
         local preview_w = math.max(scale(95), math.floor(row_width * .37))
         local actions_w, card_h = math.max(scale(78), math.floor(row_width * .22)), row_height
         local card_w = row_width - actions_w - gap
-        local widget = previewWidget(definition, asset_paths, preview_w, card_h - scale(12), context.appdock, colors)
+        local widget = defer_public_preview
+            and publicPreviewPlaceholder(preview_w, card_h - scale(12), colors)
+            or previewWidget(definition, asset_paths, preview_w, card_h - scale(12), context.appdock, colors)
         rows[#rows + 1] = FrameContainer:new{ width = card_w, height = card_h, padding = 0, bordersize = 0, radius = scale(12),
             background = colors.surface, Layout.FixedStack:new{ width = card_w, height = card_h, entries = {
                 { widget = widget, x = scale(6), y = scale(6) },
@@ -525,7 +542,7 @@ function Catalog.buildPane(instance, context, ui)
             local current_entry = entry
             appendCard(current_entry.name or _("Untitled sleepscreen"), _("Creator: ") .. creatorName(current_entry), current_entry.definition, nil, {
                 { title = _("Open"), primary = true, callback = function() Catalog.openRemote(instance, context, state, current_entry) end },
-            })
+            }, true)
         end
         local pager_y = rows._height or 0
         if state.offset > 0 then rows[#rows + 1] = normalButton(ui, { title = _("Previous page"), width = math.floor((row_width - gap) / 2), height = scale(34),
