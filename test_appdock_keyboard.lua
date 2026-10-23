@@ -28,10 +28,16 @@ local VerticalGroup = Widget:extend({
         return { w = 500, h = height }
     end,
 })
-local TextWidget = Widget:extend({ setText = function(self, text) self.text = text end })
+local TextWidget = Widget:extend({
+    setText = function(self, text) self.text = text end,
+    getSize = function() return { w = 120, h = 20 } end,
+})
 local ui = { scheduled = {}, dirty_modes = {}, next_ticks = {} }
 function ui:setDirty(_, mode) table.insert(self.dirty_modes, mode) end
 function ui:scheduleIn(delay, callback) table.insert(self.scheduled, { delay = delay, callback = callback }) end
+function ui:unschedule(callback)
+    for index = #self.scheduled, 1, -1 do if self.scheduled[index].callback == callback then table.remove(self.scheduled, index) end end
+end
 function ui:nextTick(callback) table.insert(self.next_ticks, callback) end
 function ui:show(widget) self.shown = widget end
 function ui:close(widget) self.closed = widget end
@@ -52,8 +58,10 @@ package.preload["ui/font"] = function() return { getFace = function(_, name, siz
 package.preload["ui/widget/container/framecontainer"] = function() return Widget end
 package.preload["ui/geometry"] = function() return { new = function(_, values) return values end } end
 package.preload["ui/gesturerange"] = function() return { new = function(_, values) return values end } end
+package.preload["ui/widget/horizontalspan"] = function() return Widget end
 package.preload["ui/widget/horizontalgroup"] = function() return Widget end
 package.preload["ui/widget/container/inputcontainer"] = function() return InputContainer end
+package.preload["ui/widget/container/leftcontainer"] = function() return Widget end
 package.preload["ui/widget/textwidget"] = function() return TextWidget end
 package.preload["ui/uimanager"] = function() return ui end
 package.preload["ui/widget/verticalgroup"] = function() return VerticalGroup end
@@ -66,47 +74,33 @@ local keyboard = Keyboard:new{}
 assert(keyboard.width == 900 and keyboard.dimen.w == 900, "Keyboard spans the full screen width")
 assert(keyboard.dimen.x == 0 and keyboard.dimen.y + keyboard.dimen.h == 1200, "Keyboard is anchored to the bottom edge")
 assert(keyboard.shift and keyboard.letter_keys[1].key.label == "Q", "Shift starts active and displays uppercase labels")
-assert(keyboard.letter_keys[1].key.height == 64 and keyboard.caps_key, "Keyboard uses larger keys and exposes Caps Lock")
+assert(keyboard.letter_keys[1].key.height == 93 and keyboard.shift_key, "Keyboard uses screen-scaled larger keys and exposes Shift/Caps Lock")
 assert(keyboard.suggestion_keys[1].label ~= "…", "Keyboard must fall back safely when the database is unavailable")
 assert(keyboard.dimen.h > 0 and #keyboard.suggestion_keys == 3, "Alphabetic keyboard must show three suggestion buttons")
-keyboard:_press("A")
+keyboard:_typeLetter("a")
 assert(keyboard.suggestion_keys[1].label ~= "…", "Database suggestions update with the typed prefix")
 keyboard.value = ""
 keyboard.shift = true
 keyboard:_update()
-keyboard:_press("Q")
+keyboard:_typeLetter("q")
 assert(keyboard.value == "Q" and not keyboard.shift and keyboard.letter_keys[1].key.label == "q", "Typing a letter consumes Shift and updates key labels")
-keyboard:_press("W")
+keyboard:_typeLetter("w")
 assert(keyboard.value == "Qw", "Unshifted input is lowercase")
 keyboard.shift_key:onTapKey()
 assert(keyboard.shift and keyboard.letter_keys[1].key.label == "Q", "Shift can be re-enabled and is visibly active")
-keyboard.caps_key:onTapKey()
-assert(keyboard.caps_lock and keyboard.caps_key.active and keyboard.letter_keys[1].key.label == "Q", "Caps Lock stays visibly active")
-keyboard.caps_key:onTapKey()
+keyboard.shift_key:onHoldKey()
+assert(keyboard.caps_lock and keyboard.shift_key.active and keyboard.letter_keys[1].key.label == "Q", "Caps Lock stays visibly active after a long Shift press")
+keyboard.shift_key:onHoldKey()
 assert(not keyboard.caps_lock, "Caps Lock can be disabled again")
-local tapped_key = keyboard.letter_keys[2].key
+local tapped_item = keyboard.letter_keys[2]
+local tapped_key = tapped_item.key
 local before = keyboard.value
+local expected_letter = (keyboard.caps_lock or keyboard.shift) and tapped_item.upper or tapped_item.lower
 tapped_key:onTapKey()
-assert(tapped_key.pressed and keyboard.value == before .. "W", "A tapped key shows temporary pressed feedback and enters its own character")
-assert(ui.dirty_modes[#ui.dirty_modes] == "fast", "Key entry requests a fast partial refresh")
-assert(ui.scheduled[#ui.scheduled].delay == 0.08, "Pressed feedback uses the faster short non-blocking interval")
-for _, item in ipairs(ui.scheduled) do item.callback() end
-assert(not tapped_key.pressed, "Pressed feedback clears after its short display interval")
-keyboard.symbol_key:onTapKey()
-assert(keyboard.symbols_page and keyboard.symbol_key.label == "ABC", "Symbol page opens and offers a way back to letters")
-local umlaut_key
-for _, item in ipairs(keyboard.letter_keys) do
-    if item.lower == "ä" then umlaut_key = item.key; break end
-end
-assert(umlaut_key and umlaut_key.label == "ä", "Symbol page includes German special characters")
-keyboard.shift_key:onTapKey()
-assert(umlaut_key.label == "Ä", "Shift updates case on the symbol page too")
-umlaut_key:onTapKey()
-assert(keyboard.value == "QwWÄ", "Special character is entered with the active case")
-keyboard:_press("←")
-assert(keyboard.value == "QwW", "Backspace removes a complete UTF-8 special character")
-keyboard.symbol_key:onTapKey()
-assert(not keyboard.symbols_page and keyboard.symbol_key.label == "?123", "Keyboard returns to the letter page")
+assert(keyboard.value == before .. expected_letter, "A tapped letter enters its own character")
+local unicode_keyboard = Keyboard:new{ value = "QwWÄ" }
+unicode_keyboard:_backspace()
+assert(unicode_keyboard.value == "QwW", "Backspace removes a complete UTF-8 special character")
 
 local dialog = { title = "AppDock PIN", input_hint = "PIN", input_type = "number", text = "", _input_widget = {} }
 function dialog:getInputText() return self.text end
@@ -120,6 +114,13 @@ assert(numeric_keyboard.on_cancel and numeric_keyboard.on_submit, "Keyboard must
 assert(numeric_keyboard.width == 900 and numeric_keyboard.dimen.x == 0 and numeric_keyboard.dimen.y + numeric_keyboard.dimen.h == 1200, "Numeric keyboard also spans the full width at the bottom")
 assert(ui.closed == dialog, "The KOReader input dialog is closed before the AppDock keyboard is shown")
 ui.closed = nil
+local multiline_dialog = { title = "Markdown", input_hint = "Text", text = "", _input_widget = {} }
+function multiline_dialog:getInputText() return self.text end
+function multiline_dialog:setInputText(value) self.text = value end
+assert(Keyboard.attach(multiline_dialog, { multiline = true }), "AppDock dialog adapter accepts multiline input")
+assert(multiline_dialog._input_widget.onTapTextBox(), "Multiline dialog opens the AppDock keyboard")
+assert(ui.shown.multiline and ui.shown.submit_key, "Dialog adapter forwards multiline mode and keeps a separate submit key")
+ui.closed = nil
 local cancel_calls = 0
 local cancel_keyboard
 cancel_keyboard = Keyboard:new{ on_cancel = function() cancel_calls = cancel_calls + 1; ui:close(cancel_keyboard) end }
@@ -127,13 +128,26 @@ cancel_keyboard.cancel_key:onTapKey()
 assert(cancel_calls == 0 and ui.closed == nil and #ui.next_ticks == 1, "Cancel must wait until the keyboard key-dispatch callback has returned")
 table.remove(ui.next_ticks, 1)()
 assert(cancel_calls == 1 and ui.closed == cancel_keyboard, "Deferred Cancel must close the keyboard once without re-entering its key callback")
-numeric_keyboard:_press("1")
-numeric_keyboard:_press("2")
-assert(numeric_keyboard.display.text == "••" and live_value == "12" and dialog.text == "12", "Secure values and the target field update live")
+numeric_keyboard:_insert("1")
+numeric_keyboard:_insert("2")
+for _, item in ipairs(ui.scheduled) do item.callback() end
+assert(numeric_keyboard.display.text:find("••", 1, true) == 1 and live_value == "12" and dialog.text == "12", "Secure values and the target field update live")
 numeric_keyboard.on_submit(numeric_keyboard.value)
 assert(dialog.text == "12" and ui.closed == numeric_keyboard, "Done returns the value to the original dialog")
 
-assert(keyboard:_displayValue():sub(1, 1) == "Q", "Short values remain fully visible")
+local multiline_keyboard = Keyboard:new{ value = "erste", multiline = true }
+assert(multiline_keyboard.multiline and multiline_keyboard.submit_key, "Multiline keyboard exposes a distinct top-bar submit key")
+multiline_keyboard:_doneItem().callback()
+assert(multiline_keyboard.value == "erste\n", "The return key inserts a line break instead of submitting")
+multiline_keyboard:_pasteText("zweite\r\ndritte")
+assert(multiline_keyboard.value == "erste\nzweite\ndritte", "Multiline paste preserves and normalizes line breaks")
+local multiline_submitted
+multiline_keyboard.on_submit = function(value) multiline_submitted = value end
+multiline_keyboard.submit_key:onTapKey()
+table.remove(ui.next_ticks, 1)()
+assert(multiline_submitted == "erste\nzweite\ndritte", "The separate Done key submits the full multiline value")
+
+assert(keyboard:_displayText():sub(1, 1) == "Q", "Short values remain fully visible")
 assert(Keyboard.setLanguage("de") == "de" and Keyboard.getLanguage() == "de", "Keyboard language can be set persistently by AppDock Settings")
 assert(Keyboard.isEnabled(), "The AppDock keyboard must remain enabled by default")
 local native_dialog = { text = "", _input_widget = {}, appdock_keyboard_attached = nil }

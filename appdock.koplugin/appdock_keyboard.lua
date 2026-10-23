@@ -573,6 +573,7 @@ local Keyboard = InputContainer:extend{
     placeholder = nil,
     numeric_only = false,
     secure = false,
+    multiline = false,
     suggestions = nil,
     language = nil,
     modal = true,
@@ -583,6 +584,7 @@ function Keyboard:init()
     self.width = Screen:getWidth()
     local screen_h = Screen:getHeight()
     self.value = self.value or ""
+    self.multiline = self.multiline == true
     self.language = resolvedLanguage(self.language)
     self.caps_lock = self.caps_lock == true
     self.pages = {}
@@ -707,13 +709,14 @@ function Keyboard:_buildTop()
             max_width = inner,
         }
     end
-    local cancel_w = math.floor(inner * 0.13)
+    local cancel_w = math.floor(inner * (self.multiline and 0.11 or 0.13))
     self.cancel_key = Key:new{
         label = "✕", width = cancel_w, height = self.bar_h, style = "func",
         font_size = math.floor(self.bar_h * 0.42),
         callback = function() self:_requestCancel() end,
     }
-    local display_w = inner - cancel_w - self.gap
+    local submit_w = self.multiline and math.floor(inner * 0.17) or 0
+    local display_w = inner - cancel_w - submit_w - self.gap * (self.multiline and 2 or 1)
     self.display_pad = scale(10)
     self.display_font = math.floor(self.bar_h * 0.46)
     self.display_width = display_w
@@ -734,12 +737,22 @@ function Keyboard:_buildTop()
             HorizontalGroup:new{ align = "center", HorizontalSpan:new{ width = self.display_pad }, self.display },
         },
     }
-    self.top_bar = HorizontalGroup:new{
+    local top_items = {
         align = "center",
         self.cancel_key,
         HorizontalSpan:new{ width = self.gap },
         display_frame,
     }
+    if self.multiline then
+        self.submit_key = Key:new{
+            label = ui("Fertig", "Done"), width = submit_w, height = self.bar_h,
+            style = "primary", font_size = math.floor(self.bar_h * 0.34),
+            callback = function() self:_submit() end,
+        }
+        table.insert(top_items, HorizontalSpan:new{ width = self.gap })
+        table.insert(top_items, self.submit_key)
+    end
+    self.top_bar = HorizontalGroup:new(top_items)
 end
 
 function Keyboard:_wrapPage(strip, body_rows)
@@ -789,6 +802,9 @@ function Keyboard:_backspaceItem(weight)
 end
 
 function Keyboard:_doneItem(weight)
+    if self.multiline then
+        return { label = "↵", weight = weight or 1.5, style = "func", callback = function() self:_insert("\n") end }
+    end
     return { label = ui("Fertig", "Done"), weight = weight or 1.5, style = "primary", callback = function() self:_submit() end }
 end
 
@@ -1285,7 +1301,11 @@ function Keyboard:_clipCopy(cut)
 end
 
 function Keyboard:_pasteText(text)
-    text = text:gsub("[\r\n]+", " ")
+    if self.multiline then
+        text = text:gsub("\r\n", "\n"):gsub("\r", "\n")
+    else
+        text = text:gsub("[\r\n]+", " ")
+    end
     self:_setMode("letters", true)
     self.value = self.value .. text
     self.alt_options = nil
@@ -1513,6 +1533,7 @@ function Keyboard.attach(dialog, options)
             placeholder = options.placeholder or dialog.input_hint,
             numeric_only = options.numeric_only or dialog.input_type == "number",
             secure = options.secure or false,
+            multiline = options.multiline == true,
             suggestions = options.suggestions,
             language = options.language,
             caps_lock = options.caps_lock == true,
