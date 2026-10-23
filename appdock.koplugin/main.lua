@@ -4,7 +4,7 @@ It exposes selected KOReader plugin menu actions as configurable app tiles.
 --]]--
 
 local MODULE_DIR = (debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "")
-local APPDOCK_RELEASE = "8.2.20"
+local APPDOCK_RELEASE = "8.2.21"
 local AppDockRecovery
 local recovery_context
 do
@@ -19,8 +19,6 @@ end
 local AppDockDialogs = require("appdock_dialogs")
 local ButtonDialog = AppDockDialogs.ButtonDialog
 local InfoMessage = AppDockDialogs.InfoMessage
-local ok_appdock_announcements, AppDockAnnouncements = pcall(require, "appdock_announcements")
-if not ok_appdock_announcements then AppDockAnnouncements = nil end
 local PluginLoader = require("pluginloader")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
@@ -88,7 +86,6 @@ local DEFAULT_SETTINGS = {
     tbs_account = { enabled = false, username = "", display_name = "" },
     setup_assistant = { offered_version = "", completed_version = "" },
     update_dialog = { dismissed_version = "" },
-    remote_notice = { last_seen_id = "" },
     keyboard = { language = "auto", enabled = true },
     file_browser = { sort_category = "all", show_hidden = false, hidden_paths = {} },
     power_saving = false,
@@ -217,7 +214,6 @@ function AppDock:init()
                     manager:showFeatureDialog()
                 end
             end)
-            self:_scheduleRemoteNoticeCheck()
         end
         if self.settings.launch_on_start and not restored then
             self:showHome(false, function() UIManager:nextTick(finish_startup) end)
@@ -296,7 +292,6 @@ function AppDock:_loadSettings()
         tbs_account = tableValue(stored.tbs_account, { enabled = false, username = "", display_name = "" }),
         setup_assistant = tableValue(stored.setup_assistant, { offered_version = "", completed_version = "" }),
         update_dialog = tableValue(stored.update_dialog, { dismissed_version = "" }),
-        remote_notice = tableValue(stored.remote_notice, { last_seen_id = "" }),
         keyboard = tableValue(stored.keyboard, { language = "auto" }),
         file_browser = tableValue(stored.file_browser, { sort_category = "all", show_hidden = false, hidden_paths = {} }),
         power_saving = stored.power_saving == true,
@@ -656,55 +651,6 @@ function AppDock:resetUpdateDialog()
     self.settings.update_dialog.dismissed_version = ""
     self:_saveSettings()
     return true
-end
-
--- A maintainer can publish a new appdock_notice.json without releasing a new
--- plugin build. New IDs are shown once as an update-style dialog and also enter
--- the local notification inbox. Polling is deliberately slow and HTTPS-only.
-function AppDock:_showRemoteNotice(notice)
-    if type(notice) ~= "table" or type(notice.id) ~= "string" then return false end
-    self.settings.remote_notice = self.settings.remote_notice or { last_seen_id = "" }
-    if self.settings.remote_notice.last_seen_id == notice.id then return false end
-    self.settings.remote_notice.last_seen_id = notice.id
-    self:_saveSettings()
-    self:notify({
-        title = notice.title,
-        message = notice.message,
-        source = notice.source ~= "" and notice.source or "AppDock Status",
-        priority = notice.priority,
-    })
-    local body = notice.message
-    if notice.details and notice.details ~= "" then body = body .. "\n\n" .. notice.details end
-    local dialog
-    dialog = ButtonDialog:new{
-        title = notice.title .. "\n\n" .. body,
-        buttons = { { { text = _("OK"), is_default = true, callback = function() UIManager:close(dialog) end } } },
-    }
-    UIManager:show(dialog)
-    return true
-end
-
-function AppDock:checkRemoteNotice()
-    if not AppDockAnnouncements or self._remote_notice_checking then return false end
-    -- Let the built-in release notes finish first; the next poll will pick up
-    -- the remote status without stacking two full-screen dialogs.
-    if self:shouldShowUpdateDialog() then return false end
-    self._remote_notice_checking = true
-    local ok, notice = pcall(AppDockAnnouncements.fetch)
-    self._remote_notice_checking = false
-    if ok and notice then return self:_showRemoteNotice(notice) end
-    return false
-end
-
-function AppDock:_scheduleRemoteNoticeCheck(delay)
-    if self._remote_notice_poll_scheduled then return end
-    self._remote_notice_poll_scheduled = true
-    local function poll()
-        self._remote_notice_poll_scheduled = false
-        self:checkRemoteNotice()
-        self:_scheduleRemoteNoticeCheck(180)
-    end
-    UIManager:scheduleIn(tonumber(delay) or 12, poll)
 end
 
 function AppDock:getKeyboardLanguage()
