@@ -201,7 +201,7 @@ local function serializeInteractions(interactions)
     return table.concat(values, ";")
 end
 
-local CenterProgress = InputContainer:extend{ ratio = 0, indeterminate = false, width = 0, height = 0 }
+local CenterProgress = InputContainer:extend{ ratio = 0, indeterminate = false, phase = 0, width = 0, height = 0 }
 
 function CenterProgress:init()
     self.dimen = Geom:new{ w = self.width, h = self.height }
@@ -218,7 +218,7 @@ function CenterProgress:paintTo(bb, x, y)
     local fill_w
     if self.indeterminate then
         fill_w = math.max(scale(22), math.floor(bar_w * .25))
-        left = left + math.floor((bar_w - fill_w) * ((os.time() % 4) / 4))
+        left = left + math.floor((bar_w - fill_w) * ((self.phase or 0) % 20) / 20)
     else
         fill_w = math.floor(bar_w * math.max(0, math.min(1, self.ratio or 0)))
     end
@@ -464,6 +464,20 @@ function Shorts:_recordInteraction(instance, result, field, amount)
     self:_persistLikes(state)
 end
 
+function Shorts:_scheduleLoadingPulse(instance, context, state)
+    if not state.search or state.loading_pulse_scheduled then return end
+    state.loading_pulse_scheduled = true
+    local function pulse()
+        state.loading_pulse_scheduled = false
+        if state.closed or not state.search then return end
+        state.loading_phase = ((state.loading_phase or 0) + 1) % 20
+        if state.loading_widget then state.loading_widget.phase = state.loading_phase end
+        if context and context.requestRefresh then context.requestRefresh("fast") end
+        self:_scheduleLoadingPulse(instance, context, state)
+    end
+    UIManager:scheduleIn(0.1, pulse)
+end
+
 function Shorts:toggleLike(instance, context, result)
     local state = self:_state(instance)
     if not result or not validVideoId(result.id) then return end
@@ -559,6 +573,7 @@ function Shorts:startSearch(instance, context, query)
                 cleanupDirectory(work)
                 if state.search == search then
                     state.search = nil
+                    state.loading_pulse_scheduled = false
                     state.view, state.note = "home", _("The Shorts feed timed out.")
                     if context and context.requestRebuild then context.requestRebuild("ui") end
                 end
@@ -570,6 +585,7 @@ function Shorts:startSearch(instance, context, query)
         cleanupDirectory(work)
         if state.search ~= search then return end
         state.search = nil
+        state.loading_pulse_scheduled = false
         if code ~= 0 then
             state.view = "home"
             state.note = _("The Shorts feed could not be loaded. Check the network connection.")
@@ -762,6 +778,8 @@ end
 function Shorts:_buildFeedPane(instance, context, state)
     local width, height = context.dimen.w, context.dimen.h
     local margin = scale(14)
+    local video_width = math.min(width - scale(28), math.floor(width * 0.58))
+    local video_left = math.floor((width - video_width) / 2)
     local result = self:_current(state)
     local active = result and result.path and state.inline_playing == result.path and self.player.engine
     local content = OverlapGroup:new{
@@ -781,20 +799,24 @@ function Shorts:_buildFeedPane(instance, context, state)
     }
     local loading = state.search or (state.job and not state.job.prefetch)
     if loading then
+        self:_scheduleLoadingPulse(instance, context, state)
         local progress = CenterProgress:new{
             width = width,
             height = height,
             ratio = state.job and (state.job.percent or 0) / 100 or 0,
             indeterminate = not state.job,
+            phase = state.loading_phase or 0,
         }
+        state.loading_widget = progress
         progress.overlap_offset = { 0, 0 }
         table.insert(content, progress)
     end
     local canvas
     if active then
-        canvas = Player.Canvas:new{ width = width, height = height }
+        canvas = Player.Canvas:new{ width = video_width, height = height }
         self.player.engine:setCanvas(canvas)
         self.player.engine:show(self.player.engine.position or 0)
+        canvas.overlap_offset = { video_left, 0 }
     end
     local surface = FeedSurface:new{
         width = width, height = height, canvas = canvas, gesture_inset_bottom = scale(128),
@@ -806,7 +828,7 @@ function Shorts:_buildFeedPane(instance, context, state)
     }
     table.insert(content, surface)
     local header = TextWidget:new{
-        text = "YouTube Shorts", face = Font:getFace("cfont", scale(16)),
+        text = "Shorts", face = Font:getFace("cfont", scale(16)),
         fgcolor = Blitbuffer.COLOR_WHITE, bold = true, padding = 0,
     }
     header.overlap_offset = { margin, margin }
@@ -818,37 +840,51 @@ function Shorts:_buildFeedPane(instance, context, state)
     }
     source.overlap_offset = { margin, scale(38) }
     table.insert(content, source)
+    local top_actions = {
+        { symbol = "⌕", title = "", callback = function() self:promptSearch(instance, context) end },
+        { symbol = "⋮", title = "", callback = function() self:promptSearch(instance, context) end },
+    }
+    local top_size, top_gap = scale(34), scale(5)
+    for index, action in ipairs(top_actions) do
+        local chip = Chip:new{
+            symbol = action.symbol, title = action.title, width = top_size, height = top_size,
+            background = Blitbuffer.COLOR_BLACK, foreground = Blitbuffer.COLOR_WHITE,
+            callback = action.callback,
+        }
+        chip.overlap_offset = { width - margin - (2 - index + 1) * (top_size + top_gap), scale(8) }
+        table.insert(content, chip)
+    end
     local title = TextWidget:new{
         text = result and (result.title or "") or _("Set hashtags to receive only YouTube Shorts"),
         face = Font:getFace("smallinfofont", scale(11)), fgcolor = Blitbuffer.COLOR_WHITE,
         max_width = width - margin * 2, padding = 0,
     }
-    title.overlap_offset = { margin, height - scale(126) }
+    title.overlap_offset = { video_left + margin, height - scale(96) }
     table.insert(content, title)
     local meta = TextWidget:new{
         text = result and (result.uploader or _("YouTube")) or _("Tap to play · swipe up for next"),
         face = Font:getFace("smallinfofont", scale(10)), fgcolor = Blitbuffer.COLOR_GRAY_8,
         max_width = width - margin * 2, padding = 0,
     }
-    meta.overlap_offset = { margin, height - scale(103) }
+    meta.overlap_offset = { video_left + margin, height - scale(70) }
     table.insert(content, meta)
-    local gap, button_h = scale(6), scale(34)
-    local button_w = math.floor((width - margin * 2 - gap * 2) / 3)
+    local action_w, action_h, action_gap = scale(52), scale(40), scale(6)
     local actions = {
         {
             symbol = state.shorts_likes[result and result.id or ""] and "♥" or "♡",
-            title = result and (state.shorts_likes[result.id] and _("Liked") or _("Like")) or _("Like"),
+            title = result and (state.shorts_likes[result.id] and _("Liked") or _("Like")) or "",
             callback = function() self:toggleLike(instance, context, result) end,
         },
+        { symbol = "↗", title = _("Share"), callback = function() self:promptSearch(instance, context) end },
         { symbol = "›", title = _("Next"), callback = function() self:_playNext(instance, context) end },
         { symbol = "#", title = _("Topics"), callback = function() self:promptSearch(instance, context) end },
     }
     for index, action in ipairs(actions) do
         local chip = Chip:new{
-            symbol = action.symbol, title = action.title, width = button_w, height = button_h,
-            background = Blitbuffer.COLOR_GRAY_8, callback = action.callback,
+            symbol = action.symbol, title = action.title, width = action_w, height = action_h,
+            background = Blitbuffer.COLOR_BLACK, foreground = Blitbuffer.COLOR_WHITE, callback = action.callback,
         }
-        chip.overlap_offset = { margin + (index - 1) * (button_w + gap), height - scale(62) }
+        chip.overlap_offset = { width - margin - action_w, math.floor(height * .47) + (index - 1) * (action_h + action_gap) }
         table.insert(content, chip)
     end
     local footer = TextWidget:new{
@@ -857,7 +893,7 @@ function Shorts:_buildFeedPane(instance, context, state)
         face = Font:getFace("smallinfofont", scale(9)), fgcolor = Blitbuffer.COLOR_GRAY_8,
         max_width = width - margin * 2, padding = 0,
     }
-    footer.overlap_offset = { margin, height - scale(22) }
+    footer.overlap_offset = { video_left + margin, height - scale(38) }
     table.insert(content, footer)
     return content
 end
@@ -912,6 +948,7 @@ end
 function Shorts:onDAppClose(instance)
     local state = self:_state(instance)
     state.closed = true
+    state.loading_pulse_scheduled = false
     self:_cancelSearch(state)
     if state.job then self:cancelJob(instance, nil) end
     self:stopInline(instance)
