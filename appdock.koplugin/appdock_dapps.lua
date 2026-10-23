@@ -2466,7 +2466,10 @@ function DAppManager:_newContext(host, instance, assigned_dimen)
         requestRefresh = function(refreshtype, region)
             if self.active_host == host and not host._closed then
                 UIManager:setDirty(host, refreshtype or "ui", region)
-                if UIManager.forceRePaint then UIManager:forceRePaint() end
+                -- Fast pulses (Shorts loading/player frames) already enter the
+                -- E-Ink dirty queue. Forcing an immediate global repaint here
+                -- causes visible flicker and can starve the next pulse.
+                if (refreshtype or "ui") ~= "fast" and UIManager.forceRePaint then UIManager:forceRePaint() end
             end
         end,
         requestRebuild = function(refreshtype)
@@ -2479,7 +2482,7 @@ function DAppManager:_newContext(host, instance, assigned_dimen)
                 end
                 if rebuilt then
                     UIManager:setDirty(host, refreshtype or "ui")
-                    if UIManager.forceRePaint then UIManager:forceRePaint() end
+                    if (refreshtype or "ui") ~= "fast" and UIManager.forceRePaint then UIManager:forceRePaint() end
                 end
             end
         end,

@@ -852,13 +852,26 @@ end
 function Shorts:_playPath(instance, context, path)
     if not path then return false end
     local state = self:_state(instance)
+    local file = io.open(path, "rb")
+    if not file then
+        state.note = _("This Short is not ready to play yet. Try again in a moment.")
+        self:_requestRebuild(instance, context, "ui")
+        return false
+    end
+    file:close()
     local result = self:_current(state)
     if result then
         self:_rememberSeen(state, result.id)
         self:_recordInteraction(instance, result, "views", 1)
     end
     local playing = YouTube.play(self, instance, context, path)
-    if playing then state.view = "home" end
+    if playing then
+        state.view = "home"
+        state.note = self.player.note and self.player.note ~= "" and self.player.note or _("Playing")
+    else
+        state.note = self.player.note and self.player.note ~= "" and self.player.note or _("Playback could not start. Open Tools to check yt-dlp and FFmpeg.")
+        self:_requestRebuild(instance, context, "ui")
+    end
     return playing
 end
 
@@ -1044,9 +1057,13 @@ function Shorts:_buildFeedPane(instance, context, state)
     local loading = state.search or (state.job and not state.job.prefetch)
     local empty_text
     if state.search then
-        empty_text = _("Finding Shorts…")
+        empty_text = _("Step 1 of 2 · Finding Shorts…")
     elseif state.job and not state.job.prefetch then
-        empty_text = _("Loading this Short…")
+        local percent = tonumber(state.job.percent) or 0
+        local stage = state.job.stage_message or _("Preparing this Short…")
+        empty_text = percent > 0
+            and string.format(_("Step 2 of 2 · %s · %d%%"), stage, math.floor(percent + 0.5))
+            or string.format(_("Step 2 of 2 · %s"), stage)
     elseif not state.tools or not state.tools.ytdlp then
         empty_text = _("yt-dlp is not ready. Open Tools.")
     elseif not result then
@@ -1160,8 +1177,9 @@ function Shorts:_buildFeedPane(instance, context, state)
     }
     meta.overlap_offset = { detail.x, detail.y + panePx(context, 16) }
     table.insert(content, meta)
+    local note_text = loading and empty_text or (state.note ~= "" and state.note or _("Swipe for previous/next"))
     local note = TextWidget:new{
-        text = fitText(loading and empty_text or (state.note ~= "" and state.note or _("Swipe for previous/next")),
+        text = fitText(note_text,
             detail.w, panePx(context, 8)),
         face = Font:getFace("smallinfofont", panePx(context, 8)), fgcolor = Blitbuffer.COLOR_GRAY_8,
         max_width = detail.w, padding = 0,

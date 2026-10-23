@@ -155,7 +155,10 @@ function Canvas:refresh()
     -- follows a control press draws the frame anyway.
     if not self.painted or not UIManager.setDirty then return end
     if UIManager.widgetRepaint then UIManager:widgetRepaint(self, self.origin_x, self.origin_y) end
-    UIManager:setDirty(nil, "fast", Geom:new{ x = self.origin_x, y = self.origin_y, w = self.width, h = self.height })
+    -- KOReader associates a dirty region with the widget that owns it. Passing
+    -- nil can silently discard the fast update on real devices, leaving the
+    -- first rendered frame frozen even though the playback clock advances.
+    UIManager:setDirty(self, "fast", Geom:new{ x = self.origin_x, y = self.origin_y, w = self.width, h = self.height })
     if UIManager.forceRePaint then UIManager:forceRePaint() end
     if UIManager.yieldToEPDC then UIManager:yieldToEPDC() end
 end
