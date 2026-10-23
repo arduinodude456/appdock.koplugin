@@ -139,17 +139,18 @@ Die Logo-Bibliothek umfasst jetzt **47** gezeichnete Symbole für Produktivität
 
 DApps bauen ihren Inhalt ausschließlich innerhalb eines vom DApp-Host zugewiesenen Pane-Rechtecks. Der Pane-Vertrag ist in einem echten Splitscreen umgesetzt: Ein gemeinsamer Host kann zwei geöffnete DApps untereinander mit klarer Trennlinie darstellen, ohne die DApps selbst umzuschreiben. Der **File Manager** behält dabei seinen aktuellen Ordner als DApp-Zustand und bleibt deshalb ebenfalls in Open apps sichtbar und splittbar. Seine Auflistung verwendet KOReaders LuaFileSystem-Schnittstelle; reguläre Dateien und Ordner werden angezeigt, nicht unterstützte Dateien ausdrücklich markiert und nicht geöffnet. Die detaillierte technische Beschreibung steht in `DAPP_ARCHITECTURE.md` und `SPLITSCREEN_DESIGN.md`. [7] [8]
 
-## Plugin-in-DApp-Beta
+## Einheitlicher Plugin-Host
 
-**Settings → Display → Beta features → Run plugin tiles in AppDock hosts** ist standardmäßig ausgeschaltet. Ist die Beta aktiv, öffnet eine Kachel eines bereits aktivierten Plugins eine AppDock-Sitzung mit eigener Kopfzeile und einem Eintrag in **Open apps**. Die bisherige direkte Plugin-Ausführung bleibt bei ausgeschalteter Beta unverändert.
+Kacheln bereits aktivierter KOReader-Plugins öffnen immer eine AppDock-Sitzung mit gemeinsamer Kopfzeile, Navigation und einem Eintrag in **Open apps**. Der frühere Beta-Schalter kann die Einbettung nicht mehr deaktivieren, auch nicht über ältere gespeicherte Einstellungen. Shorts erhält gleichzeitig eine klar beschriftete, pane-relative Bedienung mit **Previous**, **Play/Pause**, **Next**, **Topics**, **Reload** und **Tools**. [Änderungen und Prüfanweisungen](docs/SHORTS_AND_PLUGIN_HOST.md).
 
 | Pluginvertrag | Verhalten |
 |---|---|
-| Plugin bietet `buildAppDockPane(context)` | AppDock zeichnet den vom Plugin erzeugten lokalen Pane. Der Kontext enthält lokale Geometrie, sparsame Refresh-Hilfen und `context.notify(...)` für AppDock-Benachrichtigungen. |
-| Plugin bietet nur `addToMainMenu(menu_items)` | AppDock stellt eine lokale, große Aktionsliste aus den veröffentlichten Menüeinträgen bereit und ruft vorhandene Callbacks ohne neue Argumente auf. |
-| Plugin zeigt eine eigene KOReader-Ansicht oder einen Dialog | Diese UI bleibt unter Kontrolle des Plugins. AppDock fängt sie nicht global ab und behauptet nicht, beliebige Fremdoberflächen zu virtualisieren. |
+| Plugin bietet `buildAppDockPane(context)` | AppDock zeichnet ein lokales Pane mit einem Theme-/Layout-Kontext einschließlich Palette, Kontrastrollen und Metriken; Ereignisse und Lebenszyklus bleiben dem Host zugeordnet. |
+| Plugin bietet nur `addToMainMenu(menu_items)` | AppDock stellt veröffentlichte Aktionen und dynamische Untermenüs als thematische Aktionsflächen bereit. |
+| Plugin zeigt Informations-, Bestätigungs- oder einfache Eingabedialoge | AppDock adaptiert diese als eigene Overlays und reicht Aktionen und Eingabetext an die ursprünglichen Callbacks weiter. |
+| Plugin zeigt eine unbekannte Spezial- oder Vollbildansicht | Die separate Ansicht wird nicht geöffnet. AppDock zeigt eine interne Kompatibilitätsmeldung; eine vollständige Umsetzung benötigt ein angepasstes Pane oder einen zusätzlichen Adapter. |
 
-Plugin-Host-Sitzungen heißen in Open apps **Plugin host · Beta** und können niemals in den Splitscreen gelangen. Die Sperre gilt im Long-Press-Dialog, in der App-Auswahl und im zugrunde liegenden Split-Startpfad. Fehler beim Start, nicht verfügbare Einträge und blockierte Splitversuche werden als lokale AppDock-Benachrichtigung abgelegt. Der vollständige Vertrag steht in [`APPDOCK_4_PLUGIN_HOST_BETA_DESIGN.md`](APPDOCK_4_PLUGIN_HOST_BETA_DESIGN.md).
+Plugin-Host-Sitzungen heißen in Open apps **Plugin host · AppDock** und bleiben vorerst vom Splitscreen und von Floating Windows ausgeschlossen. Die UI-Brücke ist auf zugeordnete Plugin-Aufrufe und deren aktive Fortsetzungen begrenzt; sie wird auch nach Fehlern entfernt. Sie ist keine Sicherheits-Sandbox und verändert außerhalb AppDocks gestartete Plugins nicht. Der vollständige Vertrag steht in [`APPDOCK_4_PLUGIN_HOST_BETA_DESIGN.md`](APPDOCK_4_PLUGIN_HOST_BETA_DESIGN.md).
 
 ## Store-Widgets
 

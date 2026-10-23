@@ -75,7 +75,7 @@ local DEFAULT_SETTINGS = {
     notifications = { items = {}, next_id = 0 },
     wallpaper = { enabled = true, path = DEFAULT_WALLPAPER_PATH, source = "appdock_default" },
     lockscreen = { enabled = false, method = "swipe", secret_hash = nil, profile_name = "", profile_image_path = "" },
-    beta = { black_borders = false, keep_wallpaper_original_in_night = false, plugin_dapp_host = false, windows = false, manual_app_spacing = false, plugin_custom_logos = false },
+    beta = { black_borders = false, keep_wallpaper_original_in_night = false, plugin_dapp_host = true, windows = false, manual_app_spacing = false, plugin_custom_logos = false },
     quick_settings = { tiles = { "wifi", "night", "refresh", "edit", "rotate", "sleep", "power_saving", "wallpaper" } },
     simple_mode = { homescreen = false, quick_settings = false, focus_apps = false },
     workspace = { restore_enabled = false, session = nil },
@@ -294,7 +294,7 @@ function AppDock:_loadSettings()
         notifications = tableValue(stored.notifications, { items = {}, next_id = 0 }),
         wallpaper = tableValue(stored.wallpaper, { enabled = true, path = DEFAULT_WALLPAPER_PATH, source = "appdock_default" }),
         lockscreen = tableValue(stored.lockscreen, { enabled = false, method = "swipe", secret_hash = nil, profile_name = "", profile_image_path = "" }),
-        beta = tableValue(stored.beta, { black_borders = false, keep_wallpaper_original_in_night = false, plugin_dapp_host = false, windows = false, manual_app_spacing = false, plugin_custom_logos = false }),
+        beta = tableValue(stored.beta, { black_borders = false, keep_wallpaper_original_in_night = false, plugin_dapp_host = true, windows = false, manual_app_spacing = false, plugin_custom_logos = false }),
         quick_settings = tableValue(stored.quick_settings, { tiles = copyArray(DEFAULT_SETTINGS.quick_settings.tiles) }),
         simple_mode = tableValue(stored.simple_mode, { homescreen = false, quick_settings = false, focus_apps = false }),
         workspace = tableValue(stored.workspace, { restore_enabled = false, session = nil }),
@@ -497,7 +497,9 @@ function AppDock:_loadSettings()
     self.settings.beta = self.settings.beta or {}
     self.settings.beta.black_borders = self.settings.beta.black_borders == true
     self.settings.beta.keep_wallpaper_original_in_night = self.settings.beta.keep_wallpaper_original_in_night == true
-    self.settings.beta.plugin_dapp_host = self.settings.beta.plugin_dapp_host == true
+    -- Plugin tiles are now always hosted by AppDock. Keep the legacy field
+    -- normalized for older settings, but never use it as a launch gate.
+    self.settings.beta.plugin_dapp_host = true
     self.settings.beta.windows = self.settings.beta.windows == true
     self.settings.beta.manual_app_spacing = self.settings.beta.manual_app_spacing == true
     self.settings.beta.plugin_custom_logos = self.settings.beta.plugin_custom_logos == true
@@ -859,7 +861,7 @@ function AppDock:uninstallStoreDesign(id)
 end
 
 function AppDock:setBetaOption(key, enabled)
-    if key ~= "black_borders" and key ~= "keep_wallpaper_original_in_night" and key ~= "plugin_dapp_host" and key ~= "windows" and key ~= "manual_app_spacing" and key ~= "plugin_custom_logos" then return false end
+    if key ~= "black_borders" and key ~= "keep_wallpaper_original_in_night" and key ~= "windows" and key ~= "manual_app_spacing" and key ~= "plugin_custom_logos" then return false end
     self.settings.beta[key] = enabled == true
     self:_saveSettings()
     return true
@@ -1880,32 +1882,15 @@ function AppDock:seedDefaults()
     self:_saveSettings()
 end
 
-function AppDock:_launchPluginAction(app, action)
-    local item = action.item
-    if type(item.callback) == "function" then
-        local ok = pcall(item.callback)
-        if ok then return true end
-        return self:_showSafeError(_("This plugin action failed. AppDock remains open; try restarting the affected plugin."))
+function AppDock:_launchPluginAction(app, action, home)
+    -- Kept as a compatibility entry point for older shortcut callers. It must
+    -- never invoke a plugin callback or native plugin menu directly: every
+    -- plugin action goes through the bounded AppDock host bridge instead.
+    local manager = self:getDAppManager()
+    if app and app.plugin_name and type(app.actions) == "table" and manager and manager.activatePlugin then
+        return manager:activatePlugin(app, home)
     end
-    if type(item.sub_item_table) == "table" then
-        local buttons = {}
-        for _, submenu_item in ipairs(item.sub_item_table) do
-            if type(submenu_item) == "table" and submenu_item.text then
-                table.insert(buttons, { submenu_item })
-            end
-        end
-        if #buttons > 0 then
-            UIManager:show(ButtonDialog:new{
-                title = action.title,
-                buttons = buttons,
-                rows_per_page = { 5, 6, 7 },
-            })
-            return
-        end
-    end
-    UIManager:show(InfoMessage:new{
-        text = _("This plugin action is not launchable."),
-    })
+    return self:_showSafeError(_("This plugin cannot be opened because the AppDock plugin host is unavailable."))
 end
 
 function AppDock:launchApp(app, home)
@@ -1920,7 +1905,7 @@ function AppDock:launchApp(app, home)
         return self:_showSafeError(_("This AppDock app is currently unavailable."))
     end
 
-    if app.plugin_name and app.actions and self.settings.beta and self.settings.beta.plugin_dapp_host then
+    if app.plugin_name and type(app.actions) == "table" then
         local manager = self:getDAppManager()
         if manager and manager.activatePlugin then return manager:activatePlugin(app, home) end
         return self:_showSafeError(_("This plugin host is currently unavailable."))
@@ -1945,7 +1930,7 @@ function AppDock:launchApp(app, home)
     end
 
     if app.actions and #app.actions == 1 then
-        self:_launchPluginAction(app, app.actions[1])
+        self:_launchPluginAction(app, app.actions[1], home)
         return
     end
 
@@ -1959,7 +1944,7 @@ function AppDock:launchApp(app, home)
                     callback = function()
                         UIManager:close(dialog)
                         UIManager:nextTick(function()
-                            self:_launchPluginAction(app, action)
+                            self:_launchPluginAction(app, action, home)
                         end)
                     end,
                 },

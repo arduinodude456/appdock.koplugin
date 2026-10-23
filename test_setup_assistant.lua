@@ -125,7 +125,8 @@ local AppDock = dofile(plugin_dir .. "main.lua")
 local ui = { menu = { registerToMainMenu = function() end } }
 local first = AppDock:new{ ui = ui }
 local first_status = first:getSetupAssistantStatus()
-assert(first_status.version == "8.2.18" and not first_status.offered and not first_status.completed, "The setup wizard remains an independent manual flow")
+local release_version = dofile(plugin_dir .. "_meta.lua").version
+assert(first_status.version == release_version and not first_status.offered and not first_status.completed, "The setup wizard remains an independent manual flow for the installed release")
 assert(log.offers == 1 and first:shouldShowUpdateDialog(), "The update dialog must be shown on startup until explicitly dismissed")
 assert(first:getFeaturePages()[1].image and first:getFeaturePages()[1].image:match("assets/logos/appdock%.png$"), "The update dialog must receive its packaged test image")
 local manual_instance, manual_context = {}, {}
@@ -179,6 +180,7 @@ package.preload["appdock_browser"] = function() return {} end
 package.preload["appdock_filemanager"] = function() return {} end
 package.preload["appdock_appstore"] = function() return {} end
 package.preload["appdock_youtube"] = function() return {} end
+package.preload["appdock_youtube_shorts"] = function() return {} end
 package.preload["appdock_ytmusic"] = function() return {} end
 package.preload["appdock_draw"] = function() return {} end
 package.preload["libs/libkoreader-lfs"] = function() return {} end

@@ -1,0 +1,27 @@
+name: AppDock native UI regression tests
+on:
+  pull_request:
+    paths:
+      - 'appdock.koplugin/**'
+      - 'test_*.lua'
+      - 'scripts/test_appdock_ui.sh'
+      - '.github/workflows/appdock-ui.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'appdock.koplugin/**'
+      - 'test_*.lua'
+      - 'scripts/test_appdock_ui.sh'
+      - '.github/workflows/appdock-ui.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install native test dependencies
+        run: sudo apt-get update -qq && sudo apt-get install -y luajit lua-filesystem lua-cjson lua-socket ffmpeg
+      - name: Check Lua syntax and AppDock UI regressions
+        run: bash scripts/test_appdock_ui.sh

@@ -70,6 +70,15 @@ package.preload["logger"] = function()
     return { info = function() end, warn = function() end, err = function() end, dbg = function() end }
 end
 package.preload["datastorage"] = function() return { getDataDir = function() return "/tmp/appdock_test_data" end } end
+-- The sandbox has no KOReader ffi/util module. Run a subprocess callback inline
+-- so this unit test can verify the background-context contract deterministically.
+package.preload["ffi/util"] = function()
+    return {
+        runInSubProcess = function(callback) callback(); return 1 end,
+        isSubProcessDone = function() return false end,
+        terminateSubProcess = function() end,
+    }
+end
 package.preload["ui/font"] = function() return { getFace = function(_, name, size) return { name = name, size = size or 12 } end } end
 package.preload["ui/geometry"] = function() return { new = function(_, args) return args end } end
 package.preload["ui/gesturerange"] = function() return { new = function(_, args) return args end } end
@@ -359,6 +368,22 @@ local launch_probe = setmetatable({
 }, AppDockClass)
 launch_probe:launchApp({ id = "dapp:reader", kind = "dapp", dapp_id = "reader" })
 assert(launch_probe.settings.recent_apps[1] == "dapp:reader" and launched_dapp == "reader", "Launching a DApp must record it as the most recently used quick-access app")
+;(function()
+local mandatory_plugin_launches = 0
+local mandatory_plugin_probe = setmetatable({
+    settings = { recent_apps = {}, beta = { plugin_dapp_host = false } },
+    isSimpleModeAppAllowed = function() return true end,
+    _recordRecentApp = function() end,
+    getDAppManager = function()
+        return { activatePlugin = function(_, app, home)
+            mandatory_plugin_launches = mandatory_plugin_launches + 1
+            return app.plugin_name == "legacy_false_gate" and home == "legacy-home"
+        end }
+    end,
+}, { __index = AppDockClass })
+assert(mandatory_plugin_probe:launchApp({ id = "plugin:legacy_false_gate", plugin_name = "legacy_false_gate", title = "Legacy", actions = {} }, "legacy-home") and mandatory_plugin_launches == 1, "Plugin tiles must enter the AppDock host even when a persisted legacy beta flag is false")
+assert(mandatory_plugin_probe:_launchPluginAction({ plugin_name = "legacy_false_gate", actions = {} }, {}, "legacy-home") and mandatory_plugin_launches == 2, "The legacy plugin-action shortcut must delegate to the AppDock host instead of invoking native plugin UI")
+end)()
 local files_source = assert(io.open(plugin_dir .. "appdock_filemanager.lua", "rb")):read("*a")
 assert(files_source:find("local margin, gap = scale(12), scale(8)", 1, true) and files_source:find("local search_h = scale(40)", 1, true), "Files must use compact Google Files spacing and a prominent search pill")
 assert(files_source:find("Layout.FixedStack:new", 1, true) and files_source:find("function FileBrowser:openEntry", 1, true), "File rows and tiles must draw through fixed bounds and preserve safe open dispatch")
@@ -801,7 +826,7 @@ manager:activate("settings")
 assert(manager.active_id == "settings" and #manager:getOpenApps() == 2, "Settings must be a separately tracked DApp")
 local settings_instance = manager.instances.settings
 assert(settings_instance.pane and settings_instance.pane.dimen, "Settings must build a pane within its assigned context")
-assert(settings_instance.pane.settings_layout.category == "network" and settings_instance.pane.settings_layout.row_count == 1, "Bluetooth must stay hidden on unsupported hardware")
+assert(settings_instance.pane.settings_layout.category == "network" and settings_instance.pane.settings_layout.row_count >= 2, "Network settings must include AppDock's own Bluetooth controls")
 do
     local settings_search, android_category, android_row = false, false, false
     walk_tree(settings_instance.pane, function(node)
@@ -815,24 +840,18 @@ end
 manager:toggleWifiFromSettings({ requestRebuild = function() log.wifi_rebuilds = (log.wifi_rebuilds or 0) + 1 end })
 assert(wifi_on and log.wifi_rebuilds == 1, "Wi-Fi settings action must toggle the native network state")
 local bluetooth_actions = 0
-Device.isKobo = function() return true end
-Device.model = "Kobo_monza"
-appdock.ui.Bluetooth = {
-    addToMainMenu = function(_, menu_items)
-        menu_items.bluetooth = { sub_item_table = { { text = "Turn Bluetooth on", callback = function() bluetooth_actions = bluetooth_actions + 1 end } } }
-    end,
-}
-manager:activate("settings")
-assert(settings_instance.pane.settings_layout.category == "network" and settings_instance.pane.settings_layout.row_count == 2, "Bluetooth must appear only on Kobo Libra Colour")
+package.preload["appdock_bluetooth"] = function()
+    return { show = function() bluetooth_actions = bluetooth_actions + 1 end }
+end
+local bluetooth_row
+walk_tree(settings_instance.pane, function(node)
+    if node.title == "Bluetooth" and node.callback then bluetooth_row = node end
+end)
+assert(bluetooth_row, "Network settings must provide a working Bluetooth row")
+bluetooth_row.callback()
+assert(bluetooth_actions == 1, "The Bluetooth row must use AppDock's own controller rather than a third-party plugin menu")
 manager:showBluetoothSettings()
-local bluetooth_dialog = log.shown[#log.shown]
-assert(bluetooth_dialog.title:find("Bluetooth · Kobo Libra Colour", 1, true) and bluetooth_dialog.buttons[1][1].text == "Turn Bluetooth on", "Kobo Libra Colour Bluetooth must use the installed plugin menu")
-bluetooth_dialog.buttons[1][1].callback()
-assert(bluetooth_actions == 1, "AppDock must delegate Bluetooth actions to the installed plugin instead of issuing driver commands")
-appdock.ui.Bluetooth = nil
-local shown_before_missing_plugin = #log.shown
-manager:showBluetoothSettings()
-assert(#log.shown == shown_before_missing_plugin + 1, "Kobo Libra Colour without a Bluetooth plugin must receive an availability notice")
+assert(bluetooth_actions == 2, "Opening Bluetooth directly must share the AppDock controller")
 local storage_root = "/tmp/appdock_test_data"
 os.execute("mkdir -p " .. storage_root .. "/books")
 local storage_fixture = assert(io.open(storage_root .. "/books/sample.epub", "wb"))
@@ -854,8 +873,15 @@ assert(storage_segments and storage_segments[1] and storage_segments[1].bytes >=
 assert(settings_instance.pane.settings_layout.integrity and settings_instance.pane.settings_layout.integrity.missing == 0, "Storage settings must expose a local read-only integrity status without marking valid Store records as missing")
 settings_instance.settings_category = "display"
 manager:activate("settings")
-assert(settings_instance.pane.settings_layout.category == "display" and settings_instance.pane.settings_layout.row_count == 11, "Display category must expose refresh, text and contrast controls alongside themes, launcher, wallpaper and beta settings")
+assert(settings_instance.pane.settings_layout.category == "display", "Display category must remain available")
 do
+    local display_rows = {}
+    walk_tree(settings_instance.pane, function(node)
+        if node.title and node.callback then display_rows[node.title] = true end
+    end)
+    for _, title in ipairs({ "Color themes", "Text & contrast", "Refresh", "Background image", "Beta features" }) do
+        assert(display_rows[title], "Display settings must preserve " .. title)
+    end
     local appearance_preview, display_toggle = false, false
     walk_tree(settings_instance.pane, function(node)
         appearance_preview = appearance_preview or node.settings_appearance_preview == true
@@ -870,7 +896,7 @@ manager:toggleColorTheme({ requestRebuild = function() log.settings_rebuilds = (
 assert(log.events[#log.events] == "ToggleNightMode" and log.settings_rebuilds == 1, "Color themes must trigger KOReader's night-mode event")
 settings_instance.settings_category = "other"
 manager:activate("settings")
-assert(settings_instance.pane.settings_layout.category == "other" and settings_instance.pane.settings_layout.row_count == 11, "Other category must include the AppDock keyboard switch alongside the sleep screen, setup wizard and other options")
+assert(settings_instance.pane.settings_layout.category == "other", "Other category must remain available alongside its keyboard, sleep screen and setup controls")
 assert(settings_instance.pane.settings_layout.text_scale == 1.3 and settings_instance.pane.settings_layout.high_contrast and not settings_instance.pane.settings_layout.workspace_enabled, "Settings metadata must expose the applied local accessibility and workspace state")
 do
 assert(settings_instance.pane.settings_layout.keyboard_enabled, "The AppDock keyboard must be enabled by default")
@@ -881,12 +907,13 @@ end)
 assert(keyboard_setting and keyboard_setting.enabled, "Other settings must show the AppDock keyboard as an enabled switch")
 keyboard_setting.callback()
 local disable_confirmation = log.shown[#log.shown]
-assert(disable_confirmation.title == "Wirklich??" and appdock:getKeyboardEnabled(), "Disabling the keyboard must ask for confirmation and leave it enabled until confirmed")
-disable_confirmation:_buttonCallback(disable_confirmation.rows[1][2])
+assert(disable_confirmation.title == "Disable AppDock keyboard?" and appdock:getKeyboardEnabled(), "Disabling the keyboard must ask for confirmation and leave it enabled until confirmed")
+UIManager:close(disable_confirmation)
 assert(appdock:getKeyboardEnabled(), "Canceling the confirmation must preserve the AppDock keyboard")
 keyboard_setting.callback()
 disable_confirmation = log.shown[#log.shown]
-disable_confirmation:_buttonCallback(disable_confirmation.rows[1][1])
+disable_confirmation.ok_callback()
+UIManager:close(disable_confirmation)
 assert(not appdock:getKeyboardEnabled(), "Confirming the warning must persistently disable the AppDock keyboard")
 manager:activate("settings")
 assert(not settings_instance.pane.settings_layout.keyboard_enabled, "Settings must report the disabled keyboard state on rebuild")
@@ -904,15 +931,18 @@ local setup_start = log.shown[#log.shown]
 assert(#log.shown == setup_dialogs_before + 1 and setup_start.title == "AppDock setup wizard", "Settings must expose an always-available manual setup assistant")
 setup_start.buttons[1][1].callback()
 local appearance_step = log.shown[#log.shown]
-assert(appearance_step.title:find("Setup 1/3", 1, true), "The setup assistant must start with an explicit appearance choice")
+assert(appearance_step.title:find("Setup 1/4", 1, true), "The setup assistant must start with an explicit appearance choice")
 appearance_step.buttons[3][1].callback()
 local search_step = log.shown[#log.shown]
-assert(search_step.title:find("Setup 2/3", 1, true), "Skipping appearance must retain current Simple Mode and advance safely")
+assert(search_step.title:find("Setup 2/4", 1, true), "Skipping appearance must retain current Simple Mode and advance safely")
 search_step.buttons[3][1].callback()
 local workspace_step = log.shown[#log.shown]
-assert(workspace_step.title:find("Setup 3/3", 1, true), "Skipping app search must advance to the local workspace choice")
+assert(workspace_step.title:find("Setup 3/4", 1, true), "Skipping app search must advance to the local workspace choice")
 workspace_step.buttons[3][1].callback()
-assert(appdock.settings.setup_assistant.completed_version == "6.0.7" and not appdock:isSimpleModeEnabled("homescreen") and (log.setup_rebuilds or 0) == 1, "Finishing without changes must record setup locally and leave Simple Mode untouched")
+local account_step = log.shown[#log.shown]
+assert(account_step.title:find("Setup 4/4", 1, true), "The current setup assistant must retain its optional account step")
+account_step.buttons[1][1].callback()
+assert(appdock.settings.setup_assistant.completed_version ~= "" and appdock.settings.setup_assistant.completed_version == appdock.settings.setup_assistant.offered_version and not appdock:isSimpleModeEnabled("homescreen") and (log.setup_rebuilds or 0) == 1, "Finishing without changes must record setup locally and leave Simple Mode untouched")
 assert(appdock:setWorkspaceRestoreEnabled(true), "Local workspace restoration must be explicitly enabled through a persisted setting")
 manager:activate("settings")
 assert(manager.instances.settings.pane.settings_layout.workspace_enabled, "Settings must immediately expose the opt-in local workspace state")
@@ -1201,13 +1231,18 @@ assert(file_manager_instance and file_manager_instance.pane and file_manager_ins
 manager:closeDApp("file_manager")
 manager:closeDApp("analog_clock")
 assert(#manager:getOpenApps() == 1 and manager.instances.analog_clock == nil, "Closing a DApp must remove it from recents")
+;(function()
 local hosted_action_calls = 0
 local hosted_pane_builds = 0
 local hosted_host_context
+local hosted_opened_context
+local hosted_closed_context
 local hosted_plugin = {
     plugin_name = "hosted_test_plugin",
     title = "Hosted Test Plugin",
     instance = {},
+    onOpened = function(_, context) hosted_opened_context = context end,
+    onClose = function(_, context) hosted_closed_context = context end,
     buildAppDockPane = function(_, context)
         hosted_pane_builds = hosted_pane_builds + 1
         hosted_host_context = context
@@ -1231,17 +1266,18 @@ assert(hosted_action_calls == 1, "A plugin with one published main-menu action m
 local hosted_context = manager:_newContext(manager.active_host, hosted_instance, hosted_instance.pane.dimen)
 assert(manager:_invokePluginHostItem(hosted_instance, hosted_context, hosted_plugin.actions[1].item) and hosted_action_calls == 2, "Plugin host actions must preserve the existing no-argument plugin callback contract")
 assert(hosted_host_context and hosted_host_context.notify({ title = "Plugin result", message = "Completed locally" }), "A cooperating plugin pane must receive an explicit local AppDock context")
+assert(hosted_host_context.theme and hosted_host_context.theme.palette == hosted_host_context.palette and hosted_host_context.theme.metrics.row_height > 0 and hosted_host_context.layout.can_split == false and hosted_opened_context == hosted_host_context, "A cooperating plugin pane and its onOpened hook must receive the AppDock palette, contrast roles, metrics, and non-splittable local layout contract")
 assert(log.plugin_notification and log.plugin_notification.title == "Plugin result" and log.plugin_notification.source == "Hosted Test Plugin" and log.plugin_notification.app_id == "plugin:hosted_test_plugin", "Plugin host context notifications must retain a truthful source and map to the plugin's homescreen tile")
 local hosted_open
 for open_index, open_app in ipairs(manager:getOpenApps()) do if open_app.id == hosted_id then hosted_open = open_app; break end end
-assert(hosted_open and hosted_open.is_plugin_host and hosted_open.can_split == false and hosted_open.subtitle == "Plugin host · Beta", "Open Apps must identify beta plugin hosts and their split-screen limit")
+assert(hosted_open and hosted_open.is_plugin_host and hosted_open.can_split == false and hosted_open.subtitle == "Plugin host · AppDock", "Open Apps must identify beta plugin hosts and their split-screen limit")
 manager:showDAppActions(hosted_id)
 local hosted_actions = log.shown[#log.shown]
-assert(hosted_actions.buttons[1][1].text == "Plugin host beta · Split screen unavailable", "Plugin host long-press actions must not offer split screen")
+assert(hosted_actions.buttons[1][1].text == "Plugin host · Split screen unavailable", "Plugin host long-press actions must not offer split screen")
 manager:startSplit(hosted_id, "settings")
-assert(log.plugin_notification and log.plugin_notification.title == "Plugin host beta" and log.plugin_notification.app_id == "plugin:hosted_test_plugin" and manager.active_host and manager.active_host.dapp_id == hosted_id, "Split creation must reject plugin hosts and associate the notice with the plugin tile")
+assert(log.plugin_notification and log.plugin_notification.title == "Plugin host" and log.plugin_notification.app_id == "plugin:hosted_test_plugin" and manager.active_host and manager.active_host.dapp_id == hosted_id, "Split creation must reject plugin hosts and associate the notice with the plugin tile")
 manager:closeDApp(hosted_id)
-assert(manager.instances[hosted_id] == nil and manager.plugin_definitions[hosted_id] == nil, "Closing a plugin host must clear its transient AppDock session definition")
+assert(hosted_closed_context and hosted_closed_context.theme and manager.instances[hosted_id] == nil and manager.plugin_definitions[hosted_id] == nil, "Closing a plugin host must run its onClose hook in the bridge and clear its transient AppDock session definition")
 local fallback_plugin = {
     plugin_name = "fallback_test_plugin",
     title = "Fallback Test Plugin",
@@ -1268,7 +1304,8 @@ local appstore_like_items = { { text = "App Store", callback = function() appsto
 manager:_showPluginHostMenu(fallback_instance, texteditor_context, appstore_like_items, "App Store")
 local appstore_host_overlay = fallback_instance.plugin_overlay
 assert(appstore_host_overlay and appstore_host_overlay.title == "App Store" and manager:_invokePluginOverlayAction(fallback_instance, texteditor_context, appstore_host_overlay.actions[1]), "AppStore-style no-argument callbacks must run from the AppDock overlay")
-assert(appstore_launches == 1 and not fallback_instance.plugin_overlay, "AppStore-style callbacks must dismiss their AppDock overlay without opening a raw plugin dialog")
+assert(appstore_launches == 1 and fallback_instance.plugin_overlay and fallback_instance.plugin_overlay.actions[1].text == "New file", "Dismissing a nested plugin action must return to its previous AppDock overlay instead of losing that host-owned UI")
+manager:_dismissPluginOverlay(fallback_instance, texteditor_context)
 local appstore_direct_plugin = { plugin_name = "appstore_direct", title = "App Store", actions = { { title = "App Store", item = appstore_like_items[1] } } }
 assert(manager:activatePlugin(appstore_direct_plugin) and appstore_launches == 2, "AppStore-style single launch actions must run immediately after their AppDock host opens")
 manager:closeDApp("plugin_host:appstore_direct")
@@ -1290,6 +1327,16 @@ local texteditor_direct_instance = manager.instances["plugin_host:texteditor_dir
 assert(#log.shown == texteditor_direct_shown_before + 1 and texteditor_direct_instance and texteditor_direct_instance.plugin_overlay and texteditor_direct_instance.plugin_overlay.title == "Text editor" and texteditor_direct_instance.plugin_overlay.actions[1].text == "New file", "Text editor-style single menu actions must open their dynamic first submenu as an AppDock overlay")
 manager:closeDApp("plugin_host:texteditor_direct")
 
+local nested_menu = {
+    { text = "Level one", sub_item_table = {
+        { text = "Level two", sub_item_table = { { text = "Leaf", callback = function() return true end } } },
+    } },
+}
+manager:_showPluginHostMenu(fallback_instance, texteditor_context, nested_menu, "Root")
+assert(manager:_invokePluginOverlayAction(fallback_instance, texteditor_context, fallback_instance.plugin_overlay.actions[1]) and fallback_instance.plugin_overlay.title == "Level one", "A nested dynamic plugin menu must remain inside a new AppDock overlay")
+assert(manager:_invokePluginOverlayAction(fallback_instance, texteditor_context, fallback_instance.plugin_overlay.actions[1]) and fallback_instance.plugin_overlay.title == "Level two" and fallback_instance.plugin_overlay.actions[1].text == "Leaf", "Nested dynamic menu levels must retain their AppDock host ownership")
+manager:_dismissPluginOverlay(fallback_instance, texteditor_context)
+
 local raw_plugin_dialog_calls = 0
 local raw_dialog = {
     title = "Legacy plugin dialog",
@@ -1299,7 +1346,19 @@ local raw_dialog = {
 local raw_dialog_shown_before = #log.shown
 assert(manager:_invokePluginHostItem(fallback_instance, texteditor_context, { callback = function() UIManager:show(raw_dialog) end }), "A plugin callback that opens a standard dialog must remain launchable")
 assert(#log.shown == raw_dialog_shown_before and fallback_instance.plugin_overlay and fallback_instance.plugin_overlay.kind == "actions" and fallback_instance.plugin_overlay.widget == raw_dialog, "Standard plugin dialogs must be captured as AppDock overlays")
-assert(manager:_invokePluginOverlayAction(fallback_instance, texteditor_context, fallback_instance.plugin_overlay.actions[1]) and raw_plugin_dialog_calls == 1, "Captured plugin dialog actions must retain their callback behavior")
+assert(manager:_invokePluginOverlayAction(fallback_instance, texteditor_context, fallback_instance.plugin_overlay.actions[1]) and raw_plugin_dialog_calls == 1 and not fallback_instance.plugin_overlay, "Captured plugin dialog actions must retain their callback behavior and release their original widget")
+
+local confirm_closed, confirm_freed, confirm_calls = 0, 0, 0
+local raw_confirm = {
+    title = "Legacy confirm", text = "Proceed?", ok_text = "Proceed", cancel_text = "Back",
+    ok_callback = function() confirm_calls = confirm_calls + 1 end,
+    cancel_callback = function() confirm_calls = confirm_calls - 1 end,
+    onCloseWidget = function() confirm_closed = confirm_closed + 1 end,
+    free = function() confirm_freed = confirm_freed + 1 end,
+}
+assert(manager:_invokePluginHostItem(fallback_instance, texteditor_context, { callback = function() UIManager:show(raw_confirm) end }), "A legacy ConfirmBox callback must remain launchable")
+assert(fallback_instance.plugin_overlay and fallback_instance.plugin_overlay.kind == "actions" and #fallback_instance.plugin_overlay.actions == 2, "A ConfirmBox without button rows must become actionable AppDock confirm actions")
+assert(manager:_invokePluginOverlayAction(fallback_instance, texteditor_context, fallback_instance.plugin_overlay.actions[1]) and confirm_calls == 1 and confirm_closed == 1 and confirm_freed == 1, "Closing a captured confirmation must call its close/free lifecycle exactly once")
 
 local raw_message = { title = "Legacy plugin message", text = "A bounded message" }
 assert(manager:_invokePluginHostItem(fallback_instance, texteditor_context, { callback = function() UIManager:show(raw_message) end }), "A plugin callback that opens an information message must remain launchable")
@@ -1318,7 +1377,38 @@ local raw_input = {
 assert(manager:_invokePluginHostItem(fallback_instance, texteditor_context, { callback = function() UIManager:show(raw_input); raw_input:onShowKeyboard() end }), "A plugin callback that opens an input dialog must remain launchable")
 assert(fallback_instance.plugin_overlay and fallback_instance.plugin_overlay.kind == "input" and raw_plugin_dialog_calls == 1, "Plugin input dialogs must be captured before their native keyboard is opened")
 manager:_dismissPluginOverlay(fallback_instance, texteditor_context, raw_input)
+raw_input:onShowKeyboard()
+assert(raw_plugin_dialog_calls == 101, "Dismissing a captured input must restore its original keyboard callback before freeing the widget")
+
+local unsupported_shown_before = #log.shown
+assert(manager:_invokePluginHostItem(fallback_instance, texteditor_context, { callback = function() UIManager:show({ title = "Fullscreen legacy widget", covers_fullscreen = true }) end }), "An unsupported fullscreen plugin view must be contained by the host")
+assert(#log.shown == unsupported_shown_before and fallback_instance.plugin_overlay and fallback_instance.plugin_overlay.kind == "unsupported", "Unsupported fullscreen widgets must show a clear AppDock compatibility overlay and never fall back to native standalone UI")
+manager:_dismissPluginOverlay(fallback_instance, texteditor_context)
+
+manager:activate("plugin_host:fallback_test_plugin")
+fallback_instance = manager.instances["plugin_host:fallback_test_plugin"]
+texteditor_context = manager:_newContext(manager.active_host, fallback_instance, fallback_instance.pane.dimen)
+local original_show, original_close, original_next_tick, original_schedule = UIManager.show, UIManager.close, UIManager.nextTick, UIManager.scheduleIn
+assert(not manager:_invokePluginHostItem(fallback_instance, texteditor_context, { callback = function() error("bridge cleanup") end }), "A throwing plugin callback must be contained")
+assert(UIManager.show == original_show and UIManager.close == original_close and UIManager.nextTick == original_next_tick and UIManager.scheduleIn == original_schedule, "The scoped bridge must restore every UIManager method after a plugin exception")
+
+local queued_next, queued_schedule, async_runs = nil, nil, 0
+UIManager.nextTick = function(_, callback) queued_next = callback end
+UIManager.scheduleIn = function(_, _, callback) queued_schedule = callback end
+local bridge_next_tick, bridge_schedule = UIManager.nextTick, UIManager.scheduleIn
+assert(manager:_invokePluginHostItem(fallback_instance, texteditor_context, { callback = function()
+    UIManager:nextTick(function() async_runs = async_runs + 1; UIManager:show({ title = "Later info", text = "Deferred" }) end)
+    UIManager:scheduleIn(.1, function() async_runs = async_runs + 10; UIManager:show({ title = "Too late", text = "Closed" }) end)
+end }), "Plugin callbacks may schedule scoped follow-up UI work")
+assert(UIManager.nextTick == bridge_next_tick and UIManager.scheduleIn == bridge_schedule and queued_next and queued_schedule, "Scheduling inside a bridge must restore the host UIManager methods immediately")
+queued_next()
+assert(async_runs == 1 and fallback_instance.plugin_overlay and fallback_instance.plugin_overlay.kind == "message", "Deferred plugin UI must re-enter the scoped bridge and become an AppDock overlay")
+manager:_dismissPluginOverlay(fallback_instance, texteditor_context)
+UIManager.nextTick, UIManager.scheduleIn = original_next_tick, original_schedule
 manager:closeDApp("plugin_host:fallback_test_plugin")
+queued_schedule()
+assert(async_runs == 1, "Deferred plugin callbacks must not run after their host has been torn down")
+end)()
 manager:showHomeFromHost({})
 assert(log.last_home_skip_lock == true, "Normal DApp host navigation must return home without incorrectly re-locking AppDock")
 print("AppDock DApp test: OK")

@@ -362,6 +362,150 @@ shorts_state.view = "home"
 local shorts_pane = shorts:buildPane(shorts_instance, context)
 assert(shorts_pane and shorts_pane.dimen and shorts_pane.dimen.w == 600 and shorts_pane.onDeactivate,
     "The Shorts DApp must build a full-size vertical feed pane with its own lifecycle")
+local visible_shorts_actions = {}
+for _, child in ipairs(shorts_pane[1]) do
+    if child.title then visible_shorts_actions[child.title] = true end
+end
+assert(visible_shorts_actions["Topics"] and visible_shorts_actions["Reload"]
+    and visible_shorts_actions["Tools"] and visible_shorts_actions["Previous"]
+    and visible_shorts_actions["Play"] and visible_shorts_actions["Next"],
+    "Shorts must expose clear, direct Topics, Reload, Tools, Previous, Play and Next actions")
+assert(not visible_shorts_actions["Share"],
+    "Shorts must not show a Share action that only opens an unrelated dialog")
+
+-- Confirm the Shorts-specific regressions without opening network videos or
+-- external tools. These run entirely against the same KOReader widget stubs.
+local fallback_short = shorts_helpers.parseShortsOutput(
+    "zyxwvutsrqp\tPlaylist URL fallback\tNA\tChannel\tNA\thttps://www.youtube.com/watch?v=zyxwvutsrqp\tNA\t@Channel\tUCzyxwvutsrqp\n",
+    true)
+assert(#fallback_short == 1 and fallback_short[1].url == "https://www.youtube.com/shorts/zyxwvutsrqp",
+    "A Shorts-tab result with original_url=NA must use only its canonical item URL, not a playlist source")
+assert(#shorts_helpers.parseShortsOutput(
+    "zyxwvutsrqp\tUnverified\tNA\tChannel\tNA\thttps://www.youtube.com/watch?v=zyxwvutsrqp\tNA\t@Channel\tUCzyxwvutsrqp\n") == 0,
+    "The canonical fallback must remain opt-in for the known Shorts-tab command")
+
+local painted_x, painted_y, swiped_direction
+local fake_canvas = {
+    overlap_offset = { 7, 9 },
+    paintTo = function(_, _, x, y) painted_x, painted_y = x, y end,
+}
+local feed_surface = shorts_helpers.FeedSurface:new{
+    width = 90, height = 120, canvas = fake_canvas,
+    swipe_callback = function(gesture) swiped_direction = gesture and gesture.direction end,
+}
+feed_surface:paintTo({}, 11, 13)
+assert(painted_x == 18 and painted_y == 22,
+    "FeedSurface must honour a nested canvas overlap offset when painting and refreshing")
+feed_surface:onSwipeShortsFeed(feed_surface, { direction = "north" })
+assert(swiped_direction == "north",
+    "The KOReader (widget, gesture_event) swipe handler signature must forward the real gesture")
+
+local function assertShortsLayoutBounds(layout, label)
+    local video, detail = layout.video, layout.detail
+    assert(video.x >= 0 and video.y >= 0 and video.w >= 1 and video.h >= 1
+        and video.x + video.w <= layout.width and video.y + video.h <= layout.height,
+        label .. ": video canvas must stay within its assigned pane")
+    assert(detail.x >= 0 and detail.y >= 0 and detail.x + detail.w <= layout.width
+        and layout.primary_y >= 0 and layout.primary_y + layout.primary_h <= layout.height,
+        label .. ": metadata and transport controls must stay within pane bounds")
+    assert(layout.utility_w * 4 + layout.gap * 3 <= layout.width - layout.margin * 2,
+        label .. ": all utility actions must fit horizontally")
+    assert(layout.primary_w * 3 + layout.gap * 2 <= layout.width - layout.margin * 2,
+        label .. ": previous/play/next must fit horizontally")
+end
+assertShortsLayoutBounds(shorts_helpers.layout({ dimen = { w = 600, h = 748 } }), "full Shorts pane")
+assertShortsLayoutBounds(shorts_helpers.layout({
+    dimen = { w = 280, h = 330 }, px = function(value) return math.max(1, math.floor(value * .45)) end,
+}), "narrow split Shorts pane")
+assertShortsLayoutBounds(shorts_helpers.layout({
+    dimen = { w = 280, h = 100 }, px = function(value) return math.max(1, math.floor(value * .45)) end,
+}), "flat split Shorts pane")
+
+local regression_shorts = Shorts:new(appdock)
+local regression_instance = {}
+local regression_state = regression_shorts:_state(regression_instance)
+regression_state.tools = { ytdlp = "/tools/yt-dlp", ffmpeg = "/tools/ffmpeg", ready = true }
+regression_state.short_queue = {
+    { id = "abcdefghijk", title = "Leaving", url = "https://www.youtube.com/shorts/abcdefghijk" },
+    { id = "lmnopqrstuv", title = "Waiting", url = "https://www.youtube.com/shorts/lmnopqrstuv" },
+}
+regression_state.short_index, regression_state.feed_generation = 1, 8
+local prefetch_job = {
+    prefetch = true, prefetch_index = 2, shorts_queue = regression_state.short_queue,
+    shorts_generation = 8, shorts_video_id = "lmnopqrstuv", target = "/tmp/waiting.bwr",
+}
+regression_state.job = prefetch_job
+assert(regression_shorts:_playNext(regression_instance, context),
+    "A swipe while the matching prefetch runs must select that pending Short")
+assert(regression_state.short_index == 2 and regression_state.pending_next_index == 2
+    and regression_state.job == prefetch_job,
+    "A running matching prefetch must not be cancelled or replaced by a stale queued action")
+assert(regression_state.interactions.abcdefghijk and regression_state.interactions.abcdefghijk.skips == 1
+    and not regression_state.interactions.lmnopqrstuv,
+    "Next must record the skipped current Short, never the destination Short")
+
+local old_queue = regression_state.short_queue
+local stale_prefetch = {
+    prefetch = true, prefetch_index = 2, shorts_queue = old_queue,
+    shorts_generation = 8, shorts_video_id = "lmnopqrstuv", target = "/tmp/stale.bwr",
+}
+regression_state.short_queue = {
+    { id = "qrstuvwxyza", title = "Fresh", url = "https://www.youtube.com/shorts/qrstuvwxyza" },
+    { id = "bcdefghijkl", title = "Fresh next", url = "https://www.youtube.com/shorts/bcdefghijkl" },
+}
+regression_state.short_index, regression_state.feed_generation, regression_state.job = 1, 9, stale_prefetch
+local saved_finish = YouTube._finishJob
+YouTube._finishJob = function(_, local_instance) local_instance.youtube.job = nil end
+regression_shorts:_finishJob(regression_instance, context, stale_prefetch, false)
+YouTube._finishJob = saved_finish
+assert(not regression_state.short_queue[2].path,
+    "A completed prefetch from an old feed generation must not write into or autoplay the new queue")
+
+local failed_short_job = { stage = "error", stage_message = "forced Shorts failure", prefetch = false }
+regression_state.job, regression_state.pane_active = failed_short_job, false
+regression_shorts:_tick(regression_instance, context)
+assert(regression_state.job == nil and regression_state.view == "home",
+    "An error-stage Shorts tick must be cleared so Play/Reload can be tried again")
+
+local narrow_context = {
+    dimen = { w = 280, h = 330 },
+    px = function(value) return math.max(1, math.floor(value * .45)) end,
+    requestRefresh = function() end,
+    requestRebuild = function() end,
+}
+local stopped_inline = 0
+regression_shorts.stopInline = function() stopped_inline = stopped_inline + 1 end
+regression_state.transient_rebuild = false
+local lifecycle_pane = regression_shorts:buildPane(regression_instance, narrow_context)
+regression_state.transient_rebuild = true
+lifecycle_pane:onDeactivate()
+assert(stopped_inline == 0 and regression_state.pane_active,
+    "A deliberate pane rebuild must retain inline playback")
+lifecycle_pane = regression_shorts:buildPane(regression_instance, narrow_context)
+lifecycle_pane:onDeactivate()
+assert(stopped_inline == 1 and not regression_state.pane_active,
+    "A real pane deactivation must stop inline playback instead of playing offscreen")
+
+local pipeline_pane
+local pipeline_context = {
+    dimen = { w = 280, h = 330 },
+    requestRefresh = function() end,
+    requestRebuild = function()
+        pipeline_pane:onDeactivate()
+        pipeline_pane = regression_shorts:buildPane(regression_instance, narrow_context)
+    end,
+}
+regression_state.transient_rebuild = false
+pipeline_pane = regression_shorts:buildPane(regression_instance, narrow_context)
+local original_pipeline_tick = YouTube._tick
+YouTube._tick = function(_, _, job_context) job_context.requestRebuild("fast") end
+regression_shorts:_tick(regression_instance, pipeline_context)
+YouTube._tick = original_pipeline_tick
+assert(stopped_inline == 1 and regression_state.pane_active and not regression_state.transient_rebuild,
+    "A shared downloader progress rebuild must preserve the current Short just like a feed rebuild")
+pipeline_pane:onDeactivate()
+assert(stopped_inline == 2 and not regression_state.pane_active,
+    "A progress rebuild must not mask the next genuine app deactivation")
 
 local settings = youtube:_settings()
 assert(settings.fps == 12 and settings.dither == "ffmpeg" and settings.resolution_percent == 100

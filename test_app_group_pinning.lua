@@ -73,7 +73,8 @@ assert(fresh.settings.wallpaper.path:match("assets/wallpaper/appdock_default%.sv
 saved_settings = {
     wallpaper = { enabled = true, path = "/home/reader/custom.png", source = "user" },
     pinned_apps = { "dapp:a", "dapp:b", "system:library" },
-    layout_version = 25,
+    -- Test folder ordering, not automatic tile additions from old layouts.
+    layout_version = fresh.settings.layout_version,
 }
 local appdock = AppDock:new{ ui = ui }
 assert(appdock.settings.wallpaper.path == "/home/reader/custom.png")

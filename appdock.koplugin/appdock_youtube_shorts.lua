@@ -36,6 +36,69 @@ local function scale(value)
     return ok and Device.screen:scaleBySize(value) or value
 end
 
+-- Shorts can be shown in a narrow split/window pane. The normal screen scale
+-- is too large there, so prefer the host's pane-relative helper when present.
+local function panePx(context, value)
+    if context and type(context.px) == "function" then
+        local ok, pixels = pcall(context.px, value)
+        if ok and type(pixels) == "number" then return math.max(1, math.floor(pixels)) end
+    end
+    return math.max(1, math.floor(scale(value)))
+end
+
+local function fitText(value, width, font_size)
+    value = tostring(value or "")
+    local budget = math.max(3, math.floor(math.max(1, width) / math.max(1, font_size * .52)))
+    if #value <= budget then return value end
+    return value:sub(1, math.max(1, budget - 1)) .. "…"
+end
+
+local function emptySizedWidget(width, height)
+    return WidgetContainer:new{ dimen = Geom:new{ w = width, h = height } }
+end
+
+-- The canvas must never overlap the title, status and transport controls: a
+-- video frame refresh repaints only the canvas rectangle. Keeping that
+-- rectangle in the middle band prevents a new frame from erasing metadata.
+local function shortsLayout(context)
+    local width = math.max(1, tonumber(context and context.dimen and context.dimen.w) or 1)
+    local height = math.max(1, tonumber(context and context.dimen and context.dimen.h) or 1)
+    local margin = math.min(math.max(2, panePx(context, 12)), math.max(2, math.floor(width * .08)))
+    local gap = math.min(math.max(2, panePx(context, 6)), math.max(2, math.floor(width * .04)))
+    local raw_margin, raw_gap = panePx(context, 12), panePx(context, 6)
+    local raw_utility_h = math.min(math.max(panePx(context, 25), math.floor(height * .07)), panePx(context, 32))
+    local raw_primary_h = math.min(math.max(panePx(context, 30), math.floor(height * .08)), panePx(context, 38))
+    local raw_title_step, raw_source_step = panePx(context, 19), panePx(context, 16)
+    local raw_detail_h = math.min(math.max(panePx(context, 44), math.floor(height * .12)), panePx(context, 58))
+    local raw_header_h = raw_margin + raw_title_step + raw_source_step + raw_utility_h + raw_gap
+    local raw_total = raw_header_h + raw_detail_h + raw_primary_h + raw_gap * 2 + raw_margin + 1
+    local vertical_ratio = math.min(1, math.max(.1, (height - 1) / math.max(1, raw_total)))
+    local function vertical(value) return math.max(1, math.floor(value * vertical_ratio)) end
+    local vertical_margin, vertical_gap = vertical(raw_margin), vertical(raw_gap)
+    local utility_h, primary_h = vertical(raw_utility_h), vertical(raw_primary_h)
+    local title_y = vertical_margin
+    local source_y = title_y + vertical(raw_title_step)
+    local utility_y = source_y + vertical(raw_source_step)
+    local header_h = utility_y + utility_h + vertical_gap
+    local detail_h = vertical(raw_detail_h)
+    local bottom_h = detail_h + primary_h + vertical_gap * 2 + vertical_margin
+    local video_h = math.max(1, height - header_h - bottom_h)
+    local video_w = math.max(1, math.min(width - margin * 2, math.floor(video_h * .68)))
+    local video_x = math.max(margin, math.floor((width - video_w) / 2))
+    local video_y = header_h
+    local available = math.max(1, width - margin * 2)
+    return {
+        width = width, height = height, margin = margin, gap = gap,
+        title_y = title_y, source_y = source_y, utility_y = utility_y,
+        utility_h = utility_h, utility_w = math.max(1, math.floor((available - gap * 3) / 4)),
+        video = { x = video_x, y = video_y, w = video_w, h = video_h },
+        detail = { x = margin, y = video_y + video_h + gap, w = available, h = detail_h },
+        primary_y = video_y + video_h + gap + detail_h + gap,
+        primary_h = primary_h,
+        primary_w = math.max(1, math.floor((available - gap * 2) / 3)),
+    }
+end
+
 local function trim(value)
     return type(value) == "string" and (value:match("^%s*(.-)%s*$") or "") or ""
 end
@@ -232,15 +295,18 @@ local Chip = InputContainer:extend{
 
 function Chip:init()
     self.dimen = Geom:new{ w = self.width, h = self.height }
+    local font_size = scale(10)
     local text = (self.symbol or "") .. (self.symbol ~= "" and "  " or "") .. (self.title or "")
+    text = fitText(text, math.max(1, self.width - scale(8)), font_size)
     self[1] = FrameContainer:new{
         width = self.width, height = self.height, padding = scale(4), bordersize = 0,
         background = self.background,
         CenterContainer:new{
-            dimen = Geom:new{ w = self.width - scale(8), h = self.height - scale(8) },
+            dimen = Geom:new{ w = math.max(1, self.width - scale(8)), h = math.max(1, self.height - scale(8)) },
             TextWidget:new{
-                text = text, face = Font:getFace("smallinfofont", scale(10)),
+                text = text, face = Font:getFace("smallinfofont", font_size),
                 fgcolor = self.foreground, bold = true, padding = 0,
+                max_width = math.max(1, self.width - scale(8)),
             },
         },
     }
@@ -274,7 +340,13 @@ end
 function FeedSurface:getSize() return self.dimen end
 
 function FeedSurface:paintTo(bb, x, y)
-    if self.canvas then self.canvas:paintTo(bb, x, y) end
+    -- FeedSurface paints the canvas itself, so OverlapGroup cannot apply the
+    -- canvas offset for us. Honour it explicitly; this also keeps Canvas'
+    -- refresh origin aligned with the pixels it actually drew.
+    if self.canvas then
+        local offset = self.canvas.overlap_offset or { 0, 0 }
+        self.canvas:paintTo(bb, x + (offset[1] or 0), y + (offset[2] or 0))
+    end
     local available_height = math.max(1, self.height - math.max(0, self.gesture_inset_bottom or 0))
     for _, event in pairs(self.ges_events) do
         local range = event[1].range
@@ -287,8 +359,10 @@ function FeedSurface:onTapShortsFeed()
     return true
 end
 
-function FeedSurface:onSwipeShortsFeed(gesture)
-    if self.swipe_callback then self.swipe_callback(gesture) end
+function FeedSurface:onSwipeShortsFeed(_, gesture_event)
+    -- KOReader dispatches handlers as (widget, ges_ev). The old one-argument
+    -- form treated the widget as the gesture, which made vertical swipes inert.
+    if self.swipe_callback then self.swipe_callback(gesture_event) end
     return true
 end
 
@@ -315,6 +389,8 @@ function Shorts:_state(instance)
     state.seen_order = state.seen_order or {}
     state.recommendation_source_index = state.recommendation_source_index or 0
     state.search_generation = state.search_generation or 0
+    state.feed_generation = state.feed_generation or 0
+    if state.pane_active == nil then state.pane_active = false end
     return state
 end
 
@@ -322,18 +398,29 @@ function Shorts.isShortUrl(value, expected_id)
     return isShortUrl(value, expected_id)
 end
 
-function Shorts.parseShortsOutput(text)
+function Shorts.parseShortsOutput(text, allow_canonical_fallback)
     local results, known = {}, {}
     for line in tostring(text or ""):gmatch("[^\r\n]+") do
         local fields = {}
         for value in (line .. "\t"):gmatch("(.-)\t") do fields[#fields + 1] = value end
         local id = fields[1]
-        -- A full yt-dlp extraction normalizes `webpage_url` to /watch even
-        -- when the item was enumerated from a Shorts tab. `original_url`
-        -- retains the tab's /shorts/<id> identity and is therefore the field
-        -- that must pass the strict feed check.
-        local webpage_url = fields[7] or fields[6]
-        if validVideoId(id) and not known[id] and isShortUrl(webpage_url, id) then
+        -- yt-dlp may normalize `webpage_url` to /watch. Conversely,
+        -- `original_url` is often the playlist source (or NA), not the entry.
+        -- Prefer either field only when it is the matching item URL. For a
+        -- command explicitly scoped to a /shorts tab, reconstructing the
+        -- canonical item endpoint from its emitted ID is safe and prevents an
+        -- otherwise empty, permanently loading feed.
+        local webpage_url
+        for _, candidate in ipairs({ fields[7], fields[6] }) do
+            if isShortUrl(candidate, id) then
+                webpage_url = candidate
+                break
+            end
+        end
+        if not webpage_url and allow_canonical_fallback and validVideoId(id) then
+            webpage_url = "https://www.youtube.com/shorts/" .. id
+        end
+        if validVideoId(id) and not known[id] and webpage_url then
             known[id] = true
             local duration = tonumber(fields[3])
             results[#results + 1] = {
@@ -455,6 +542,50 @@ function Shorts:_persistLikes(state)
     end
 end
 
+function Shorts:_contextIsActive(context)
+    if not context then return false end
+    if type(context.isActive) == "function" then
+        local ok, active = pcall(context.isActive)
+        if ok then return active == true end
+    end
+    if context.manager and context.host then
+        return context.manager.active_host == context.host and not context.host._closed
+    end
+    -- Tests and older hosts do not expose an activity predicate.
+    return true
+end
+
+function Shorts:_requestRebuild(instance, context, refresh_type)
+    local state = self:_state(instance)
+    if not self:_contextIsActive(context) then return false end
+    if context and context.requestRebuild then
+        -- Host rebuilds deactivate the old pane synchronously. Mark only this
+        -- deliberate replacement as transient, so minimizing/switching apps
+        -- still pauses the player instead of leaving it running offscreen.
+        state.transient_rebuild = true
+        context.requestRebuild(refresh_type or "ui")
+        return true
+    end
+    if context and context.requestRefresh then
+        context.requestRefresh(refresh_type or "ui")
+        return true
+    end
+    return false
+end
+
+function Shorts:_pipelineContext(instance, context)
+    if not context or context.shorts_pipeline_context then return context end
+    local pipeline_context = {}
+    for key, value in pairs(context) do pipeline_context[key] = value end
+    pipeline_context.shorts_pipeline_context = true
+    if context.requestRebuild then
+        pipeline_context.requestRebuild = function(refresh_type)
+            return self:_requestRebuild(instance, context, refresh_type)
+        end
+    end
+    return pipeline_context
+end
+
 function Shorts:_recordInteraction(instance, result, field, amount)
     if not result or not validVideoId(result.id) then return end
     local state = self:_state(instance)
@@ -469,13 +600,15 @@ function Shorts:_scheduleLoadingPulse(instance, context, state)
     state.loading_pulse_scheduled = true
     local function pulse()
         state.loading_pulse_scheduled = false
-        if state.closed or not state.search then return end
+        if state.closed or not state.pane_active or not state.search or not self:_contextIsActive(context) then return end
         state.loading_phase = ((state.loading_phase or 0) + 1) % 20
         if state.loading_widget then state.loading_widget.phase = state.loading_phase end
         if context and context.requestRefresh then context.requestRefresh("fast") end
         self:_scheduleLoadingPulse(instance, context, state)
     end
-    UIManager:scheduleIn(0.1, pulse)
+    -- An indeterminate bar does not need ten full partial refreshes a second on
+    -- E-Ink. One measured pulse is enough to communicate active work.
+    UIManager:scheduleIn(0.8, pulse)
 end
 
 function Shorts:toggleLike(instance, context, result)
@@ -504,7 +637,7 @@ function Shorts:toggleLike(instance, context, result)
         state.note = _("Liked · later feeds use this creator and hashtags")
     end
     self:_persistLikes(state)
-    if context and context.requestRebuild then context.requestRebuild("fast") end
+    self:_requestRebuild(instance, context, "fast")
 end
 
 function Shorts:_cancelSearch(state)
@@ -539,6 +672,9 @@ function Shorts:startSearch(instance, context, query)
             state.shorts_likes, state.shorts_like_order)
     end
     self:_cancelSearch(state)
+    -- A pending prefetch belongs to the old feed as soon as a new source is
+    -- requested. Its completion must not overwrite or autoplay in this queue.
+    state.feed_generation = (state.feed_generation or 0) + 1
     state.recommendation_source_index = state.recommendation_source_index % #sources + 1
     local source = sources[state.recommendation_source_index]
     local work = jobDirectory()
@@ -559,13 +695,20 @@ function Shorts:startSearch(instance, context, query)
     end
     local generation = state.search_generation + 1
     state.search_generation = generation
-    local search = { handle = handle, work = work, source = source, started = os.time(), generation = generation }
+    local search = {
+        handle = handle, work = work, source = source, started = os.time(), generation = generation,
+        feed_generation = state.feed_generation,
+    }
     state.search = search
     state.view, state.note = "search", _("Loading Shorts from ") .. source.label
-    if context and context.requestRebuild then context.requestRebuild("ui") end
+    self:_requestRebuild(instance, context, "ui")
     local tick
     tick = function()
         if state.search ~= search or search.generation ~= state.search_generation or state.closed then return end
+        if not state.pane_active or not self:_contextIsActive(context) then
+            self:_cancelSearch(state)
+            return
+        end
         local code, log = self:_pollDetached(handle)
         if code == nil then
             if os.time() - search.started > 90 then
@@ -575,7 +718,7 @@ function Shorts:startSearch(instance, context, query)
                     state.search = nil
                     state.loading_pulse_scheduled = false
                     state.view, state.note = "home", _("The Shorts feed timed out.")
-                    if context and context.requestRebuild then context.requestRebuild("ui") end
+                    self:_requestRebuild(instance, context, "ui")
                 end
                 return
             end
@@ -590,16 +733,21 @@ function Shorts:startSearch(instance, context, query)
             state.view = "home"
             state.note = _("The Shorts feed could not be loaded. Check the network connection.")
         else
-            local results = Shorts.rankResults(Shorts.parseShortsOutput(log), state.shorts_likes,
+            local results = Shorts.rankResults(Shorts.parseShortsOutput(log, true), state.shorts_likes,
                 state.seen_ids, state.interactions)
+            -- `state.search == search` was checked above; retain the explicit
+            -- generation too, so a future cancellation cannot install a stale
+            -- queue in a new feed.
+            if search.feed_generation ~= state.feed_generation then return end
             state.results, state.results_query = results, source.label
             state.short_queue, state.short_index = results, 1
+            state.pending_next_index = nil
             state.view = "home"
             state.note = #results > 0
                 and (_("Shorts ready from ") .. source.label)
                 or _("No new Shorts found for this source. Try another hashtag.")
         end
-        if context and context.requestRebuild then context.requestRebuild("ui") end
+        self:_requestRebuild(instance, context, "ui")
     end
     UIManager:scheduleIn(1, tick)
     return true
@@ -611,7 +759,7 @@ function Shorts:promptSearch(instance, context)
     YouTube.promptText(_("Choose Shorts hashtags"), _("For example: #cats #technology"), initial, function(value)
         if value == "" then return end
         state.query = value
-        self:startSearch(instance, context, value)
+        self:reloadFeed(instance, context, value)
     end)
 end
 
@@ -639,7 +787,7 @@ function Shorts:_startShort(instance, context, result, prefetch, prefetch_index)
     local slug = YouTube.slugify(result.title, result.id)
     local candidate = availableOutputPath(self:_outputDirectory(), slug)
     if result.thumbnail then self:_cacheThumbnail(result, candidate:gsub("%.bwr$", ".jpg")) end
-    return self:_startJob(instance, context, {
+    local job = self:_startJob(instance, self:_pipelineContext(instance, context), {
         kind = "url",
         source = result.url,
         title = result.title,
@@ -649,10 +797,56 @@ function Shorts:_startShort(instance, context, result, prefetch, prefetch_index)
         prefetch = prefetch == true,
         prefetch_index = prefetch_index,
     })
+    if not job then return nil end
+    local state = self:_state(instance)
+    job.shorts_queue = state.short_queue
+    job.shorts_generation = state.feed_generation
+    job.shorts_video_id = result.id
+    job.shorts_target_index = prefetch_index or state.short_index
+    -- `_startJob` can create an error-stage job when the detached downloader
+    -- cannot be launched. The generic tick has no stage-error branch, so clear
+    -- it here rather than blocking every Retry/Next action indefinitely.
+    if job.stage == "error" then
+        self:_failJob(instance, context, job, job.stage_message)
+        return nil
+    end
+    return job
 end
 
 function Shorts:startVideo(instance, context, result)
     return self:_startShort(instance, context, result, false, nil)
+end
+
+function Shorts:_failJob(instance, context, job, message)
+    YouTube._failJob(self, instance, context, job, message)
+    local state = self:_state(instance)
+    if state.job == job then state.job = nil end
+    if state.pending_next_index == (job and job.prefetch_index) then state.pending_next_index = nil end
+    state.view = "home"
+    state.note = (job and job.stage_message) or message or _("The Short could not be loaded.")
+    if state.pane_active then self:_requestRebuild(instance, context, "ui") end
+end
+
+function Shorts:_tick(instance, context)
+    local state = self:_state(instance)
+    local job = state.job
+    YouTube._tick(self, instance, self:_pipelineContext(instance, context))
+    -- The common pipeline returns early when it is entered with stage="error".
+    -- That is useful for its diagnostic pane, but a Shorts feed has no such
+    -- pane and would otherwise retain the failed job forever.
+    if job and state.job == job and job.stage == "error" then
+        self:_failJob(instance, context, job, job.stage_message)
+    end
+end
+
+function Shorts:_cancelShortJob(instance)
+    local state = self:_state(instance)
+    if not state.job then return false end
+    -- Do not let the generic cancellation synchronously rebuild an old pane:
+    -- navigation will select the intended item before asking for one rebuild.
+    YouTube.cancelJob(self, instance, nil)
+    state.pending_next_index = nil
+    return true
 end
 
 function Shorts:_playPath(instance, context, path)
@@ -697,7 +891,7 @@ function Shorts:togglePlayback(instance, context)
         if state.inline_playing == result.path and self.player.engine then
             self.player.engine:toggle()
             state.note = self.player.engine.paused and _("Paused") or _("Playing")
-            if context and context.requestRefresh then context.requestRefresh("fast") end
+            self:_requestRebuild(instance, context, "fast")
             return true
         end
         local played = self:_playPath(instance, context, result.path)
@@ -707,194 +901,294 @@ function Shorts:togglePlayback(instance, context)
     if state.job and state.job.prefetch and state.job.prefetch_index == state.short_index then
         state.pending_next_index = state.short_index
         state.note = _("This Short is still loading and will start when ready")
-        if context and context.requestRebuild then context.requestRebuild("fast") end
+        self:_requestRebuild(instance, context, "fast")
+        return true
+    end
+    if state.job then
+        state.note = _("This Short is already loading")
+        if context and context.requestRefresh then context.requestRefresh("fast") end
         return true
     end
     return self:startVideo(instance, context, result) ~= nil
 end
 
-function Shorts:_playNext(instance, context)
+function Shorts:_selectShort(instance, context, target_index)
     local state = self:_state(instance)
-    if #state.short_queue == 0 then self:promptSearch(instance, context); return end
-    local next_index = state.short_index + 1
-    if next_index > #state.short_queue then
-        state.note = _("Loading a fresh Shorts feed")
-        self:startSearch(instance, context, "")
-        return
+    local result = state.short_queue[target_index]
+    if not result then return false end
+    self:stopInline(instance)
+    if state.job then
+        -- A second swipe while a conversion is running must select the new
+        -- card, not silently retain the old prefetch and later autoplay it.
+        if state.job.prefetch and state.job.prefetch_index == target_index
+            and state.job.shorts_queue == state.short_queue
+            and state.job.shorts_generation == state.feed_generation
+        then
+            state.short_index = target_index
+            state.pending_next_index = target_index
+            state.note = _("This Short is still loading")
+            self:_requestRebuild(instance, context, "fast")
+            return true
+        end
+        self:_cancelShortJob(instance)
     end
-    state.short_index = next_index
-    local result = state.short_queue[next_index]
-    self:_recordInteraction(instance, result, "skips", 1)
+    state.short_index = target_index
+    state.pending_next_index = nil
     if result.path then
         if self:_playPath(instance, context, result.path) then self:_queuePrefetch(instance, context) end
-    elseif state.job and state.job.prefetch and state.job.prefetch_index == next_index then
-        state.pending_next_index = next_index
-        state.note = _("Next Short is still loading")
-        if context and context.requestRebuild then context.requestRebuild("fast") end
     else
-        self:startVideo(instance, context, result)
+        return self:startVideo(instance, context, result) ~= nil
     end
+    return true
+end
+
+function Shorts:_playNext(instance, context)
+    local state = self:_state(instance)
+    if #state.short_queue == 0 then self:promptSearch(instance, context); return false end
+    local current = self:_current(state)
+    local next_index = state.short_index + 1
+    if next_index > #state.short_queue then
+        if current then self:_recordInteraction(instance, current, "skips", 1) end
+        self:reloadFeed(instance, context)
+        return true
+    end
+    -- The action that caused the move belongs to the item being left, not the
+    -- next card which has not been viewed yet.
+    if current then self:_recordInteraction(instance, current, "skips", 1) end
+    return self:_selectShort(instance, context, next_index)
 end
 
 function Shorts:_playPrevious(instance, context)
     local state = self:_state(instance)
-    if #state.short_queue == 0 then return end
-    state.short_index = state.short_index <= 1 and #state.short_queue or state.short_index - 1
-    local result = self:_current(state)
-    if result and result.path then
-        if self:_playPath(instance, context, result.path) then self:_queuePrefetch(instance, context) end
-    else
-        self:startVideo(instance, context, result)
+    if #state.short_queue == 0 then return false end
+    if state.short_index <= 1 then
+        state.note = _("This is the first Short")
+        if context and context.requestRefresh then context.requestRefresh("fast") end
+        return false
     end
+    return self:_selectShort(instance, context, state.short_index - 1)
 end
 
 function Shorts:_finishJob(instance, context, job, without_audio)
+    local before = self:_state(instance)
+    -- A cancellation/reload may leave an already scheduled completion behind.
+    -- Never let that stale completion mutate the replacement queue.
+    if before.job ~= job then return end
     local is_prefetch = job and job.prefetch == true
     local prefetch_index = job and job.prefetch_index
     local target = job and job.target
+    local queue_matches = job and job.shorts_queue == before.short_queue
+        and job.shorts_generation == before.feed_generation
+    -- The base completion would rebuild the job pane before Shorts has had a
+    -- chance to attach the path and begin inline playback. Suppress that one
+    -- intermediate rebuild; `_playPath` requests the final, correct pane.
+    local suppress_base_rebuild = not is_prefetch
+    if suppress_base_rebuild then before.view = "play" end
     YouTube._finishJob(self, instance, context, job, without_audio)
     local state = self:_state(instance)
+    if suppress_base_rebuild and state.view == "play" then state.view = "home" end
     if state.closed or not target then return end
+    if not queue_matches then
+        state.note = _("A previous Shorts download finished after the feed changed")
+        return
+    end
     if is_prefetch then
         local next_result = state.short_queue[prefetch_index]
-        if next_result then next_result.path = target end
-        if state.pending_next_index == prefetch_index then
+        if next_result and next_result.id == job.shorts_video_id then next_result.path = target else return end
+        if state.pane_active and state.pending_next_index == prefetch_index then
             state.pending_next_index = nil
             state.short_index = prefetch_index
             self:_playPath(instance, context, target)
             self:_queuePrefetch(instance, context)
         else
             state.note = _("Next Short is ready")
-            if context and context.requestRebuild then context.requestRebuild("fast") end
+            if state.pane_active then self:_requestRebuild(instance, context, "fast") end
         end
         return
     end
     local current = self:_current(state)
-    if current and current.id == job.video_id then current.path = target end
-    self:_playPath(instance, context, target)
-    self:_queuePrefetch(instance, context)
+    if not current or current.id ~= job.shorts_video_id then return end
+    current.path = target
+    if state.pane_active then
+        self:_playPath(instance, context, target)
+        self:_queuePrefetch(instance, context)
+    else
+        state.note = _("Short is ready to play")
+    end
+end
+
+function Shorts:reloadFeed(instance, context, query)
+    local state = self:_state(instance)
+    self:stopInline(instance)
+    self:_cancelShortJob(instance)
+    state.pending_next_index = nil
+    state.results, state.short_queue, state.short_index = {}, {}, 1
+    state.results_query = ""
+    state.note = _("Refreshing Shorts…")
+    return self:startSearch(instance, context, query or "")
+end
+
+function Shorts:openTools(instance, context)
+    local state = self:_state(instance)
+    self:stopInline(instance)
+    state.view = "tools"
+    self:_requestRebuild(instance, context, "ui")
 end
 
 function Shorts:_buildFeedPane(instance, context, state)
-    local width, height = context.dimen.w, context.dimen.h
-    local margin = scale(14)
-    local video_width = math.min(width - scale(28), math.floor(width * 0.58))
-    local video_left = math.floor((width - video_width) / 2)
+    local layout = shortsLayout(context)
+    local width, height = layout.width, layout.height
+    local margin, gap, video, detail = layout.margin, layout.gap, layout.video, layout.detail
     local result = self:_current(state)
     local active = result and result.path and state.inline_playing == result.path and self.player.engine
+    local loading = state.search or (state.job and not state.job.prefetch)
+    local empty_text
+    if state.search then
+        empty_text = _("Finding Shorts…")
+    elseif state.job and not state.job.prefetch then
+        empty_text = _("Loading this Short…")
+    elseif not state.tools or not state.tools.ytdlp then
+        empty_text = _("yt-dlp is not ready. Open Tools.")
+    elseif not result then
+        empty_text = state.note ~= "" and state.note or _("Choose Topics to start your Shorts feed")
+    elseif result.path then
+        empty_text = _("Tap Play to continue")
+    else
+        empty_text = _("Tap Play to load this Short")
+    end
     local content = OverlapGroup:new{
         dimen = Geom:new{ w = width, h = height }, allow_mirroring = false,
         FrameContainer:new{
             width = width, height = height, padding = 0, bordersize = 0,
             background = Blitbuffer.COLOR_BLACK,
-            CenterContainer:new{
-                dimen = Geom:new{ w = width, h = height },
-                TextWidget:new{
-                    text = result and "▶" or "#  Shorts",
-                    face = Font:getFace("cfont", scale(result and 44 or 24)),
-                    fgcolor = Blitbuffer.COLOR_WHITE, bold = true, padding = 0,
-                },
+            emptySizedWidget(width, height),
+        },
+    }
+    content.shorts_layout = layout
+
+    local placeholder = FrameContainer:new{
+        width = video.w, height = video.h, padding = 0, bordersize = 0,
+        background = Blitbuffer.COLOR_DARK_GRAY,
+        CenterContainer:new{
+            dimen = Geom:new{ w = video.w, h = video.h },
+            TextWidget:new{
+                text = active and "" or "▶\n" .. fitText(empty_text, video.w - margin * 2, panePx(context, 11)),
+                face = Font:getFace("smallinfofont", panePx(context, 11)), fgcolor = Blitbuffer.COLOR_WHITE,
+                max_width = math.max(1, video.w - margin * 2), padding = 0,
             },
         },
     }
-    local loading = state.search or (state.job and not state.job.prefetch)
-    if loading then
-        self:_scheduleLoadingPulse(instance, context, state)
-        local progress = CenterProgress:new{
-            width = width,
-            height = height,
-            ratio = state.job and (state.job.percent or 0) / 100 or 0,
-            indeterminate = not state.job,
-            phase = state.loading_phase or 0,
-        }
-        state.loading_widget = progress
-        progress.overlap_offset = { 0, 0 }
-        table.insert(content, progress)
-    end
+    placeholder.overlap_offset = { video.x, video.y }
+    table.insert(content, placeholder)
+
     local canvas
     if active then
-        canvas = Player.Canvas:new{ width = video_width, height = height }
+        canvas = Player.Canvas:new{ width = video.w, height = video.h }
         self.player.engine:setCanvas(canvas)
         self.player.engine:show(self.player.engine.position or 0)
-        canvas.overlap_offset = { video_left, 0 }
     end
     local surface = FeedSurface:new{
-        width = width, height = height, canvas = canvas, gesture_inset_bottom = scale(128),
+        width = video.w, height = video.h, canvas = canvas,
         callback = function() self:togglePlayback(instance, context) end,
         swipe_callback = function(gesture)
             if gesture and gesture.direction == "north" then self:_playNext(instance, context)
             elseif gesture and gesture.direction == "south" then self:_playPrevious(instance, context) end
         end,
     }
+    surface.overlap_offset = { video.x, video.y }
     table.insert(content, surface)
+
+    if loading then
+        self:_scheduleLoadingPulse(instance, context, state)
+        local progress = CenterProgress:new{
+            width = video.w, height = video.h,
+            ratio = state.job and (state.job.percent or 0) / 100 or 0,
+            indeterminate = not state.job, phase = state.loading_phase or 0,
+        }
+        state.loading_widget = progress
+        progress.overlap_offset = { video.x, video.y }
+        table.insert(content, progress)
+    else
+        state.loading_widget = nil
+    end
+
     local header = TextWidget:new{
-        text = "Shorts", face = Font:getFace("cfont", scale(16)),
+        text = "Shorts", face = Font:getFace("cfont", panePx(context, 16)),
         fgcolor = Blitbuffer.COLOR_WHITE, bold = true, padding = 0,
     }
-    header.overlap_offset = { margin, margin }
+    header.overlap_offset = { margin, layout.title_y }
     table.insert(content, header)
     local source = TextWidget:new{
-        text = state.results_query and (_("For you · ") .. state.results_query) or self:_recommendationQuery(state),
-        face = Font:getFace("smallinfofont", scale(9)), fgcolor = Blitbuffer.COLOR_GRAY_8,
+        text = fitText(state.results_query and (_("For you · ") .. state.results_query) or self:_recommendationQuery(state),
+            width - margin * 2, panePx(context, 9)),
+        face = Font:getFace("smallinfofont", panePx(context, 9)), fgcolor = Blitbuffer.COLOR_GRAY_8,
         max_width = width - margin * 2, padding = 0,
     }
-    source.overlap_offset = { margin, scale(38) }
+    source.overlap_offset = { margin, layout.source_y }
     table.insert(content, source)
-    local top_actions = {
-        { symbol = "⌕", title = "", callback = function() self:promptSearch(instance, context) end },
-        { symbol = "⋮", title = "", callback = function() self:promptSearch(instance, context) end },
-    }
-    local top_size, top_gap = scale(34), scale(5)
-    for index, action in ipairs(top_actions) do
-        local chip = Chip:new{
-            symbol = action.symbol, title = action.title, width = top_size, height = top_size,
-            background = Blitbuffer.COLOR_BLACK, foreground = Blitbuffer.COLOR_WHITE,
-            callback = action.callback,
-        }
-        chip.overlap_offset = { width - margin - (2 - index + 1) * (top_size + top_gap), scale(8) }
-        table.insert(content, chip)
-    end
-    local title = TextWidget:new{
-        text = result and (result.title or "") or _("Set hashtags to receive only YouTube Shorts"),
-        face = Font:getFace("smallinfofont", scale(11)), fgcolor = Blitbuffer.COLOR_WHITE,
-        max_width = width - margin * 2, padding = 0,
-    }
-    title.overlap_offset = { video_left + margin, height - scale(96) }
-    table.insert(content, title)
-    local meta = TextWidget:new{
-        text = result and (result.uploader or _("YouTube")) or _("Tap to play · swipe up for next"),
-        face = Font:getFace("smallinfofont", scale(10)), fgcolor = Blitbuffer.COLOR_GRAY_8,
-        max_width = width - margin * 2, padding = 0,
-    }
-    meta.overlap_offset = { video_left + margin, height - scale(70) }
-    table.insert(content, meta)
-    local action_w, action_h, action_gap = scale(52), scale(40), scale(6)
-    local actions = {
+
+    local utility_actions = {
         {
             symbol = state.shorts_likes[result and result.id or ""] and "♥" or "♡",
-            title = result and (state.shorts_likes[result.id] and _("Liked") or _("Like")) or "",
+            title = result and (state.shorts_likes[result.id] and _("Liked") or _("Like")) or _("Like"),
             callback = function() self:toggleLike(instance, context, result) end,
         },
-        { symbol = "↗", title = _("Share"), callback = function() self:promptSearch(instance, context) end },
-        { symbol = "›", title = _("Next"), callback = function() self:_playNext(instance, context) end },
         { symbol = "#", title = _("Topics"), callback = function() self:promptSearch(instance, context) end },
+        { symbol = "↻", title = _("Reload"), callback = function() self:reloadFeed(instance, context) end },
+        { symbol = "⋮", title = _("Tools"), callback = function() self:openTools(instance, context) end },
     }
-    for index, action in ipairs(actions) do
+    for index, action in ipairs(utility_actions) do
         local chip = Chip:new{
-            symbol = action.symbol, title = action.title, width = action_w, height = action_h,
-            background = Blitbuffer.COLOR_BLACK, foreground = Blitbuffer.COLOR_WHITE, callback = action.callback,
+            symbol = action.symbol, title = action.title, width = layout.utility_w, height = layout.utility_h,
+            background = Blitbuffer.COLOR_GRAY_8, foreground = Blitbuffer.COLOR_BLACK, callback = action.callback,
         }
-        chip.overlap_offset = { width - margin - action_w, math.floor(height * .47) + (index - 1) * (action_h + action_gap) }
+        chip.overlap_offset = { margin + (index - 1) * (layout.utility_w + gap), layout.utility_y }
         table.insert(content, chip)
     end
-    local footer = TextWidget:new{
-        text = loading and (state.search and _("Finding your first Short…") or _("Loading the next Short…"))
-            or (state.note ~= "" and state.note or _("Swipe up for next · tap to pause")),
-        face = Font:getFace("smallinfofont", scale(9)), fgcolor = Blitbuffer.COLOR_GRAY_8,
-        max_width = width - margin * 2, padding = 0,
+
+    local title = TextWidget:new{
+        text = fitText(result and result.title or _("No Short selected"), detail.w, panePx(context, 11)),
+        face = Font:getFace("smallinfofont", panePx(context, 11)), fgcolor = Blitbuffer.COLOR_WHITE,
+        bold = true, max_width = detail.w, padding = 0,
     }
-    footer.overlap_offset = { video_left + margin, height - scale(38) }
-    table.insert(content, footer)
+    title.overlap_offset = { detail.x, detail.y }
+    table.insert(content, title)
+    local meta = TextWidget:new{
+        text = fitText(result and (result.uploader or _("YouTube")) or _("Swipe up/down on the video"), detail.w, panePx(context, 9)),
+        face = Font:getFace("smallinfofont", panePx(context, 9)), fgcolor = Blitbuffer.COLOR_GRAY_8,
+        max_width = detail.w, padding = 0,
+    }
+    meta.overlap_offset = { detail.x, detail.y + panePx(context, 16) }
+    table.insert(content, meta)
+    local note = TextWidget:new{
+        text = fitText(loading and empty_text or (state.note ~= "" and state.note or _("Swipe for previous/next")),
+            detail.w, panePx(context, 8)),
+        face = Font:getFace("smallinfofont", panePx(context, 8)), fgcolor = Blitbuffer.COLOR_GRAY_8,
+        max_width = detail.w, padding = 0,
+    }
+    note.overlap_offset = { detail.x, detail.y + panePx(context, 30) }
+    table.insert(content, note)
+
+    local narrow = layout.primary_w < panePx(context, 82)
+    local playing = active and not self.player.engine.paused
+    local primary_actions = {
+        { symbol = "‹", title = narrow and _("Prev") or _("Previous"), callback = function() self:_playPrevious(instance, context) end },
+        {
+            symbol = playing and "Ⅱ" or "▶",
+            title = playing and _("Pause") or _("Play"),
+            callback = function() self:togglePlayback(instance, context) end,
+        },
+        { symbol = "›", title = narrow and _("Next") or _("Next"), callback = function() self:_playNext(instance, context) end },
+    }
+    for index, action in ipairs(primary_actions) do
+        local chip = Chip:new{
+            symbol = action.symbol, title = action.title, width = layout.primary_w, height = layout.primary_h,
+            background = index == 2 and Blitbuffer.COLOR_WHITE or Blitbuffer.COLOR_GRAY_8,
+            foreground = Blitbuffer.COLOR_BLACK, callback = action.callback,
+        }
+        chip.overlap_offset = { margin + (index - 1) * (layout.primary_w + gap), layout.primary_y }
+        table.insert(content, chip)
+    end
     return content
 end
 
@@ -909,6 +1203,7 @@ end
 function Shorts:buildPane(instance, context)
     local state = self:_state(instance)
     state.closed = false
+    state.pane_active = true
     if state.view == "home" and not state.tools.ready and not state.bootstrap_attempted
         and not (self.appdock and self.appdock.disableToolBootstrap) then
         self:_startToolBootstrap(instance, context, true)
@@ -917,7 +1212,9 @@ function Shorts:buildPane(instance, context)
         and #(state.short_queue or {}) == 0 and state.tools and state.tools.ytdlp then
         state.feed_bootstrap_attempted = true
         local start_feed = function()
-            if not state.closed and not state.search and #(state.short_queue or {}) == 0 then
+            if not state.closed and state.pane_active and self:_contextIsActive(context)
+                and not state.search and #(state.short_queue or {}) == 0
+            then
                 self:startSearch(instance, context, "")
             end
         end
@@ -937,10 +1234,20 @@ function Shorts:buildPane(instance, context)
     local pane = WidgetContainer:new{ dimen = Geom:new{ w = context.dimen.w, h = context.dimen.h } }
     pane[1] = content
     pane.onDeactivate = function()
-        -- A DApp pane is rebuilt frequently while the prefetched file progresses.
-        -- Keep the inline player alive across those transient replacements; the
-        -- DApp definition calls onDAppClose for a real close.
-        state.inline_rebuild = false
+        -- The host deactivates a pane before replacing it during a rebuild, but
+        -- also when its DApp is minimized or hidden. Preserve the player only
+        -- for an explicitly marked replacement; otherwise never keep video
+        -- ticking into an offscreen pane.
+        if state.transient_rebuild or state.inline_rebuild then
+            state.transient_rebuild = false
+            state.inline_rebuild = false
+            return
+        end
+        state.pane_active = false
+        state.loading_pulse_scheduled = false
+        state.loading_widget = nil
+        self:_cancelSearch(state)
+        self:stopInline(instance)
     end
     return pane
 end
@@ -948,6 +1255,7 @@ end
 function Shorts:onDAppClose(instance)
     local state = self:_state(instance)
     state.closed = true
+    state.pane_active = false
     state.loading_pulse_scheduled = false
     self:_cancelSearch(state)
     if state.job then self:cancelJob(instance, nil) end
@@ -963,6 +1271,8 @@ Shorts._test = {
     tagsFromText = tagsFromText,
     parseInteractions = parseInteractions,
     serializeInteractions = serializeInteractions,
+    layout = shortsLayout,
+    FeedSurface = FeedSurface,
 }
 
 return Shorts

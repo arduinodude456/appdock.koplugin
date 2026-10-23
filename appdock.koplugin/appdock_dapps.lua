@@ -87,6 +87,89 @@ local DAppHost = InputContainer:extend{
     covers_fullscreen = true,
 }
 
+-- Plugin panes are only ever children of this AppDock-owned container.  The
+-- regular WidgetContainer event dispatch reaches children, and this wrapper
+-- scopes that dispatch, rendering, and lifecycle code to the plugin bridge.
+local PluginHostPaneBridge = WidgetContainer:extend{
+    manager = nil,
+    instance = nil,
+    context = nil,
+    plugin_pane = nil,
+    dimen = nil,
+    is_plugin_host_pane_bridge = true,
+}
+
+function PluginHostPaneBridge:init()
+    local assigned = self.context and self.context.dimen or self.dimen or Geom:new{ x = 0, y = 0, w = 1, h = 1 }
+    self.dimen = assigned
+    if type(self.plugin_pane) == "table" then
+        -- The outer DAppHost owns the screen offset. Plugin code always sees
+        -- the local origin of its assigned pane, including in split layouts.
+        self.plugin_pane.dimen = assigned
+        self.plugin_host_layout = self.plugin_pane.plugin_host_layout
+        self[1] = self.plugin_pane
+    end
+end
+
+function PluginHostPaneBridge:_run(callback, ...)
+    if not self.manager or not self.instance or not self.context or type(callback) ~= "function" then return false end
+    return self.manager:_runPluginWidgetBridge(self.instance, self.context, callback, ...)
+end
+
+function PluginHostPaneBridge:handleEvent(...)
+    local args, count = { ... }, select("#", ...)
+    local function dispatch()
+        if type(WidgetContainer.handleEvent) == "function" then
+            return WidgetContainer.handleEvent(self, unpack(args, 1, count))
+        end
+        local pane = self.plugin_pane
+        if pane and type(pane.handleEvent) == "function" then return pane:handleEvent(unpack(args, 1, count)) end
+        return false
+    end
+    local ok, handled = self:_run(dispatch)
+    return ok and handled or false
+end
+
+function PluginHostPaneBridge:paintTo(...)
+    local args, count = { ... }, select("#", ...)
+    local function paint()
+        if type(WidgetContainer.paintTo) == "function" then
+            return WidgetContainer.paintTo(self, unpack(args, 1, count))
+        end
+        local pane = self.plugin_pane
+        if pane and type(pane.paintTo) == "function" then return pane:paintTo(unpack(args, 1, count)) end
+    end
+    local ok, result = self:_run(paint)
+    return ok and result or nil
+end
+
+function PluginHostPaneBridge:onDeactivate()
+    if self._plugin_host_deactivated then return true end
+    self._plugin_host_deactivated = true
+    local pane = self.plugin_pane
+    if not pane or type(pane.onDeactivate) ~= "function" then return true end
+    local ok, accepted = self:_run(pane.onDeactivate, pane)
+    return ok and accepted ~= false
+end
+
+function PluginHostPaneBridge:onCloseWidget()
+    if self._plugin_host_closed then return true end
+    self._plugin_host_closed = true
+    local pane = self.plugin_pane
+    if not pane or type(pane.onCloseWidget) ~= "function" then return true end
+    local ok, accepted = self:_run(pane.onCloseWidget, pane)
+    return ok and accepted ~= false
+end
+
+function PluginHostPaneBridge:free()
+    if self._plugin_host_freed then return true end
+    self._plugin_host_freed = true
+    local pane = self.plugin_pane
+    if not pane or type(pane.free) ~= "function" then return true end
+    local ok, accepted = self:_run(pane.free, pane)
+    return ok and accepted ~= false
+end
+
 -- A dedicated host keeps windowing deliberately bounded: ordinary DApps get
 -- the same flexible local-pane contract as split screen, while plugin hosts
 -- and the regular full-screen lifecycle remain untouched.
@@ -1611,7 +1694,7 @@ function DAppManager:getOpenApps()
             table.insert(apps, {
                 id = id,
                 title = instance.definition.title,
-                subtitle = is_plugin_host and _("Plugin host · Beta") or (instance.in_window and _("Floating window · Beta") or (instance.in_split and _("In split screen") or (instance.visible and _("Active") or _("Open")))),
+                subtitle = is_plugin_host and _("Plugin host · AppDock") or (instance.in_window and _("Floating window · Beta") or (instance.in_split and _("In split screen") or (instance.visible and _("Active") or _("Open")))),
                 symbol = instance.definition.symbol,
                 logo = instance.definition.logo,
                 last_active = instance.last_active,
@@ -1686,124 +1769,349 @@ local function notificationAppId(instance)
 end
 
 function DAppManager:_pluginHostContext(instance, context)
-    return {
+    context = type(context) == "table" and context or {}
+    local palette = context.palette or Theme.getPalette(self.appdock)
+    local dimen = context.dimen or Geom:new{ w = scale(320), h = scale(400) }
+    local px = context.px or function(value) return math.max(1, math.floor(tonumber(value) or 0)) end
+    local metrics = {
+        margin = px(14), gap = px(8), row_height = px(48), chip_height = px(38),
+        title_size = px(19), body_size = px(12), corner_radius = px(14),
+    }
+    local plugin_context = {
         appdock = self.appdock,
         manager = self,
         instance = instance,
         plugin = instance.definition.plugin_app,
+        host = context.host,
+        dimen = dimen,
+        palette = palette,
+        text = AppDockText,
+        scale = context.scale or 1,
+        ui_scale = context.ui_scale or 1,
+        px = px,
+        relative = context.relative,
+        requestRefresh = context.requestRefresh or function() end,
+        requestRebuild = context.requestRebuild or function() end,
+        -- This is the public pane contract for cooperating plugins. It contains
+        -- only AppDock-owned appearance values and local pane measurements; it
+        -- deliberately does not expose a generic UIManager escape hatch.
+        theme = {
+            palette = palette,
+            high_contrast = palette.high_contrast == true,
+            text = { primary = palette.on_surface, secondary = palette.on_variant, on_primary = palette.on_primary },
+            metrics = metrics,
+            layout = { dimen = dimen, width = dimen.w, height = dimen.h, can_split = false, is_window = false },
+        },
+        layout = { dimen = dimen, width = dimen.w, height = dimen.h, metrics = metrics, can_split = false, is_window = false },
         notify = function(payload)
             payload = type(payload) == "table" and payload or {}
             payload.source = payload.source or instance.definition.title
             payload.app_id = notificationAppId(instance)
             return self.appdock:notify(payload)
         end,
-        requestRefresh = context.requestRefresh,
-        requestRebuild = context.requestRebuild,
         ui = {
             showMessage = function(title, message)
-                instance.plugin_overlay = { kind = "message", title = title, message = message }
-                context.requestRebuild("ui")
+                self:_setPluginOverlay(instance, context, {
+                    kind = "message",
+                    title = title,
+                    message = message,
+                })
+            end,
+            dismiss = function()
+                self:_dismissPluginOverlay(instance, context)
             end,
         },
     }
+    return plugin_context
+end
+
+local MAX_PLUGIN_OVERLAY_DEPTH = 6
+local MAX_PLUGIN_MENU_ITEMS = 32
+local MAX_PLUGIN_DIALOG_ACTIONS = 16
+
+local function boundedPluginText(value, maximum)
+    local text = type(value) == "string" and value or tostring(value or "")
+    text = text:gsub("[%c]+", " "):gsub("%s+", " "):match("^%s*(.-)%s*$") or ""
+    return Theme.ellipsize(text, maximum or 160)
 end
 
 local function pluginDialogActions(widget)
     local actions = {}
+    local function append(button, fallback)
+        if #actions >= MAX_PLUGIN_DIALOG_ACTIONS or type(button) ~= "table" then return end
+        local label = button.text
+        if type(button.text_func) == "function" then
+            local text_ok, generated = pcall(button.text_func)
+            label = text_ok and generated or label
+        end
+        label = boundedPluginText(label or fallback or _("Plugin action"), 96)
+        if label ~= "" then
+            actions[#actions + 1] = {
+                text = label,
+                callback = type(button.callback) == "function" and button.callback or nil,
+                enabled = button.enabled ~= false,
+                primary = button.is_enter_default == true or button.is_default == true,
+            }
+        end
+    end
     for _, row in ipairs(type(widget) == "table" and widget.buttons or {}) do
-        for _, button in ipairs(type(row) == "table" and row or {}) do
-            if type(button) == "table" then
-                local label = button.text
-                if type(button.text_func) == "function" then
-                    local text_ok, generated = pcall(button.text_func)
-                    label = text_ok and generated or label
-                end
-                if type(label) == "string" and label ~= "" then
-                    actions[#actions + 1] = {
-                        text = label,
-                        callback = type(button.callback) == "function" and button.callback or nil,
-                        enabled = button.enabled ~= false,
-                        primary = button.is_enter_default == true,
-                    }
-                end
-            end
+        for _, button in ipairs(type(row) == "table" and row or {}) do append(button) end
+    end
+    -- ConfirmBox does not use `buttons`; keeping these callbacks means a legacy
+    -- confirm prompt remains actionable without ever showing its native widget.
+    if #actions == 0 and type(widget) == "table" and (type(widget.ok_callback) == "function" or type(widget.cancel_callback) == "function") then
+        if type(widget.ok_callback) == "function" then
+            append({ text = widget.ok_text or _("OK"), callback = widget.ok_callback, is_enter_default = true })
+        end
+        if type(widget.cancel_callback) == "function" then
+            append({ text = widget.cancel_text or _("Cancel"), callback = widget.cancel_callback })
         end
     end
     return actions
 end
 
+function DAppManager:_pluginHostOwns(instance, context)
+    local host = context and context.host
+    if type(instance) ~= "table" or type(host) ~= "table" or host._closed or host.manager ~= self then return false end
+    if not instance.visible or instance.plugin_host_closing then return false end
+    -- During DAppHost:init the host is built before `active_host` is assigned.
+    -- This narrow allowance only covers that construction turn; deferred work
+    -- must still see the actual active host before it can affect the UI.
+    return self.active_host == host or (self.active_host == nil and host.dapp_id == instance.id)
+end
+
+function DAppManager:_pluginOverlayStack(instance)
+    if type(instance.plugin_overlay_stack) ~= "table" then instance.plugin_overlay_stack = {} end
+    return instance.plugin_overlay_stack
+end
+
+function DAppManager:_releaseCapturedPluginWidget(instance, context, widget)
+    if type(instance) ~= "table" or type(widget) ~= "table" then return false end
+    local captured = instance.plugin_captured_widgets
+    local record = captured and captured[widget]
+    if not record or record.released then return false end
+    record.released = true
+    captured[widget] = nil
+    if record.original_on_show_keyboard then widget.onShowKeyboard = record.original_on_show_keyboard end
+    -- Captured widgets were never on UIManager's native stack. Their resource
+    -- hooks are therefore called explicitly, but still inside the scoped
+    -- bridge: a close/free hook can itself try to open a native plugin widget.
+    -- There is deliberately no raw `onClose` fallback outside that scope.
+    self:_runPluginWidgetBridge(instance, context, function()
+        if not record.closed and type(widget.onCloseWidget) == "function" then
+            record.closed = true
+            pcall(widget.onCloseWidget, widget)
+        end
+        if not record.freed and type(widget.free) == "function" then
+            record.freed = true
+            pcall(widget.free, widget)
+        end
+    end)
+    return true
+end
+
 function DAppManager:_setPluginOverlay(instance, context, overlay)
+    if type(instance) ~= "table" or type(overlay) ~= "table" then return false end
+    overlay.title = boundedPluginText(overlay.title or instance.definition.title, 96)
+    overlay.message = boundedPluginText(overlay.message, 1200)
+    overlay.actions = type(overlay.actions) == "table" and overlay.actions or {}
+    local current = instance.plugin_overlay
+    if current and current ~= overlay then
+        local stack = self:_pluginOverlayStack(instance)
+        stack[#stack + 1] = current
+        if #stack > MAX_PLUGIN_OVERLAY_DEPTH then
+            local dropped = table.remove(stack, 1)
+            if dropped and dropped.widget then self:_releaseCapturedPluginWidget(instance, context, dropped.widget) end
+        end
+    end
     instance.plugin_overlay = overlay
-    context.requestRebuild("ui")
+    if context and context.requestRebuild then context.requestRebuild("ui") end
+    return true
+end
+
+function DAppManager:_discardPluginOverlay(instance, context, overlay)
+    if type(instance) ~= "table" or type(overlay) ~= "table" then return false end
+    local removed = false
+    if instance.plugin_overlay == overlay then
+        instance.plugin_overlay = table.remove(self:_pluginOverlayStack(instance))
+        removed = true
+    else
+        local stack = self:_pluginOverlayStack(instance)
+        for index = #stack, 1, -1 do
+            if stack[index] == overlay then table.remove(stack, index); removed = true; break end
+        end
+    end
+    if removed and overlay.widget then self:_releaseCapturedPluginWidget(instance, context, overlay.widget) end
+    return removed
 end
 
 function DAppManager:_dismissPluginOverlay(instance, context, widget)
-    if widget and instance.plugin_captured_widgets then instance.plugin_captured_widgets[widget] = nil end
-    instance.plugin_overlay = nil
-    context.requestRebuild("ui")
+    if type(instance) ~= "table" then return false end
+    local overlay = instance.plugin_overlay
+    if widget and (not overlay or overlay.widget ~= widget) then
+        for _, candidate in ipairs(self:_pluginOverlayStack(instance)) do
+            if candidate.widget == widget then overlay = candidate; break end
+        end
+    end
+    if not overlay then return false end
+    local dismissed = self:_discardPluginOverlay(instance, context, overlay)
+    if dismissed and context and context.requestRebuild then context.requestRebuild("ui") end
+    return dismissed
+end
+
+function DAppManager:_clearPluginHostOverlays(instance, context)
+    if type(instance) ~= "table" then return end
+    local overlays, seen = {}, {}
+    local function add(overlay)
+        if type(overlay) == "table" and not seen[overlay] then seen[overlay] = true; overlays[#overlays + 1] = overlay end
+    end
+    add(instance.plugin_overlay)
+    for _, overlay in ipairs(instance.plugin_overlay_stack or {}) do add(overlay) end
+    instance.plugin_overlay, instance.plugin_overlay_stack = nil, {}
+    for _, overlay in ipairs(overlays) do
+        if overlay.widget then self:_releaseCapturedPluginWidget(instance, context, overlay.widget) end
+    end
+    for widget in pairs(instance.plugin_captured_widgets or {}) do
+        self:_releaseCapturedPluginWidget(instance, context, widget)
+    end
+end
+
+function DAppManager:_showUnsupportedPluginWidget(instance, context, widget)
+    local description = type(widget) == "table" and (widget.title or widget.name or widget.text) or nil
+    description = boundedPluginText(description, 180)
+    local message = _("This plugin view cannot be embedded safely. It was kept inside AppDock and was not opened as a separate screen.")
+    if description ~= "" then message = message .. "\n\n" .. description end
+    self:_setPluginOverlay(instance, context, {
+        kind = "unsupported",
+        title = _("Plugin view unavailable"),
+        message = message,
+        actions = {},
+    })
 end
 
 function DAppManager:_capturePluginWidget(instance, context, widget)
     if type(widget) ~= "table" then return false end
-    local title = type(widget.title) == "string" and widget.title or instance.definition.title
+    local title = boundedPluginText(widget.title or instance.definition.title, 96)
     local actions = pluginDialogActions(widget)
     local kind
-    if type(widget.getInputText) == "function" or (type(widget.input) == "string" and #actions > 0) then
+    if type(widget.getInputText) == "function" or type(widget.setInputText) == "function" or (type(widget.input) == "string" and #actions > 0) then
         kind = "input"
     elseif #actions > 0 then
         kind = "actions"
-    elseif type(widget.text) == "string" then
+    elseif type(widget.text) == "string" or type(widget.description) == "string" then
         kind = "message"
     else
-        return false
+        -- Unrecognized/fullscreen legacy widgets remain host-owned too. They
+        -- get an AppDock compatibility overlay and their lifecycle is released
+        -- exactly once when dismissed or when the host closes.
+        kind = "unsupported"
     end
     instance.plugin_captured_widgets = instance.plugin_captured_widgets or {}
-    instance.plugin_captured_widgets[widget] = true
+    local existing = instance.plugin_captured_widgets[widget]
+    if existing and not existing.released then return true end
+    local record = { kind = kind, released = false, closed = false, freed = false }
+    instance.plugin_captured_widgets[widget] = record
     if kind == "input" and type(widget.onShowKeyboard) == "function" then
-        widget.appdock_bridge_original_on_show_keyboard = widget.onShowKeyboard
+        record.original_on_show_keyboard = widget.onShowKeyboard
         widget.onShowKeyboard = function() return true end
     end
-    instance.plugin_overlay = {
+    self:_setPluginOverlay(instance, context, {
         kind = kind,
         title = title,
-        message = type(widget.text) == "string" and widget.text or (type(widget.description) == "string" and widget.description or ""),
-        input_hint = type(widget.input_hint) == "string" and widget.input_hint or "",
+        message = kind == "unsupported" and _("This plugin view cannot be embedded safely. It was kept inside AppDock and was not opened as a separate screen.") or (type(widget.text) == "string" and widget.text or (type(widget.description) == "string" and widget.description or "")),
+        input_hint = boundedPluginText(widget.input_hint, 120),
         widget = widget,
         actions = actions,
         page = 1,
-    }
+    })
     return true
 end
 
+function DAppManager:_runDeferredPluginCallback(instance, context, callback, ...)
+    if not self:_pluginHostOwns(instance, context) then return false end
+    local ok, accepted, reason = self:_runPluginWidgetBridge(instance, context, callback, ...)
+    if not ok then
+        self.appdock:notify({
+            title = _("Plugin action could not continue"),
+            message = boundedPluginText(reason, 240), source = instance.definition.title,
+            app_id = notificationAppId(instance), priority = "high",
+        })
+        return false
+    end
+    return accepted ~= false
+end
+
 function DAppManager:_runPluginWidgetBridge(instance, context, callback, ...)
+    if type(callback) ~= "function" then return false, nil, "missing plugin callback" end
     local original_show, original_close = UIManager.show, UIManager.close
+    local original_next_tick, original_schedule = UIManager.nextTick, UIManager.scheduleIn
     local captured = false
-    UIManager.show = function(ui_manager, widget)
+    local scoped_show, scoped_close, scoped_next_tick, scoped_schedule
+    local function widgetArgument(ui_manager, widget)
+        if widget == nil and ui_manager ~= UIManager then return ui_manager end
+        return widget
+    end
+    local function restore()
+        if UIManager.show == scoped_show then UIManager.show = original_show end
+        if UIManager.close == scoped_close then UIManager.close = original_close end
+        if original_next_tick and UIManager.nextTick == scoped_next_tick then UIManager.nextTick = original_next_tick end
+        if original_schedule and UIManager.scheduleIn == scoped_schedule then UIManager.scheduleIn = original_schedule end
+    end
+    scoped_show = function(ui_manager, widget)
+        widget = widgetArgument(ui_manager, widget)
         if self:_capturePluginWidget(instance, context, widget) then
             captured = true
             return true
         end
-        return original_show(ui_manager, widget)
+        -- A plugin callback is never allowed to reveal an arbitrary native or
+        -- fullscreen widget. Unknown views become an explicit AppDock overlay.
+        captured = true
+        self:_showUnsupportedPluginWidget(instance, context, widget)
+        return true
     end
-    UIManager.close = function(ui_manager, widget)
-        if instance.plugin_captured_widgets and instance.plugin_captured_widgets[widget] then
-            instance.plugin_captured_widgets[widget] = nil
-            if instance.plugin_overlay and instance.plugin_overlay.widget == widget then instance.plugin_overlay = nil end
-            captured = true
+    scoped_close = function(ui_manager, widget)
+        widget = widgetArgument(ui_manager, widget)
+        if type(widget) == "table" and instance.plugin_captured_widgets and instance.plugin_captured_widgets[widget] then
+            captured = self:_dismissPluginOverlay(instance, context, widget) or captured
             return true
         end
-        return original_close(ui_manager, widget)
+        -- Do not allow a hosted plugin to close a host, home screen, or another
+        -- plugin widget it does not own while its bridge scope is active.
+        return true
     end
+    if type(original_next_tick) == "function" then
+        scoped_next_tick = function(ui_manager, deferred)
+            if type(deferred) ~= "function" then return true end
+            return original_next_tick(ui_manager, function(...)
+                return self:_runDeferredPluginCallback(instance, context, deferred, ...)
+            end)
+        end
+    end
+    if type(original_schedule) == "function" then
+        scoped_schedule = function(ui_manager, seconds, deferred)
+            if type(deferred) ~= "function" then return true end
+            return original_schedule(ui_manager, seconds, function(...)
+                return self:_runDeferredPluginCallback(instance, context, deferred, ...)
+            end)
+        end
+    end
+    UIManager.show, UIManager.close = scoped_show, scoped_close
+    if scoped_next_tick then UIManager.nextTick = scoped_next_tick end
+    if scoped_schedule then UIManager.scheduleIn = scoped_schedule end
     local ok, accepted, reason = pcall(callback, ...)
-    UIManager.show, UIManager.close = original_show, original_close
-    if captured then context.requestRebuild("ui") end
+    restore()
+    if captured and context and context.requestRebuild then context.requestRebuild("ui") end
     return ok, accepted, reason
 end
 
 function DAppManager:_showPluginInputEditor(instance, context, overlay)
     local widget = overlay and overlay.widget
     if not widget then return end
-    local input = type(widget.getInputText) == "function" and widget:getInputText() or widget.input or ""
+    local input = widget.input or ""
+    if type(widget.getInputText) == "function" then
+        local ok, value = self:_runPluginWidgetBridge(instance, context, widget.getInputText, widget)
+        if ok and type(value) == "string" then input = value end
+    end
     local dialog
     dialog = InputDialog:new{
         title = _("AppDock input") .. " · " .. (overlay.title or instance.definition.title),
@@ -1815,7 +2123,7 @@ function DAppManager:_showPluginInputEditor(instance, context, overlay)
                 { text = _("Save"), is_enter_default = true, callback = function()
                     local value = dialog:getInputText()
                     if type(widget.setInputText) == "function" then
-                        pcall(widget.setInputText, widget, value)
+                        self:_runPluginWidgetBridge(instance, context, widget.setInputText, widget, value)
                     else
                         widget.input = value
                     end
@@ -1825,6 +2133,8 @@ function DAppManager:_showPluginInputEditor(instance, context, overlay)
             },
         },
     }
+    -- This dialog is AppDock-owned (not the plugin's native widget) and uses
+    -- AppDock's keyboard/controls while preserving the plugin input contract.
     AppDockKeyboard.attach(dialog)
     UIManager:show(dialog)
     if dialog.onShowKeyboard then dialog:onShowKeyboard() end
@@ -1837,80 +2147,85 @@ function DAppManager:_invokePluginOverlayAction(instance, context, action)
         self:_showPluginInputEditor(instance, context, overlay)
         return true
     end
-    local widget = overlay.widget
-    instance.plugin_overlay = nil
     if type(action.callback) ~= "function" then
-        self:_dismissPluginOverlay(instance, context, widget)
-        return true
+        return self:_dismissPluginOverlay(instance, context, overlay.widget)
     end
     local ok, accepted, reason = self:_runPluginWidgetBridge(instance, context, action.callback)
+    -- A callback may have presented a child overlay. Remove/release the source
+    -- prompt without discarding that child, then leave the prior AppDock overlay
+    -- (if any) underneath it for a normal Back/Dismiss return path.
+    self:_discardPluginOverlay(instance, context, overlay)
     if not ok or accepted == false then
         local detail = type(reason) == "string" and reason or (ok and _("The plugin dialog action was not accepted.") or tostring(accepted))
-        self.appdock:notify({ title = _("Plugin dialog action failed"), message = detail:sub(1, 240), source = instance.definition.title, app_id = notificationAppId(instance), priority = "high" })
+        self.appdock:notify({ title = _("Plugin dialog action failed"), message = boundedPluginText(detail, 240), source = instance.definition.title, app_id = notificationAppId(instance), priority = "high" })
+        if context.requestRebuild then context.requestRebuild("ui") end
         return false
     end
-    if not instance.plugin_overlay then context.requestRebuild("ui") end
+    if context.requestRebuild then context.requestRebuild("ui") end
     return true
 end
 
 function DAppManager:_buildPluginHostOverlay(instance, context)
     local overlay = instance.plugin_overlay
     if type(overlay) ~= "table" then return nil end
+    local palette = context.palette or Theme.getPalette(self.appdock)
     local width, height = context.dimen.w, context.dimen.h
-    local margin, gap = scale(14), scale(8)
-    local card_width = width - 2 * margin
+    local metrics = self:_pluginHostContext(instance, context).theme.metrics
+    local margin, gap = metrics.margin, metrics.gap
+    local card_width = math.max(1, width - 2 * margin)
     local title = overlay.title or instance.definition.title
     local actions = overlay.actions or {}
     local elements = {
-        FrameContainer:new{ width = width, height = height, padding = 0, bordersize = 0, background = PALETTE.surface, emptySizedWidget(width, height) },
-        TextWidget:new{ text = title, face = Font:getFace("cfont", scale(19)), fgcolor = PALETTE.on_surface, bold = true, max_width = card_width, overlap_offset = { margin, margin } },
+        FrameContainer:new{ width = width, height = height, padding = 0, bordersize = 0, background = palette.surface, emptySizedWidget(width, height) },
+        TextWidget:new{ text = title, face = Font:getFace("cfont", metrics.title_size), fgcolor = palette.on_surface, bold = true, padding = 0, max_width = card_width, overlap_offset = { margin, margin } },
     }
-    local y = margin + scale(31)
+    local y = margin + metrics.title_size + gap + scale(4)
     if overlay.kind == "input" then
-        local value = type(overlay.widget) == "table" and (type(overlay.widget.getInputText) == "function" and overlay.widget:getInputText() or overlay.widget.input) or ""
-        elements[#elements + 1] = TextWidget:new{ text = type(value) == "string" and value ~= "" and value or (overlay.input_hint ~= "" and overlay.input_hint or _("No text entered")), face = Font:getFace("smallinfofont", scale(12)), fgcolor = PALETTE.on_variant, max_width = card_width, overlap_offset = { margin, y } }
-        y = y + scale(30)
-        elements[#elements + 1] = SettingsRow:new{ title = _("Edit text"), subtitle = _("Open AppDock text input"), enabled = true, show_state = false, width = card_width, height = scale(48), callback = function() self:_invokePluginOverlayAction(instance, context, { kind = "edit", enabled = true }) end, overlap_offset = { margin, y } }
-        y = y + scale(56)
-    elseif type(overlay.message) == "string" and overlay.message ~= "" then
-        elements[#elements + 1] = TextWidget:new{ text = overlay.message, face = Font:getFace("smallinfofont", scale(12)), fgcolor = PALETTE.on_variant, max_width = card_width, overlap_offset = { margin, y } }
-        y = y + scale(46)
+        local value = type(overlay.widget) == "table" and overlay.widget.input or ""
+        if type(overlay.widget) == "table" and type(overlay.widget.getInputText) == "function" then
+            local ok, result = self:_runPluginWidgetBridge(instance, context, overlay.widget.getInputText, overlay.widget)
+            if ok and type(result) == "string" then value = result end
+        end
+        elements[#elements + 1] = TextWidget:new{ text = type(value) == "string" and value ~= "" and boundedPluginText(value, 180) or (overlay.input_hint ~= "" and overlay.input_hint or _("No text entered")), face = Font:getFace("smallinfofont", metrics.body_size), fgcolor = palette.on_variant, padding = 0, max_width = card_width, overlap_offset = { margin, y } }
+        y = y + metrics.row_height - gap
+        elements[#elements + 1] = SettingsRow:new{ title = _("Edit text"), subtitle = _("Open AppDock text input"), enabled = true, show_state = false, width = card_width, height = metrics.row_height, callback = function() self:_invokePluginOverlayAction(instance, context, { kind = "edit", enabled = true }) end, overlap_offset = { margin, y } }
+        y = y + metrics.row_height + gap
+    elseif overlay.message ~= "" then
+        elements[#elements + 1] = TextWidget:new{ text = overlay.message, face = Font:getFace("smallinfofont", metrics.body_size), fgcolor = palette.on_variant, padding = 0, max_width = card_width, overlap_offset = { margin, y } }
+        y = y + math.max(metrics.row_height, metrics.body_size * 3) + gap
     end
-    if #actions == 0 then
-        actions = { { text = _("Close"), enabled = true } }
-    end
-    local per_page = 4
+    if #actions == 0 then actions = { { text = _("Close"), enabled = true } } end
+    local bottom_h = metrics.chip_height + margin
+    local per_page = math.max(1, math.min(4, math.floor(math.max(metrics.row_height, height - y - bottom_h) / (metrics.row_height + gap))))
     local total_pages = math.max(1, math.ceil(#actions / per_page))
     overlay.page = math.max(1, math.min(overlay.page or 1, total_pages))
     local first = (overlay.page - 1) * per_page + 1
     for action_index = first, math.min(#actions, first + per_page - 1) do
         local action = actions[action_index]
         elements[#elements + 1] = SettingsRow:new{
-            title = action.text or _("Plugin action"), subtitle = action.enabled == false and _("Unavailable") or _("Plugin action in AppDock"), enabled = action.primary == true, show_state = false,
-            width = card_width, height = scale(48), callback = function() self:_invokePluginOverlayAction(instance, context, action) end,
+            title = boundedPluginText(action.text or _("Plugin action"), 96),
+            subtitle = action.enabled == false and _("Unavailable") or (overlay.kind == "unsupported" and _("Compatibility notice") or _("Plugin action in AppDock")),
+            enabled = action.enabled ~= false, show_state = false,
+            width = card_width, height = metrics.row_height,
+            callback = function() self:_invokePluginOverlayAction(instance, context, action) end,
             overlap_offset = { margin, y },
         }
-        y = y + scale(56)
+        y = y + metrics.row_height + gap
     end
     if total_pages > 1 then
         local half = math.floor((card_width - gap) / 2)
-        elements[#elements + 1] = ActionChip:new{ title = _("‹ Previous"), width = half, height = scale(38), callback = function() overlay.page = math.max(1, overlay.page - 1); context.requestRebuild("ui") end, overlap_offset = { margin, height - margin - scale(38) } }
-        elements[#elements + 1] = ActionChip:new{ title = _("Next ›"), width = half, height = scale(38), callback = function() overlay.page = math.min(total_pages, overlay.page + 1); context.requestRebuild("ui") end, overlap_offset = { margin + half + gap, height - margin - scale(38) } }
+        elements[#elements + 1] = ActionChip:new{ title = _("‹ Previous"), width = half, height = metrics.chip_height, background = palette.surface_variant, foreground = palette.on_variant, callback = function() overlay.page = math.max(1, overlay.page - 1); context.requestRebuild("ui") end, overlap_offset = { margin, height - margin - metrics.chip_height } }
+        elements[#elements + 1] = ActionChip:new{ title = _("Next ›"), width = half, height = metrics.chip_height, background = palette.primary, foreground = palette.on_primary, callback = function() overlay.page = math.min(total_pages, overlay.page + 1); context.requestRebuild("ui") end, overlap_offset = { margin + half + gap, height - margin - metrics.chip_height } }
     elseif overlay.kind ~= "input" then
-        elements[#elements + 1] = ActionChip:new{ title = _("Dismiss"), width = card_width, height = scale(38), callback = function() self:_dismissPluginOverlay(instance, context, overlay.widget) end, overlap_offset = { margin, height - margin - scale(38) } }
+        elements[#elements + 1] = ActionChip:new{ title = _("Dismiss"), width = card_width, height = metrics.chip_height, background = palette.primary, foreground = palette.on_primary, callback = function() self:_dismissPluginOverlay(instance, context, overlay.widget) end, overlap_offset = { margin, height - margin - metrics.chip_height } }
     end
     return OverlapGroup:new{ dimen = context.dimen, allow_mirroring = false, unpack(elements) }
 end
 
-function DAppManager:_newPluginMenuAdapter(instance, context, title, items, dialog)
+function DAppManager:_newPluginMenuAdapter(instance, context, title, items)
     local manager = self
-    local adapter = {
-        item_table = items or {},
-        page = 1,
-        _dialog = dialog,
-    }
+    local adapter = { item_table = items or {}, page = 1 }
     function adapter:updateItems()
-        if self._dialog then UIManager:close(self._dialog) end
         manager:_showPluginHostMenu(instance, context, self.item_table, title)
     end
     return adapter
@@ -1920,70 +2235,54 @@ function DAppManager:_invokePluginHostItem(instance, context, item, menu_adapter
     if type(item) ~= "table" then return false end
     local enabled = item.enabled ~= false
     if enabled and type(item.enabled_func) == "function" then
-        local enabled_ok, enabled_result = pcall(item.enabled_func)
+        local enabled_ok, enabled_result = self:_runPluginWidgetBridge(instance, context, item.enabled_func)
         enabled = enabled_ok and enabled_result == true
     end
     if not enabled then
-        self.appdock:notify({
-            title = _("Plugin action unavailable"),
-            message = _("This plugin action is currently unavailable."),
-            source = instance.definition.title,
-            app_id = notificationAppId(instance),
-            priority = "high",
-        })
+        self.appdock:notify({ title = _("Plugin action unavailable"), message = _("This plugin action is currently unavailable."), source = instance.definition.title, app_id = notificationAppId(instance), priority = "high" })
         return false
     end
     if type(item.callback) == "function" then
-        local adapter = menu_adapter or self:_newPluginMenuAdapter(instance, context, instance.definition.title, {}, nil)
+        local adapter = menu_adapter or self:_newPluginMenuAdapter(instance, context, instance.definition.title, {})
         local ok, accepted, reason = self:_runPluginWidgetBridge(instance, context, item.callback, adapter)
         if not ok or accepted == false then
             local detail = type(reason) == "string" and reason or (ok and _("The plugin action was not accepted.") or tostring(accepted))
-            self.appdock:notify({
-                title = _("Plugin action could not start"),
-                message = detail:sub(1, 240),
-                source = instance.definition.title,
-                app_id = notificationAppId(instance),
-                priority = "high",
-            })
+            self.appdock:notify({ title = _("Plugin action could not start"), message = boundedPluginText(detail, 240), source = instance.definition.title, app_id = notificationAppId(instance), priority = "high" })
             return false
         end
         return true
     end
     local children = item.sub_item_table
     if type(children) ~= "table" and type(item.sub_item_table_func) == "function" then
-        local generated_ok, generated = pcall(item.sub_item_table_func)
+        local generated_ok, generated = self:_runPluginWidgetBridge(instance, context, item.sub_item_table_func)
         children = generated_ok and generated or nil
     end
     if type(children) == "table" then
         self:_showPluginHostMenu(instance, context, children, item.text or instance.definition.title)
         return true
     end
-    self.appdock:notify({
-        title = _("Plugin menu entry unavailable"),
-        message = _("This plugin menu entry is not launchable in the AppDock beta host."),
-        source = instance.definition.title,
-        app_id = notificationAppId(instance),
-        priority = "high",
-    })
+    self.appdock:notify({ title = _("Plugin menu entry unavailable"), message = _("This plugin menu entry is not launchable in the AppDock host."), source = instance.definition.title, app_id = notificationAppId(instance), priority = "high" })
     return false
 end
 
 function DAppManager:_showPluginHostMenu(instance, context, items, title)
     local actions = {}
-    for item_index, item in ipairs(items or {}) do
+    for _, item in ipairs(items or {}) do
+        if #actions >= MAX_PLUGIN_MENU_ITEMS then break end
         if type(item) == "table" then
             local label = item.text
             if type(item.text_func) == "function" then
-                local text_ok, generated = pcall(item.text_func)
+                local text_ok, generated = self:_runPluginWidgetBridge(instance, context, item.text_func)
                 label = text_ok and generated or label
             end
-            if type(label) == "string" and label ~= "" then
+            label = boundedPluginText(label, 96)
+            if label ~= "" then
                 local selected_item = item
                 actions[#actions + 1] = {
                     text = label,
                     enabled = item.enabled ~= false,
                     callback = function()
-                        local adapter = self:_newPluginMenuAdapter(instance, context, title, items, nil)
+                        local adapter = self:_newPluginMenuAdapter(instance, context, title, items)
                         return self:_invokePluginHostItem(instance, context, selected_item, adapter)
                     end,
                 }
@@ -1991,63 +2290,90 @@ function DAppManager:_showPluginHostMenu(instance, context, items, title)
         end
     end
     if #actions == 0 then
-        self.appdock:notify({
-            title = _("Plugin menu unavailable"),
-            message = _("This plugin menu has no launchable entries."),
-            source = instance.definition.title,
-            app_id = notificationAppId(instance),
-            priority = "high",
-        })
-        return
+        self:_setPluginOverlay(instance, context, { kind = "message", title = title or instance.definition.title, message = _("This plugin menu has no launchable entries."), actions = {} })
+        return false
     end
     self:_setPluginOverlay(instance, context, { kind = "actions", title = title, actions = actions, page = 1 })
+    return true
+end
+
+function DAppManager:_runPluginHostOpened(instance, context, plugin_context)
+    if instance.plugin_host_opened then return end
+    instance.plugin_host_opened = true
+    local plugin_app = instance.definition.plugin_app or {}
+    local hooks = {}
+    if type(plugin_app.onOpened) == "function" then hooks[#hooks + 1] = plugin_app.onOpened end
+    if type(plugin_app.instance) == "table" and type(plugin_app.instance.onAppDockHostOpened) == "function" then
+        hooks[#hooks + 1] = plugin_app.instance.onAppDockHostOpened
+    end
+    for _, hook in ipairs(hooks) do
+        if type(hook) == "function" then
+            local ok, accepted, reason = self:_runPluginWidgetBridge(instance, context, hook, plugin_app.instance, plugin_context)
+            if not ok or accepted == false then
+                self.appdock:notify({ title = _("Plugin host open hook failed"), message = boundedPluginText(reason or accepted, 240), source = instance.definition.title, app_id = notificationAppId(instance), priority = "high" })
+            end
+        end
+    end
+end
+
+function DAppManager:_teardownPluginHost(instance, context)
+    if type(instance) ~= "table" or instance.definition.host_kind ~= "plugin" or instance.plugin_host_closed then return end
+    instance.plugin_host_closing = true
+    local plugin_app = instance.definition.plugin_app or {}
+    local plugin_context = self:_pluginHostContext(instance, context or {})
+    local hooks = {}
+    if type(plugin_app.onClose) == "function" then hooks[#hooks + 1] = plugin_app.onClose end
+    if type(plugin_app.onClosed) == "function" then hooks[#hooks + 1] = plugin_app.onClosed end
+    if type(plugin_app.instance) == "table" and type(plugin_app.instance.onAppDockHostClosed) == "function" then
+        hooks[#hooks + 1] = plugin_app.instance.onAppDockHostClosed
+    end
+    for _, hook in ipairs(hooks) do
+        if type(hook) == "function" then pcall(self._runPluginWidgetBridge, self, instance, context or {}, hook, plugin_app.instance, plugin_context) end
+    end
+    self:_clearPluginHostOverlays(instance, context)
+    instance.plugin_host_closed, instance.plugin_host_closing, instance.plugin_host_opened = true, false, false
 end
 
 function DAppManager:_buildPluginHostPane(instance, context)
     local width, height = context.dimen.w, context.dimen.h
     local plugin_app = instance.definition.plugin_app or {}
     local actions = plugin_app.actions or {}
+    local plugin_context = self:_pluginHostContext(instance, context)
+    self:_runPluginHostOpened(instance, context, plugin_context)
     if type(plugin_app.buildAppDockPane) == "function" then
-        local plugin_context = self:_pluginHostContext(instance, context)
-        plugin_context.dimen = context.dimen
-        plugin_context.ui_scale = context.ui_scale
-        plugin_context.scale = context.scale
-        plugin_context.px = context.px
-        if not instance.plugin_host_opened and type(plugin_app.instance) == "table" and type(plugin_app.instance.onAppDockHostOpened) == "function" then
-            instance.plugin_host_opened = true
-            pcall(plugin_app.instance.onAppDockHostOpened, plugin_app.instance, plugin_context)
-        end
-        local built_ok, plugin_pane = self:_runPluginWidgetBridge(instance, plugin_context, plugin_app.buildAppDockPane, plugin_app.instance, plugin_context)
-        if built_ok and type(plugin_pane) == "table" then
-            plugin_pane.plugin_host_layout = { is_plugin_host = true, action_count = #actions, can_split = false, using_plugin_pane = true }
-            return plugin_pane
+        local built_ok, plugin_pane = self:_runPluginWidgetBridge(instance, context, plugin_app.buildAppDockPane, plugin_app.instance, plugin_context)
+        if built_ok and type(plugin_pane) == "table" and plugin_pane.covers_fullscreen ~= true then
+            plugin_pane.plugin_host_layout = { is_plugin_host = true, action_count = math.min(#actions, MAX_PLUGIN_MENU_ITEMS), can_split = false, using_plugin_pane = true, theme_contract = true }
+            return PluginHostPaneBridge:new{ manager = self, instance = instance, context = context, plugin_pane = plugin_pane, dimen = context.dimen }
+        elseif built_ok and type(plugin_pane) == "table" then
+            self:_showUnsupportedPluginWidget(instance, context, plugin_pane)
         end
     end
     local pane = FrameContainer:new{
         width = width, height = height, padding = 0, bordersize = 0,
-        background = PALETTE.background,
+        background = (context.palette or Theme.getPalette(self.appdock)).background,
         emptySizedWidget(width, height),
     }
+    local palette = context.palette or Theme.getPalette(self.appdock)
     local content = OverlapGroup:new{
         dimen = context.dimen,
         allow_mirroring = false,
-        TextWidget:new{ text = plugin_app.title or instance.definition.title, face = Font:getFace("cfont", scale(21)), fgcolor = PALETTE.on_surface, bold = true, max_width = width - scale(36), overlap_offset = { scale(18), scale(18) } },
-        TextWidget:new{ text = _("Plugin host · Beta · Split screen unavailable"), face = Font:getFace("smallinfofont", scale(11)), fgcolor = PALETTE.on_variant, max_width = width - scale(36), overlap_offset = { scale(18), scale(48) } },
-        TextWidget:new{ text = _("Choose a plugin action. Compatible plugins may send local AppDock notifications through the host context."), face = Font:getFace("smallinfofont", scale(11)), fgcolor = PALETTE.on_variant, max_width = width - scale(36), overlap_offset = { scale(18), scale(68) } },
+        TextWidget:new{ text = boundedPluginText(plugin_app.title or instance.definition.title, 96), face = Font:getFace("cfont", scale(21)), fgcolor = palette.on_surface, bold = true, padding = 0, max_width = width - scale(36), overlap_offset = { scale(18), scale(18) } },
+        TextWidget:new{ text = _("Plugin host · AppDock · Split screen unavailable"), face = Font:getFace("smallinfofont", scale(11)), fgcolor = palette.on_variant, padding = 0, max_width = width - scale(36), overlap_offset = { scale(18), scale(48) } },
+        TextWidget:new{ text = _("Choose a plugin action. Native plugin prompts are adapted to AppDock surfaces."), face = Font:getFace("smallinfofont", scale(11)), fgcolor = palette.on_variant, padding = 0, max_width = width - scale(36), overlap_offset = { scale(18), scale(68) } },
     }
     local shown_count = math.min(#actions, 5)
     local has_more = #actions > shown_count
     local row_count = shown_count + (has_more and 1 or 0)
     if row_count == 0 then
-        content[#content + 1] = TextWidget:new{ text = _("This plugin currently exposes no launchable AppDock action."), face = Font:getFace("smallinfofont", scale(13)), fgcolor = PALETTE.on_surface, max_width = width - scale(36), overlap_offset = { scale(18), scale(116) } }
+        content[#content + 1] = TextWidget:new{ text = _("This plugin currently exposes no launchable AppDock action."), face = Font:getFace("smallinfofont", scale(13)), fgcolor = palette.on_surface, padding = 0, max_width = width - scale(36), overlap_offset = { scale(18), scale(116) } }
     else
         local top, gap = scale(104), scale(8)
         local row_height = math.max(scale(42), math.min(scale(58), math.floor((height - top - scale(18) - gap * (row_count - 1)) / row_count)))
         for action_index = 1, shown_count do
             local selected_action = actions[action_index]
             content[#content + 1] = SettingsRow:new{
-                title = selected_action.title or _("Plugin action"),
-                subtitle = _("Run through the AppDock beta host"), show_state = false,
+                title = boundedPluginText(selected_action.title or _("Plugin action"), 96), subtitle = _("Run through the AppDock host"), show_state = false,
                 width = width - scale(36), height = row_height,
                 callback = function() self:_invokePluginHostItem(instance, context, selected_action.item) end,
                 overlap_offset = { scale(18), top + (action_index - 1) * (row_height + gap) },
@@ -2057,13 +2383,20 @@ function DAppManager:_buildPluginHostPane(instance, context)
             content[#content + 1] = SettingsRow:new{
                 title = _("More plugin actions"), subtitle = _("Open the remaining published menu entries"), show_state = false,
                 width = width - scale(36), height = row_height,
-                callback = function() self:_showPluginHostMenu(instance, context, actions, plugin_app.title or instance.definition.title) end,
+                callback = function()
+                    local remaining = {}
+                    for remaining_index = shown_count + 1, #actions do
+                        local action = actions[remaining_index]
+                        if action and action.item then remaining[#remaining + 1] = action.item end
+                    end
+                    self:_showPluginHostMenu(instance, context, remaining, plugin_app.title or instance.definition.title)
+                end,
                 overlap_offset = { scale(18), top + shown_count * (row_height + gap) },
             }
         end
     end
     pane[1] = content
-    pane.plugin_host_layout = { is_plugin_host = true, action_count = #actions, can_split = false }
+    pane.plugin_host_layout = { is_plugin_host = true, action_count = math.min(#actions, MAX_PLUGIN_MENU_ITEMS), can_split = false, theme_contract = true }
     return pane
 end
 
@@ -2073,13 +2406,18 @@ function DAppManager:activatePlugin(plugin_app, home)
     self.plugin_definitions[id] = {
         id = id,
         title = plugin_app.title or plugin_app.plugin_name,
-        subtitle = _("Plugin host · Beta"),
+        subtitle = _("Plugin host · AppDock"),
         symbol = (plugin_app.title or plugin_app.plugin_name):sub(1, 1):upper(),
         host_kind = "plugin",
         can_split = false,
         plugin_app = plugin_app,
         buildPane = function(host_instance, host_context) return self:_buildPluginHostPane(host_instance, host_context) end,
     }
+    local previous = self.instances[id]
+    if previous then
+        previous.definition = self.plugin_definitions[id]
+        previous.plugin_host_closed, previous.plugin_host_closing, previous.plugin_host_opened = nil, false, false
+    end
     self:activate(id, home)
     if #plugin_app.actions == 1 then
         local single_action = plugin_app.actions[1]
@@ -2502,7 +2840,7 @@ function DAppManager:showDAppActions(id, recents)
         dialog = ButtonDialog:new{
             title = instance.definition.title,
             buttons = {
-                { { text = _("Plugin host beta · Split screen unavailable"), enabled = false } },
+                { { text = _("Plugin host · Split screen unavailable"), enabled = false } },
                 { { text = _("Close app"), callback = function()
                     UIManager:close(dialog)
                     self:closeDApp(id)
@@ -2561,7 +2899,7 @@ end
 function DAppManager:beginSplitSelection(first_id, recents)
     local first_instance = self.instances[first_id]
     if not first_instance or first_instance.definition.can_split == false then
-        self.appdock:notify({ title = _("Plugin host beta"), message = _("Plugin host beta sessions cannot use split screen."), source = first_instance and first_instance.definition.title or "AppDock", app_id = notificationAppId(first_instance), priority = "high" })
+        self.appdock:notify({ title = _("Plugin host"), message = _("Plugin host sessions cannot use split screen."), source = first_instance and first_instance.definition.title or "AppDock", app_id = notificationAppId(first_instance), priority = "high" })
         return
     end
     local candidates = {}
@@ -2606,7 +2944,7 @@ function DAppManager:startSplit(first_id, second_id)
     if not self:_authorizeLaunch(second_id, function() self:startSplit(first_id, second_id) end) then return false end
     if first.definition.can_split == false or second.definition.can_split == false then
         local blocked = first.definition.can_split == false and first or second
-        self.appdock:notify({ title = _("Plugin host beta"), message = _("Plugin host beta sessions cannot use split screen."), source = blocked.definition.title, app_id = notificationAppId(blocked), priority = "high" })
+        self.appdock:notify({ title = _("Plugin host"), message = _("Plugin host sessions cannot use split screen."), source = blocked.definition.title, app_id = notificationAppId(blocked), priority = "high" })
         return false
     end
     if self.active_host then UIManager:close(self.active_host) end
@@ -2634,6 +2972,10 @@ function DAppManager:detachHost(host)
     if self.active_host ~= host then return end
     for _, id in ipairs(host.dapp_ids or { self.active_id }) do
         local instance = self.instances[id]
+        if instance and instance.definition.host_kind == "plugin" then
+            local dimen = instance.pane and instance.pane.dimen or nil
+            self:_teardownPluginHost(instance, self:_newContext(host, instance, dimen))
+        end
         if instance and instance.pane and instance.pane.onDeactivate then
             self:_safeDeactivate(instance, instance.pane)
         end
@@ -2667,6 +3009,11 @@ function DAppManager:closeDApp(id)
     end
     for index, open_id in ipairs(self.open_order) do
         if open_id == id then table.remove(self.open_order, index); break end
+    end
+    if instance.definition.host_kind == "plugin" then
+        local host = self.active_host
+        local context = host and self:_newContext(host, instance, instance.pane and instance.pane.dimen or nil) or { requestRebuild = function() end }
+        self:_teardownPluginHost(instance, context)
     end
     if type(instance.definition.onClose) == "function" then pcall(instance.definition.onClose, instance) end
     if instance.definition.host_kind == "plugin" then self.plugin_definitions[id] = nil end
@@ -3599,7 +3946,7 @@ function DAppManager:showBetaFeatures(instance, context)
     dialog = ButtonDialog:new{
         title = _("Beta features"),
         buttons = {
-            { { text = (beta.plugin_dapp_host and "✓ " or "") .. _("Run plugin tiles in AppDock hosts (Beta · no split screen)"), callback = function() toggle("plugin_dapp_host") end } },
+            { { text = _("Plugin tiles always open in AppDock hosts · Split screen unavailable"), enabled = false } },
             { { text = (beta.windows and "✓ " or "") .. _("Open apps as movable, resizable windows"), callback = function() toggle("windows") end } },
             { { text = (beta.manual_app_spacing and "✓ " or "") .. _("Manual app spacing"), callback = function() toggle("manual_app_spacing") end } },
             { { text = (beta.plugin_custom_logos and "✓ " or "") .. _("Custom logos for non-DApp plugins"), callback = function() toggle("plugin_custom_logos") end } },

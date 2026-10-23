@@ -145,17 +145,18 @@ The logo library provides **38** drawn symbols for productivity, media, communic
 
 DApps render only inside a pane rectangle assigned by the DApp host. A shared host can display two open DApps vertically in Split Screen without requiring those DApps to rewrite their layouts. Technical details are available in `DAPP_ARCHITECTURE.md` and `SPLITSCREEN_DESIGN.md`. [7] [8]
 
-## Plugin-in-DApp Beta
+## Unified plugin host
 
-**Settings → Display → Beta features → Run plugin tiles in AppDock hosts** is off by default. When enabled, a tile for an already enabled plugin opens an AppDock session with its own header and an **Open apps** entry. The established direct plugin launch path remains unchanged while the beta is disabled.
+Tiles for already enabled KOReader plugins always open an AppDock session with shared chrome, navigation, and an **Open apps** entry. The former beta switch no longer disables hosting, including in older saved settings. Shorts also gains pane-relative video geometry and explicit **Previous**, **Play/Pause**, **Next**, **Topics**, **Reload**, and **Tools** actions. [Changes and local checks](docs/SHORTS_AND_PLUGIN_HOST.md).
 
 | Plugin contract | AppDock behavior |
 |---|---|
-| Plugin implements `buildAppDockPane(context)` | AppDock renders the plugin’s local pane. The context provides local geometry, restrained refresh helpers, and `context.notify(...)` for AppDock notifications. |
-| Plugin only exposes `addToMainMenu(menu_items)` | AppDock presents a local, large action list from the published menu entries and calls existing callbacks without new arguments. |
-| Plugin opens its own KOReader screen or dialog | That UI remains under the plugin’s control. AppDock does not globally intercept it or claim to virtualize arbitrary foreign interfaces. |
+| Plugin implements `buildAppDockPane(context)` | AppDock provides its current palette, contrast roles, metrics and local layout; pane events and lifecycle remain host-owned. |
+| Plugin only exposes `addToMainMenu(menu_items)` | Published actions and dynamic submenus become themed AppDock surfaces. |
+| Plugin opens information, confirmation or simple text-input dialogs | AppDock adapts them into its overlays and preserves action callbacks and input values. |
+| Plugin opens an unknown specialized or fullscreen view | The standalone view is not shown. AppDock displays an internal compatibility notice; full functionality requires a cooperating pane or an additional adapter. |
 
-Plugin host sessions are labelled **Plugin host · Beta** in Open Apps and can never enter Split Screen. The ban is enforced in the long-press dialog, app picker, and underlying split-start path. Launch failures, unavailable actions, and blocked split attempts enter the local AppDock notification path. The complete contract is in [`APPDOCK_4_PLUGIN_HOST_BETA_DESIGN.md`](APPDOCK_4_PLUGIN_HOST_BETA_DESIGN.md).
+Plugin sessions are labelled **Plugin host · AppDock** in Open Apps and remain excluded from Split Screen and floating windows. The scoped bridge is restored after calls, including failures, and scheduled continuations cannot take over a closed or unrelated host. It is not a security sandbox and does not change plugins launched outside AppDock. The complete contract is in [`APPDOCK_4_PLUGIN_HOST_BETA_DESIGN.md`](APPDOCK_4_PLUGIN_HOST_BETA_DESIGN.md).
 
 ## Storage and launcher layout
 
