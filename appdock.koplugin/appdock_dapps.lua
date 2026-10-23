@@ -32,6 +32,7 @@ local WebBrowser = require("appdock_browser")
 local FileBrowser = require("appdock_filemanager")
 local AppStore = require("appdock_appstore")
 local YouTube = require("appdock_youtube")
+local YouTubeShorts = require("appdock_youtube_shorts")
 local YouTubeMusic = require("appdock_ytmusic")
 local Draw = require("appdock_draw")
 local InfoMessage = AppDockDialogs.InfoMessage
@@ -1042,6 +1043,7 @@ function DAppManager:new(appdock)
         file_browser = FileBrowser:new(),
         app_store = AppStore:new(),
         youtube = YouTube:new(appdock),
+        youtube_shorts = YouTubeShorts:new(appdock),
         youtube_music = YouTubeMusic:new(appdock),
         draw = Draw:new(),
         help = Help:new({
@@ -1127,6 +1129,20 @@ function DAppManager:_registerBuiltins()
         end,
         onClose = function()
             if self.youtube and self.youtube.player then self.youtube.player:stop() end
+        end,
+    }
+    self.definitions.youtube_shorts = {
+        id = "youtube_shorts",
+        title = _("YouTube Shorts"),
+        subtitle = _("Short-only recommendations with likes and preloading"),
+        requires_tbs_account = true,
+        symbol = "S",
+        logo = "youtube",
+        buildPane = function(instance, context)
+            return self.youtube_shorts:buildPane(instance, context)
+        end,
+        onClose = function()
+            if self.youtube_shorts and self.youtube_shorts.player then self.youtube_shorts.player:stop() end
         end,
     }
     self.definitions.youtube_music = {

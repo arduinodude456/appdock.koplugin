@@ -4,7 +4,7 @@ It exposes selected KOReader plugin menu actions as configurable app tiles.
 --]]--
 
 local MODULE_DIR = (debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "")
-local APPDOCK_RELEASE = "8.2.21"
+local APPDOCK_RELEASE = "8.2.22"
 local AppDockRecovery
 local recovery_context
 do
@@ -187,6 +187,11 @@ local function normalizeYouTubeSettings(stored)
         color_dither = stored.color_dither ~= false,
         audio_video_delay = (audio_video_delay and audio_video_delay >= 0 and audio_video_delay <= 60)
             and audio_video_delay or 0,
+        -- Shorts keeps recommendation signals compact and local. The DApp
+        -- stores ids as CSV so the existing primitive settings bridge remains
+        -- backwards compatible with older AppDock settings files.
+        shorts_liked_ids = boundedText(stored.shorts_liked_ids, 4000),
+        shorts_hashtags = boundedText(stored.shorts_hashtags, 500),
     }
 end
 
