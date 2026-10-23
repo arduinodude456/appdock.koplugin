@@ -4,7 +4,7 @@ It exposes selected KOReader plugin menu actions as configurable app tiles.
 --]]--
 
 local MODULE_DIR = (debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "")
-local APPDOCK_RELEASE = "8.2.23"
+local APPDOCK_RELEASE = "8.2.24"
 local AppDockRecovery
 local recovery_context
 do
@@ -111,6 +111,7 @@ local DEFAULT_SETTINGS = {
         shorts_liked_ids = "",
         shorts_hashtags = "",
         shorts_liked_profiles = "",
+        shorts_interactions = "",
     },
     layout_version = 26,
 }
@@ -197,6 +198,7 @@ local function normalizeYouTubeSettings(stored)
         shorts_liked_ids = boundedText(stored.shorts_liked_ids, 4000),
         shorts_hashtags = boundedText(stored.shorts_hashtags, 500),
         shorts_liked_profiles = boundedText(stored.shorts_liked_profiles, 4000),
+        shorts_interactions = boundedText(stored.shorts_interactions, 4000),
     }
 end
 

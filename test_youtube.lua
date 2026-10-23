@@ -317,6 +317,11 @@ local ranked = shorts_helpers.rankResults({
 }, profiles, {})
 assert(#ranked == 1 and ranked[1].id == "newshort001" and ranked[1].recommendation_score > 0,
     "Liked creators and hashtags must rank new Shorts while previously liked items are skipped")
+local interactions = shorts_helpers.parseInteractions("newshort001:2:0:45;bad:9:9:9")
+assert(interactions.newshort001 and interactions.newshort001.views == 2 and not interactions.bad,
+    "Interaction history must accept only valid YouTube IDs")
+assert(shorts_helpers.serializeInteractions(interactions):find("newshort001:2:0:45", 1, true),
+    "Interaction history must serialize locally for the next session")
 
 local shorts = Shorts:new(appdock)
 local shorts_instance = {}

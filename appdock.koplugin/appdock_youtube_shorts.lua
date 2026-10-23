@@ -25,9 +25,11 @@ local Shorts = setmetatable({}, { __index = YouTube })
 Shorts.__index = Shorts
 
 local SHORTS_PER_FEED = 12
+local DEFAULT_START_TAG = "trending"
 local MAX_LIKE_PROFILES = 48
 local MAX_LIKED_PROFILE_BYTES = 3900
 local MAX_LOCAL_SEEN = 64
+local MAX_INTERACTION_BYTES = 3900
 
 local function scale(value)
     local ok, Device = pcall(require, "device")
@@ -170,6 +172,59 @@ local function serializeLikeProfiles(profiles, order)
     return table.concat(ids, ","), table.concat(records, ";")
 end
 
+local function parseInteractions(text)
+    local interactions = {}
+    for record in tostring(text or ""):gmatch("[^;]+") do
+        local id, views, skips, seconds = record:match("^([^:]+):(%d+):(%d+):(%d+)$")
+        if validVideoId(id) then
+            interactions[id] = { views = tonumber(views) or 0, skips = tonumber(skips) or 0, seconds = tonumber(seconds) or 0 }
+        end
+    end
+    return interactions
+end
+
+local function serializeInteractions(interactions)
+    local rows = {}
+    for id, item in pairs(interactions or {}) do
+        if validVideoId(id) then
+            rows[#rows + 1] = string.format("%s:%d:%d:%d", id,
+                math.min(99, tonumber(item.views) or 0), math.min(99, tonumber(item.skips) or 0),
+                math.min(9999, tonumber(item.seconds) or 0))
+        end
+    end
+    table.sort(rows)
+    local values, length = {}, 0
+    for _, row in ipairs(rows) do
+        if length + #row + 1 > MAX_INTERACTION_BYTES then break end
+        values[#values + 1], length = row, length + #row + 1
+    end
+    return table.concat(values, ";")
+end
+
+local CenterProgress = InputContainer:extend{ ratio = 0, indeterminate = false, width = 0, height = 0 }
+
+function CenterProgress:init()
+    self.dimen = Geom:new{ w = self.width, h = self.height }
+end
+
+function CenterProgress:getSize() return self.dimen end
+
+function CenterProgress:paintTo(bb, x, y)
+    local bar_w, bar_h = math.min(self.width - scale(32), scale(260)), scale(7)
+    local left = x + math.floor((self.width - bar_w) / 2)
+    local top = y + math.floor((self.height - bar_h) / 2)
+    local red = Blitbuffer.COLOR_RED or Blitbuffer.COLOR_DARK_GRAY
+    bb:paintRect(left, top, bar_w, bar_h, Blitbuffer.COLOR_GRAY_8)
+    local fill_w
+    if self.indeterminate then
+        fill_w = math.max(scale(22), math.floor(bar_w * .25))
+        left = left + math.floor((bar_w - fill_w) * ((os.time() % 4) / 4))
+    else
+        fill_w = math.floor(bar_w * math.max(0, math.min(1, self.ratio or 0)))
+    end
+    if fill_w > 0 then bb:paintRect(left, top, fill_w, bar_h, red) end
+end
+
 local Chip = InputContainer:extend{
     title = "", symbol = "", width = 100, height = 34, callback = nil,
     background = Blitbuffer.COLOR_GRAY_8, foreground = Blitbuffer.COLOR_BLACK,
@@ -251,7 +306,9 @@ function Shorts:_state(instance)
         local settings = self.appdock and self.appdock:getYouTubeSettings() or {}
         state.shorts_likes, state.shorts_like_order = parseLikeProfiles(
             settings.shorts_liked_profiles, settings.shorts_liked_ids)
+        state.interactions = parseInteractions(settings.shorts_interactions)
     end
+    state.interactions = state.interactions or {}
     state.short_index = state.short_index or 1
     state.short_queue = state.short_queue or {}
     state.seen_ids = state.seen_ids or {}
@@ -337,7 +394,7 @@ function Shorts.recommendationSources(settings, profiles, order)
     return sources
 end
 
-function Shorts.rankResults(results, profiles, seen)
+function Shorts.rankResults(results, profiles, seen, interactions)
     local ranked = {}
     for _, result in ipairs(results or {}) do
         if not (profiles and profiles[result.id]) and not (seen and seen[result.id]) then
@@ -351,6 +408,11 @@ function Shorts.rankResults(results, profiles, seen)
                 for _, tag in ipairs(profile.tags or {}) do
                     if result_tag_set[tag] then score = score + 4 end
                 end
+            end
+            local interaction = interactions and interactions[result.id]
+            if interaction then
+                score = score - (tonumber(interaction.skips) or 0) * 6
+                score = score + math.min(8, (tonumber(interaction.seconds) or 0) / 15)
             end
             result.recommendation_score = score
             ranked[#ranked + 1] = result
@@ -388,8 +450,18 @@ end
 function Shorts:_persistLikes(state)
     local ids, profiles = serializeLikeProfiles(state.shorts_likes, state.shorts_like_order)
     if self.appdock and self.appdock.setYouTubeSettings then
-        self.appdock:setYouTubeSettings({ shorts_liked_ids = ids, shorts_liked_profiles = profiles })
+        self.appdock:setYouTubeSettings({ shorts_liked_ids = ids, shorts_liked_profiles = profiles,
+            shorts_interactions = serializeInteractions(state.interactions) })
     end
+end
+
+function Shorts:_recordInteraction(instance, result, field, amount)
+    if not result or not validVideoId(result.id) then return end
+    local state = self:_state(instance)
+    local item = state.interactions[result.id] or { views = 0, skips = 0, seconds = 0 }
+    item[field] = math.max(0, (tonumber(item[field]) or 0) + (amount or 1))
+    state.interactions[result.id] = item
+    self:_persistLikes(state)
 end
 
 function Shorts:toggleLike(instance, context, result)
@@ -449,8 +521,8 @@ function Shorts:startSearch(instance, context, query)
     end
     local sources = self:_recommendationSources(state)
     if #sources == 0 then
-        self:_notify(instance, context, _("Choose hashtags to start your Shorts feed."))
-        return false
+        sources = Shorts.recommendationSources({ shorts_hashtags = DEFAULT_START_TAG },
+            state.shorts_likes, state.shorts_like_order)
     end
     self:_cancelSearch(state)
     state.recommendation_source_index = state.recommendation_source_index % #sources + 1
@@ -502,7 +574,8 @@ function Shorts:startSearch(instance, context, query)
             state.view = "home"
             state.note = _("The Shorts feed could not be loaded. Check the network connection.")
         else
-            local results = Shorts.rankResults(Shorts.parseShortsOutput(log), state.shorts_likes, state.seen_ids)
+            local results = Shorts.rankResults(Shorts.parseShortsOutput(log), state.shorts_likes,
+                state.seen_ids, state.interactions)
             state.results, state.results_query = results, source.label
             state.short_queue, state.short_index = results, 1
             state.view = "home"
@@ -570,7 +643,10 @@ function Shorts:_playPath(instance, context, path)
     if not path then return false end
     local state = self:_state(instance)
     local result = self:_current(state)
-    if result then self:_rememberSeen(state, result.id) end
+    if result then
+        self:_rememberSeen(state, result.id)
+        self:_recordInteraction(instance, result, "views", 1)
+    end
     local playing = YouTube.play(self, instance, context, path)
     if playing then state.view = "home" end
     return playing
@@ -632,6 +708,7 @@ function Shorts:_playNext(instance, context)
     end
     state.short_index = next_index
     local result = state.short_queue[next_index]
+    self:_recordInteraction(instance, result, "skips", 1)
     if result.path then
         if self:_playPath(instance, context, result.path) then self:_queuePrefetch(instance, context) end
     elseif state.job and state.job.prefetch and state.job.prefetch_index == next_index then
@@ -702,6 +779,17 @@ function Shorts:_buildFeedPane(instance, context, state)
             },
         },
     }
+    local loading = state.search or (state.job and not state.job.prefetch)
+    if loading then
+        local progress = CenterProgress:new{
+            width = width,
+            height = height,
+            ratio = state.job and (state.job.percent or 0) / 100 or 0,
+            indeterminate = not state.job,
+        }
+        progress.overlap_offset = { 0, 0 }
+        table.insert(content, progress)
+    end
     local canvas
     if active then
         canvas = Player.Canvas:new{ width = width, height = height }
@@ -764,7 +852,8 @@ function Shorts:_buildFeedPane(instance, context, state)
         table.insert(content, chip)
     end
     local footer = TextWidget:new{
-        text = state.note ~= "" and state.note or _("Swipe up for the next Short · tap to pause"),
+        text = loading and (state.search and _("Finding your first Short…") or _("Loading the next Short…"))
+            or (state.note ~= "" and state.note or _("Swipe up for next · tap to pause")),
         face = Font:getFace("smallinfofont", scale(9)), fgcolor = Blitbuffer.COLOR_GRAY_8,
         max_width = width - margin * 2, padding = 0,
     }
@@ -788,11 +877,19 @@ function Shorts:buildPane(instance, context)
         and not (self.appdock and self.appdock.disableToolBootstrap) then
         self:_startToolBootstrap(instance, context, true)
     end
+    if state.view == "home" and not state.feed_bootstrap_attempted and not state.search
+        and #(state.short_queue or {}) == 0 and state.tools and state.tools.ytdlp then
+        state.feed_bootstrap_attempted = true
+        local start_feed = function()
+            if not state.closed and not state.search and #(state.short_queue or {}) == 0 then
+                self:startSearch(instance, context, "")
+            end
+        end
+        if UIManager.nextTick then UIManager:nextTick(start_feed) else UIManager:scheduleIn(0, start_feed) end
+    end
     local content
-    if state.view == "search" then
-        content = YouTube._buildSearchPane(self, instance, context, state)
-    elseif state.view == "job" and state.job then
-        content = YouTube._buildJobPane(self, instance, context, state)
+    if state.view == "search" or (state.view == "job" and state.job) then
+        content = self:_buildFeedPane(instance, context, state)
     elseif state.view == "setup" then
         content = YouTube._buildSetupPane(self, instance, context, state)
     elseif state.view == "tools" then
@@ -827,6 +924,8 @@ Shorts._test = {
     rankResults = Shorts.rankResults,
     parseLikeProfiles = parseLikeProfiles,
     tagsFromText = tagsFromText,
+    parseInteractions = parseInteractions,
+    serializeInteractions = serializeInteractions,
 }
 
 return Shorts
