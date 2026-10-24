@@ -1,350 +1,51 @@
-# AppDock Homescreen für KOReader
+# AppDock
+<img width="1600" height="2560" alt="75164" src="https://github.com/user-attachments/assets/17da2414-6cd6-4c51-9195-2fd3f004922d" />
 
-**AppDock** ist ein KOReader-Plugin für einen anpassbaren Homescreen *innerhalb* von KOReader. Version **8.2.21** stellt den stabilen Plugin-Kern nach dem fehlgeschlagenen 8.2.x-Experiment wieder her. [Details](RELEASE_NOTES_8.2.21.md).
+Hi there, it's arduinodude456! I have to tel u something. **You can now use YouTube on your eReader!**
+Forget what I said. Why should anyone want to do this? But after all it is possible.
 
-### Sleepscreen-Presets
+***
 
-Unter **AppStore → Sleepscreens** lassen sich eigene Schlafbildschirme erstellen, lokal speichern und aktivieren sowie Presets aus dem globalen Katalog herunterladen. Der native Editor zeigt eine Live-Vorschau für Texte, Bilder/Bildwechsel, Schriften, Farben, Widgets und Info-Cards. Uhrzeit, Datum und Akkustand werden auf dem Reader eingesetzt; die Vorschau benutzt Beispieldaten. Lokal gespeicherte Sleepscreens funktionieren ohne Internet und ohne Konto.
+# Announcements
 
-Zum Veröffentlichen ist ein **TBS-Konto** erforderlich. Der Store zeigt den vom Server zugeordneten Creator, Namen und die Layout-Vorschau; das Öffnen lädt auch Bilder und Schriften für die vollständige Vorschau. Nur ausdrücklich ausgewählte Preset-Medien werden geteilt, niemals lokale Pfade, Bücher oder TBS-Zugangsdaten. Presets sind validierte JSON-Daten, keine ausführbaren DApps. Für den globalen Katalog muss der Betreiber die zusätzliche Migration und Edge Function bereitstellen: [Architektur und Format](docs/SLEEPSCREENS.md), [Server-Einrichtung](docs/SLEEPSCREENS_DEPLOYMENT.md). Der installierbare aktuelle Plugin-Code liegt in `appdock.koplugin/`, nicht in den älteren Root-Kopien.
 
-> **E-Ink-Ansatz:** AppDock übernimmt bewusst Androids Formensprache, nicht dessen Daueranimationen, Unschärfen oder Transparenzeffekte. Auf E-Ink wechseln App-Seiten und Recently-used-Drawer direkt und ohne Zwischenanimation. Damit bleibt die Darstellung auf monochromen Readern kontrastreich, sparsam und frei von unnötigem Ghosting.
+## INTRODUCING: YouTube shorts and InkBlog
+**With InkBlog, you can now create your own blog, read the creations of others and share your reading achievements with your group!**
 
+***
 
+# What is AppDock?
+*AppDock is a plugin for KOReader. But it is not like other plugins. You can't compare AppDock, for example, to weather.koplugin - NOT because it would be better - But **AppDock is just something completely different**. To stay at the example of weather.koplugin: With this, you can see the weather or something like this. AND HERE IS THE POINT: You have to open it by opening KOReader's native dropdown and selecting an entry in the list. And even if weather.koplugin had the best UI ever, starting it via KOReaders interface isnt that cool.*
 
+> AppDock is a UI for KOReader, which truly enhances it. It is not for everyone - it's for those who want to see their eReader as a tablet or something like this.
+>
+> Some years ago, I tried to use SimpleUI as my UI plugin. SimpleUI **is a good UI plugin**. It is a good UI plugin as long as you want to use your eReader for reading books.
+> I know this sounds like "what else should I do with an eReader if not reading books?!". As I told you, AppDock is not something for everyone.
+> To return to SimpleUI: I tried to use it's settings to create a homescreen that looks like the one of a tablet, with apps. It looked pretty good, but I think SimpleUI just
+> wasn't made to be a tablet homescreen.
 
+### So I made AppDock. The plugin which turns your eReader into an Android Tablet.
 
+* Homescreen with apps
+* AppStore
+* YouTube
+* Browser
+* Chat
+* Minecraft
+* File Manager
+* UI Themes
+* Dropdown menu with quick settings tiles
+* Splitsccreen (Resizeable)
+* Window system
+* (And of course u can also read books with it:) )
+* And SO MUCH MORE...?!!!
 
+*AppDock is not for eReader users. It's for those, who like experimenting with what tech can do. It's for those who want more than just read books.*
 
+If you red this README, and you think "Oh, AppDock maybe is not the right for me", I can still recommend you some other plugins that may fit better to u:
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-## Neu in 3.0.0 „Cappuccino“
-
-| Bereich | Umsetzung und Grenze |
-|---|---|
-| Hintergrundbild | Ein lokales PNG, JPG, JPEG, GIF, WEBP oder SVG kann über **Settings → Display** hinter dem Homescreen angezeigt werden. Das Bild wird niemals über das Netzwerk abgerufen. Die Betaoption kann dessen Originaldarstellung im Nachtmodus an KOReader weiterreichen. |
-| Lockscreen | AppDock bietet Wischen, PIN oder ein Vier-Punkte-Muster vor seinem Homescreen. Dies ist **nur ein lokaler AppDock-Zugriffsschutz**, keine Gerätesperre, Verschlüsselung oder Sicherung anderer KOReader-Bereiche. |
-| Lockscreen-Profil | Unter **Settings → Other → AppDock lockscreen** lassen sich ein optionaler Anzeigename und ein lokaler PNG-, JPG-, JPEG-, GIF-, WEBP- oder SVG-Bildpfad setzen. AppDock akzeptiert nur eine lesbare lokale Datei mit erlaubter Endung; das Profil wird ausschließlich auf dem AppDock-Lockscreen gezeigt. |
-| Display-Beta | Schwarze Rahmen können auf Homescreen-Kacheln und -Karten eingeschaltet werden. Die Nachtmodusoption betrifft ausschließlich das ausgewählte Hintergrundbild. |
-| Kontrollzentrum | Die Kacheln sind unter **Settings → Other → Control center** auswählbar. Neu sind Schlafmodus, Energiesparen und Hintergrundbild. Energiesparen versucht verfügbare WLAN-/Frontlight-Steuerung auszuschalten und setzt den periodischen Vollrefresh auf drei Minuten. |
-| AppStore und DReader | Der bereits geladene Katalog ist lokal durchsuchbar. DReader 2.1.0 übernimmt zusätzlich `.md` und `.markdown` aus Files; Markdown wird als lokaler Text gelesen und lädt weder Links noch Bilder nach. |
-| DApp-Ausführung | Store-DApps mit deklarierter Hintergrund- oder Autostartfunktion laufen nur nach expliziter Berechtigung. DockUpdate prüft bei erlaubtem Hintergrundlauf alle zwei Minuten **nur** die stabile GitHub-Release-Metadaten innerhalb einer aktiven KOReader-/AppDock-Sitzung, benachrichtigt höchstens einmal je Release und installiert nie automatisch. |
-
-## Homescreen
-
-| Zone | Android-inspirierte Umsetzung in AppDock |
-|---|---|
-| Systemzeile | Uhrzeit links, optionaler Akkustand rechts und direkter Zugang zu den Schnelleinstellungen. |
-| DuckDuckGo-Suche | Eine breite, einzeilige Such-Pill liegt direkt unter der Statuszeile auf der **ersten** Seite. Sie zeigt die aktuelle Suchanfrage, öffnet die AppDock-Tastatur und übergibt den Text an den Web Browser, der sichere Instant-Answer-Ergebnisse über die DuckDuckGo-JSON-API lädt. |
-| Blickfang-Karten | **Device** und **Continue reading** erscheinen als ruhige, abgerundete Karten nebeneinander. Sie werden während der Bearbeitung vorübergehend ausgeblendet, damit Store-Widgets Platz haben. |
-| Store-Widgets | Ein einzelnes Widget kann die Zeile füllen; mehrere Widgets ordnen sich zweispaltig an. Wird eines vergrößert, kann es die ganze Zeile einnehmen und die übrigen Widgets fließen darunter weiter. |
-| Apps | Einheitliches 3-Spalten-Iconraster mit großen, abgerundeten Symbolflächen und kurzen Labels. |
-| Palette | Vier Material-You-artige Presets sowie selbst erstellbare Akzentfarben; auf Graustufen bleiben feste kontrastreiche KOReader-Grautöne erhalten. |
-| App-Sektion | Eine ruhige Abschnittszeile mit sichtbarer App-Anzahl trennt Widgets, Suche und Launcher-Raster klar voneinander. |
-| Navigation | Seitenschalter erscheinen bei mehreren App-Seiten; zusätzlich wechselt ein horizontaler Wisch links/rechts die Homescreen-Seite direkt und ohne App-Animation. |
-| Dock | Zuletzt verwendete Apps erscheinen beschriftungsfrei in einer abgerundeten Icon-Pill. Ein gezeichnetes Raster-/Suchsymbol öffnet **Alle Apps**. Auf E-Ink bleibt die Fläche kontrastreich und animationsfrei. |
-| Bearbeitung | Der sichtbare **Edit**-Knopf und langer Druck auf eine App starten den Homescreen-Editor. Apps lassen sich im Raster ziehen; Store-Widgets können verkleinert, vergrößert und neu angeordnet werden. |
-| Schnellzugriff | Ein kontrastreich umrandetes Android-artiges Kontrollzentrum mit Griff, aussagekräftigen Symbol-/Toggle-Kacheln, echtem Helligkeitsslider und direktem Schließen öffnet sich über die Abwärtspfeil-Kachel in der Systemzeile. |
-| DApps | Zustandsbehaftete, KOReader-interne Apps mit eigenem Pane, wiederverwendbaren grafischen Logos und eigener Open-Apps-Übersicht. |
-| Periodischer Refresh | Alle 60 Sekunden fordert AppDock einen vollständigen E-Ink-Refresh an, um Geisterbilder zu reduzieren und statische Informationen sichtbar zu aktualisieren. |
-
-Ein Antippen startet die zugewiesene Aktion. Langes Drücken auf eine App startet den Homescreen-Editmodus; während der Bearbeitung öffnet langes Drücken die Verwaltung dieser App. Plugin-Erkennung, Hinzufügen und Entfernen sowie sichere Menüausführung bleiben erhalten.
-
-## Neu in 6.0.0 „Continuity“
-
-| Bereich | Umsetzung und Grenze |
-|---|---|
-| Standardoberfläche | Homescreen, Kontrollzentrum, Open Apps und DApp-Host verwenden im normalen Modus klarere, abgerundete Material-orientierte Flächen, aktive Akzentzustände und eine zusammenhängende untere Navigation. Bestehende Themes, Store-Designs und Graustufen-Kontrastrollen bleiben maßgeblich. |
-| Simple Mode | Bleibt ein separater reduzierter Modus: 4×3-Appgitter, bisherige einfache Schnelleinstellungen und fokussierte Appauswahl bleiben ohne neue grafische Standard-Extras erhalten. |
-| Lokaler Arbeitsbereich | Die Funktion ist standardmäßig deaktiviert. Wenn sie in **Settings → Other → Local workspace** aktiviert wird, speichert sie maximal vier ausdrücklich freigegebene DApps und kleine, geprüfte lokale Zustände. Browser, Files, AppStore, Plugin-Hosts, Dokumentinhalt, Kennwörter und Tokens werden nicht wiederhergestellt. |
-| Dateiübergaben | Store-DApps können sichere Dateiendungen deklarieren. Files zeigt einen eindeutigen Handler direkt oder bei mehreren Handlern eine sichtbare Auswahl. Bestehende NightLua-, DReader- und MarkUP-Wege bleiben als kompatible Standardzuordnungen erhalten. |
-| Zugänglichkeit | **Settings → Display → Text & contrast** bietet 90 %, 100 %, 115 % oder 130 % Textgröße sowie einen kontraststarken Farbpfad für AppDock-eigene Normaloberflächen. |
-| Integrität | **Settings → Storage** zeigt den lokalen Zustand installierter Store-Dateien, geöffneter Apps und Arbeitsbereichsmetadaten. Die Ansicht ist rein lesend und ändert oder löscht keine Dateien selbstständig. |
-
-## Installation
-
-**Wichtig bei GitHub:** Das automatisch erzeugte **Source code (zip)** ist kein direkt installierbarer Pluginordner. Öffne darin den äußeren Projektordner `appdock.koplugin-<Version>` und kopiere **nur den darin liegenden Ordner `appdock.koplugin`** nach `…/plugins/`. Benenne den äußeren Projektordner nicht in `.koplugin` um; KOReader braucht `_meta.lua` und `main.lua` direkt im `appdock.koplugin`-Ordner.
-
-Entpacke das Installationsarchiv und kopiere den vollständigen Ordner `appdock.koplugin` in den Plugin-Ordner deiner KOReader-Installation:
-
-```text
-…/plugins/
-└── appdock.koplugin/
-    ├── _meta.lua
-    ├── main.lua
-    ├── appdock_homescreen.lua
-    ├── appdock_manager.lua
-    ├── appdock_quicksettings.lua
-    ├── appdock_wallpaper.lua
-    ├── appdock_lockscreen.lua
-    ├── appdock_dapps.lua
-    ├── appdock_filemanager.lua
-    ├── appdock_appstore.lua
-    ├── appdock_theme.lua
-    ├── appdock_logo.lua
-    └── appdock_browser.lua
-```
-
-KOReader erkennt Pluginordner anhand der Endung `.koplugin` und erwartet darin eine `main.lua`; seine Plugin-Verwaltung durchsucht den Standardpluginpfad sowie den `plugins`-Unterordner des Datenverzeichnisses. [3]
-
-Starte KOReader danach vollständig neu. Unter **More tools → Plugin management** muss **AppDock Homescreen** aktiviert sein. Der Einstieg lautet **AppDock Homescreen → Open homescreen**.
-
-| Prüfschritt | Erwartetes Ergebnis |
-|---|---|
-| Ordnername | Endet exakt auf `.koplugin`. |
-| Plugininhalt | Enthält `_meta.lua`, `main.lua`, `appdock_homescreen.lua`, `appdock_manager.lua`, `appdock_quicksettings.lua`, `appdock_wallpaper.lua`, `appdock_lockscreen.lua`, `appdock_dapps.lua`, `appdock_filemanager.lua`, `appdock_appstore.lua`, `appdock_theme.lua`, `appdock_logo.lua` und `appdock_browser.lua` direkt im Ordner. |
-| Startansicht | Statuszeile, DuckDuckGo-Suchleiste, Karten/Widgets, 3-Spalten-App-Raster und Icon-Dock werden angezeigt. |
-| Bearbeitung | **Edit** antippen oder eine App lange drücken; **Done** beendet die Bearbeitung. |
-
-## DApps und offene Apps
-
-**DApps** sind AppDock-eigene Anwendungen. Anders als ein Plugin-Shortcut bleiben sie nach dem Verlassen logisch geöffnet und erscheinen in **Open apps**. Die neue Systemkachel **Open apps** entspricht der Android-Übersicht zuletzt geöffneter Apps: Ein Antippen einer Karte aktiviert die betreffende DApp, während das kleine Schließen-Symbol sie aus der Liste entfernt.
-
-| DApp | Funktion | Besonderheit |
-|---|---|---|
-| **Analog Clock** | Zeigt ein gezeichnetes Ziffernblatt, Stunden-/Minutenzeiger, Digitalzeit und Datum. | Aktualisiert zum nächsten Minutenwechsel mit einem begrenzten schnellen Refresh. |
-| **Settings** | Android-inspirierte Kategorienansicht für Netzwerk, Display und weitere AppDock-Funktionen. | Mini-Logos in einer Seitenleiste; WLAN, native Helligkeit/Wärme, Farbthemen, Layout, Über AppDock sowie klar markierte noch nicht implementierte Aktualisierung. |
-| **Files** | Zeigt die Bibliothek in einem eigenen, scrollbaren AppDock-Dateibrowser. | Große Ordner- und Dateikarten, Ordner zuerst, **Up**, **Home** und **Refresh**; `.lua`-Dateien gehen direkt an NightLua. Nach DReader-Installation gehen `.epub`, `.html`, `.htm`, `.xhtml`, `.md` und `.markdown` direkt an DReader. Andere unterstützte Dokumente öffnen weiterhin über KOReaders sicheren ReaderUI-Pfad. |
-| **AppStore** | Lädt den Katalog aus [`arduinodude456/DApps`](https://github.com/arduinodude456/DApps). | Verwendet AppDock-eigene **AppDock Store**-Marke und AppStore-Logo, Suchfeld, **Recommended for you**-Regal, Katalogzeilen mit Installieren/Öffnen/Deinstallieren und untere Kategorienavigation. Liest nur `dapps.txt` über HTTPS, lässt den bereits geladenen Katalog lokal durchsuchen, erkennt neuere Repository-Versionen als **Update** und verlangt vor Installation, Update oder Deinstallation eine ausdrückliche Bestätigung. |
-| **Web Browser** | Öffnet serverseitig bereitgestellte Webinhalte und sucht über DuckDuckGo HTML. | Startseite, Direktziele, Reload, lokale Historie und klarer Lesemodus; aktive Webinhalte bleiben deaktiviert. |
-| **Draw** | Integrierte Mal-App mit der Oberfläche eines herkömmlichen Malprogramms: Werkzeugleiste mit hervorgehobenem aktivem Werkzeug, Farbfelder, Pinselgröße, Ebenen- und Aktionsleiste mit Statuszeile. | Stift/Radierer, Linie/Rechteck/Kreis mit Live-Vorschau, Füllwerkzeug, **Undo/Redo** (bis 8 Schritte) und **Bildschirm reinigen**; ein Strich beginnt schon beim Aufsetzen des Fingers und aktualisiert nur den berührten Bereich. Reine Weiß/Schwarz/Rot/Grün/Blau-Palette, optionales Dithering, lokale Ebenen, `.adraw`-Speichern/Laden und JPEG-Export (ffmpeg erforderlich). Stiftdruck wird nur bei echten Stiftwerten verwendet. |
-| **YouTube** | Sucht, lädt und konvertiert Videos für E-Ink-Reader. | Standardmäßig monochromes **BWR2**; optionales **BRC2** mit Dithering ausschließlich aus reinem Rot, Grün, Blau, Schwarz und Weiß. Steuert **yt-dlp** und **ffmpeg**, führt Bibliothek, Fortschrittsansicht und Werkzeugverwaltung; im Splitscreen spielbar. Audio- und Videospur werden parallel konvertiert, Fragmente parallel geladen und Frames gebündelt aus der Pipe gelesen. Die Vollbild-Schaltfläche wechselt nur noch den Modus, statt zusätzlich die Wiedergabe umzuschalten. |
-| **YouTube Music** | Lädt YouTube-Titel nur als Audio und zeigt das Vollfarb-Titelbild. | Eine `yt-dlp`-Suche bzw. ein Download der besten Tonspur (`bestaudio`), ein FFmpeg-Lauf für die WAV-Begleitdatei und ein gewöhnlicher JPEG-Download für das Titelbild – ohne Videodownload und ohne Bildkonvertierung. Eigene Musikbibliothek mit Titelbildern, Wiedergabe über dieselbe Audiokette wie YouTube (Pause, ±15 s, Neustart, Fortschrittsbalken, Löschen per langem Druck) und eigenem Musikordner; nutzt yt-dlp und ffmpeg der YouTube-DApp. |
-| **Help** | Offline verfügbare Bedienhilfe für AppDock. | Erläutert Homescreen, Schnellzugriff, DApps, Splitscreen, Browser und E-Ink-Refresh; auch im Splitscreen lesbar. |
-
-Die Logo-Bibliothek umfasst jetzt **47** gezeichnete Symbole für Produktivität, Medien, Kommunikation, Daten und Navigation, seit 7.8.12 einschließlich der Marke `youtube` und seit 7.9.14 zusätzlich `youtube_music` und `draw`. Die vollständige Auswahl und die Einbindung über das Feld `logo` stehen in [`DAPP_LOGOS.md`](DAPP_LOGOS.md).
-
-DApps bauen ihren Inhalt ausschließlich innerhalb eines vom DApp-Host zugewiesenen Pane-Rechtecks. Der Pane-Vertrag ist in einem echten Splitscreen umgesetzt: Ein gemeinsamer Host kann zwei geöffnete DApps untereinander mit klarer Trennlinie darstellen, ohne die DApps selbst umzuschreiben. Der **File Manager** behält dabei seinen aktuellen Ordner als DApp-Zustand und bleibt deshalb ebenfalls in Open apps sichtbar und splittbar. Seine Auflistung verwendet KOReaders LuaFileSystem-Schnittstelle; reguläre Dateien und Ordner werden angezeigt, nicht unterstützte Dateien ausdrücklich markiert und nicht geöffnet. Die detaillierte technische Beschreibung steht in `DAPP_ARCHITECTURE.md` und `SPLITSCREEN_DESIGN.md`. [7] [8]
-
-## Plugin-in-DApp-Beta
-
-**Settings → Display → Beta features → Run plugin tiles in AppDock hosts** ist standardmäßig ausgeschaltet. Ist die Beta aktiv, öffnet eine Kachel eines bereits aktivierten Plugins eine AppDock-Sitzung mit eigener Kopfzeile und einem Eintrag in **Open apps**. Die bisherige direkte Plugin-Ausführung bleibt bei ausgeschalteter Beta unverändert.
-
-| Pluginvertrag | Verhalten |
-|---|---|
-| Plugin bietet `buildAppDockPane(context)` | AppDock zeichnet den vom Plugin erzeugten lokalen Pane. Der Kontext enthält lokale Geometrie, sparsame Refresh-Hilfen und `context.notify(...)` für AppDock-Benachrichtigungen. |
-| Plugin bietet nur `addToMainMenu(menu_items)` | AppDock stellt eine lokale, große Aktionsliste aus den veröffentlichten Menüeinträgen bereit und ruft vorhandene Callbacks ohne neue Argumente auf. |
-| Plugin zeigt eine eigene KOReader-Ansicht oder einen Dialog | Diese UI bleibt unter Kontrolle des Plugins. AppDock fängt sie nicht global ab und behauptet nicht, beliebige Fremdoberflächen zu virtualisieren. |
-
-Plugin-Host-Sitzungen heißen in Open apps **Plugin host · Beta** und können niemals in den Splitscreen gelangen. Die Sperre gilt im Long-Press-Dialog, in der App-Auswahl und im zugrunde liegenden Split-Startpfad. Fehler beim Start, nicht verfügbare Einträge und blockierte Splitversuche werden als lokale AppDock-Benachrichtigung abgelegt. Der vollständige Vertrag steht in [`APPDOCK_4_PLUGIN_HOST_BETA_DESIGN.md`](APPDOCK_4_PLUGIN_HOST_BETA_DESIGN.md).
-
-## Store-Widgets
-
-AppDock 1.8.0 unterstützt neben DApps einen getrennten Store-Widget-Vertrag. Version 1.8.2 enthält zusätzlich den Fix für den AppStore-Theme-Scope. Version 1.8.3 korrigiert die Kartenpositionierung innerhalb der scrollbaren Liste, sodass alle Katalogeinträge getrennt und nicht übereinander gerendert werden, sodass der Store beim Öffnen zuverlässig seine Farbpalette laden kann. Seit **1.8.1** liegt die vollständige Store-Kartenliste in einer echten scrollbaren KOReader-Region; Einträge werden nicht mehr nach der sichtbaren Pane-Höhe abgeschnitten. Dadurch bleiben auch Weather Widget und spätere Katalogeinträge per Touch-Swipe, Seitentasten oder Scroll-Geste erreichbar. Ein Katalogeintrag mit dem vierten Feld `widget` wird nach ausdrücklicher Bestätigung als passive Homescreen-Karte installiert. Unter **Manage apps and widgets → Store widgets** kann jedes installierte Widget ein- oder ausgeblendet werden.
-
-Ein Widget liefert über `buildWidget(instance, context)` ein KOReader-Widget und erhält ausschließlich seine lokale `context.dimen`-Geometrie. Sichtbare Widgets werden auf dem Homescreen in eigenen Karten angeordnet. AppDock prüft jede Minute, ob ein Drei-Minuten-Intervall abgelaufen ist, und baut den Homescreen anschließend regulär neu auf. Beim Verlassen des Homescreens wird dieser Timer abgemeldet. Widgets benötigen deshalb keine eigenen Hintergrundprozesse oder Android-Systemintegration.
-
-Das Beispiel **Quote Widget** aus dem öffentlichen DApps-Repository enthält drei lokale Zitate und wechselt alle drei Minuten zu einem anderen Eintrag. Es verwendet weder Netzwerk noch Dateispeicherung. Die Store-DApp **WidgetGenerator** ergänzt hierzu eigene deklarative Widgets mit begrenztem Text, Uhrzeit, Datum und verfügbarem Akkustand. Sie schreibt und führt keinen Nutzer-Lua-Code aus, lädt keine Daten aus dem Netz und kann höchstens 20 lokale Widgetkonfigurationen verwalten.
-
-## Themes und AppStore
-
-In **Settings → Display → Color themes** lassen sich die eingebauten Themes **Lavender**, **Ocean**, **Forest** und **Sunset** auswählen. Über **Create custom theme** werden ein eigener Name und ein sechsstelliger Hex-Akzent wie `#4F8CC9` eingegeben. Das Theme gilt für Homescreen, DApps, Schnellzugriff und File Manager. Auf einem monochromen E-Ink-Gerät bleiben die Farben absichtlich in stabile Kontrastrollen überführt.
-
-Der **AppStore** bezieht seine Katalogdatei aus dem öffentlichen Repository [`arduinodude456/DApps`](https://github.com/arduinodude456/DApps). Die Datei `dapps.txt` enthält pro Zeile einen eindeutigen relativen Lua-Dateipfad sowie optional eine numerische Version, ein geprüftes AppDock-Logo und den Typ `widget`, etwa `quote_widget.lua | 1.0.0 | help | widget`. Ohne das vierte Feld bleibt der Eintrag eine DApp. Beim Aktualisieren wird ausschließlich dieser Textkatalog geladen; es wird dabei kein DApp-Code ausgeführt. Erst nach sichtbarer Nutzerbestätigung lädt AppDock die gewählte Datei über HTTPS, prüft sie auf Lua-Syntax und speichert sie atomar im KOReader-Datenverzeichnis. Eine Repository-Version, die numerisch höher als die installierte DApp-Version ist, erscheint als **Update** statt als Sperrmeldung. Der Download muss dieselbe Versionsangabe deklarieren wie der Katalog, und ein Update darf die DApp-ID nicht verändern.
-
-Jede Karte zeigt das deklarierte DApp-Logo. Bereits installierte DApps erhalten zusätzlich den Button **Uninstall**. Das Entfernen verlangt eine Bestätigung und löscht ausschließlich die installierte DApp-Datei sowie ihre AppStore-Registry; von der DApp angelegte persönliche Dokumente oder Einstellungen werden nicht gelöscht. Eine installierte DApp läuft anschließend als Lua-Code innerhalb von KOReader. Store-DApps können optional einen begrenzten `openFile(instance, path)`-Vertrag anbieten; AppDock Files nutzt ihn ausschließlich für eindeutige Dateitypen wie NightLuas `.lua`- und DReaders `.epub`/`.html`/`.htm`/`.xhtml`-Übergabe. Deshalb darf nur ein geprüftes und vertrauenswürdiges Repository verwendet werden.
-
-### AppDock Store-Oberfläche
-
-Der AppStore verwendet eine feste, eigenständige Oberfläche statt der aktuellen Theme-Farben: heller Hintergrund, grüne Aktionsflächen, das vorhandene AppStore-Logo mit **AppDock Store**-Schriftzug und ein rundes Suchfeld. Die obere Leiste enthält Suche, Katalog-Aktualisierung und eine grüne Katalog-Kachel, die die Quelle und die Bestätigungspflicht erklärt.
-
-| Bereich | Store-Umsetzung |
-|---|---|
-| Suchfeld | Rundes Feld mit Lupe; zeigt die aktive Suche lokal im bereits geladenen Katalog. Darunter erscheint die Ergebniszeile mit Anzahl. |
-| **Recommended for you** | Regal mit bis zu drei Karten aus echten Katalogeinträgen. Führt ein installierter Eintrag eine neuere Katalogversion, wird dasselbe Regal zu **Updates available** und jede Karte zeigt **Update**. |
-| Listeneinträge | Getönte Logo-Kachel, fetter Titel, Typ und Version, Statuszeile (**Not installed**, **Installed**, **Update available**) und rechts eine passende Aktion: gefülltes **Install**/**Update** oder umrandetes **Open**/**Use** mit **Uninstall** darunter. |
-| Kategorien | Untere Navigationsleiste mit **For you**, **Apps**, **Widgets** und **Designs**; die aktive Kategorie erhält eine grüne Kapsel statt einer Tab-Linie. |
-| Leer- und Fehlerzustände | Fehlermeldungen, Ladehinweis und „keine Treffer" erscheinen als Play-Karte mit **Load catalog**, **Try again**, **Refresh** oder **Clear search**. |
-
-Auf monochromen Readern behält jede Fläche eine feste Graustufenrolle, sodass der Play-Aufbau kontrastreich lesbar bleibt. Erfundene Bewertungen, Rezensionen oder Screenshots werden nicht angezeigt; alle sichtbaren Angaben stammen aus `dapps.txt` oder aus dem lokalen Installationszustand.
-
-> **Hinweis:** Der Katalog verwirft absolute Pfade, doppelte Einträge und Pfade mit `..`. Installierte DApps sind in der normalen AppDock-Appverwaltung und in Open Apps verfügbar.
-
-## Web Browser
-
-Die **Web Browser**-DApp ist ein schlanker, JavaScript-freier Browser für lesbare, serverseitig gelieferte Webseiten. Die Version-1.0-Startseite bietet klar getrennte Aktionen für **Address**, **Search**, **Back** und **Reload** sowie Direktziele für DuckDuckGo, Wikipedia, Project Gutenberg und KOReader. Nach der Navigation zeigt eine kompakte Statuszeile Seitentitel und Adresse; die dargestellte Seite lässt sich normal scrollen. Links in der HTML-Seite öffnen die nächste Seite innerhalb derselben DApp und **Back** nutzt die lokale Verlaufsliste.
-
-Die DuckDuckGo-Leiste des Homescreens übergibt ihre bestätigte Anfrage unverändert an genau diese DApp. Damit der Tipp sofort sichtbar quittiert wird, zeigt der Browser zuerst einen lokalen Ladezustand mit der Anfrage und der Quelle **DuckDuckGo**; die HTTPS-Abfrage folgt im nächsten UI-Zyklus. Eine ausgefallene Anfrage ersetzt diesen Zustand durch die normale Fehlermeldung der DApp.
-
-| Unterstützt | Bewusst nicht unterstützt |
-|---|---|
-| HTTP/HTTPS, Weiterleitungen, serverseitiges HTML, DuckDuckGo HTML, relative Links, kleine lokale Historie | JavaScript, Formulare, Logins mit JavaScript, Videos, WebSockets, Downloads und Nicht-HTTP(S)-Links |
-
-Der Browser akzeptiert ausschließlich `http://` und `https://` und verwirft etwa `javascript:`, `file:`, `data:` oder `mailto:`. Antwortgrößen und Netzwerkzeit sind begrenzt. Eine ausführliche Beschreibung steht in `BROWSER_DESIGN.md`.
-
-## YouTube und E-Ink-Video
-
-Die DApp **YouTube** bringt Video auf E-Ink-Reader. Sie spricht nie selbst mit YouTube, sondern steuert **yt-dlp** (Suche und Download) und **ffmpeg** (Dekodierung und Tonspur). Beim ersten Öffnen sucht sie nach vorhandenen Programmen; fehlen sie, lädt AppDock passende offizielle bzw. statische Linux-Builds im Hintergrund, prüft die Prüfsummen und richtet sie in `appdock/tools` im KOReader-Datenverzeichnis ein. Sobald beide Werkzeuge startfähig sind, erscheint die YouTube-Suche. Bereits installierte Werkzeuge werden nicht ersetzt. Unterstützt werden x86_64 und aarch64 mit glibc 2.17+ (oder musl 1.2+) sowie ARMv7 mit glibc 2.31+; auf Android/Bionic, ARMv6, älteren ARMv7-Systemen oder unbekannten ABIs zeigt AppDock stattdessen die manuelle Tool-Konfiguration. Quellen, Downloadablauf und Voraussetzungen stehen in [`YOUTUBE_TOOLS.md`](YOUTUBE_TOOLS.md).
-
-| Eingabe | Wirkung |
-|---|---|
-| **Search YouTube** | Übergibt die Anfrage als `ytsearch` an yt-dlp und zeigt die Treffer mit Kanal und Dauer. |
-| **Paste a video link** | Akzeptiert Video-, Shorts-, Live- und Embed-Links sowie eine reine elfstellige Video-ID. Andere Adressen werden ausdrücklich abgelehnt. |
-| **Convert a local video file** | Konvertiert eine bereits vorhandene Datei, die ffmpeg dekodieren kann. |
-
-Unter der Suche stellen drei Felder Auflösung, Bildrate und Maximallänge ein; die Ansicht **Tools** verwaltet zusätzlich Programm-Pfade, Ausgabeordner, maximale Quellqualität und die Dither-Methode. Der schnelle FFmpeg-Modus ist Standard; bestehende Installationen werden einmalig darauf umgestellt. Wer das Snake-kompatible Bayer-Dithering bevorzugt, kann es in den Tools aktivieren. **Color playback** ist optional und standardmäßig ausgeschaltet; wenn eingeschaltet, wählt **Color dithering** zwischen geordnetem Dithering und direkter Zuordnung zur nächstliegenden Palettenfarbe. Konvertierungen laufen als abgekoppelte Prozesse weiter, auch wenn die DApp verlassen wird, und können im Fortschrittsbildschirm abgebrochen werden.
-
-### Format und Kompatibilität
-
-Neue monochrome AppDock-Videos werden im kompakten, seekbaren **BWR2**-Format gespeichert. Wenn Farbwiedergabe eingeschaltet ist, nutzt AppDock **BRC2**: Frames tragen Palettenindizes statt RGB-Mischwerte, und jeder ausgegebene Bildpunkt ist exakt **reines Rot (255,0,0), Grün (0,255,0), Blau (0,0,255), Schwarz oder Weiß**. Dithering erzeugt diese Farben räumlich; es gibt keine gemischten Pixel. Auf Schwarzweiß-Readern werden die Palettenfarben als passende Graustufen dargestellt. Bereits vorhandene **BWR1**-Dateien aus `videoplayer.koplugin` bleiben lesbar; BWR1 nutzt 1 Bit pro Pixel, MSB zuerst, wobei 1 für Weiß steht. Beide neuen Varianten verwenden weiterhin die `.bwr`-Endung und erhalten eine gleichnamige `.wav`-Tonspur; fehlt sie, läuft die Wiedergabe stumm.
-
-FFmpeg übernimmt bei monochromer Ausgabe standardmäßig die schnelle 1-Bit-Umwandlung über `format=monow`; AppDock prüft die Bitrichtung des jeweiligen Builds. Die Bayer-Matrix bleibt in **Tools → Dithering** als Alternative verfügbar, wenn das Snake-kompatible Ditherbild bevorzugt wird. Im Farbmodus liest AppDock RGB-Frames und quantisiert sie in die unveränderliche Fünf-Farben-Palette; optionales Bayer-Dithering mischt nur räumlich zwischen Palettenfarben.
-
-### Wiedergabe
-
-Der Player zeigt den Frame, der zur tatsächlich verstrichenen Zeit gehört: Die Tonspur ist die Master-Uhr, sodass Schwankungen des Zeitgebers keine Drift erzeugen. Frames sind bereits gedithert und werden nur noch zu Bytes expandiert und geblittet; aktualisiert wird ausschließlich das eigene Rechteck mit einem **schnellen** Refresh. Bedient wird über **-5 s**, **Play/Pause**, **+5 s** und **Restart**. Die Bibliothek listet alle konvertierten Videos, ein Tipp startet die Wiedergabe und ein langer Druck fragt vor dem Löschen nach.
-
-| Umgebung | Verhalten |
-|---|---|
-| Vollbild-Host | Der Player füllt das gesamte Pane-Rechteck unter der App-Leiste. |
-| Splitscreen | Der Player arbeitet innerhalb des zugewiesenen Pane-Rechtecks und bleibt dort bedienbar. |
-| Ton | `gst-launch-1.0` mit `mtkbtmwrpcaudiosink` auf passenden Geräten, sonst `aplay` oder `tinyplay`; eine bereits gekoppelte Bluetooth-Verbindung läuft über denselben Weg. |
-| Grenzen | Nur YouTube-Quellen und lokale Dateien, die ffmpeg dekodieren kann; Länge, Auflösung und Bildrate hängen von Speicherplatz und Rechenleistung des Readers ab. |
-
-## Splitscreen
-
-Der Splitscreen arbeitet mit **zwei bereits offenen DApps**. Öffne zunächst beispielsweise **Analog Clock** und **Settings**, wechsle anschließend zu **Open apps** und halte eine der beiden DApp-Karten gedrückt. Im Kontextmenü wählst du **Splitscreen**; danach listet AppDock die übrigen offenen DApps als zweite App auf. Nach der Auswahl werden beide DApps untereinander im gemeinsamen Host dargestellt.
-
-| Kontrolle | Wirkung im Splitscreen |
-|---|---|
-| **Home** | Verlässt die sichtbare Splitscreen-Ansicht und öffnet den Homescreen. Beide DApps bleiben in Open apps erhalten. |
-| **Open apps** | Verlässt die sichtbare Splitscreen-Ansicht und öffnet die Übersicht der weiterhin geöffneten DApps. |
-| **Schließen** | Beendet die sichtbare Splitscreen-Ansicht und wechselt zu Open apps. Einzelne DApps lassen sich dort über ihr Schließen-Symbol entfernen. |
-
-## Schnellzugriff
-
-Die kleine **Abwärtspfeil-Kachel** in der oberen Systemzeile öffnet eine echte, von oben ausgeklappte KOReader-Oberfläche. Sie verwendet ausschließlich gezeichnete KOReader-Widgets und kein Standard-Buttonmenü.
-
-| Element | Wirkung |
-|---|---|
-| **Brightness** | Antippen oder Ziehen setzt die native Frontlight-Intensität. Bei jedem Slider-Schritt erfolgt ein schneller regionaler Refresh; danach wird die gesamte sichtbare KOReader-Oberfläche regulär als neu zu zeichnen markiert. |
-| **Wi-Fi** | Schaltet WLAN über KOReaders `NetworkMgr` ein oder aus. |
-| **Night** | Löst KOReaders vorhandenes `ToggleNightMode`-Ereignis aus. |
-| **Refresh** | Baut die sichtbare Oberfläche neu auf und fordert eine vollständige Aktualisierung an. |
-| **Edit** | Schließt die Leiste und öffnet den AppDock-Editor. |
-
-Die Refresh-Logik kombiniert für Helligkeitsänderungen `UIManager:setDirty("all", "fast", slider_region)` mit einem normalen UI-Refresh über `UIManager:setDirty("all", "ui")`. Dadurch ist der Slider direkt sichtbar, ohne dass die darunterliegende normale KOReader-UI veraltet bleibt. Der Helligkeitsregler löst **keinen** `full`-Refresh aus; der vollständige E-Ink-Refresh erfolgt getrennt davon automatisch im 60-Sekunden-Takt. In **0.4.1** wurde zusätzlich die KOReader-spezifische Gestenargumentfolge korrigiert: Der Handler verarbeitet nun zuverlässig das zweite Argument, das die Touchposition enthält. [5] [6]
-
-## Apps und Widgets verwalten
-
-AppDock bietet reguläre KOReader-Plugins nur dann als Apps an, wenn sie bereits aktiviert und instanziiert sind. Dazu verwendet es die bestehende `addToMainMenu(menu_items)`-Konvention. Zusätzlich können ausdrücklich bestätigte DApps aus dem vertrauenswürdigen AppStore-Katalog installiert werden. Plugins ohne veröffentlichte Menüaktion werden nicht angeboten; der Store installiert keine Dateien ohne sichtbare Nutzerbestätigung. KOReader instanziiert aktivierte Plugins regulär im jeweiligen UI-Kontext. [3] [4]
-
-| Einstellung | Wirkung |
-|---|---|
-| **Clock in status bar** | Schaltet die Uhrzeit in der oberen Systemzeile ein oder aus. |
-| **Device status card** | Schaltet die Akkukarte und die Akkuanzeige ein oder aus. |
-| **Current book card** | Schaltet die große Karte für das aktive Buch bzw. den Bibliothekshinweis ein oder aus. |
-| **Store widgets** | Zeigt installierte Store-Widgets und schaltet jedes Widget unabhängig ein oder aus. |
-| **Add / Added** | Fügt eine System- oder Plugin-App hinzu beziehungsweise entfernt sie. |
-
-Die ersten sechs angehefteten Apps belegen die aktuelle 3×2-Seite. Weitere Apps werden auf zusätzlichen Seiten gezeigt. Die Standardkacheln **Library**, **Menu**, **History** und **Manage apps and widgets** bleiben weiterhin verfügbar.
-
-## Kompatibilität und Grenzen
-
-| Situation | Verhalten |
-|---|---|
-| Farbdisplay | Verwendet die Material-You-orientierten Akzentflächen. |
-| Graustufen-E-Ink | Verwendet die gleichen Kontrastrollen in abgestuften Grautönen. |
-| Plugin mit einer Aktion | Startet die Aktion direkt. |
-| Plugin mit mehreren Aktionen | Öffnet zuerst einen Aktionsdialog. |
-| Plugin mit tieferen Spezialmenüs | Stellt die erste Ebene als Dialog bereit. |
-| Android-System-App | Wird bewusst nicht gestartet, weil AppDock ausschließlich KOReader-intern arbeitet. |
-| Test auf dem konkreten Gerät | Steht noch aus; lokale Smoke-Tests und Syntaxprüfungen sind bestanden. |
-| Bluetooth | AppDock verwendet eine eigene, kleine Steuerung über `bluetoothctl`. Wenn die Gerätesoftware diese Schnittstelle nicht bereitstellt, zeigt AppDock eine verständliche Fehlermeldung. AppDock installiert keine Firmware und keinen Bluetooth-Treiber. |
-
-## Qualitätssicherung
-
-| Prüfung | Ergebnis |
-|---|---|
-| Lua-5.1-Syntaxprüfung aller Plugin-Dateien | Bestanden. |
-| Kernlogik-Smoketest | Bestanden: Menüregistrierung, Plugin-Discovery, Migration, App- und Widgetverwaltung sowie Aktionen. |
-| Homescreen-Layout-Smoketest | Bestanden: Widgetkarten, 3×2-Kachelraster, Kachelantippen und Seitenauswahl. |
-| Schnellzugriffs-Smoketest | Bestanden: Overlayaufbau, Frontlight-Änderung, schneller Slider-Refresh, normaler UI-Refresh, WLAN, Nachtmodus und vollständiger Redraw. |
-| DApp-Smoketest | Bestanden: Registry, Analog Clock, Settings, Zustandsbehaltung, DApp-Host, Recents und Schließen. |
-| Splitscreen-Smoketest | Bestanden: Langdruck-Kontextmenü, Splitscreen-Aktion, Zweit-App-Auswahl, Zwei-Pane-Host, Rückkehr zu Open apps und DApp-Erhalt. |
-| Refresh-/Logo-/File-Manager-Tests | Bestanden: 60-Sekunden-Timer mit Selbstneuplanung, Vollrefresh, `fast`-Sliderpfad, Logo-Integration sowie eigene Dateiauflistung, Sortierung, Ordnernavigation, Pane-Aufbau und ReaderUI-Übergabe. |
-| Browser-Smoketest | Bestanden: HTTPS-Normalisierung, DuckDuckGo-HTML-Suche, Sanitierung, relative Links, Verlauf, DuckDuckGo-Weiterleitung, Startseite, Reload und Nicht-HTTP(S)-Sperre. |
-| Hilfe-DApp-Test | Bestanden: Hilfe-Registry, offline scrollbarer Pane-Aufbau und DApp-Lebenszyklus. |
-| Theme-/AppStore-Test | Bestanden: Hex-Validierung, Speicherung eigener Themes, sicherer Manifestparser, Traversal-Sperre, Versionsvergleich, Update-Karten mit Logos, bestätigte Store-Registrierung sowie atomare Deinstallation aus Datei und Registry. |
-| Erweiterter Logo-Test | Bestanden: alle 38 Symbolnamen erzeugen bei Standardgröße sichtbare Geometrie; die Laufzeitliste enthält die vollständige Sammlung. |
-| Abgleich verwendeter Modulpfade mit KOReader `master` | Bestanden für `PluginLoader`, `OverlapGroup`, `FrameContainer`, `InputContainer` und die benötigten Text-/Layoutcontainer. |
-| Physischer E-Ink-Refresh- und Größenabgleich | Ausstehend. |
-
-## Version 1.1
-
-Version **1.1.0** ersetzt den bisherigen Verweis der File-Manager-DApp auf KOReaders Standard-Dateimanager durch einen eigenständigen **AppDock File Browser**. Er startet im konfigurierten KOReader-Bibliotheksordner, zeigt alle regulären Ordner und Dateien in klaren Karten, sortiert Ordner vor Dateien und bietet **Up**, **Home** sowie **Refresh**. Ein unterstütztes Dokument startet über `ReaderUI:showReader`, den von KOReader vorgesehenen sicheren Reader-Übergang; nicht unterstützte Dateien bleiben sichtbar und erhalten eine verständliche Meldung. [7] [8]
-
-Version **1.1.1** korrigiert einen Crash beim Aufbau einer Ordnerliste mit nicht unterstützten Dateien: Eine lokale Indexvariable hatte die gettext-Übersetzungsfunktion `_` überschattet. Der Index trägt nun einen eindeutigen Namen; ein Regressionstest baut ausdrücklich eine Dateiliste mit einer nicht unterstützten Datei auf.
-
-Version **1.1.2** vergrößert den reservierten Kopfbereich im File Manager, trennt dessen einzeilige **Up**-, **Home**- und **Refresh**-Aktionen klar von der Dateiliste und passt Dateikarten typografisch an. Der Schnellzugriff berechnet seine Blattgröße nun aus Kopf, Kacheln und Helligkeitsslider; bei engen Bildschirmhöhen verwendet er eine kompaktere, vollständig sichtbare Kachelvariante.
-
-Version **1.2.0** gestaltet die Settings-DApp als thematisch gegliederte Einstellungsansicht mit einer schmalen Seitenleiste aus gezeichneten Mini-Logos. **Network** bündelt WLAN und den transparent als nicht verfügbar markierten Bluetooth-Eintrag. **Display** öffnet KOReaders native Steuerung für Helligkeit und Wärme und schaltet Farbthemen über den Nachtmodus. **Other** führt zu Layout, Informationen über AppDock sowie einer ausdrücklich noch nicht implementierten Aktualisierung.
-
-Version **1.3.0** ergänzt einen persistierenden Theme-Editor mit vier Presets und frei benennbaren Hex-Akzenten. Die neue farbige **AppStore**-DApp lädt ausschließlich den Textkatalog des öffentlichen Repositories [`arduinodude456/DApps`](https://github.com/arduinodude456/DApps), prüft relative Lua-Pfade und verlangt vor jeder Installation eine sichtbare Bestätigung. Das Repository enthält bereits `dapps.txt`, eine Formatbeschreibung und die kleine offline Beispiel-DApp **Quote Card**.
-
-Version **1.4.0** erweitert `appdock_logo.lua` von neun auf **38** vollständig gezeichnete, skalierbare E-Ink-Logos. Neben den AppDock-Kernsymbolen stehen nun unter anderem Kalender, Aufgaben, Notizen, Dokumente, Rechner, Musik, Galerie, Kamera, Suche, Cloud, Terminal, Code, Synchronisierung, Sicherheit, Karten und Übersetzen bereit. Die referenzierte Symbolsammlung ist in `DAPP_LOGOS.md` dokumentiert und über `DAppLogo.availableKinds()` abrufbar.
-
-Version **1.5.0** ergänzt einen kontrollierten Dateiübergabevertrag für installierte Store-DApps. Die eigene **Files**-DApp erkennt nun `.lua`-Dateien und übergibt sie direkt an die installierte **NightLua**-DApp; der KOReader-Standard-Dateimanager wird dabei nicht geöffnet. NightLua selbst stellt einen nativen Vollbildeditor mit Monospace-Schrift, sichere Speicherung nach Lua-Syntaxprüfung und eine separate E-Ink-Syntaxvorschau bereit.
-
-Version **1.6.0** macht den **AppStore** versionsbewusst: Ein Katalogeintrag kann eine numerische DApp-Version führen; ist diese neuer als die installierte, bietet die Karte **Update** an. Downloads werden vor dem Ersetzen geprüft und atomar übernommen, die DApp-ID sowie die deklarierte Version müssen zum Katalog passen. Store-Karten zeigen die jeweiligen gezeichneten Logos; installierte Karten bieten eine bestätigte **Uninstall**-Aktion, die die DApp-Datei und ihre AppStore-Registry entfernt, aber eigene Nutzerdateien bewahrt.
-
-Version **1.7.0** erweitert den eigenen **Files**-Browser um einen klaren, direkten Übergabepfad für die Store-DApp **DReader**. EPUB, HTML, HTM und XHTML zeigen nach der DReader-Installation **Open in DReader** und werden ohne KOReaders Standard-Dateimanager an die stateful Reader-DApp übergeben. Lua-Dateien bleiben unverändert NightLua vorbehalten; alle anderen Dokumentformate folgen weiterhin dem sicheren ReaderUI-Pfad.
-
-Die Version-1.0-Oberfläche konzentrierte sich auf eine **ruhige, zusammenhängende E-Ink-Hierarchie**: große gerundete Aktionsflächen, wiederverwendete DApp-Logos, klare Toolbar-Aktionen und offline nutzbare Hilfe. Die dazugehörigen Produktentscheidungen stehen in `V1_PRODUCT_DESIGN.md`.
-
-## Referenzen
-
-[1] [Google: Material 3 Expressive für Android und Wear OS](https://blog.google/products-and-platforms/platforms/android/material-3-expressive-android-wearos-launch/)
-
-[2] [Android Developers: Material Design 3 in Compose](https://developer.android.com/develop/ui/compose/designsystems/material3)
-
-[3] [KOReader: PluginLoader](https://github.com/koreader/koreader/blob/master/frontend/pluginloader.lua)
-
-[4] [KOReader: Plugin-Instanziierung im FileManager](https://github.com/koreader/koreader/blob/master/frontend/apps/filemanager/filemanager.lua)
-
-[5] [KOReader: `UIManager:setDirty`](https://github.com/koreader/koreader/blob/master/frontend/ui/uimanager.lua)
-
-[6] [KOReader: Frontlight-Widget](https://github.com/koreader/koreader/blob/master/frontend/ui/widget/frontlightwidget.lua)
-
-[7] [KOReader: File-Manager-Hilfsfunktionen und Bibliotheksordner](https://github.com/koreader/koreader/blob/master/frontend/apps/filemanager/filemanagerutil.lua)
-
-[8] [KOReader: ReaderUI und sicherer Dokumentstart](https://github.com/koreader/koreader/blob/master/frontend/apps/reader/readerui.lua)
-
-## Vorschlagsdatenbank
-
-Die AppDock-Tastatur verwendet die mitgelieferte Offline-Datenbank
-`appdock.koplugin/appdock_suggestions.db`. Sie enthält getrennte deutsche (`de`)
-und englische (`en`) Wortlisten mit Häufigkeitswerten. Das Format ist bewusst
-editierbares TSV:
-
-```text
-Sprache<TAB>Häufigkeit<TAB>Wort
-```
-
-Die Datenbank benötigt weder Netzwerk noch SQLite. Eigene Wörter können als
-weitere Zeilen ergänzt werden; nach einem Neustart werden sie automatisch
-berücksichtigt. Dialoge können zusätzlich eine kontextbezogene `suggestions`
-Liste oder die Sprache `language = "de"` bzw. `language = "en"` übergeben.
+* ZenUI - clean, minimal reader UI
+* SimpleUI - ZenUI but feels different
+* Storefront - AppStore for plugins
+* Simple web browser
+* Rosetta - Splitscreen; Translates your book and displays the translation in a splitscreen with the original
