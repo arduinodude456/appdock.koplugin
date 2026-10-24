@@ -42,7 +42,7 @@ Forget what I said. Why should anyone want to do this? But after all it is possi
 
 *AppDock is not for eReader users. It's for those, who like experimenting with what tech can do. It's for those who want more than just read books.*
 
-If you red this README, and you think "Oh, AppDock maybe is not the right for me", I can still recommend you some other plugins that may fit better to u:
+If you read this README, and you think "Oh, AppDock maybe is not the right for me", I can still recommend you some other plugins that may suit you better:
 
 * ZenUI - clean, minimal reader UI
 * SimpleUI - ZenUI but feels different
