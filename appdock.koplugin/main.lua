@@ -4,7 +4,7 @@ It exposes selected KOReader plugin menu actions as configurable app tiles.
 --]]--
 
 local MODULE_DIR = (debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "")
-local APPDOCK_RELEASE = "8.2.24"
+local APPDOCK_RELEASE = "8.5.2"
 local AppDockRecovery
 local recovery_context
 do
