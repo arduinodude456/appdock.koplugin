@@ -4,7 +4,7 @@ It exposes selected KOReader plugin menu actions as configurable app tiles.
 --]]--
 
 local MODULE_DIR = (debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "")
-local APPDOCK_RELEASE = "8.5.2"
+local APPDOCK_RELEASE = "8.5.3"
 local AppDockRecovery
 local recovery_context
 do
@@ -48,6 +48,7 @@ local DEFAULT_SETTINGS = {
         "dapp:youtube_shorts",
         "dapp:youtube_music",
         "dapp:draw",
+        "dapp:doom",
         "dapp:analog_clock",
         "dapp:settings",
         "dapp:help",

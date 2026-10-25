@@ -35,6 +35,7 @@ local YouTube = require("appdock_youtube")
 local YouTubeShorts = require("appdock_youtube_shorts")
 local YouTubeMusic = require("appdock_ytmusic")
 local Draw = require("appdock_draw")
+local Doom = require("appdock_doom")
 local InfoMessage = AppDockDialogs.InfoMessage
 local OverlapGroup = require("ui/widget/overlapgroup")
 local TextWidget = require("ui/widget/textwidget")
@@ -1118,6 +1119,7 @@ function DAppManager:new(appdock)
         youtube_shorts = YouTubeShorts:new(appdock),
         youtube_music = YouTubeMusic:new(appdock),
         draw = Draw:new(),
+        doom = Doom,
         help = Help:new({
             scale = scale, palette = PALETTE, Geom = Geom, Font = Font,
             WidgetContainer = WidgetContainer, FrameContainer = FrameContainer,
@@ -1250,6 +1252,19 @@ function DAppManager:_registerBuiltins()
         end,
         buildPane = function(instance, context)
             return self.draw:buildPane(instance, context)
+        end,
+    }
+    self.definitions.doom = {
+        id = "doom",
+        title = _("Doom"),
+        subtitle = _("Classic FPS for Kobo"),
+        symbol = "D",
+        logo = "minecraft",
+        buildPane = function(instance, context)
+            return self.doom:buildPane(instance, context)
+        end,
+        onClose = function()
+            if self.doom and self.doom.close then self.doom.close() end
         end,
     }
     self.definitions.settings = {
