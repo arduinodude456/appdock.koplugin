@@ -23,6 +23,8 @@ local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local Theme = require("appdock_theme")
+local netsurf_ok, NetSurf = pcall(require, "appdock_netsurf")
+if not netsurf_ok then NetSurf = nil end
 local util = require("util")
 local _ = require("gettext")
 
@@ -946,6 +948,10 @@ function Browser:reload(instance, context)
 end
 
 function Browser:goHome(instance, context)
+    if NetSurf then
+        local opened = NetSurf.open("https://duckduckgo.com/")
+        if opened then return end
+    end
     local state = self:_ensureState(instance)
     state.url = nil
     state.html = nil
@@ -1090,13 +1096,25 @@ end
 
 function Browser:buildPane(instance, context)
     local state = self:_ensureState(instance)
+    -- Launch the full NetSurf browser on first opening instead of leaving the
+    -- user on AppDock's lightweight browser home screen. Homescreen searches
+    -- keep their existing query flow; the built-in pane remains a fallback if
+    -- NetSurf has not been installed yet.
+    if NetSurf and state.is_home and not state.loading_query and not state.netsurf_auto_opened then
+        state.netsurf_auto_opened = true
+        UIManager:nextTick(function()
+            if state.is_home and not state.loading_query then
+                NetSurf.open(state.url or "https://duckduckgo.com/")
+            end
+        end)
+    end
     local pane = WidgetContainer:new{
         dimen = Geom:new{ w = context.dimen.w, h = context.dimen.h },
     }
     local width, height = context.dimen.w, context.dimen.h
     local margin, gap, button_height = scale(12), scale(6), scale(36)
     local has_form = state.forms and state.forms[1]
-    local button_count = has_form and 5 or 4
+    local button_count = (has_form and 1 or 0) + (NetSurf and 5 or 4)
     local button_width = math.floor((width - 2 * margin - (button_count - 1) * gap) / button_count)
     local toolbar_height = button_height + scale(48)
     local content = OverlapGroup:new{
@@ -1141,12 +1159,23 @@ function Browser:buildPane(instance, context)
             overlap_offset = { margin, button_height + scale(16) },
         },
     }
+    if NetSurf then
+        table.insert(content, BrowserButton:new{
+            title = "NetSurf", width = button_width, height = button_height,
+            background = PALETTE.primary, foreground = PALETTE.on_primary,
+            callback = function()
+                -- Full browser (JavaScript, real CSS layout) in a separate process.
+                NetSurf.open(state.url or "https://duckduckgo.com/")
+            end,
+            overlap_offset = { margin + (button_width + gap) * 4, scale(8) },
+        })
+    end
     if has_form then
         table.insert(content, BrowserButton:new{
             title = has_form.label, width = button_width, height = button_height,
             background = PALETTE.surface, foreground = PALETTE.on_surface,
             callback = function() self:showFormDialog(instance, context, has_form) end,
-            overlap_offset = { margin + (button_width + gap) * 4, scale(8) },
+            overlap_offset = { margin + (button_width + gap) * (NetSurf and 5 or 4), scale(8) },
         })
     end
     if state.html and not state.error then
@@ -1218,6 +1247,9 @@ function Browser:buildPane(instance, context)
             { title = _("Wikipedia"), callback = function() self:navigate(instance, context, "https://en.wikipedia.org/wiki/Main_Page", true) end },
             { title = _("Project Gutenberg"), callback = function() self:navigate(instance, context, "https://www.gutenberg.org/", true) end },
         }
+        if NetSurf then
+            table.insert(destinations, 1, { title = _("NetSurf (full browser)"), callback = function() NetSurf.open("https://duckduckgo.com/") end })
+        end
         for index, destination in ipairs(destinations) do
             local column = (index - 1) % 2
             local row = math.floor((index - 1) / 2)
