@@ -1006,8 +1006,9 @@ function AppStore:installGamePackage(entry)
     end
     local addons = self:_addonsDirectory()
     if not addons then os.remove(staging); return false, _("Could not create .adds.") end
-    local tested = os.execute(unzip .. " -tq " .. shellQuote(staging) .. " >/dev/null 2>&1")
-    if tested ~= true and tested ~= 0 then os.remove(staging); return false, _("ZIP integrity check failed.") end
+    -- Do not require the optional unzip test mode here: some device extractors
+    -- reject `-tq` even though normal extraction is supported. A successful
+    -- extraction validates the ZIP data and CRCs; its status is authoritative.
     local extracted = os.execute(unzip .. " -oq " .. shellQuote(staging) .. " -d " .. shellQuote(addons) .. " >/dev/null 2>&1")
     os.remove(staging)
     if extracted ~= true and extracted ~= 0 then return false, _("Unpacking into .adds failed.") end
