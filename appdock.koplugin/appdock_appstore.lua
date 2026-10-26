@@ -985,6 +985,21 @@ function AppStore:installGamePackage(entry)
     local extracted = os.execute("unzip -oq " .. shellQuote(staging) .. " -d " .. shellQuote(addons) .. " >/dev/null 2>&1")
     os.remove(staging)
     if extracted ~= true and extracted ~= 0 then return false, _("The game package could not be installed into .adds.") end
+    -- These packages are produced from FAT/Windows workspaces, so ZIP entries
+    -- can lose Unix execute bits and unzip creates mode 0644. Game launchers
+    -- follow the catalog convention <game>/bin/<game>.
+    local game_name = entry.path:match("([^/]+)%.lua$")
+    if not game_name or not game_name:match("^[%w_-]+$") then
+        return false, _("The game entry does not identify a valid executable.")
+    end
+    local executable = addons .. "/" .. game_name .. "/bin/" .. game_name
+    if lfs.attributes(executable, "mode") ~= "file" then
+        return false, _("The game package does not contain its expected executable.")
+    end
+    local chmod = os.execute("chmod 755 " .. shellQuote(executable) .. " >/dev/null 2>&1")
+    if chmod ~= true and chmod ~= 0 then
+        return false, _("The game executable could not be marked as runnable.")
+    end
     return true
 end
 
