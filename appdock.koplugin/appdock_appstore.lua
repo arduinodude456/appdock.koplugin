@@ -984,9 +984,9 @@ function AppStore:installGamePackage(entry)
     if not saved then return false, save_err end
 
     local unzip = zipExtractorCommand()
-    if not unzip then os.remove(staging); return false, _("No ZIP extractor is available (unzip or BusyBox with unzip).") end
+    if not unzip then os.remove(staging); return false, _("No ZIP extractor found.") end
     local list = io.popen(unzip .. " -lq " .. shellQuote(staging) .. " 2>/dev/null", "r")
-    if not list then os.remove(staging); return false, _("The ZIP extractor could not inspect the game package.") end
+    if not list then os.remove(staging); return false, _("ZIP listing failed.") end
     local entry_count = 0
     for name in list:lines() do
         local path = name:match("^%s*%d+%s+[%d%-]+%s+%d%d?:%d%d%s+(.+)$")
@@ -995,36 +995,36 @@ function AppStore:installGamePackage(entry)
             local unsafe_parent = path == ".." or path:match("^%.%./") or path:match("/%.%./") or path:match("/%.%.$")
             if path:sub(1, 1) == "/" or path:find("\\", 1, true) or unsafe_parent then
                 list:close(); os.remove(staging)
-                return false, _("The game package contains an unsafe path.")
+                return false, _("Unsafe path in ZIP.")
             end
         end
     end
     local listed_ok = list:close()
     if (listed_ok ~= true and listed_ok ~= 0) or entry_count == 0 then
         os.remove(staging)
-        return false, _("The ZIP extractor could not inspect the game package.")
+        return false, _("ZIP listing failed.")
     end
     local addons = self:_addonsDirectory()
-    if not addons then os.remove(staging); return false, _("The .adds directory could not be created.") end
+    if not addons then os.remove(staging); return false, _("Could not create .adds.") end
     local tested = os.execute(unzip .. " -tq " .. shellQuote(staging) .. " >/dev/null 2>&1")
-    if tested ~= true and tested ~= 0 then os.remove(staging); return false, _("The game package is damaged.") end
+    if tested ~= true and tested ~= 0 then os.remove(staging); return false, _("ZIP integrity check failed.") end
     local extracted = os.execute(unzip .. " -oq " .. shellQuote(staging) .. " -d " .. shellQuote(addons) .. " >/dev/null 2>&1")
     os.remove(staging)
-    if extracted ~= true and extracted ~= 0 then return false, _("The game package could not be installed into .adds.") end
+    if extracted ~= true and extracted ~= 0 then return false, _("Unpacking into .adds failed.") end
     -- These packages are produced from FAT/Windows workspaces, so ZIP entries
     -- can lose Unix execute bits and unzip creates mode 0644. Game launchers
     -- follow the catalog convention <game>/bin/<game>.
     local game_name = entry.path:match("([^/]+)%.lua$")
     if not game_name or not game_name:match("^[%w_-]+$") then
-        return false, _("The game entry does not identify a valid executable.")
+        return false, _("Invalid game launcher name.")
     end
     local executable = addons .. "/" .. game_name .. "/bin/" .. game_name
     if lfs.attributes(executable, "mode") ~= "file" then
-        return false, _("The game package does not contain its expected executable.")
+        return false, _("Launcher missing from ZIP.")
     end
     local chmod = os.execute("chmod 755 " .. shellQuote(executable) .. " >/dev/null 2>&1")
     if chmod ~= true and chmod ~= 0 then
-        return false, _("The game executable could not be marked as runnable.")
+        return false, _("Could not mark launcher executable.")
     end
     return true
 end
@@ -1217,7 +1217,7 @@ function AppStore:install(instance, context, entry, is_update)
         local package_ok, package_err = self:installGamePackage(entry)
         if not package_ok then
             os.remove(temporary)
-            UIManager:show(InfoMessage:new{ text = _("Could not install the game package: ") .. tostring(package_err or "") })
+            UIManager:show(InfoMessage:new{ text = _("Game install failed:\n") .. tostring(package_err or _("Unknown error.")) })
             return
         end
     end
