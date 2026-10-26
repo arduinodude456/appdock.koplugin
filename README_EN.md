@@ -179,7 +179,7 @@ The **Quote Widget** contains three local quotes and changes its entry every thr
 
 In **Settings → Display → Color themes**, choose **Lavender**, **Ocean**, **Forest**, or **Sunset**. **Create custom theme** accepts a name and a six-digit accent such as `#4F8CC9`. The selected theme applies to the homescreen, DApps, Quick Settings, and File Manager. On monochrome E-Ink devices, colors are deliberately mapped to stable contrast roles.
 
-The **AppStore** reads its catalog from [`arduinodude456/DApps`](https://github.com/arduinodude456/DApps). Each `dapps.txt` line contains a relative Lua path and can include a version, an AppDock logo, and the type `widget`, for example `quote_widget.lua | 1.0.0 | help | widget`. Only the text catalog is loaded during refresh. Code is fetched through HTTPS only after visible user confirmation, checked for Lua syntax, and written atomically into the KOReader data directory.
+The **AppStore** reads its catalogs from [`arduinodude456/DApps`](https://github.com/arduinodude456/DApps). `dapps.txt` contains regular apps, widgets, and designs; `games.txt` contains game entries with an additional ZIP package path, for example `midless.lua | 1.0.0 | other | game | midless.zip`. Only the text catalogs are loaded during refresh. Code and game packages are fetched through HTTPS only after visible user confirmation. Lua is checked for syntax, and game ZIP paths are validated before extraction into `.adds`.
 
 ### AppDock Store surface
 

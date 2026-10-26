@@ -137,6 +137,8 @@ local by_kind = {}
 for _, entry in ipairs(entries) do by_kind[entry.kind] = entry end
 assert(by_kind.dapp and by_kind.dapp.title == "Reader" and by_kind.widget and by_kind.design, "AppStore must expose typed catalog entries")
 assert(#AppStore.filterEntries(entries, "clock", "widget") == 1 and #AppStore.filterEntries(entries, "", "design") == 1, "AppStore category and text filters must keep working")
+local games = AppStore.parseManifest("midless.lua|1.0.0|other|game|midless.zip\n", "game")
+assert(#games == 1 and games[1].kind == "game" and games[1].package == "midless.zip", "AppStore must parse game entries with their ZIP package")
 
 -- Rendering ------------------------------------------------------------------
 local installed = {
@@ -281,7 +283,7 @@ state.category = "all"
 pane = store:buildPane(context.instance, context)
 assert(#find_control(pane, "TapPlayCard") > 0, "The recommendation shelf must expose tappable cards")
 assert(#find_control(pane, "TapPlayRow") >= #entries, "Every visible catalog entry must render a Play list row")
-assert(#find_control(pane, "TapPlayNavTab") == 5, "The Store bottom navigation must preserve existing categories and add Sleepscreens")
+assert(#find_control(pane, "TapPlayNavTab") == 6, "The Store bottom navigation must preserve existing categories and add Games and Sleepscreens")
 local scrollers = walk(pane, function(node, found)
     if node.show_parent == context.host and node.dimen then found[#found + 1] = node end
 end)

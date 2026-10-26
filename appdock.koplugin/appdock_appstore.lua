@@ -50,8 +50,10 @@ AppStore.__index = AppStore
 
 local REPOSITORY = "https://raw.githubusercontent.com/arduinodude456/DApps/main/"
 local MANIFEST_URL = REPOSITORY .. "dapps.txt"
+local GAMES_MANIFEST_URL = REPOSITORY .. "games.txt"
 local MAX_MANIFEST_BYTES = 128 * 1024
 local MAX_DAPP_BYTES = 2 * 1024 * 1024
+local MAX_GAME_PACKAGE_BYTES = 32 * 1024 * 1024
 local MAX_WIDGET_BYTES = 256 * 1024
 local MAX_DESIGN_BYTES = 32 * 1024
 local MAX_WALLPAPER_BYTES = 2 * 1024 * 1024
@@ -163,6 +165,7 @@ end
 local function kindLabel(kind)
     if kind == "widget" then return _("Widget") end
     if kind == "design" then return _("Design") end
+    if kind == "game" then return _("Game") end
     return _("DApp")
 end
 
@@ -280,6 +283,10 @@ function NavIcon:paintTo(bb, x, y)
         block(.54, .54, .40, .32)
     elseif self.kind == "designs" then
         fillCircle(bb, x + size * .5, y + size * .5, size * .40, ink)
+    elseif self.kind == "game" then
+        block(.08, .18, .84, .64)
+        block(.24, .08, .16, .24)
+        block(.60, .08, .16, .24)
     else
         block(.08, .10, .36, .32)
         block(.56, .10, .36, .32)
@@ -821,7 +828,7 @@ function AppStore.compareVersions(left, right)
     return 0
 end
 
-function AppStore.parseManifest(body)
+function AppStore.parseManifest(body, default_kind)
     local entries, known = {}, {}
     for raw_line in (body or ""):gmatch("[^\r\n]+") do
         local value = raw_line:gsub("#.*$", ""):gsub("^%s+", ""):gsub("%s+$", "")
@@ -832,13 +839,20 @@ function AppStore.parseManifest(body)
         local path = parts[1] or value
         local version = normalizedVersion(parts[2]) and parts[2] or nil
         local logo = type(parts[3]) == "string" and KNOWN_LOGOS[parts[3]] and parts[3] or nil
-        local kind = parts[4] == "widget" and "widget" or (parts[4] == "design" and "design" or "dapp")
+        local declared_kind = parts[4] or default_kind
+        local kind = declared_kind == "widget" and "widget"
+            or (declared_kind == "design" and "design")
+            or (declared_kind == "game" and "game")
+            or (default_kind == "game" and "game" or "dapp")
         local expected_suffix = kind == "design" and "%.appdock%-design$" or "%.lua$"
         if path ~= "" and path:match("^[%w%._/%-]+$") and path:match(expected_suffix) and not path:find("..", 1, true) and not known[path] then
             known[path] = true
             local name = path:match("([^/]+)%.appdock%-design$") or path:match("([^/]+)%.lua$") or path
             name = name:gsub("[_%-]+", " "):gsub("%f[%a].", string.upper)
-            table.insert(entries, { path = path, title = name, version = version, logo = logo, kind = kind })
+            local package = parts[5]
+            if kind == "game" and (not package or package == "") then package = path:gsub("%.lua$", ".zip") end
+            if package and (not package:match("^[%w%._/%-]+$") or package:find("..", 1, true)) then package = nil end
+            table.insert(entries, { path = path, title = name, version = version, logo = logo, kind = kind, package = package })
         end
     end
     table.sort(entries, function(left, right) return left.title:lower() < right.title:lower() end)
@@ -878,7 +892,7 @@ function AppStore:_ensureState(instance)
     end
     local filter = instance.app_store.filter
     instance.app_store.filter = (filter == "update" or filter == "installed") and filter or "all"
-    instance.app_store.category = (category == "dapp" or category == "widget" or category == "design" or category == "sleepscreen") and category or "all"
+    instance.app_store.category = (category == "dapp" or category == "widget" or category == "design" or category == "game" or category == "sleepscreen") and category or "all"
     return instance.app_store
 end
 
@@ -904,7 +918,7 @@ end
 
 function AppStore:cycleCategory(instance, context)
     local state = self:_ensureState(instance)
-    local categories = { "all", "dapp", "widget", "design", "sleepscreen" }
+    local categories = { "all", "dapp", "widget", "design", "game", "sleepscreen" }
     local position = 1
     for index, category in ipairs(categories) do
         if category == state.category then position = index; break end
@@ -916,8 +930,14 @@ end
 function AppStore:refresh(instance, context)
     local state = self:_ensureState(instance)
     local manifest, err = fetchText(MANIFEST_URL, MAX_MANIFEST_BYTES)
-    state.entries = manifest and AppStore.parseManifest(manifest) or nil
-    state.error = err
+    local games_manifest, games_err = fetchText(GAMES_MANIFEST_URL, MAX_MANIFEST_BYTES)
+    state.entries = manifest and games_manifest and AppStore.parseManifest(manifest) or nil
+    if state.entries and games_manifest then
+        local game_entries = AppStore.parseManifest(games_manifest, "game")
+        for _, entry in ipairs(game_entries) do state.entries[#state.entries + 1] = entry end
+        table.sort(state.entries, function(left, right) return left.title:lower() < right.title:lower() end)
+    end
+    state.error = err or games_err
     state.refreshed = true
     state.images = nil
     context.requestRebuild("ui")
@@ -927,6 +947,45 @@ function AppStore:_storeDirectory()
     local path = DataStorage:getDataDir() .. "/appdock_dapps"
     if lfs.attributes(path, "mode") ~= "directory" then lfs.mkdir(path) end
     return path
+end
+
+local function shellQuote(value)
+    return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
+end
+
+function AppStore:_addonsDirectory()
+    local path = os.getenv("APPDOCK_ADDS_DIR") or "/mnt/onboard/.adds"
+    if lfs.attributes(path, "mode") ~= "directory" and not lfs.mkdir(path) then return nil end
+    return path
+end
+
+function AppStore:installGamePackage(entry)
+    local package = entry.package or entry.path:gsub("%.lua$", ".zip")
+    local archive, err = fetchBinary(REPOSITORY .. package, MAX_GAME_PACKAGE_BYTES)
+    if not archive then return false, err end
+    local staging = self:_storeDirectory() .. "/.game-package-" .. entry.path:gsub("[^%w%._%-]", "_") .. ".zip"
+    local saved, save_err = saveFile(staging, archive)
+    if not saved then return false, save_err end
+
+    local list = io.popen("unzip -Z1 " .. shellQuote(staging) .. " 2>/dev/null", "r")
+    if not list then os.remove(staging); return false, _("The device has no ZIP extractor.") end
+    for name in list:lines() do
+        local unsafe_parent = name == ".." or name:match("^%.%./") or name:match("/%.%./") or name:match("/%.%.$")
+        if name:sub(1, 1) == "/" or name:find("\\", 1, true) or unsafe_parent then
+            list:close(); os.remove(staging)
+            return false, _("The game package contains an unsafe path.")
+        end
+    end
+    local listed_ok = list:close()
+    if listed_ok == false then os.remove(staging); return false, _("The game package could not be inspected.") end
+    local addons = self:_addonsDirectory()
+    if not addons then os.remove(staging); return false, _("The .adds directory could not be created.") end
+    local tested = os.execute("unzip -tq " .. shellQuote(staging) .. " >/dev/null 2>&1")
+    if tested ~= true and tested ~= 0 then os.remove(staging); return false, _("The game package is damaged.") end
+    local extracted = os.execute("unzip -oq " .. shellQuote(staging) .. " -d " .. shellQuote(addons) .. " >/dev/null 2>&1")
+    os.remove(staging)
+    if extracted ~= true and extracted ~= 0 then return false, _("The game package could not be installed into .adds.") end
+    return true
 end
 
 function AppStore:_designDirectory()
@@ -969,11 +1028,12 @@ function AppStore:confirmInstall(instance, context, entry)
     local is_update = state == "update"
     local is_widget = entry.kind == "widget"
     local is_design = entry.kind == "design"
-    local item_name = is_design and _("design") or (is_widget and _("widget") or _("DApp"))
+    local is_game = entry.kind == "game"
+    local item_name = is_design and _("design") or (is_widget and _("widget") or (is_game and _("game") or _("DApp")))
     local action = is_update and _("Update") or _("Install")
     local message = is_update and (_("Update this installed ") .. item_name .. _(" from your trusted AppDock GitHub repository?\n\n")) or (_("Install this ") .. item_name .. _(" from your trusted AppDock GitHub repository?\n\n"))
     local dialog = ConfirmBox:new{
-        text = message .. entry.path .. (entry.version and ("\n\n" .. _("Repository version: ") .. entry.version) or "") .. (is_design and _("\n\nA design is declarative data only. It is validated and applied locally; it never executes code.") or _("\n\nThe file is downloaded only after you choose this action. It will be validated before being added to AppDock.")),
+        text = message .. entry.path .. (is_game and ("\n" .. (entry.package or entry.path:gsub("%.lua$", ".zip"))) or "") .. (entry.version and ("\n\n" .. _("Repository version: ") .. entry.version) or "") .. (is_design and _("\n\nA design is declarative data only. It is validated and applied locally; it never executes code.") or (is_game and _("\n\nThe Lua file and its ZIP package will be downloaded only after you choose this action. The package is extracted into .adds and both files are validated before installation.") or _("\n\nThe file is downloaded only after you choose this action. It will be validated before being added to AppDock."))),
         ok_text = action,
         ok_callback = function() self:install(instance, context, entry, is_update) end,
     }
@@ -1111,6 +1171,14 @@ function AppStore:install(instance, context, entry, is_update)
         os.remove(temporary)
         UIManager:show(InfoMessage:new{ text = is_widget and _("The downloaded widget version does not match the catalog entry.") or _("The downloaded DApp version does not match the catalog entry.") })
         return
+    end
+    if entry.kind == "game" then
+        local package_ok, package_err = self:installGamePackage(entry)
+        if not package_ok then
+            os.remove(temporary)
+            UIManager:show(InfoMessage:new{ text = _("Could not install the game package: ") .. tostring(package_err or "") })
+            return
+        end
     end
     local installed_definition, installed_record
     if is_widget then
@@ -1301,6 +1369,7 @@ function AppStore:_appendNav(content, state, context, width, height, nav_height)
     local tabs = {
         { id = "all", label = _("For you"), icon = "grid" },
         { id = "dapp", label = _("Apps"), icon = "apps" },
+        { id = "game", label = _("Games"), icon = "game" },
         { id = "widget", label = _("Widgets"), icon = "widgets" },
         { id = "design", label = _("Designs"), icon = "designs" },
         { id = "sleepscreen", label = _("Sleepscreens"), icon = "designs" },
@@ -1736,7 +1805,7 @@ function AppStore:buildPane(instance, context)
             section_y = hero_row_y + hero_row_height + scale(18)
         end
 
-        local category_labels = { all = _("Suggested for you"), dapp = _("Apps"), widget = _("Widgets"), design = _("Designs") }
+        local category_labels = { all = _("Suggested for you"), dapp = _("Apps"), game = _("Games"), widget = _("Widgets"), design = _("Designs") }
         local section_widget = TextWidget:new{
             text = (query == "" and category_labels[state.category] or (_("Results for ") .. query)) .. string.format("  •  %d", #visible_entries),
             face = Font:getFace("cfont", scale(17)),
@@ -1843,7 +1912,7 @@ function AppStore:buildPane(instance, context)
         local title, body, action_title, action
         if not state.refreshed then
             title = _("Load the Play catalog")
-            body = _("Read the trusted catalog from ") .. REPOSITORY .. _(" to browse DApps, widgets, and designs.")
+            body = _("Read the trusted catalogs from ") .. REPOSITORY .. _(" to browse apps, games, widgets, and designs.")
             action_title, action = _("Load catalog"), function() self:refresh(instance, context) end
         elseif state.error then
             title = _("Catalog unavailable")
@@ -1851,7 +1920,7 @@ function AppStore:buildPane(instance, context)
             action_title, action = _("Try again"), function() self:refresh(instance, context) end
         elseif not state.entries or #state.entries == 0 then
             title = _("No store items listed")
-            body = _("Add DApp, widget, or design paths to dapps.txt in the catalog repository.")
+            body = _("Add DApp, game, widget, or design paths to dapps.txt or games.txt in the catalog repository.")
         elseif #visible_entries == 0 then
             title = _("No matching apps")
             body = query ~= "" and (_("Nothing matches “") .. query .. _("” in this category.")) or _("Change the search or the selected category.")
