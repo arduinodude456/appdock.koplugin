@@ -977,6 +977,10 @@ end
 
 function AppStore:installGamePackage(entry)
     local package = entry.package or entry.path:gsub("%.lua$", ".zip")
+    local game_name = entry.path:match("([^/]+)%.lua$")
+    if not game_name or not game_name:match("^[%w_-]+$") then
+        return false, _("Invalid game launcher name.")
+    end
     local archive, err = fetchBinary(REPOSITORY .. package, MAX_GAME_PACKAGE_BYTES)
     if not archive then return false, err end
     local staging = self:_storeDirectory() .. "/.game-package-" .. entry.path:gsub("[^%w%._%-]", "_") .. ".zip"
@@ -1006,6 +1010,15 @@ function AppStore:installGamePackage(entry)
     end
     local addons = self:_addonsDirectory()
     if not addons then os.remove(staging); return false, _("Could not create .adds.") end
+    -- Updates can arrive while the previous package is still installed. Remove only
+    -- payload directories owned by the ZIP; keep the game's home data and custom levels.
+    local game_root = addons .. "/" .. game_name
+    local old_bin = os.execute("rm -rf " .. shellQuote(game_root .. "/bin") .. " >/dev/null 2>&1")
+    local old_levels = os.execute("rm -rf " .. shellQuote(game_root .. "/home/levels") .. " >/dev/null 2>&1")
+    if (old_bin ~= true and old_bin ~= 0) or (old_levels ~= true and old_levels ~= 0) then
+        os.remove(staging)
+        return false, _("Could not prepare the existing game for update.")
+    end
     -- Do not require the optional unzip test mode here: some device extractors
     -- reject `-tq` even though normal extraction is supported. A successful
     -- extraction validates the ZIP data and CRCs; its status is authoritative.
@@ -1015,10 +1028,6 @@ function AppStore:installGamePackage(entry)
     -- These packages are produced from FAT/Windows workspaces, so ZIP entries
     -- can lose Unix execute bits and unzip creates mode 0644. Game launchers
     -- follow the catalog convention <game>/bin/<game>.
-    local game_name = entry.path:match("([^/]+)%.lua$")
-    if not game_name or not game_name:match("^[%w_-]+$") then
-        return false, _("Invalid game launcher name.")
-    end
     local executable = addons .. "/" .. game_name .. "/bin/" .. game_name
     if lfs.attributes(executable, "mode") ~= "file" then
         return false, _("Launcher missing from ZIP.")
