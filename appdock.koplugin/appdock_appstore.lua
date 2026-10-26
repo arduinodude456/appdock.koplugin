@@ -959,6 +959,22 @@ function AppStore:_addonsDirectory()
     return path
 end
 
+local function zipExtractorCommand()
+    local probe = io.popen("command -v unzip 2>/dev/null", "r")
+    local executable = probe and probe:read("*l")
+    if probe then probe:close() end
+    if executable and executable ~= "" then return "unzip" end
+
+    probe = io.popen("command -v busybox 2>/dev/null", "r")
+    executable = probe and probe:read("*l")
+    if probe then probe:close() end
+    if executable and executable ~= "" then
+        local has_unzip = os.execute("busybox unzip --help >/dev/null 2>&1")
+        if has_unzip == true or has_unzip == 0 then return "busybox unzip" end
+    end
+    return nil
+end
+
 function AppStore:installGamePackage(entry)
     local package = entry.package or entry.path:gsub("%.lua$", ".zip")
     local archive, err = fetchBinary(REPOSITORY .. package, MAX_GAME_PACKAGE_BYTES)
@@ -967,22 +983,32 @@ function AppStore:installGamePackage(entry)
     local saved, save_err = saveFile(staging, archive)
     if not saved then return false, save_err end
 
-    local list = io.popen("unzip -Z1 " .. shellQuote(staging) .. " 2>/dev/null", "r")
-    if not list then os.remove(staging); return false, _("The device has no ZIP extractor.") end
+    local unzip = zipExtractorCommand()
+    if not unzip then os.remove(staging); return false, _("No ZIP extractor is available (unzip or BusyBox with unzip).") end
+    local list = io.popen(unzip .. " -lq " .. shellQuote(staging) .. " 2>/dev/null", "r")
+    if not list then os.remove(staging); return false, _("The ZIP extractor could not inspect the game package.") end
+    local entry_count = 0
     for name in list:lines() do
-        local unsafe_parent = name == ".." or name:match("^%.%./") or name:match("/%.%./") or name:match("/%.%.$")
-        if name:sub(1, 1) == "/" or name:find("\\", 1, true) or unsafe_parent then
-            list:close(); os.remove(staging)
-            return false, _("The game package contains an unsafe path.")
+        local path = name:match("^%s*%d+%s+[%d%-]+%s+%d%d?:%d%d%s+(.+)$")
+        if path then
+            entry_count = entry_count + 1
+            local unsafe_parent = path == ".." or path:match("^%.%./") or path:match("/%.%./") or path:match("/%.%.$")
+            if path:sub(1, 1) == "/" or path:find("\\", 1, true) or unsafe_parent then
+                list:close(); os.remove(staging)
+                return false, _("The game package contains an unsafe path.")
+            end
         end
     end
     local listed_ok = list:close()
-    if listed_ok == false then os.remove(staging); return false, _("The game package could not be inspected.") end
+    if (listed_ok ~= true and listed_ok ~= 0) or entry_count == 0 then
+        os.remove(staging)
+        return false, _("The ZIP extractor could not inspect the game package.")
+    end
     local addons = self:_addonsDirectory()
     if not addons then os.remove(staging); return false, _("The .adds directory could not be created.") end
-    local tested = os.execute("unzip -tq " .. shellQuote(staging) .. " >/dev/null 2>&1")
+    local tested = os.execute(unzip .. " -tq " .. shellQuote(staging) .. " >/dev/null 2>&1")
     if tested ~= true and tested ~= 0 then os.remove(staging); return false, _("The game package is damaged.") end
-    local extracted = os.execute("unzip -oq " .. shellQuote(staging) .. " -d " .. shellQuote(addons) .. " >/dev/null 2>&1")
+    local extracted = os.execute(unzip .. " -oq " .. shellQuote(staging) .. " -d " .. shellQuote(addons) .. " >/dev/null 2>&1")
     os.remove(staging)
     if extracted ~= true and extracted ~= 0 then return false, _("The game package could not be installed into .adds.") end
     -- These packages are produced from FAT/Windows workspaces, so ZIP entries
