@@ -9,6 +9,8 @@ Forget what I said. Why should anyone want to do this? But after all it is possi
 # Announcements
 
 
+## INTRODUCING: TIC 80
+*Browse a collection of 100+ Games, Tools, Animations playable on the Tic80 port for AppDock!*
 ## INTRODUCING: YouTube shorts and InkBlog
 **With InkBlog, you can now create your own blog, read the creations of others and share your reading achievements with your group!**
 
