@@ -1268,7 +1268,8 @@ function AppDockHomeScreen:_scheduleStoreWidgetRefresh()
     if self._widget_tick then UIManager:unschedule(self._widget_tick) end
     if self.appdock:isSimpleModeEnabled("homescreen") then return end
     local has_visible_widget = false
-    for _, widget in ipairs(self.appdock:getStoreWidgets()) do
+    local widgets = self._store_widgets or self.appdock:getStoreWidgets()
+    for _, widget in ipairs(widgets) do
         if self.appdock:isStoreWidgetEnabled(widget.widget_id) then has_visible_widget = true; break end
     end
     if not has_visible_widget then return end
@@ -1913,9 +1914,9 @@ function AppDockHomeScreen:build()
     local label_gap = scale(4)
     local search_query = (self.search_query or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
     local searching_apps = layout.search_enabled and search_query ~= ""
-    local apps
-    if searching_apps and type(self.appdock.getAppCatalog) == "function" then
-        local catalog = self.appdock:getAppCatalog()
+    local catalog = type(self.appdock.getAppCatalog) == "function" and self.appdock:getAppCatalog() or nil
+    local pinned_apps, apps
+    if searching_apps and type(catalog) == "table" then
         apps = {}
         for _, app in pairs(catalog or {}) do
             if type(app) == "table" and type(app.id) == "string" then
@@ -1928,7 +1929,8 @@ function AppDockHomeScreen:build()
             return left_title < right_title
         end)
     else
-        apps = self.appdock:getPinnedApps()
+        pinned_apps = self.appdock:getPinnedApps(catalog)
+        apps = pinned_apps
     end
     if searching_apps then
         local filtered = {}
@@ -2013,13 +2015,15 @@ function AppDockHomeScreen:build()
     local show_status_card = not self.edit_mode and self.appdock.settings.widgets.status == true
     local show_reading_card = not self.edit_mode and self.appdock.settings.widgets.reading_hint == true
     local visible_widgets = {}
-    for _, widget in ipairs(self.appdock:getStoreWidgets()) do
+    local store_widgets = self.appdock:getStoreWidgets()
+    self._store_widgets = store_widgets
+    for _, widget in ipairs(store_widgets) do
         if self.appdock:isStoreWidgetEnabled(widget.widget_id) then table.insert(visible_widgets, widget) end
     end
 
     local recent_apps = {}
     if type(self.appdock.getRecentApps) == "function" then
-        local ok, loaded_apps = pcall(self.appdock.getRecentApps, self.appdock, 4)
+        local ok, loaded_apps = pcall(self.appdock.getRecentApps, self.appdock, 4, catalog)
         if ok and type(loaded_apps) == "table" then recent_apps = loaded_apps end
     end
     local actual_recent_count = #recent_apps
@@ -2032,7 +2036,8 @@ function AppDockHomeScreen:build()
         end
     end
     if #shortcut_apps < 4 then
-        for _, app in ipairs(self.appdock:getPinnedApps()) do
+        if not pinned_apps then pinned_apps = self.appdock:getPinnedApps(catalog) end
+        for _, app in ipairs(pinned_apps) do
             if #shortcut_apps >= 4 then break end
             if type(app) == "table" and type(app.id) == "string" and app.id ~= "system:manage" and app.id ~= "system:open_apps" and not seen_shortcuts[app.id] then
                 shortcut_apps[#shortcut_apps + 1] = app
@@ -2044,7 +2049,9 @@ function AppDockHomeScreen:build()
     local dock_apps = {}
     for _, app in ipairs(shortcut_apps) do dock_apps[#dock_apps + 1] = app end
     local all_apps_app
-    if type(self.appdock.getSystemApps) == "function" then
+    if type(catalog) == "table" and catalog["system:manage"] then
+        all_apps_app = catalog["system:manage"]
+    elseif type(self.appdock.getSystemApps) == "function" then
         local ok, system_apps = pcall(self.appdock.getSystemApps, self.appdock)
         if ok and type(system_apps) == "table" then
             for _, app in ipairs(system_apps) do

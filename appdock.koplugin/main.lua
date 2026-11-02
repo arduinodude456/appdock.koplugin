@@ -4,7 +4,7 @@ It exposes selected KOReader plugin menu actions as configurable app tiles.
 --]]--
 
 local MODULE_DIR = (debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "")
-local APPDOCK_RELEASE = "8.5.6"
+local APPDOCK_RELEASE = "8.9.3"
 local AppDockRecovery
 local recovery_context
 do
@@ -1657,8 +1657,8 @@ function AppDock:_normalizePinnedGroups(catalog)
     return not sameIdList(old_pins, pins) or not sameGroupState(old_groups, groups)
 end
 
-function AppDock:getPinnedApps()
-    local catalog = self:getAppCatalog()
+function AppDock:getPinnedApps(catalog)
+    if type(catalog) ~= "table" then catalog = self:getAppCatalog() end
     if self:_normalizePinnedGroups(catalog) then
         self:_saveSettings()
     end
@@ -1704,9 +1704,9 @@ function AppDock:_recordRecentApp(app)
     return true
 end
 
-function AppDock:getRecentApps(limit)
+function AppDock:getRecentApps(limit, catalog)
     limit = math.max(1, math.min(4, math.floor(tonumber(limit) or 4)))
-    local catalog = self:getAppCatalog()
+    if type(catalog) ~= "table" then catalog = self:getAppCatalog() end
     local apps, valid_ids, seen = {}, {}, {}
     for _, app_id in ipairs(self.settings.recent_apps or {}) do
         local app = catalog[app_id]

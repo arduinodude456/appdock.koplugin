@@ -970,7 +970,31 @@ appdock.test_recent_apps = {
     { id = "system:library", title = "Library" },
     { id = "system:history", title = "History" },
 }
-local expressive_home = HomeScreen:new{ appdock = appdock }
+local expressive_home
+do
+    local original_get_app_catalog = appdock.getAppCatalog
+    local original_get_recent_apps = appdock.getRecentApps
+    local original_get_store_widgets = appdock.getStoreWidgets
+    local catalog_builds, recent_catalog, store_widget_queries = 0, nil, 0
+    appdock.getAppCatalog = function()
+        catalog_builds = catalog_builds + 1
+        return { ["system:manage"] = { id = "system:manage", title = "All apps" } }
+    end
+    appdock.getRecentApps = function(self, limit, catalog)
+        recent_catalog = catalog
+        return original_get_recent_apps(self, limit, catalog)
+    end
+    appdock.getStoreWidgets = function(...)
+        store_widget_queries = store_widget_queries + 1
+        return original_get_store_widgets(...)
+    end
+    expressive_home = HomeScreen:new{ appdock = appdock }
+    appdock.getAppCatalog = original_get_app_catalog
+    appdock.getRecentApps = original_get_recent_apps
+    appdock.getStoreWidgets = original_get_store_widgets
+    assert(catalog_builds == 1 and recent_catalog ~= nil, "A homescreen build must share one app-catalog snapshot with recent-app lookup")
+    assert(store_widget_queries == 1, "Homescreen initialization must reuse its built widget list when scheduling refreshes")
+end
 assert(expressive_home.normal_layout and expressive_home.normal_layout.expressive and not expressive_home.normal_layout.has_header_surface and expressive_home.normal_layout.has_search_pill and expressive_home.normal_layout.has_app_dock_surface, "Normal homescreen must use a search-led Android layout with a rounded icon dock")
 assert(expressive_home.normal_layout.grid_columns == 3 and expressive_home.normal_layout.grid_rows == 3 and expressive_home.normal_layout.page_size == 9 and expressive_home.normal_layout.grid_width == Device.screen:getSize().w, "Normal homescreen must use a full-width 3×3 app grid")
 assert(expressive_home.normal_layout.quick_access_count == 4 and expressive_home.normal_layout.recent_count == 4, "Normal homescreen must show one row of four recent shortcuts")
