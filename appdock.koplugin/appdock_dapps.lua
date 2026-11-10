@@ -119,6 +119,40 @@ local DAppRecents = InputContainer:extend{
     covers_fullscreen = true,
 }
 
+-- Full app list opened from the recents bar: searchable, paged grid.
+local AllAppsDrawer = InputContainer:extend{
+    manager = nil,
+    source = nil,
+    launch_home = nil,
+    dismiss = nil,
+    dimen = nil,
+    query = "",
+    page = 1,
+    covers_fullscreen = false,
+}
+
+-- Android's app-drawer icon: a 3x3 grid of dots, drawn with solid rects.
+local GridGlyph = Widget:extend{ size = 24, ink = nil }
+
+function GridGlyph:init()
+    self.dimen = Geom:new{ w = self.size, h = self.size }
+end
+
+function GridGlyph:getSize()
+    return self.dimen
+end
+
+function GridGlyph:paintTo(bb, x, y)
+    local size = self.size
+    local dot = math.max(2, math.floor(size * .17))
+    local pitch = math.floor((size - dot) / 2)
+    for row = 0, 2 do
+        for col = 0, 2 do
+            bb:paintRect(x + col * pitch, y + row * pitch, dot, dot, self.ink or Blitbuffer.COLOR_BLACK)
+        end
+    end
+end
+
 local RecentDrawer = InputContainer:extend{
     manager = nil,
     source = nil,
@@ -154,6 +188,7 @@ local ActionChip = InputContainer:extend{
     callback = nil,
     hold_callback = nil,
     logo = nil,
+    glyph = nil, -- optional function(size, ink) -> widget, used instead of logo/symbol
     width = nil,
     height = nil,
     background = nil,
@@ -530,11 +565,11 @@ function ActionChip:init()
     local foreground = self.foreground or PALETTE.on_surface
     local title_size = math.max(scale(8), math.min(scale(12), math.floor(self.height * .30)))
     local title = Theme.fitLabel(self.title or "", self.width, title_size, scale(12))
-    local has_icon = self.logo or (self.symbol and self.symbol ~= "")
+    local has_icon = self.glyph or self.logo or (self.symbol and self.symbol ~= "")
     local icon_size = math.max(scale(14), math.min(scale(24), math.floor(self.height * .52)))
     local icon_widget = nil
     if has_icon then
-        icon_widget = self.logo and DAppLogo:new{
+        icon_widget = self.glyph and self.glyph(icon_size, foreground) or self.logo and DAppLogo:new{
             kind = self.logo, size = icon_size, ink = foreground,
         } or TextWidget:new{
             text = self.symbol, face = Font:getFace("cfont", icon_size), fgcolor = foreground, bold = true, padding = 0,
@@ -712,12 +747,21 @@ function RecentDrawer:build()
             })
         end
     end
+    local footer_width = math.floor((sheet_width - 2 * inner_margin - gap) / 2)
     table.insert(sheet, ActionChip:new{
         title = _("Open apps"), symbol = "□",
-        width = sheet_width - 2 * inner_margin, height = footer_height,
+        width = footer_width, height = footer_height,
         background = PALETTE.surface_variant, foreground = PALETTE.on_surface,
         callback = function() self:showOpenApps() end,
         overlap_offset = { inner_margin, card_y + card_height + gap },
+    })
+    table.insert(sheet, ActionChip:new{
+        title = _("All apps"),
+        glyph = function(size, ink) return GridGlyph:new{ size = size, ink = ink } end,
+        width = footer_width, height = footer_height,
+        background = PALETTE.surface_variant, foreground = PALETTE.on_surface,
+        callback = function() self:showAllApps() end,
+        overlap_offset = { inner_margin + footer_width + gap, card_y + card_height + gap },
     })
 
     self.sheet_layer = sheet
@@ -764,6 +808,17 @@ function RecentDrawer:showOpenApps()
     end)
 end
 
+function RecentDrawer:showAllApps()
+    if self._closing then return end
+    self._closing = true
+    self:_animateTo(self.dimen.h + scale(12), function()
+        UIManager:close(self)
+        UIManager:nextTick(function()
+            self.manager:showAllApps(self.source, self.launch_home, self.dismiss)
+        end)
+    end)
+end
+
 function RecentDrawer:onShow()
     self:_animateTo(self.sheet_y)
     return true
@@ -792,6 +847,257 @@ end
 
 function RecentDrawer:onClose()
     return self:onDismissRecentDrawer()
+end
+
+function AllAppsDrawer:_apps()
+    local appdock = self.manager and self.manager.appdock
+    local list = {}
+    if not appdock then return list end
+    local getter = type(appdock.getVisibleAppCatalog) == "function" and appdock.getVisibleAppCatalog or appdock.getAppCatalog
+    local ok, catalog = pcall(getter, appdock)
+    if not ok or type(catalog) ~= "table" then return list end
+    local needle = (self.query or ""):lower()
+    for id, app in pairs(catalog) do
+        if type(app) == "table" and id ~= "system:manage" and id ~= "system:open_apps" then
+            local title = tostring(app.title or "")
+            if needle == "" or title:lower():find(needle, 1, true) then list[#list + 1] = app end
+        end
+    end
+    table.sort(list, function(a, b)
+        local left, right = tostring(a.title or ""):lower(), tostring(b.title or ""):lower()
+        if left == right then return tostring(a.id) < tostring(b.id) end
+        return left < right
+    end)
+    return list
+end
+
+function AllAppsDrawer:init()
+    applyTheme(self.manager.appdock)
+    self.dimen = Screen:getSize()
+    bindGlobalPageKeys(self)
+    self:build()
+    self.ges_events = {
+        TapOutsideAllApps = { GestureRange:new{ ges = "tap", range = self.dimen } },
+        DismissAllApps = { GestureRange:new{ ges = "swipe", direction = "south", range = self.dimen } },
+        NextPageAllApps = { GestureRange:new{ ges = "swipe", direction = "west", range = self.dimen } },
+        PrevPageAllApps = { GestureRange:new{ ges = "swipe", direction = "east", range = self.dimen } },
+    }
+end
+
+function AllAppsDrawer:onBrightnessUp() return DeviceControls.setBrightness(10) ~= nil end
+function AllAppsDrawer:onBrightnessDown() return DeviceControls.setBrightness(-10) ~= nil end
+function AllAppsDrawer:onKeyRepeat(key) return handleGlobalPageKeyRepeat(self, key) end
+
+function AllAppsDrawer:build()
+    local width, height = self.dimen.w, self.dimen.h
+    local outer_margin, inner_margin, gap = scale(12), scale(16), scale(8)
+    local sheet_width = width - 2 * outer_margin
+    local sheet_top = scale(30)
+    local sheet_height = height - sheet_top - outer_margin
+    self.sheet_x, self.sheet_y, self.sheet_width, self.sheet_height = outer_margin, sheet_top, sheet_width, sheet_height
+
+    local sheet = OverlapGroup:new{
+        dimen = Geom:new{ w = sheet_width, h = sheet_height },
+        allow_mirroring = false,
+        FrameContainer:new{
+            width = sheet_width, height = sheet_height, padding = 0, bordersize = 0,
+            radius = scale(30), background = PALETTE.surface,
+            emptySizedWidget(sheet_width, sheet_height),
+        },
+    }
+    local handle_width = scale(42)
+    table.insert(sheet, FrameContainer:new{
+        width = handle_width, height = scale(4), padding = 0, bordersize = 0,
+        radius = scale(2), background = PALETTE.outline,
+        emptySizedWidget(handle_width, scale(4)),
+        overlap_offset = { math.floor((sheet_width - handle_width) / 2), scale(8) },
+    })
+
+    -- Search field: a tap opens the AppDock keyboard dialog.
+    local search_y, search_height = scale(24), scale(44)
+    local clear_width = (self.query ~= "") and scale(44) or 0
+    local search_width = sheet_width - 2 * inner_margin - (clear_width > 0 and (clear_width + gap) or 0)
+    table.insert(sheet, ActionChip:new{
+        title = self.query ~= "" and self.query or _("Find apps"),
+        width = search_width, height = search_height,
+        background = PALETTE.surface_variant,
+        foreground = self.query ~= "" and PALETTE.on_surface or PALETTE.on_variant,
+        callback = function() self:showSearch() end,
+        overlap_offset = { inner_margin, search_y },
+    })
+    if clear_width > 0 then
+        table.insert(sheet, ActionChip:new{
+            title = "", symbol = "×", width = clear_width, height = search_height,
+            background = PALETTE.surface_variant, foreground = PALETTE.on_surface,
+            callback = function() self.query, self.page = "", 1; self:rebuildSheet() end,
+            overlap_offset = { inner_margin + search_width + gap, search_y },
+        })
+    end
+
+    -- Grid geometry.
+    local footer_height = scale(40)
+    local grid_top = search_y + search_height + scale(16)
+    local grid_bottom = sheet_height - footer_height - inner_margin - gap
+    local grid_width = sheet_width - 2 * inner_margin
+    local columns = math.max(3, math.min(6, math.floor(grid_width / scale(104))))
+    local cell_width = math.floor(grid_width / columns)
+    local icon_size = math.max(scale(40), math.min(scale(60), cell_width - scale(26)))
+    local label_height = scale(18)
+    local cell_height = icon_size + label_height + scale(18)
+    local rows = math.max(1, math.floor((grid_bottom - grid_top) / cell_height))
+    local per_page = rows * columns
+
+    local apps = self:_apps()
+    local pages = math.max(1, math.ceil(#apps / per_page))
+    self.page = math.max(1, math.min(pages, self.page or 1))
+    self.pages = pages
+    self.app_count = #apps
+
+    if #apps == 0 then
+        table.insert(sheet, TextWidget:new{
+            text = _("No apps found."),
+            face = Font:getFace("smallinfofont", scale(14)), fgcolor = PALETTE.on_variant,
+            padding = 0, overlap_offset = { inner_margin, grid_top + scale(10) },
+        })
+    end
+    local first = (self.page - 1) * per_page
+    for slot = 1, per_page do
+        local app = apps[first + slot]
+        if not app then break end
+        local column, row = (slot - 1) % columns, math.floor((slot - 1) / columns)
+        local cell_x = inner_margin + column * cell_width
+        local cell_y = grid_top + row * cell_height
+        local tone_primary = (first + slot) % 2 == 1
+        table.insert(sheet, ActionChip:new{
+            title = "",
+            symbol = (app.symbol or app.title or "?"):sub(1, 1):upper(),
+            logo = app.logo,
+            width = icon_size, height = icon_size,
+            background = tone_primary and PALETTE.primary or PALETTE.secondary,
+            foreground = tone_primary and PALETTE.on_primary or PALETTE.on_secondary,
+            callback = function() self:launch(app) end,
+            overlap_offset = { cell_x + math.floor((cell_width - icon_size) / 2), cell_y },
+        })
+        local label = Theme.fitLabel(app.title or "", cell_width - scale(6), scale(10), 0)
+        local label_widget = TextWidget:new{
+            text = label, face = Font:getFace("smallinfofont", scale(10)),
+            fgcolor = PALETTE.on_surface, bold = true, max_width = cell_width - scale(6), padding = 0,
+        }
+        local label_w = label_widget:getSize().w
+        label_widget.overlap_offset = { cell_x + math.floor((cell_width - label_w) / 2), cell_y + icon_size + scale(6) }
+        table.insert(sheet, label_widget)
+    end
+
+    -- Footer: previous / page indicator / next.
+    local footer_y = sheet_height - footer_height - inner_margin
+    local nav_width = scale(84)
+    table.insert(sheet, ActionChip:new{
+        title = "", symbol = "‹", width = nav_width, height = footer_height,
+        background = self.page > 1 and PALETTE.primary or PALETTE.surface_variant,
+        foreground = self.page > 1 and PALETTE.on_primary or PALETTE.on_variant,
+        callback = function() self:goToPage(self.page - 1) end,
+        overlap_offset = { inner_margin, footer_y },
+    })
+    local page_text = TextWidget:new{
+        text = string.format("%d / %d", self.page, pages),
+        face = Font:getFace("smallinfofont", scale(12)), fgcolor = PALETTE.on_variant, padding = 0,
+    }
+    local page_size = page_text:getSize()
+    page_text.overlap_offset = {
+        math.floor((sheet_width - page_size.w) / 2), footer_y + math.floor((footer_height - page_size.h) / 2),
+    }
+    table.insert(sheet, page_text)
+    table.insert(sheet, ActionChip:new{
+        title = "", symbol = "›", width = nav_width, height = footer_height,
+        background = self.page < pages and PALETTE.primary or PALETTE.surface_variant,
+        foreground = self.page < pages and PALETTE.on_primary or PALETTE.on_variant,
+        callback = function() self:goToPage(self.page + 1) end,
+        overlap_offset = { sheet_width - inner_margin - nav_width, footer_y },
+    })
+
+    sheet.overlap_offset = { self.sheet_x, self.sheet_y }
+    self.sheet_layer = sheet
+    self:clear()
+    self[1] = OverlapGroup:new{
+        dimen = Geom:new{ w = width, h = height },
+        allow_mirroring = false,
+        FrameContainer:new{
+            width = width, height = height, padding = 0, bordersize = 0,
+            background = PALETTE.background, emptySizedWidget(width, height),
+        },
+        sheet,
+    }
+end
+
+function AllAppsDrawer:rebuildSheet()
+    self:build()
+    UIManager:setDirty(self, "ui")
+end
+
+function AllAppsDrawer:goToPage(page)
+    if page < 1 or page > (self.pages or 1) or page == self.page then return true end
+    self.page = page
+    self:rebuildSheet()
+    return true
+end
+
+function AllAppsDrawer:showSearch()
+    local dialog
+    dialog = InputDialog:new{
+        title = _("Find apps"),
+        input = self.query or "",
+        input_hint = _("App name"),
+        buttons = {
+            {
+                { text = _("Cancel"), callback = function() UIManager:close(dialog) end },
+                { text = _("Search"), is_enter_default = true, callback = function()
+                    local value = tostring(dialog:getInputText() or ""):gsub("^%s+", ""):gsub("%s+$", "")
+                    UIManager:close(dialog)
+                    self.query, self.page = value, 1
+                    self:rebuildSheet()
+                end },
+            },
+        },
+    }
+    AppDockKeyboard.attach(dialog)
+    UIManager:show(dialog)
+    if dialog.onShowKeyboard then dialog:onShowKeyboard() end
+end
+
+function AllAppsDrawer:launch(app)
+    if self._closing then return end
+    self._closing = true
+    UIManager:close(self)
+    if self.dismiss then UIManager:close(self.dismiss) end
+    UIManager:nextTick(function()
+        self.manager.appdock:launchApp(app, self.launch_home)
+    end)
+end
+
+function AllAppsDrawer:onTapOutsideAllApps(_args, gesture_event)
+    local position = gesture_event and gesture_event.pos
+    if position and (position.y < self.sheet_y or position.x < self.sheet_x
+            or position.x > self.sheet_x + self.sheet_width) then
+        UIManager:close(self)
+    end
+    return true
+end
+
+function AllAppsDrawer:onDismissAllApps()
+    UIManager:close(self)
+    return true
+end
+
+function AllAppsDrawer:onNextPageAllApps() return self:goToPage(self.page + 1) or true end
+function AllAppsDrawer:onPrevPageAllApps() return self:goToPage(self.page - 1) or true end
+
+function AllAppsDrawer:onCloseWidget()
+    UIManager:setDirty("all", "ui")
+end
+
+function AllAppsDrawer:onClose()
+    UIManager:close(self)
+    return true
 end
 
 function SplitDivider:init()
@@ -2818,6 +3124,17 @@ function DAppManager:showRecentDrawer(source, launch_home, dismiss)
     })
 end
 
+function DAppManager:showAllApps(source, launch_home, dismiss)
+    UIManager:show(AllAppsDrawer:new{
+        manager = self,
+        source = source,
+        launch_home = launch_home or source,
+        dismiss = dismiss,
+        query = "",
+        page = 1,
+    })
+end
+
 function DAppManager:showHomeFromHost(host)
     UIManager:close(host)
     UIManager:nextTick(function() self.appdock:showHome(true) end)
@@ -2998,6 +3315,13 @@ function DAppManager:showTransferMenu(instance, context)
 end
 function DAppManager:showFeatureDialog()
     if self._feature_dialog then return false end
+    -- Preferred: the setup-assistant-style "What's new" card. The classic
+    -- page dialog below stays as the fallback if that module cannot load.
+    local news_ok, WhatsNew = pcall(require, "appdock_whatsnew")
+    if news_ok and WhatsNew and type(WhatsNew.show) == "function" then
+        local shown_ok, shown = pcall(WhatsNew.show, self.appdock)
+        if shown_ok then return shown end
+    end
     local feature_pages = type(self.appdock.getFeaturePages) == "function" and self.appdock:getFeaturePages() or {}
     if #feature_pages == 0 then
         feature_pages = { { title = _("AppDock updated"), text = _("AppDock was updated. See the release notes for details.") } }

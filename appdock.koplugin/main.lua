@@ -4,7 +4,7 @@ It exposes selected KOReader plugin menu actions as configurable app tiles.
 --]]--
 
 local MODULE_DIR = (debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "")
-local APPDOCK_RELEASE = "8.9.3"
+local APPDOCK_RELEASE = "9.0.0"
 local AppDockRecovery
 local recovery_context
 do
@@ -1291,6 +1291,9 @@ function AppDock:_scheduleDAppTasks()
 end
 
 function AppDock:onCloseWidget()
+    -- Background music must not outlive the plugin.
+    local media_ok, Media = pcall(require, "appdock_media")
+    if media_ok and Media and Media.stop then pcall(Media.stop) end
     if self.dapp_manager and self.dapp_manager.stopBackgroundJobs then self.dapp_manager:stopBackgroundJobs() end
     if self.dapp_manager and self.dapp_manager.captureWorkspace then self.dapp_manager:captureWorkspace() end
     local account_ok, Account = pcall(require, "appdock_tbs_account")

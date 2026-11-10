@@ -34,6 +34,7 @@ local _ = require("gettext")
 
 local AppDockKeyboard = require("appdock_keyboard")
 local Audio = require("appdock_audio")
+local Media = require("appdock_media")
 local Player = require("appdock_player")
 local Wallpaper = require("appdock_wallpaper")
 local YouTube = require("appdock_youtube")
@@ -279,6 +280,13 @@ function Music:_patchSettings(changes)
 end
 
 function Music:_state(instance)
+    -- Playback that kept running after the DApp was closed lives on the Music
+    -- object. A freshly opened instance takes that state over, so the player
+    -- pane shows the running track instead of starting from an empty library.
+    if not instance.music and self.live and self.live.play then
+        instance.music = self.live
+        self.live.adopted = true
+    end
     instance.music = instance.music or {
         view = "home",
         note = "",
@@ -442,8 +450,15 @@ function Music:playEntry(instance, context, path, start_seconds)
     end
     state.selected_path = path
     state.view = "player"
+    self.live = state
     self:_schedulePlayTick(instance, context)
-    if context and context.requestRebuild then context.requestRebuild("ui") end
+    self:_publishSession(instance)
+    if state.background then
+        -- Background track change: announce it like an Android heads-up.
+        self:_announce()
+    elseif context and context.requestRebuild then
+        context.requestRebuild("ui")
+    end
     return true
 end
 
@@ -453,7 +468,14 @@ function Music:stopPlayback(instance)
     if not play then return end
     if play.audio then play.audio:stop() end
     state.play = nil
-    if play.tick then play.tick = nil end
+    if play.tick then
+        UIManager:unschedule(play.tick)
+        play.tick = nil
+    end
+    if self.live == state then
+        self.live = nil
+        Media.clear(self)
+    end
 end
 
 function Music:togglePlayback(instance, context)
@@ -476,7 +498,7 @@ function Music:togglePlayback(instance, context)
         play.audio:pause()
         play.paused, play.paused_at = true, monotonicNow()
     end
-    if context and context.requestRebuild then context.requestRebuild("ui") end
+    if context and not state.background and context.requestRebuild then context.requestRebuild("ui") end
     self:_schedulePlayTick(instance, context)
     return true
 end
@@ -488,6 +510,81 @@ function Music:seek(instance, context, delta)
     local now = monotonicNow()
     local target = clamp(self:_elapsed(play, now) + (tonumber(delta) or 0), 0, play.duration or math.huge)
     return self:playEntry(instance, context, play.path, target)
+end
+
+-- Background playback / media notification ------------------------------
+
+function Music:_backgroundContext()
+    local state = self.live
+    local context = state and not state.background and state.context or nil
+    if not context then return nil end
+    -- A pane that is open but not on screen must not be repainted.
+    local manager = context.manager
+    if manager and context.host and manager.active_host ~= context.host then return nil end
+    return context
+end
+
+function Music:_publishSession(instance)
+    local music = self
+    local function play() return music.live and music.live.play or nil end
+    Media.set({
+        owner = self,
+        app = _("YouTube Music"),
+        icon = "youtube_music",
+        title = function() local p = play(); return p and p.title or "" end,
+        artist = function() local p = play(); return p and p.artist ~= "" and p.artist or _("YouTube Music") end,
+        playing = function() local p = play(); return p ~= nil and not p.paused end,
+        position = function()
+            local p = play()
+            return p and music:_elapsed(p, monotonicNow()) or 0
+        end,
+        duration = function() local p = play(); return p and p.duration or 0 end,
+        actions = {
+            toggle = function()
+                local state = music.live
+                if state then music:togglePlayback(instance, music:_backgroundContext()) end
+            end,
+            next = function()
+                if music.live then music:skipTrack(instance, music:_backgroundContext(), 1) end
+            end,
+            prev = function()
+                local state = music.live
+                local p = state and state.play
+                if not p then return end
+                -- Android behaviour: restart the track first, skip only when
+                -- it has just begun.
+                if music:_elapsed(p, monotonicNow()) > 3 then
+                    music:playEntry(instance, music:_backgroundContext(), p.path, 0)
+                else
+                    music:skipTrack(instance, music:_backgroundContext(), -1)
+                end
+            end,
+            stop = function()
+                local state = music.live
+                local context = music:_backgroundContext()
+                music:stopPlayback(instance)
+                if state and not state.background and context and context.requestRebuild then
+                    state.view = "home"
+                    context.requestRebuild("ui")
+                end
+            end,
+            seek_to = function(ratio)
+                local state = music.live
+                local p = state and state.play
+                if not (p and p.duration and p.duration > 0) then return end
+                local target = clamp(tonumber(ratio) or 0, 0, 1) * p.duration
+                music:playEntry(instance, music:_backgroundContext(), p.path, target)
+            end,
+        },
+    })
+end
+
+-- Heads-up toast for the media notification; never goes into the inbox.
+function Music:_announce()
+    local ok, Notifications = pcall(require, "appdock_notifications")
+    if ok and Notifications and Notifications.showMedia then
+        pcall(Notifications.showMedia, Media.snapshot())
+    end
 end
 
 function Music:_schedulePlayTick(instance, context)
@@ -505,10 +602,18 @@ function Music:_schedulePlayTick(instance, context)
         if duration > 0 and elapsed >= duration then
             if state.repeat_track then
                 self:playEntry(instance, context, play.path, 0)
+            elseif state.background and #self:_library(instance, context) > 1 then
+                -- Like a music app: the library keeps playing without the DApp.
+                self:skipTrack(instance, context, 1)
             else
                 self:stopPlayback(instance)
-                if context and context.requestRebuild then context.requestRebuild("ui") end
+                if context and not state.background and context.requestRebuild then context.requestRebuild("ui") end
             end
+            return
+        end
+        if state.background then
+            -- No visible pane: skip every widget update and screen refresh.
+            self:_schedulePlayTick(instance, nil)
             return
         end
         if play.time_widget and play.time_widget.setText then
@@ -522,7 +627,7 @@ function Music:_schedulePlayTick(instance, context)
         end
         self:_schedulePlayTick(instance, context)
     end
-    UIManager:scheduleIn(1, play.tick)
+    UIManager:scheduleIn(state.background and 2 or 1, play.tick)
 end
 
 function Music.formatPosition(elapsed, duration)
@@ -1872,6 +1977,22 @@ end
 
 function Music:buildPane(instance, context)
     local state = self:_state(instance)
+    state.context = context
+    if state.background or state.adopted then
+        -- The DApp is visible again: hand the tick back to the visible pane.
+        state.background, state.adopted = false, nil
+        local play = state.play
+        if play and play.tick then
+            UIManager:unschedule(play.tick)
+            play.tick = nil
+        end
+        if play then
+            play.time_widget, play.progress_widget = nil, nil
+            self:_publishSession(instance)
+            self:_schedulePlayTick(instance, context)
+        end
+        if play then state.view = "player" end
+    end
     local tools = state.tools or YouTube.detectTools(self:_settings())
     state.tools = tools
 
@@ -1920,8 +2041,25 @@ function Music:buildPane(instance, context)
 end
 
 function Music:onDAppClose(instance)
-    self:stopPlayback(instance)
     local state = self:_state(instance)
+    local play = state.play
+    if play and play.audio and not play.paused then
+        -- Keep playing in the background and show the media notification.
+        -- The tick continues without a context, so nothing is repainted.
+        state.background = true
+        state.context = nil
+        if play.tick then
+            UIManager:unschedule(play.tick)
+            play.tick = nil
+        end
+        play.time_widget, play.progress_widget = nil, nil
+        self.live = state
+        self:_publishSession(instance)
+        self:_schedulePlayTick(instance, nil)
+        self:_announce()
+    else
+        self:stopPlayback(instance)
+    end
     if state.job then
         -- A running download keeps going in the background; only the visible
         -- state is dropped so the next visit starts from the library.

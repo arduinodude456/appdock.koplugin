@@ -19,6 +19,7 @@ local InfoMessage = AppDockDialogs.InfoMessage
 local DeviceControls = require("appdock_device_controls")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local Layout = require("appdock_layout")
+local Media = require("appdock_media")
 local Motion = require("appdock_motion")
 local Theme = require("appdock_theme")
 local OverlapGroup = require("ui/widget/overlapgroup")
@@ -61,6 +62,16 @@ local BrightnessSlider = InputContainer:extend{
     width = nil,
     height = nil,
     brightness = nil,
+}
+
+-- Android-style ongoing media notification (one card, drawn from a Media
+-- snapshot). Taps are resolved against the regions computed in init().
+local MediaCard = InputContainer:extend{
+    media = nil,
+    width = nil,
+    height = nil,
+    compact = false,
+    on_action = nil,
 }
 
 local NotificationRow = InputContainer:extend{
@@ -470,6 +481,147 @@ end
 
 function QuickCloseButton:onTapCloseQuickSettings()
     return self.sheet:onClose()
+end
+
+function MediaCard:init()
+    self.dimen = Geom:new{ w = self.width, h = self.height }
+    local media = self.media or {}
+    local W, H = self.width, self.height
+    local pad = scale(14)
+    local on, variant = PALETTE.on_surface, PALETTE.on_variant
+    local button_d = self.compact and scale(38) or scale(46)
+    local glyph = self.compact and scale(20) or scale(24)
+    local logo_size = scale(16)
+    local entries = {}
+    local regions = {}
+    local function add(widget, x, y) entries[#entries + 1] = { widget = widget, x = x, y = y } end
+
+    -- Header: app icon + name, "this device" label, stop button.
+    local header_y = scale(10)
+    local close_d = scale(26)
+    add(DAppLogo:new{ kind = media.icon or "music", size = logo_size, ink = variant }, pad, header_y)
+    local app_size = scale(10)
+    local device_label = _("This device")
+    local device_w = math.min(math.floor(W * .3), scale(110))
+    local app_w = W - pad * 2 - logo_size - scale(6) - device_w - close_d - scale(14)
+    add(TextWidget:new{
+        text = Theme.fitLabel(media.app or "", math.max(scale(20), app_w), app_size, 0),
+        face = Font:getFace("smallinfofont", app_size), fgcolor = variant, padding = 0,
+        max_width = math.max(scale(20), app_w),
+    }, pad + logo_size + scale(6), header_y)
+    local pill_h = scale(22)
+    local pill_x = W - pad - close_d - scale(8) - device_w
+    add(FrameContainer:new{
+        width = device_w, height = pill_h, padding = 0, bordersize = 0,
+        radius = math.floor(pill_h / 2), background = PALETTE.track,
+        emptySizedWidget(device_w, pill_h),
+    }, pill_x, header_y - scale(3))
+    add(TextWidget:new{
+        text = Theme.fitLabel(device_label, device_w - scale(10), scale(9), 0),
+        face = Font:getFace("smallinfofont", scale(9)), fgcolor = on, padding = 0,
+        max_width = device_w - scale(10),
+    }, pill_x + scale(8), header_y)
+    local close_x = W - pad - close_d
+    add(Media.Glyph:new{ kind = "close", size = close_d, color = variant }, close_x, header_y - scale(5))
+    regions.stop = { x = close_x - scale(8), y = 0, w = close_d + scale(16) + pad, h = scale(40) }
+
+    -- Title / artist + big play-pause button.
+    local text_w = W - pad * 2 - button_d - scale(12)
+    local title_y = header_y + logo_size + scale(10)
+    local title_size = self.compact and scale(12) or scale(14)
+    local artist_size = self.compact and scale(10) or scale(11)
+    local title_widget = TextWidget:new{
+        text = Theme.fitLabel(media.title or "", text_w, title_size, 0),
+        face = Font:getFace("smallinfofont", title_size), fgcolor = on, bold = true,
+        max_width = text_w, padding = 0,
+    }
+    add(title_widget, pad, title_y)
+    add(TextWidget:new{
+        text = Theme.fitLabel(media.artist or "", text_w, artist_size, 0),
+        face = Font:getFace("smallinfofont", artist_size), fgcolor = variant,
+        max_width = text_w, padding = 0,
+    }, pad, title_y + title_widget:getSize().h + scale(2))
+    local button_x = W - pad - button_d
+    local button_y = title_y - scale(4)
+    add(FrameContainer:new{
+        width = button_d, height = button_d, padding = 0, bordersize = 0,
+        radius = math.floor(button_d / 2), background = on,
+        emptySizedWidget(button_d, button_d),
+    }, button_x, button_y)
+    add(Media.Glyph:new{ kind = media.playing and "pause" or "play", size = glyph + scale(8), color = PALETTE.sheet },
+        button_x + math.floor((button_d - glyph - scale(8)) / 2), button_y + math.floor((button_d - glyph - scale(8)) / 2))
+    regions.toggle = { x = button_x - scale(6), y = button_y - scale(6), w = button_d + scale(12), h = button_d + scale(12) }
+
+    -- Controls row: previous, progress, next.
+    local row_h = scale(30)
+    local row_y = H - pad - row_h + scale(2)
+    local skip = scale(28)
+    add(Media.Glyph:new{ kind = "prev", size = skip, color = on }, pad, row_y + math.floor((row_h - skip) / 2))
+    add(Media.Glyph:new{ kind = "next", size = skip, color = on }, W - pad - skip, row_y + math.floor((row_h - skip) / 2))
+    regions.prev = { x = 0, y = row_y - scale(6), w = pad + skip + scale(10), h = row_h + scale(12) }
+    regions.next = { x = W - pad - skip - scale(10), y = row_y - scale(6), w = pad + skip + scale(10), h = row_h + scale(12) }
+    local bar_x = pad + skip + scale(12)
+    local bar_w = W - 2 * bar_x
+    local bar_h = scale(4)
+    local bar_y = row_y + math.floor((row_h - bar_h) / 2)
+    add(FrameContainer:new{
+        width = bar_w, height = bar_h, padding = 0, bordersize = 0,
+        radius = math.floor(bar_h / 2), background = PALETTE.track,
+        emptySizedWidget(bar_w, bar_h),
+    }, bar_x, bar_y)
+    local ratio = math.max(0, math.min(1, tonumber(media.ratio) or 0))
+    local fill_w = math.floor(bar_w * ratio)
+    if fill_w > 0 then
+        add(FrameContainer:new{
+            width = fill_w, height = bar_h, padding = 0, bordersize = 0,
+            radius = math.floor(bar_h / 2), background = on,
+            emptySizedWidget(fill_w, bar_h),
+        }, bar_x, bar_y)
+    end
+    local thumb = scale(12)
+    add(FrameContainer:new{
+        width = thumb, height = thumb, padding = 0, bordersize = 0,
+        radius = math.floor(thumb / 2), background = on,
+        emptySizedWidget(thumb, thumb),
+    }, math.max(bar_x, math.min(bar_x + bar_w - thumb, bar_x + fill_w - math.floor(thumb / 2))),
+        bar_y + math.floor((bar_h - thumb) / 2))
+    regions.seek = { x = bar_x, y = row_y - scale(6), w = bar_w, h = row_h + scale(12), bar_w = bar_w }
+
+    self.regions = regions
+    self[1] = FrameContainer:new{
+        width = W, height = H, padding = 0, bordersize = 0,
+        radius = scale(24), background = PALETTE.surface_variant,
+        Layout.FixedStack:new{ width = W, height = H, entries = entries },
+    }
+    self.ges_events = { TapMedia = { GestureRange:new{ ges = "tap", range = self.dimen } } }
+end
+
+function MediaCard:paintTo(bb, x, y)
+    self._x, self._y = x, y
+    local range = self.ges_events.TapMedia[1].range
+    range.x, range.y, range.w, range.h = x, y, self.dimen.w, self.dimen.h
+    return InputContainer.paintTo(self, bb, x, y)
+end
+
+function MediaCard:onTapMedia(_args, ges)
+    local pos = ges and ges.pos
+    if not pos or not self._x then return true end
+    local px, py = pos.x - self._x, pos.y - self._y
+    local function inside(region)
+        return region and px >= region.x and px < region.x + region.w and py >= region.y and py < region.y + region.h
+    end
+    local regions = self.regions or {}
+    local action, argument
+    if inside(regions.toggle) then action = "toggle"
+    elseif inside(regions.stop) then action = "stop"
+    elseif inside(regions.prev) then action = "prev"
+    elseif inside(regions.next) then action = "next"
+    elseif inside(regions.seek) then
+        action = "seek_to"
+        argument = math.max(0, math.min(1, (px - regions.seek.x) / math.max(1, regions.seek.bar_w)))
+    end
+    if action and self.on_action then self.on_action(action, argument) end
+    return true
 end
 
 function NotificationRow:init()
@@ -895,7 +1047,10 @@ function QuickSettings:rebuild(refresh)
     -- Measuring -----------------------------------------------------------
     local inner_w = sheet_w - 2 * margin
     local cols = math.max(3, math.min(5, math.floor((inner_w + gap) / (scale(76) + gap))))
+    local media_card_height = scale(132)
     local show_notifications, notification_items, notification_count, notification_height
+    local media_snapshot = Media.snapshot()
+    local media_height
     local wide_rows, circle_rows, wide_area, circle_area, natural_height
     local show_pager = not simple_mode
     local function recalc(max_notifications)
@@ -909,11 +1064,13 @@ function QuickSettings:rebuild(refresh)
         circle_rows = math.ceil(#circle_tiles / cols)
         wide_area = wide_rows > 0 and (wide_rows * wide_height + (wide_rows - 1) * gap) or 0
         circle_area = circle_rows > 0 and (circle_rows * (circle_d + circle_label) + (circle_rows - 1) * gap) or 0
+        media_height = media_snapshot and (media_card_height + gap) or 0
         natural_height = header_height
             + (wide_area > 0 and (wide_area + gap) or 0)
             + slider_height + gap
             + (circle_area > 0 and (circle_area + gap) or 0)
             + (show_pager and pager_height or 0)
+            + media_height
             + (show_notifications and (notification_height + gap) or 0)
             + sheet_bottom
     end
@@ -931,6 +1088,7 @@ function QuickSettings:rebuild(refresh)
         notification_title_height = scale(20)
         notification_row_height = scale(36)
         notification_action_height = scale(30)
+        media_card_height = scale(112)
         recalc(1)
         if natural_height > maximum_sheet_height or self.dimen.h < scale(360) then
             recalc(0)
@@ -1030,6 +1188,19 @@ function QuickSettings:rebuild(refresh)
             overlap_offset = { ox + math.floor((sheet_w - bar_w) / 2), cursor_y },
         })
         cursor_y = cursor_y + pager_height
+    end
+
+    -- Ongoing media notification (background music) ------------------------
+    if media_snapshot then
+        table.insert(content, MediaCard:new{
+            media = media_snapshot, width = inner_w, height = media_card_height, compact = compact,
+            on_action = function(action, argument)
+                Media.invoke(action, argument)
+                self:rebuild(true)
+            end,
+            overlap_offset = { ox + margin, cursor_y },
+        })
+        cursor_y = cursor_y + media_card_height + gap
     end
 
     -- Notifications ---------------------------------------------------------
