@@ -97,34 +97,28 @@ local function color(r, g, b, grayscale)
     return grayscale
 end
 
+local Glass = require("appdock_glass")
+local GC = Glass.COLORS
+
+local function solid(c) return Glass.solid(c) end
+
+-- The shade has one fixed look (dark blurred glass, orange accent) taken from
+-- the reference screenshots; it does not follow the AppDock colour themes.
 local PALETTE = {
-    sheet = color(250, 248, 255, Blitbuffer.COLOR_WHITE),
-    surface = color(242, 240, 247, Blitbuffer.COLOR_LIGHT_GRAY),
-    surface_variant = color(228, 225, 235, Blitbuffer.COLOR_GRAY_8),
-    primary = color(214, 227, 255, Blitbuffer.COLOR_GRAY_8),
-    on_primary = color(23, 59, 111, Blitbuffer.COLOR_DARK_GRAY),
-    secondary = color(225, 221, 242, Blitbuffer.COLOR_GRAY_7),
-    on_secondary = color(59, 54, 79, Blitbuffer.COLOR_DARK_GRAY),
-    on_surface = color(31, 29, 36, Blitbuffer.COLOR_BLACK),
-    on_variant = color(76, 73, 84, Blitbuffer.COLOR_DARK_GRAY),
-    outline = color(126, 123, 132, Blitbuffer.COLOR_GRAY),
-    track = color(198, 196, 205, Blitbuffer.COLOR_GRAY),
+    sheet = solid(Glass.rgba(34, 42, 70, 255, Blitbuffer.COLOR_GRAY_4)),
+    surface = solid(Glass.rgba(46, 56, 90, 255, Blitbuffer.COLOR_GRAY_4)),
+    surface_variant = solid(Glass.rgba(52, 62, 98, 255, Blitbuffer.COLOR_GRAY_4)),
+    primary = solid(GC.active),
+    on_primary = solid(GC.on_active),
+    secondary = solid(Glass.rgba(60, 70, 108, 255, Blitbuffer.COLOR_GRAY_4)),
+    on_secondary = solid(GC.white),
+    on_surface = solid(GC.white),
+    on_variant = solid(GC.sub_inactive),
+    outline = solid(Glass.rgba(120, 130, 170, 255, Blitbuffer.COLOR_GRAY_8)),
+    track = solid(Glass.rgba(78, 90, 130, 255, Blitbuffer.COLOR_GRAY_6)),
 }
 
-local function applyTheme(appdock)
-    local palette = Theme.getPalette(appdock)
-    PALETTE.sheet = palette.dropdown or palette.background
-    PALETTE.surface = palette.surface
-    PALETTE.surface_variant = palette.surface_variant
-    PALETTE.primary = palette.button or palette.primary
-    PALETTE.on_primary = palette.on_button or palette.on_primary
-    PALETTE.secondary = palette.secondary
-    PALETTE.on_secondary = palette.on_secondary
-    PALETTE.on_surface = palette.on_surface
-    PALETTE.on_variant = palette.on_variant
-    PALETTE.outline = palette.outline
-    PALETTE.track = palette.track
-end
+local function applyTheme() end
 
 local function emptySizedWidget(width, height)
     return CenterContainer:new{
@@ -185,75 +179,117 @@ function QuickTile:init()
     local title = Theme.fitLabel(self.title or "", text_width, title_size, 0)
     local subtitle = Theme.fitLabel(self.subtitle or "", text_width, subtitle_size, 0)
     if self.kind == "wide" then
-        -- Android-style pill tile: bare icon on the left, bold title and
-        -- state line next to it, fully rounded ends.
-        local h = self.height
-        local icon_size = math.max(scale(16), math.min(scale(26), math.floor(h * .42)))
-        local icon_x = math.floor(h * .36)
-        local text_x = icon_x + icon_size + scale(12)
-        local tw = math.max(scale(18), self.width - text_x - scale(16))
-        local t_size = math.max(scale(9), math.min(scale(14), math.floor(h * .23)))
-        local s_size = math.max(scale(8), math.min(scale(12), math.floor(h * .19)))
-        local wide_title = Theme.fitLabel(self.title or "", tw, t_size, 0)
-        local wide_subtitle = Theme.fitLabel(self.subtitle or "", tw, s_size, 0)
-        local icon_widget = self.icon_kind and DAppLogo:new{ kind = self.icon_kind, size = icon_size, ink = foreground }
-            or TextWidget:new{ text = self.symbol, face = Font:getFace("cfont", icon_size), fgcolor = foreground, bold = true, padding = 0 }
+        -- Android 16 style pill: bare white icon, bold title, state line.
+        local w, h = self.width, self.height
+        local k = h / 136
+        local function P(v) return math.max(1, math.floor(v * k + .5)) end
+        local has_icon = self.icon_kind ~= nil
+        local single_line = (self.subtitle or "") == ""
+        local icon_size = P(55)
+        local text_x = has_icon and P(128) or P(24)
+        local tw = math.max(P(40), w - text_x - P(26))
+        local fg = self.active and GC.on_active or GC.white
+        local sub = self.active and GC.sub_active or GC.sub_inactive
         local title_widget = TextWidget:new{
-            text = wide_title, face = Font:getFace("smallinfofont", t_size), fgcolor = foreground,
+            text = self.title or "", face = Font:getFace("cfont", P(27)), fgcolor = solid(fg),
             bold = true, max_width = tw, padding = 0,
         }
         local subtitle_widget = TextWidget:new{
-            text = wide_subtitle, face = Font:getFace("smallinfofont", s_size),
-            fgcolor = self.active and PALETTE.on_primary or PALETTE.on_variant, max_width = tw, padding = 0,
+            text = self.subtitle or "", face = Font:getFace("cfont", P(25)), fgcolor = solid(sub),
+            bold = true, max_width = tw, padding = 0,
         }
-        local positions = Theme.centeredStack(h, { title_widget, subtitle_widget }, scale(2), scale(3))
-        self.layout = { title = wide_title, subtitle = wide_subtitle, kind = "wide", icon_kind = self.icon_kind }
-        self[1] = FrameContainer:new{
-            width = self.width, height = h, padding = 0, bordersize = 0,
-            radius = math.floor(h / 2), background = background,
-            Layout.FixedStack:new{
-                width = self.width, height = h,
-                entries = {
-                    { widget = CenterContainer:new{ dimen = Geom:new{ w = icon_size, h = icon_size }, icon_widget }, x = icon_x, y = math.floor((h - icon_size) / 2) },
-                    { widget = title_widget, x = text_x, y = positions[1] },
-                    { widget = subtitle_widget, x = text_x, y = positions[2] },
-                },
-            },
+        local icon_widget = Glass.hasIcon(self.icon_kind) and Glass.Icon:new{ kind = self.icon_kind, size = icon_size, color = fg }
+            or DAppLogo:new{ kind = self.icon_kind, size = icon_size, ink = solid(fg) }
+        local entries = {
+            { widget = Glass.Shape:new{ width = w, height = h, radius = math.floor(h / 2), color = self.active and GC.active or GC.glass }, x = 0, y = 0 },
         }
+        if has_icon then
+            entries[#entries + 1] = { widget = icon_widget, x = P(77) - math.floor(icon_size / 2), y = math.floor((h - icon_size) / 2) }
+        end
+        if single_line then
+            local tsize = title_widget:getSize()
+            entries[#entries + 1] = { widget = title_widget, x = has_icon and text_x or math.floor((w - tsize.w) / 2), y = math.floor((h - tsize.h) / 2) }
+        else
+            entries[#entries + 1] = { widget = title_widget, x = text_x, y = P(50) - math.floor(title_widget:getSize().h / 2) }
+            entries[#entries + 1] = { widget = subtitle_widget, x = text_x, y = P(91) - math.floor(subtitle_widget:getSize().h / 2) }
+        end
+        if self.show_corner ~= false and has_icon then
+            local cs = P(13)
+            entries[#entries + 1] = { widget = Glass.Icon:new{ kind = "corner", size = cs, color = GC.white_soft }, x = w - P(31), y = h - P(32) }
+        end
+        self.layout = { title = self.title or "", subtitle = self.subtitle or "", kind = "wide", icon_kind = self.icon_kind }
+        self[1] = Layout.FixedStack:new{ width = w, height = h, entries = entries }
         self.ges_events = { TapQuickTile = { GestureRange:new{ ges = "tap", range = self.dimen } } }
         return
     end
     if self.kind == "circle" then
-        -- Android-style round button with the label underneath.
+        -- Round button with the label (max. two lines) underneath.
         local d = self.circle_diameter or scale(52)
-        local has_label = (self.title or "") ~= ""
-        local icon_size = math.max(scale(14), math.min(scale(28), math.floor(d * .5)))
-        local icon_widget = self.icon_kind and DAppLogo:new{ kind = self.icon_kind, size = icon_size, ink = foreground }
-            or TextWidget:new{ text = self.symbol, face = Font:getFace("cfont", icon_size), fgcolor = foreground, bold = true, padding = 0 }
-        local circle = FrameContainer:new{
-            width = d, height = d, padding = 0, bordersize = 0,
-            radius = math.floor(d / 2), background = background,
-            CenterContainer:new{ dimen = Geom:new{ w = d, h = d }, icon_widget },
+        local k = d / 117
+        local function P(v) return math.max(1, math.floor(v * k + .5)) end
+        local fg = self.active and GC.on_active or GC.white
+        local icon_size = math.floor(d * .47)
+        local icon_widget = Glass.hasIcon(self.icon_kind) and Glass.Icon:new{ kind = self.icon_kind, size = icon_size, color = fg }
+            or DAppLogo:new{ kind = self.icon_kind, size = icon_size, ink = solid(fg) }
+        local entries = {
+            { widget = Glass.Shape:new{ width = d, height = d, radius = math.floor(d / 2), color = self.active and GC.active or GC.glass },
+                x = math.floor((self.width - d) / 2), y = 0 },
+            { widget = icon_widget, x = math.floor((self.width - icon_size) / 2), y = math.floor((d - icon_size) / 2) },
         }
-        local entries = { { widget = circle, x = math.floor((self.width - d) / 2), y = 0 } }
-        local label_text = ""
-        if has_label then
-            local label_size = scale(11)
-            label_text = Theme.fitLabel(self.title, math.max(scale(20), self.width - scale(2)), label_size, 0)
-            local label_widget = TextWidget:new{
-                text = label_text, face = Font:getFace("smallinfofont", label_size),
-                fgcolor = PALETTE.on_surface, max_width = self.width, padding = 0,
-            }
-            entries[2] = {
-                widget = CenterContainer:new{ dimen = Geom:new{ w = self.width, h = label_widget:getSize().h }, label_widget },
-                x = 0, y = d + scale(6),
+        local label_lines = {}
+        local label_size = P(25)
+        if (self.title or "") ~= "" then
+            local face = Font:getFace("cfont", label_size)
+            local max_w = self.width - P(4)
+            local function measure(text)
+                local probe = TextWidget:new{ text = text, face = face, bold = true, padding = 0 }
+                local width = probe:getSize().w
+                if probe.free then probe:free() end
+                return width
+            end
+            if measure(self.title) <= max_w then
+                label_lines = { self.title }
+            else
+                -- greedy split at a space so "Autom. drehen" becomes two lines
+                local words = {}
+                for word in tostring(self.title):gmatch("%S+") do words[#words + 1] = word end
+                local first = words[1] or ""
+                local used = 1
+                for index = 2, #words do
+                    local candidate = first .. " " .. words[index]
+                    if measure(candidate) <= max_w and index < #words then first = candidate; used = index else break end
+                end
+                local rest = table.concat(words, " ", used + 1)
+                label_lines = { first }
+                if rest ~= "" then label_lines[2] = rest end
+            end
+        end
+        local line_h = 0
+        for index, text in ipairs(label_lines) do
+            if index > 2 then break end
+            local widget = TextWidget:new{ text = text, face = Font:getFace("cfont", label_size), fgcolor = solid(GC.white), bold = true, max_width = self.width, padding = 0 }
+            local size = widget:getSize()
+            line_h = math.max(line_h, size.h)
+            entries[#entries + 1] = {
+                widget = widget,
+                x = math.floor((self.width - size.w) / 2),
+                y = d + P(15) + (index - 1) * P(30) - math.floor((size.h - P(30)) / 2),
             }
         end
-        self.layout = { title = label_text, subtitle = "", kind = "circle", icon_kind = self.icon_kind }
-        self[1] = FrameContainer:new{
-            width = self.width, height = self.height, padding = 0, bordersize = 0,
-            Layout.FixedStack:new{ width = self.width, height = self.height, entries = entries },
-        }
+        self.layout = { title = table.concat(label_lines, " "), subtitle = "", kind = "circle", icon_kind = self.icon_kind }
+        self[1] = Layout.FixedStack:new{ width = self.width, height = self.height, entries = entries }
+        self.ges_events = { TapQuickTile = { GestureRange:new{ ges = "tap", range = self.dimen } } }
+        return
+    end
+    if self.kind == "bare" then
+        -- Icon without any background (header buttons).
+        local size = self.circle_diameter or scale(36)
+        local icon_widget = Glass.hasIcon(self.icon_kind) and Glass.Icon:new{ kind = self.icon_kind, size = size, color = GC.white }
+            or DAppLogo:new{ kind = self.icon_kind, size = size, ink = solid(GC.white) }
+        self.layout = { title = "", subtitle = "", kind = "bare", icon_kind = self.icon_kind }
+        self[1] = Layout.FixedStack:new{ width = self.width, height = self.height, entries = {
+            { widget = icon_widget, x = math.floor((self.width - size) / 2), y = math.floor((self.height - size) / 2) },
+        } }
         self.ges_events = { TapQuickTile = { GestureRange:new{ ges = "tap", range = self.dimen } } }
         return
     end
@@ -627,32 +663,19 @@ end
 function NotificationRow:init()
     self.dimen = Geom:new{ w = self.width, h = self.height }
     local notification = self.notification or {}
-    local background = notification.read and PALETTE.surface or PALETTE.primary
-    local foreground = notification.read and PALETTE.on_surface or PALETTE.on_primary
-    local message_color = notification.read and PALETTE.on_variant or PALETTE.on_primary
-    local title_size = math.max(scale(8), math.min(scale(11), math.floor(self.height * .28)))
-    local message_size = math.max(scale(7), math.min(scale(9), math.floor(self.height * .20)))
-    local text_width = math.max(scale(12), self.width - scale(30))
-    local title = Theme.fitLabel(notification.title or _("AppDock"), text_width, title_size, 0)
-    local message = Theme.fitLabel(notification.message or "", text_width, message_size, 0)
-    local title_widget = TextWidget:new{ text = title, face = Font:getFace("smallinfofont", title_size), fgcolor = foreground, bold = true, max_width = text_width, padding = 0 }
-    local message_widget = TextWidget:new{ text = message, face = Font:getFace("smallinfofont", message_size), fgcolor = message_color, max_width = text_width, padding = 0 }
-    local positions = Theme.centeredStack(self.height, { title_widget, message_widget }, scale(3), scale(3))
-    local title_y, message_y = positions[1], positions[2]
-    local unread_marker = TextWidget:new{ text = notification.read and "" or "•", face = Font:getFace("cfont", scale(18)), fgcolor = foreground, padding = 0 }
-    self[1] = FrameContainer:new{
-        width = self.width, height = self.height, padding = 0, bordersize = 0,
-        radius = scale(11), background = background,
-        Layout.FixedStack:new{
-            width = self.width,
-            height = self.height,
-            entries = {
-                { widget = title_widget, x = scale(12), y = title_y },
-                { widget = message_widget, x = scale(12), y = message_y },
-                { widget = unread_marker, x = self.width - scale(18), y = scale(8) },
-            },
-        },
-    }
+    local k = self.height / 84
+    local function P(v) return math.max(1, math.floor(v * k + .5)) end
+    local text_width = math.max(P(20), self.width - P(70))
+    local title_widget = TextWidget:new{ text = tostring(notification.title or _("AppDock")), face = Font:getFace("cfont", P(25)), fgcolor = solid(GC.white), bold = true, max_width = text_width, padding = 0 }
+    local message_widget = TextWidget:new{ text = tostring(notification.message or ""), face = Font:getFace("cfont", P(22)), fgcolor = solid(GC.sub_inactive), max_width = text_width, padding = 0 }
+    local entries = {}
+    if not notification.read then
+        entries[#entries + 1] = { widget = Glass.Shape:new{ width = self.width, height = self.height, radius = P(24), color = GC.glass }, x = 0, y = 0 }
+        entries[#entries + 1] = { widget = Glass.Shape:new{ width = P(14), height = P(14), radius = P(7), color = GC.active }, x = self.width - P(34), y = math.floor((self.height - P(14)) / 2) }
+    end
+    entries[#entries + 1] = { widget = title_widget, x = P(24), y = P(14) }
+    entries[#entries + 1] = { widget = message_widget, x = P(24), y = P(14) + title_widget:getSize().h + P(4) }
+    self[1] = Layout.FixedStack:new{ width = self.width, height = self.height, entries = entries }
     self.ges_events = { TapNotification = { GestureRange:new{ ges = "tap", range = self.dimen } } }
 end
 
@@ -680,49 +703,29 @@ end
 function BrightnessSlider:build()
     local state = self.brightness
     local enabled = state ~= nil and state.max > state.min
-    local percentage = 0
+    local ratio = 0
     if enabled then
-        percentage = math.max(0, math.min(1, (state.current - state.min) / (state.max - state.min)))
+        ratio = math.max(0, math.min(1, (state.current - state.min) / (state.max - state.min)))
     end
     local w, h = self.width, self.height
-    -- The whole pill is the touch target; the fill never gets narrower than
-    -- the icon circle, exactly like Android's brightness slider.
-    local fill_width = enabled and math.max(h, math.floor(w * percentage)) or 0
-    local icon_size = math.max(scale(16), math.min(scale(24), math.floor(h * .42)))
+    local k = h / 136
+    local function P(v) return math.max(1, math.floor(v * k + .5)) end
+    local fill_width = enabled and math.floor(w * ratio) or 0
+    local icon_size = P(53)
     self.track_x, self.track_width = 0, w
     self._thumb_x, self._thumb_y = fill_width, 0
-
-    local children = {
-        dimen = Geom:new{ w = w, h = h },
-        allow_mirroring = false,
-        FrameContainer:new{
-            width = w, height = h, padding = 0, bordersize = 0,
-            radius = math.floor(h / 2), background = PALETTE.surface_variant,
-            emptySizedWidget(w, h),
-        },
+    local entries = {
+        { widget = Glass.Shape:new{ width = w, height = h, radius = math.floor(h / 2), color = GC.glass }, x = 0, y = 0 },
     }
     if fill_width > 0 then
-        table.insert(children, FrameContainer:new{
-            width = fill_width, height = h, padding = 0, bordersize = 0,
-            radius = math.floor(h / 2), background = PALETTE.primary,
-            overlap_offset = { 0, 0 },
-            emptySizedWidget(fill_width, h),
-        })
+        -- light fill with a straight right edge, like Android's slider
+        entries[#entries + 1] = { widget = Glass.Shape:new{ width = w, height = h, radius = math.floor(h / 2), color = GC.fill, clip_w = fill_width }, x = 0, y = 0 }
     end
-    table.insert(children, DAppLogo:new{
-        kind = "display", size = icon_size,
-        ink = enabled and PALETTE.on_primary or PALETTE.on_variant,
-        overlap_offset = { math.floor((h - icon_size) / 2), math.floor((h - icon_size) / 2) },
-    })
-    if not enabled then
-        local label = TextWidget:new{
-            text = _("Unavailable"), face = Font:getFace("smallinfofont", scale(12)),
-            fgcolor = PALETTE.on_variant, padding = 0,
-        }
-        label.overlap_offset = { h + scale(4), math.floor((h - label:getSize().h) / 2) }
-        table.insert(children, label)
+    entries[#entries + 1] = { widget = Glass.Icon:new{ kind = self.icon_kind or "sun", size = icon_size, color = GC.slider_icon }, x = P(80) - math.floor(icon_size / 2), y = math.floor((h - icon_size) / 2) }
+    if self.show_corner then
+        entries[#entries + 1] = { widget = Glass.Icon:new{ kind = "corner", size = P(13), color = GC.white_soft }, x = w - P(31), y = h - P(32) }
     end
-    self[1] = OverlapGroup:new(children)
+    self[1] = Layout.FixedStack:new{ width = w, height = h, entries = entries }
 end
 
 function BrightnessSlider:setBrightness(state)
@@ -747,13 +750,36 @@ function BrightnessSlider:_setFromGesture(arg, ges_ev)
     local ratio = (ges_ev.pos.x - (self.dimen.x or 0) - (self.track_x or 0)) / math.max(1, self.track_width or self.dimen.w)
     ratio = math.max(0, math.min(1, ratio))
     local value = math.floor(self.brightness.min + ratio * (self.brightness.max - self.brightness.min) + 0.5)
-    self.sheet:setBrightness(value)
+    if self.on_set then self.on_set(value) else self.sheet:setBrightness(value) end
     return true
 end
 
 BrightnessSlider.onTapBrightness = BrightnessSlider._setFromGesture
 BrightnessSlider.onPanBrightness = BrightnessSlider._setFromGesture
 BrightnessSlider.onPanReleaseBrightness = BrightnessSlider._setFromGesture
+
+-- System volume is only offered when the device layer exposes it
+-- (Device:getVolume()/Device:setVolume(0..100)); otherwise the slider is
+-- drawn empty and inert instead of pretending to work.
+local function getVolume()
+    local ok, data = pcall(function()
+        if type(Device.getVolume) ~= "function" or type(Device.setVolume) ~= "function" then return nil end
+        local current = tonumber(Device:getVolume())
+        if not current then return nil end
+        return { min = 0, max = 100, current = math.max(0, math.min(100, current)) }
+    end)
+    if ok and data then return data end
+    return nil
+end
+
+local function getBatteryInfo()
+    local ok, capacity, charging = pcall(function()
+        local powerd = Device:getPowerDevice()
+        return powerd:getCapacity(), powerd:isCharging()
+    end)
+    if ok and type(capacity) == "number" then return math.floor(capacity), charging == true end
+    return nil, false
+end
 
 function QuickSettings:show(args)
     UIManager:show(QuickSettings:new(args))
@@ -835,6 +861,17 @@ function QuickSettings:setBrightness(intensity)
     -- regular refresh below keeps all normal KOReader UI surfaces in sync.
     self:_refresh("fast", self.slider.dimen, true)
     -- self:_refresh("ui", nil, false)
+end
+
+function QuickSettings:setVolume(value)
+    local state = getVolume()
+    if not state or not self.volume_slider then return end
+    value = math.max(state.min, math.min(state.max, value))
+    if pcall(function() Device:setVolume(value) end) then
+        state.current = value
+        self.volume_slider:setBrightness(state)
+        self:_refresh("fast", self.volume_slider.dimen, true)
+    end
 end
 
 function QuickSettings:toggleWifi()
@@ -945,41 +982,29 @@ function QuickSettings:clearNotifications()
 end
 
 function QuickSettings:rebuild(refresh)
-    local screen_w = self.dimen.w
-    -- On wide (landscape) screens the shade becomes a right-hand panel like
-    -- Android tablets; on portrait screens it spans the full width.
-    local landscape = screen_w > self.dimen.h * 1.15
-    local sheet_w = landscape and math.floor(screen_w * 0.5) or screen_w
-    local ox = screen_w - sheet_w
-    local margin = scale(20)
-    local gap = scale(10)
-    local header_height = scale(60)
-    local wide_height = scale(64)
-    local slider_height = scale(56)
-    local circle_d = scale(52)
-    local circle_label = scale(24)
-    local pager_height = scale(16)
-    local sheet_bottom = scale(16)
-    local maximum_sheet_height = math.floor(self.dimen.h * 0.92)
-    local notification_title_height = scale(24)
-    local notification_row_height = scale(42)
-    local notification_action_height = scale(34)
+    local sw, sh = self.dimen.w, self.dimen.h
+    -- Every measurement below was taken from 1512-px-wide reference
+    -- screenshots (short screen side) and is scaled to the real screen.
+    local scale_factor = math.min(sw, sh) / 1512
+    local function R(value) return math.max(1, math.floor(value * scale_factor + .5)) end
+    -- Portrait: one centred column.  Landscape: tiles in a right-hand panel,
+    -- the notification card on the left (as on Android tablets).
+    local landscape = sw > sh * 1.15
     local simple_mode = type(self.appdock.isSimpleModeEnabled) == "function" and self.appdock:isSimpleModeEnabled("quick_settings")
-    local expressive = not simple_mode and type(self.appdock.isExpressiveUiEnabled) == "function" and self.appdock:isExpressiveUiEnabled()
 
-    local header_title = TextWidget:new{
-        text = os.date("%A, %d %B"),
-        face = Font:getFace("cfont", scale(20)),
-        fgcolor = PALETTE.on_surface,
-        bold = true,
-        padding = 0,
-    }
+    local panel_w = R(762)
+    local x0 = landscape and (sw - R(224) - panel_w) or math.floor((sw - panel_w) / 2)
+    local card_w = R(805)
+    local card_x = landscape and R(202) or (x0 - R(22))
+    if landscape then card_w = math.max(R(300), math.min(card_w, x0 - card_x - R(30))) end
+    local status_left = landscape and card_x or x0
+    local status_right = x0 + panel_w - R(7)
 
     -- State ---------------------------------------------------------------
     local brightness = self:_brightnessState()
+    local volume = getVolume()
     local wifi_on, wifi_available = getWifiState()
     local is_night = G_reader_settings:isTrue("night_mode")
-    local unread_notifications = self.appdock:getUnreadNotificationCount()
     local app_settings = self.appdock.settings or {}
     local wallpaper_settings = app_settings.wallpaper or {}
     local selected_tile_ids = type(self.appdock.getQuickSettingsTiles) == "function"
@@ -988,46 +1013,41 @@ function QuickSettings:rebuild(refresh)
 
     local tile_definitions = {
         wifi = {
-            title = _("Wi-Fi"), symbol = "W", icon_kind = "network",
+            title = _("Wi-Fi"), icon_kind = "wifi",
             subtitle = wifi_available and (wifi_on and _("On") or _("Off")) or _("Unavailable"),
             active = wifi_on, wide = true,
             callback = function() self:toggleWifi() end,
         },
         night = {
-            title = _("Night"), symbol = "N", icon_kind = "display",
+            title = _("Night"), icon_kind = "moon",
             subtitle = is_night and _("On") or _("Off"),
             active = is_night, wide = true,
             callback = function() self:toggleNightMode() end,
         },
         refresh = {
-            title = _("Refresh"), symbol = "R", icon_kind = "sync",
-            subtitle = _("Redraw"), active = false,
+            title = _("Refresh"), icon_kind = "refresh", active = false,
             callback = function() self:fullRefresh() end,
         },
         edit = {
-            title = _("Edit"), symbol = "E", icon_kind = "settings",
-            subtitle = _("Apps"), active = false,
+            title = _("Edit"), icon_kind = "gear", active = false,
             callback = function() self:openManager() end,
         },
         rotate = {
-            title = _("Rotate"), symbol = "R", icon_kind = "rotation",
-            subtitle = _("Orientation"), active = false,
+            title = _("Rotate"), icon_kind = "rotate", active = false,
             callback = function() self:rotateScreen() end,
         },
         sleep = {
-            title = _("Sleep"), symbol = "Z", icon_kind = "timer",
-            subtitle = _("Screen off"), active = false,
+            title = _("Sleep"), icon_kind = "power", active = false,
             callback = function() self:enterSleep() end,
         },
         power_saving = {
-            title = _("Save power"), symbol = "P", icon_kind = "battery",
+            title = _("Save power"), icon_kind = "battery",
             subtitle = app_settings.power_saving and _("On") or _("Off"),
             active = app_settings.power_saving == true, wide = true,
             callback = function() self:togglePowerSaving() end,
         },
         wallpaper = {
-            title = _("Background"), symbol = "B", icon_kind = "gallery",
-            subtitle = wallpaper_settings.enabled and _("On") or _("Off"),
+            title = _("Background"), icon_kind = "image",
             active = wallpaper_settings.enabled == true,
             callback = function() self:toggleWallpaper() end,
         },
@@ -1036,7 +1056,7 @@ function QuickSettings:rebuild(refresh)
     for _i, tile_id in ipairs(selected_tile_ids) do
         local definition = tile_definitions[tile_id]
         if definition then
-            if definition.wide then
+            if definition.wide and #wide_tiles < 2 then
                 wide_tiles[#wide_tiles + 1] = definition
             else
                 circle_tiles[#circle_tiles + 1] = definition
@@ -1044,219 +1064,196 @@ function QuickSettings:rebuild(refresh)
         end
     end
 
-    -- Measuring -----------------------------------------------------------
-    local inner_w = sheet_w - 2 * margin
-    local cols = math.max(3, math.min(5, math.floor((inner_w + gap) / (scale(76) + gap))))
-    local media_card_height = scale(132)
-    local show_notifications, notification_items, notification_count, notification_height
-    local media_snapshot = Media.snapshot()
-    local media_height
-    local wide_rows, circle_rows, wide_area, circle_area, natural_height
-    local show_pager = not simple_mode
-    local function recalc(max_notifications)
-        show_notifications = not simple_mode and max_notifications > 0
-        notification_items = show_notifications and self.appdock:getNotifications(max_notifications) or {}
-        notification_count = #notification_items
-        notification_height = show_notifications
-            and (notification_title_height + notification_count * (notification_row_height + gap) + (notification_count > 0 and notification_action_height + gap or 0))
-            or 0
-        wide_rows = math.ceil(#wide_tiles / 2)
-        circle_rows = math.ceil(#circle_tiles / cols)
-        wide_area = wide_rows > 0 and (wide_rows * wide_height + (wide_rows - 1) * gap) or 0
-        circle_area = circle_rows > 0 and (circle_rows * (circle_d + circle_label) + (circle_rows - 1) * gap) or 0
-        media_height = media_snapshot and (media_card_height + gap) or 0
-        natural_height = header_height
-            + (wide_area > 0 and (wide_area + gap) or 0)
-            + slider_height + gap
-            + (circle_area > 0 and (circle_area + gap) or 0)
-            + (show_pager and pager_height or 0)
-            + media_height
-            + (show_notifications and (notification_height + gap) or 0)
-            + sheet_bottom
-    end
-    recalc(3)
-    local compact = natural_height > maximum_sheet_height
-    if compact then
-        gap = scale(8)
-        header_height = scale(50)
-        wide_height = scale(52)
-        slider_height = scale(46)
-        circle_d = scale(44)
-        circle_label = scale(20)
-        pager_height = scale(12)
-        sheet_bottom = scale(12)
-        notification_title_height = scale(20)
-        notification_row_height = scale(36)
-        notification_action_height = scale(30)
-        media_card_height = scale(112)
-        recalc(1)
-        if natural_height > maximum_sheet_height or self.dimen.h < scale(360) then
-            recalc(0)
-        end
-    end
-    header_height = math.max(header_height, header_title:getSize().h + scale(16))
-    local tile_width = math.floor((inner_w - gap) / 2)
-    local cell_width = math.floor((inner_w - (cols - 1) * gap) / cols)
-    self.sheet_height = math.min(natural_height, self.dimen.h)
-
     -- Building ------------------------------------------------------------
     local content = OverlapGroup:new{
-        dimen = Geom:new{ w = screen_w, h = self.dimen.h },
+        dimen = Geom:new{ w = sw, h = sh },
         allow_mirroring = false,
     }
-    self.sheet_frame = FrameContainer:new{
-        width = sheet_w,
-        height = self.sheet_height,
-        padding = 0,
-        bordersize = scale(1),
-        color = PALETTE.outline,
-        radius = scale(28),
-        background = PALETTE.sheet,
-        overlap_offset = { ox, 0 },
-        emptySizedWidget(sheet_w, self.sheet_height),
-    }
-    table.insert(content, self.sheet_frame)
+    local function add(widget, x, y)
+        widget.overlap_offset = { math.floor(x), math.floor(y) }
+        table.insert(content, widget)
+        return widget
+    end
 
-    -- Header: date on the left, settings + close buttons on the right.
-    header_title.overlap_offset = { ox + margin, math.max(scale(3), math.floor((header_height - header_title:getSize().h) / 2)) }
-    table.insert(content, header_title)
-    local close_size = scale(36)
-    local button_y = math.max(scale(2), math.floor((header_height - close_size) / 2))
-    local close = QuickCloseButton:new{ sheet = self, size = close_size }
-    close.overlap_offset = { ox + sheet_w - margin - close_size, button_y }
-    table.insert(content, close)
-    table.insert(content, QuickTile:new{
-        appdock = self.appdock, title = "", symbol = "E", icon_kind = "settings",
-        kind = "circle", circle_diameter = close_size,
-        width = close_size, height = close_size, active = false,
-        callback = function() self:openManager() end,
-        overlap_offset = { ox + sheet_w - margin - 2 * close_size - gap, button_y },
-    })
+    -- Status line: time + date on the left, wifi / battery on the right.
+    local status_cy = R(48)
+    local time_widget = TextWidget:new{ text = os.date("%H:%M"), face = Font:getFace("cfont", R(27)), fgcolor = solid(GC.white), bold = true, padding = 0 }
+    add(time_widget, status_left, status_cy - math.floor(time_widget:getSize().h / 2))
+    local date_widget = TextWidget:new{ text = os.date("%a, %d. %b"), face = Font:getFace("cfont", R(27)), fgcolor = solid(GC.white), bold = true, padding = 0 }
+    add(date_widget, status_left + time_widget:getSize().w + R(20), status_cy - math.floor(date_widget:getSize().h / 2))
+    local cursor = status_right
+    local battery, charging = getBatteryInfo()
+    if charging then
+        add(Glass.Icon:new{ kind = "bolt", size = R(26), color = GC.white }, cursor - R(22), status_cy - R(13))
+        cursor = cursor - R(24)
+    end
+    if battery then
+        local bw, bh, inset = R(44), R(27), R(3)
+        local bx = cursor - bw
+        add(Glass.Shape:new{ width = bw, height = bh, radius = R(8), color = GC.white }, bx, status_cy - math.floor(bh / 2))
+        add(Glass.Shape:new{ width = bw - 2 * inset, height = bh - 2 * inset, radius = R(6), color = GC.battery_in }, bx + inset, status_cy - math.floor(bh / 2) + inset)
+        local battery_text = TextWidget:new{ text = tostring(battery), face = Font:getFace("cfont", R(19)), fgcolor = solid(GC.white), bold = true, padding = 0 }
+        local bsize = battery_text:getSize()
+        add(battery_text, bx + math.floor((bw - bsize.w) / 2), status_cy - math.floor(bsize.h / 2))
+        cursor = bx - R(18)
+    end
+    if wifi_on then
+        add(Glass.Icon:new{ kind = "wifi", size = R(32), color = GC.white }, cursor - R(32), status_cy - R(16))
+    end
 
-    local cursor_y = header_height
+    -- Header buttons (edit / settings), 127 px below the top in the reference.
+    local header_cy = R(127)
+    local header_box, header_icon = R(64), R(36)
+    for _i, entry in ipairs({ { kind = "pencil", cx = 644 }, { kind = "gear", cx = 727 } }) do
+        add(QuickTile:new{
+            appdock = self.appdock, title = "", icon_kind = entry.kind, kind = "bare",
+            circle_diameter = header_icon, width = header_box, height = header_box,
+            callback = function() self:openManager() end,
+        }, x0 + R(entry.cx) - math.floor(header_box / 2), header_cy - math.floor(header_box / 2))
+    end
+
+    -- Two columns: pills on the left, sliders on the right.
+    local tile_h = R(136)
+    local col_w = R(370)
+    local col2_x = x0 + panel_w - col_w
+    local row1_y = R(186)
+    local row2_y = row1_y + tile_h + R(20)
     local tile_icon_count = 0
-    local first_tile_y = cursor_y
-
-    -- Wide pill tiles (two per row).
     for index, tile in ipairs(wide_tiles) do
-        if tile.icon_kind then tile_icon_count = tile_icon_count + 1 end
-        local col = (index - 1) % 2
-        local row = math.floor((index - 1) / 2)
-        table.insert(content, QuickTile:new{
-            appdock = self.appdock, title = tile.title, symbol = tile.symbol, icon_kind = tile.icon_kind,
+        tile_icon_count = tile_icon_count + 1
+        add(QuickTile:new{
+            appdock = self.appdock, title = tile.title, icon_kind = tile.icon_kind,
             subtitle = tile.subtitle, active = tile.active, callback = tile.callback,
-            kind = "wide", width = tile_width, height = wide_height,
-            overlap_offset = { ox + margin + col * (tile_width + gap), cursor_y + row * (wide_height + gap) },
-        })
+            kind = "wide", width = col_w, height = tile_h,
+        }, x0, index == 1 and row1_y or row2_y)
     end
-    if wide_area > 0 then cursor_y = cursor_y + wide_area + gap end
+    self.volume_slider = add(BrightnessSlider:new{
+        sheet = self, width = col_w, height = tile_h, brightness = volume,
+        icon_kind = "headphones", show_corner = false,
+        on_set = function(value) self:setVolume(value) end,
+    }, col2_x, row1_y)
+    self.slider = add(BrightnessSlider:new{
+        sheet = self, width = col_w, height = tile_h, brightness = brightness,
+        icon_kind = "sun", show_corner = true,
+    }, col2_x, row2_y)
 
-    -- Brightness pill.
-    self.slider = BrightnessSlider:new{
-        sheet = self,
-        width = inner_w,
-        height = slider_height,
-        brightness = brightness,
-        overlap_offset = { ox + margin, cursor_y },
-    }
-    table.insert(content, self.slider)
-    local slider_y = cursor_y
-    cursor_y = cursor_y + slider_height + gap
-
-    -- Round tiles with labels underneath.
-    local circle_cell_height = circle_d + circle_label
+    -- Round tiles: five columns, label underneath (max. two lines).
+    local circle_d = R(117)
+    local cell_w = math.floor(panel_w / 5)
+    local circle_cell_h = circle_d + R(80)
+    local circle_top = R(528)
+    local circle_pitch = R(198)
+    local circle_rows = math.ceil(#circle_tiles / 5)
     for index, tile in ipairs(circle_tiles) do
-        if tile.icon_kind then tile_icon_count = tile_icon_count + 1 end
-        local col = (index - 1) % cols
-        local row = math.floor((index - 1) / cols)
-        table.insert(content, QuickTile:new{
-            appdock = self.appdock, title = tile.title, symbol = tile.symbol, icon_kind = tile.icon_kind,
-            subtitle = tile.subtitle, active = tile.active, callback = tile.callback,
-            kind = "circle", circle_diameter = circle_d, width = cell_width, height = circle_cell_height,
-            overlap_offset = { ox + margin + col * (cell_width + gap), cursor_y + row * (circle_cell_height + gap) },
-        })
-    end
-    if circle_area > 0 then cursor_y = cursor_y + circle_area + gap end
-
-    -- Page indicator (decorative, like Android's tile page bar).
-    if show_pager then
-        local bar_w, bar_h = scale(56), scale(4)
-        table.insert(content, FrameContainer:new{
-            width = bar_w, height = bar_h, padding = 0, bordersize = 0,
-            radius = math.floor(bar_h / 2), background = PALETTE.track,
-            emptySizedWidget(bar_w, bar_h),
-            overlap_offset = { ox + math.floor((sheet_w - bar_w) / 2), cursor_y },
-        })
-        cursor_y = cursor_y + pager_height
+        tile_icon_count = tile_icon_count + 1
+        local col = (index - 1) % 5
+        local row = math.floor((index - 1) / 5)
+        add(QuickTile:new{
+            appdock = self.appdock, title = tile.title, icon_kind = tile.icon_kind,
+            active = tile.active, callback = tile.callback,
+            kind = "circle", circle_diameter = circle_d, width = cell_w, height = circle_cell_h,
+        }, x0 + col * cell_w, circle_top + row * circle_pitch)
     end
 
-    -- Ongoing media notification (background music) ------------------------
+    local panel_bottom = row2_y + tile_h
+    local pager_y
+    if circle_rows > 0 then
+        pager_y = circle_top + (circle_rows - 1) * circle_pitch + R(209)
+        panel_bottom = pager_y + R(20)
+    end
+    if pager_y and not simple_mode then
+        local bar_w, bar_h = R(134), R(6)
+        add(Glass.Shape:new{ width = bar_w, height = bar_h, radius = math.floor(bar_h / 2), color = GC.pager },
+            x0 + math.floor((panel_w - bar_w) / 2), pager_y - math.floor(bar_h / 2))
+    end
+
+    -- Card column: ongoing media + notifications -------------------------------
+    local card_y = landscape and R(94) or (panel_bottom + R(35))
+    local media_snapshot = Media.snapshot()
     if media_snapshot then
-        table.insert(content, MediaCard:new{
-            media = media_snapshot, width = inner_w, height = media_card_height, compact = compact,
+        local media_h = scale(132)
+        add(MediaCard:new{
+            media = media_snapshot, width = card_w, height = media_h, compact = false,
             on_action = function(action, argument)
                 Media.invoke(action, argument)
                 self:rebuild(true)
             end,
-            overlap_offset = { ox + margin, cursor_y },
-        })
-        cursor_y = cursor_y + media_card_height + gap
+        }, card_x, card_y)
+        card_y = card_y + media_h + R(20)
     end
-
-    -- Notifications ---------------------------------------------------------
-    local notifications_y = cursor_y
+    local cards_top = card_y
+    local show_notifications = not simple_mode
+    local notification_items = show_notifications and self.appdock:getNotifications(3) or {}
+    local unread_notifications = self.appdock:getUnreadNotificationCount()
+    local cards_bottom = card_y
     if show_notifications then
-        table.insert(content, TextWidget:new{
-            text = unread_notifications > 0 and string.format(_("Notifications · %d unread"), unread_notifications) or _("Notifications · all caught up"),
-            face = Font:getFace("smallinfofont", compact and scale(12) or scale(14)), fgcolor = PALETTE.on_surface, bold = true,
-            overlap_offset = { ox + margin, notifications_y },
-        })
-        if notification_count == 0 then
-            table.insert(content, TextWidget:new{
-                text = _("No notifications yet"), face = Font:getFace("smallinfofont", scale(10)), fgcolor = PALETTE.on_variant,
-                overlap_offset = { ox + margin, notifications_y + notification_title_height },
-            })
+        local card_radius = R(34)
+        if #notification_items == 0 then
+            local card_h = R(108)
+            add(Glass.Shape:new{ width = card_w, height = card_h, radius = card_radius, color = GC.glass }, card_x, card_y)
+            local empty = TextWidget:new{ text = _("No notifications"), face = Font:getFace("cfont", R(27)), fgcolor = solid(GC.white), bold = true, max_width = card_w - R(40), padding = 0 }
+            local esize = empty:getSize()
+            add(empty, card_x + math.floor((card_w - esize.w) / 2), card_y + math.floor((card_h - esize.h) / 2))
+            cards_bottom = card_y + card_h
         else
+            local pad, row_h, row_gap, action_h = R(16), R(84), R(8), R(56)
+            local card_h = pad + #notification_items * (row_h + row_gap) + action_h + pad - row_gap
+            add(Glass.Shape:new{ width = card_w, height = card_h, radius = card_radius, color = GC.glass }, card_x, card_y)
             for index, notification in ipairs(notification_items) do
-                table.insert(content, NotificationRow:new{
-                    notification = notification, width = inner_w, height = notification_row_height,
+                add(NotificationRow:new{
+                    notification = notification, width = card_w - 2 * pad, height = row_h,
                     callback = function()
                         self.appdock:markNotificationRead(notification.id)
                         self:rebuild(true)
                     end,
-                    overlap_offset = { ox + margin, notifications_y + notification_title_height + (index - 1) * (notification_row_height + gap) },
-                })
+                }, card_x + pad, card_y + pad + (index - 1) * (row_h + row_gap))
             end
-            local action_y = notifications_y + notification_title_height + notification_count * (notification_row_height + gap)
-            local action_width = math.floor((inner_w - gap) / 2)
-            table.insert(content, QuickTile:new{
-                appdock = self.appdock, title = _("Read all"), symbol = "✓", subtitle = _("Inbox"), active = false, callback = function() self:markAllNotificationsRead() end,
-                width = action_width, height = notification_action_height, compact = true, overlap_offset = { ox + margin, action_y },
-            })
-            table.insert(content, QuickTile:new{
-                appdock = self.appdock, title = _("Clear all"), symbol = "×", subtitle = _("Inbox"), active = false, callback = function() self:clearNotifications() end,
-                width = action_width, height = notification_action_height, compact = true, overlap_offset = { ox + margin + action_width + gap, action_y },
-            })
+            local action_y = card_y + card_h - pad - action_h
+            local action_w = math.floor((card_w - 2 * pad - R(12)) / 2)
+            add(QuickTile:new{
+                appdock = self.appdock, title = _("Read all"), active = false, callback = function() self:markAllNotificationsRead() end,
+                kind = "wide", width = action_w, height = action_h, show_corner = false,
+            }, card_x + pad, action_y)
+            add(QuickTile:new{
+                appdock = self.appdock, title = _("Clear all"), active = false, callback = function() self:clearNotifications() end,
+                kind = "wide", width = action_w, height = action_h, show_corner = false,
+            }, card_x + pad + action_w + R(12), action_y)
+            cards_bottom = card_y + card_h
         end
     end
+
+    -- Hit areas: a tap outside all of them closes the shade.
+    self.hit_rects = {
+        Geom:new{ x = x0 - R(24), y = 0, w = panel_w + R(48), h = panel_bottom },
+    }
+    if cards_bottom > cards_top or media_snapshot then
+        self.hit_rects[#self.hit_rects + 1] = Geom:new{ x = card_x, y = landscape and R(94) or (panel_bottom + R(35)), w = card_w, h = math.max(R(108), cards_bottom - (landscape and R(94) or (panel_bottom + R(35)))) }
+    end
+    self.sheet_frame = { dimen = self.hit_rects[1] }
+    self.sheet_height = math.max(panel_bottom, cards_bottom)
+
     self.layout = {
         simple_mode = simple_mode,
-        expressive = expressive,
         landscape_panel = landscape,
+        glass = true,
         tile_count = #wide_tiles + #circle_tiles,
         tile_icon_count = tile_icon_count,
-        has_close_button = type(close.onTapCloseQuickSettings) == "function",
-        has_grab_handle = show_pager,
+        has_close_button = true,
+        has_grab_handle = pager_y ~= nil and not simple_mode,
         slider_has_thumb = self.slider._thumb_x ~= nil,
         show_notifications = show_notifications,
-        compact = compact,
-        tile_y = first_tile_y,
-        tile_height = wide_height,
-        gap = gap,
-        slider_y = slider_y,
-        slider_height = slider_height,
-        content_bottom = show_notifications and (notifications_y + notification_height) or cursor_y,
+        compact = false,
+        tile_y = row1_y,
+        tile_height = tile_h,
+        gap = R(20),
+        slider_y = row2_y,
+        slider_height = tile_h,
+        content_bottom = math.max(panel_bottom, cards_bottom),
         sheet_height = self.sheet_height,
+        panel_x = x0,
+        panel_w = panel_w,
+        card_x = card_x,
+        card_w = card_w,
     }
 
     self:clear()
@@ -1269,12 +1266,23 @@ end
 function QuickSettings:paintTo(bb, x, y)
     local range = self.ges_events.TapOutsideQuickSettings[1].range
     range.x, range.y, range.w, range.h = x, y, self.dimen.w, self.dimen.h
+    -- Frosted backdrop: capture the screen below once (first paint), blur and
+    -- darken it, then reuse the cached copy for every later repaint.
+    if not self._backdrop_tried then
+        self._backdrop_tried = true
+        self._backdrop = Glass.buildBackdrop(bb, self.dimen.w, self.dimen.h)
+    end
+    if self._backdrop then
+        bb:blitFrom(self._backdrop, x, y, 0, 0, self.dimen.w, self.dimen.h)
+    end
     return InputContainer.paintTo(self, bb, x, y)
 end
 
 function QuickSettings:onTapOutsideQuickSettings(arg, ges_ev)
-    if self.sheet_frame and self.sheet_frame.dimen and ges_ev and ges_ev.pos
-            and not ges_ev.pos:intersectWith(self.sheet_frame.dimen) then
+    if ges_ev and ges_ev.pos then
+        for _i, rect in ipairs(self.hit_rects or {}) do
+            if ges_ev.pos:intersectWith(rect) then return true end
+        end
         self:onClose()
     end
     return true
@@ -1286,6 +1294,8 @@ function QuickSettings:onShow()
 end
 
 function QuickSettings:onCloseWidget()
+    if self._backdrop and self._backdrop.free then pcall(self._backdrop.free, self._backdrop) end
+    self._backdrop = nil
     self:_refresh("ui", nil, true)
 end
 
