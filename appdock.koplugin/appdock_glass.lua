@@ -328,6 +328,8 @@ local function smoothScale(src, w, h)
     return nil
 end
 
+Glass.smoothScale = smoothScale
+
 -- Pure-Lua fallback for builds without smooth scaling: sample a coarse grid
 -- and paint bilinear-interpolated blocks. Slower, but runs once per opening.
 local function manualBlur(src, width, height)

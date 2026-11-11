@@ -25,6 +25,7 @@ local DeviceControls = require("appdock_device_controls")
 local WindowDither = require("appdock_dither")
 local AppDockKeyboard = require("appdock_keyboard")
 local DAppLogo = require("appdock_logo")
+local Glass = require("appdock_glass")
 local Layout = require("appdock_layout")
 local Theme = require("appdock_theme")
 local Wallpaper = require("appdock_wallpaper")
@@ -116,8 +117,18 @@ local DAppWindowHost = InputContainer:extend{
 local DAppRecents = InputContainer:extend{
     manager = nil,
     dimen = nil,
+    focus = nil,
     covers_fullscreen = true,
 }
+
+-- One Android-style recents card: app tile + title above a rounded preview.
+local RecentCard = InputContainer:extend{
+    app = nil, thumb = nil, width = nil, height = nil, header_h = nil,
+    on_open = nil, on_close = nil, on_focus = nil, focused = false, dimen = nil,
+}
+
+-- Draws a pre-scaled screenshot into the card body.
+local RecentThumb = Widget:extend{ bb = nil, width = 0, height = 0 }
 
 -- Full app list opened from the recents bar: searchable, paged grid.
 local AllAppsDrawer = InputContainer:extend{
@@ -3099,14 +3110,66 @@ function DAppManager:closeDApp(id)
     if type(instance.definition.onClose) == "function" then pcall(instance.definition.onClose, instance) end
     if instance.definition.host_kind == "plugin" then self.plugin_definitions[id] = nil end
     self.instances[id] = nil
+    self:_freeRecentThumb(id)
     if self.active_id == id then self.active_id = nil end
     self:captureWorkspace()
     return true
 end
 
+-- Layout numbers shared by the recents screen and the thumbnail capture, so a
+-- stored screenshot always matches the card it is drawn into.
+local function recentsMetrics(width, height)
+    local m = {}
+    m.margin = scale(18)
+    m.pill_h, m.pill_y = scale(46), scale(46)
+    m.dock_h, m.dock_bottom = scale(96), scale(40)
+    m.header_h, m.pad, m.gap = scale(54), scale(8), scale(10)
+    m.area_top = m.pill_y + m.pill_h + scale(22)
+    m.area_bottom = height - m.dock_h - m.dock_bottom - scale(46)
+    local ratio = height / math.max(1, width)
+    local body_max = m.area_bottom - m.area_top - m.header_h - m.gap
+    local thumb_w = math.floor(width * .62) - 2 * m.pad
+    local thumb_h = math.floor(thumb_w * ratio)
+    if thumb_h + 2 * m.pad > body_max then
+        thumb_h = body_max - 2 * m.pad
+        thumb_w = math.floor(thumb_h / ratio)
+    end
+    m.thumb_w, m.thumb_h = math.max(32, thumb_w), math.max(32, thumb_h)
+    m.card_w, m.body_h = m.thumb_w + 2 * m.pad, m.thumb_h + 2 * m.pad
+    m.card_h = m.header_h + m.gap + m.body_h
+    return m
+end
+
+function DAppManager:_freeRecentThumb(id)
+    local entry = self.recent_thumbs and self.recent_thumbs[id]
+    if entry and entry.bb and entry.bb.free then pcall(entry.bb.free, entry.bb) end
+    if self.recent_thumbs then self.recent_thumbs[id] = nil end
+end
+
+-- Snapshot of the app being left, shown as its preview in the recents screen.
+function DAppManager:_captureRecentThumb(id)
+    if not id then return end
+    pcall(function()
+        local width, height = Screen:getWidth(), Screen:getHeight()
+        local m = recentsMetrics(width, height)
+        local source = Blitbuffer.new(width, height, Screen.bb:getType())
+        source:blitFrom(Screen.bb, 0, 0, 0, 0, width, height)
+        local scaled = Glass.smoothScale(source, m.thumb_w, m.thumb_h)
+        if source.free then pcall(source.free, source) end
+        if scaled then
+            self:_freeRecentThumb(id)
+            self.recent_thumbs = self.recent_thumbs or {}
+            self.recent_thumbs[id] = { bb = scaled, w = m.thumb_w, h = m.thumb_h }
+        end
+    end)
+end
+
 function DAppManager:showRecents(home)
     if home then UIManager:close(home) end
-    if self.active_host then UIManager:close(self.active_host) end
+    if self.active_host then
+        self:_captureRecentThumb(self.active_id)
+        UIManager:close(self.active_host)
+    end
     UIManager:show(DAppRecents:new{ manager = self })
 end
 
@@ -5751,10 +5814,12 @@ end
 function DAppRecents:init()
     self.dimen = Screen:getSize()
     bindGlobalPageKeys(self)
+    self.ges_events = {
+        TapRecents = { GestureRange:new{ ges = "tap", range = self.dimen } },
+        SwipeRecents = { GestureRange:new{ ges = "swipe", range = self.dimen } },
+    }
     if not self.manager.appdock:isSimpleModeEnabled("focus_apps") then
-        self.ges_events = {
-            RevealRecentApps = { GestureRange:new{ ges = "swipe", direction = "north", range = function() return bottomSwipeRange(self.dimen) end } },
-        }
+        self.ges_events.RevealRecentApps = { GestureRange:new{ ges = "swipe", direction = "north", range = function() return bottomSwipeRange(self.dimen) end } }
     end
     self:build()
 end
@@ -5763,99 +5828,314 @@ function DAppRecents:onBrightnessUp() return DeviceControls.setBrightness(10) ~=
 function DAppRecents:onBrightnessDown() return DeviceControls.setBrightness(-10) ~= nil end
 function DAppRecents:onKeyRepeat(key) return handleGlobalPageKeyRepeat(self, key) end
 
+function RecentThumb:init() self.dimen = Geom:new{ w = self.width, h = self.height } end
+function RecentThumb:getSize() return self.dimen end
+function RecentThumb:paintTo(bb, x, y)
+    self.dimen.x, self.dimen.y = x, y
+    if self.bb then pcall(bb.blitFrom, bb, self.bb, x, y, 0, 0, self.width, self.height) end
+end
+
+-- Invisible tap target (the visible shape is drawn separately).
+local TapZone = InputContainer:extend{ width = 0, height = 0, callback = nil }
+function TapZone:init()
+    self.dimen = Geom:new{ w = self.width, h = self.height }
+    self.ges_events = { TapZone = { GestureRange:new{ ges = "tap", range = self.dimen } } }
+end
+function TapZone:getSize() return self.dimen end
+function TapZone:paintTo(bb, x, y)
+    local range = self.ges_events.TapZone[1].range
+    range.x, range.y, range.w, range.h = x, y, self.width, self.height
+    self.dimen.x, self.dimen.y = x, y
+end
+function TapZone:onTapZone()
+    if self.callback then self.callback() end
+    return true
+end
+
+local RC = {
+    card = Glass.solid(Glass.rgba(255, 251, 255, 255, Blitbuffer.COLOR_WHITE)),
+    tile = Glass.solid(Glass.rgba(253, 219, 208, 255, Blitbuffer.COLOR_LIGHT_GRAY)),
+    tile_ink = Glass.solid(Glass.rgba(168, 57, 0, 255, Blitbuffer.COLOR_BLACK)),
+    white = Glass.solid(Glass.COLORS.white),
+    soft = Glass.solid(Glass.COLORS.sub_inactive),
+}
+
+function RecentCard:init()
+    local w, h, header_h = self.width, self.height, self.header_h
+    self.dimen = Geom:new{ w = w, h = h }
+    local pad, gap = scale(8), scale(10)
+    local body_h = h - header_h - gap
+    local icon_size = header_h - scale(10)
+    local tile = FrameContainer:new{
+        width = icon_size, height = icon_size, padding = 0, bordersize = 0,
+        radius = math.floor(icon_size * .3), background = RC.tile,
+        CenterContainer:new{ dimen = Geom:new{ w = icon_size, h = icon_size }, DAppLogo:new{ kind = self.app.logo or "settings", size = math.floor(icon_size * .6), ink = RC.tile_ink } },
+    }
+    local close_size = scale(34)
+    local title_x = icon_size + scale(12)
+    local title = TextWidget:new{
+        text = Theme.fitLabel(self.app.title or "", w - title_x - close_size - scale(10), scale(17), 0),
+        face = Font:getFace("cfont", Theme.adjustText(ACTIVE_APPDOCK, scale(18), scale(13))),
+        fgcolor = RC.white, bold = true, max_width = w - title_x - close_size - scale(10), padding = 0,
+    }
+    local body_entries = {}
+    if self.thumb then
+        body_entries[1] = { widget = RecentThumb:new{ bb = self.thumb.bb, width = self.thumb.w, height = self.thumb.h }, x = pad, y = pad }
+    else
+        local big = math.floor(math.min(w, body_h) * .30)
+        body_entries[1] = { widget = FrameContainer:new{
+            width = big, height = big, padding = 0, bordersize = 0, radius = math.floor(big * .3), background = RC.tile,
+            CenterContainer:new{ dimen = Geom:new{ w = big, h = big }, DAppLogo:new{ kind = self.app.logo or "settings", size = math.floor(big * .6), ink = RC.tile_ink } },
+        }, x = math.floor((w - big) / 2), y = math.floor((body_h - big) / 2) }
+    end
+    local body = FrameContainer:new{
+        width = w, height = body_h, padding = 0, bordersize = self.focused and math.max(2, scale(2)) or 0,
+        color = RC.tile, radius = scale(26), background = RC.card,
+        Layout.FixedStack:new{ width = w, height = body_h, entries = body_entries },
+    }
+    local close_x = w - close_size
+    self.close_rect = { x = close_x, y = math.floor((header_h - close_size) / 2), w = close_size, h = close_size }
+    local entries = {
+        { widget = tile, x = 0, y = math.floor((header_h - icon_size) / 2) },
+        { widget = title, x = title_x, y = math.floor((header_h - title:getSize().h) / 2) },
+        { widget = Glass.Shape:new{ width = close_size, height = close_size, radius = math.floor(close_size / 2), color = Glass.COLORS.glass }, x = close_x, y = self.close_rect.y },
+        { widget = TextWidget:new{ text = "×", face = Font:getFace("cfont", scale(22)), fgcolor = RC.white, bold = true, padding = 0 }, x = close_x + math.floor(close_size / 2) - scale(7), y = self.close_rect.y + math.floor(close_size / 2) - scale(15) },
+        { widget = body, x = 0, y = header_h + gap },
+    }
+    self.layout = { recent_card = true, focused = self.focused, has_thumb = self.thumb ~= nil }
+    self[1] = Layout.FixedStack:new{ width = w, height = h, entries = entries }
+    self.ges_events = {
+        TapRecentCard = { GestureRange:new{ ges = "tap", range = self.dimen } },
+        HoldRecentCard = { GestureRange:new{ ges = "hold", range = self.dimen } },
+        SwipeRecentCard = { GestureRange:new{ ges = "swipe", range = self.dimen } },
+    }
+end
+
+function RecentCard:paintTo(bb, x, y)
+    for _, name in ipairs({ "TapRecentCard", "HoldRecentCard", "SwipeRecentCard" }) do
+        local range = self.ges_events[name][1].range
+        range.x, range.y, range.w, range.h = x, y, self.dimen.w, self.dimen.h
+    end
+    self.dimen.x, self.dimen.y = x, y
+    return InputContainer.paintTo(self, bb, x, y)
+end
+
+function RecentCard:onTapRecentCard(_, ges)
+    local pos = ges and ges.pos
+    local cr = self.close_rect
+    if pos and cr and pos.x >= self.dimen.x + cr.x - scale(8) and pos.x <= self.dimen.x + cr.x + cr.w + scale(8)
+            and pos.y >= self.dimen.y + cr.y - scale(8) and pos.y <= self.dimen.y + cr.y + cr.h + scale(8) then
+        if self.on_close then self.on_close() end
+    elseif self.on_open then
+        self.on_open()
+    end
+    return true
+end
+
+function RecentCard:onHoldRecentCard()
+    if self.on_hold then self.on_hold() end
+    return true
+end
+
+function RecentCard:onSwipeRecentCard(_, ges)
+    -- Swiping a card up dismisses it, like Android; sideways swipes browse.
+    if ges and ges.direction == "north" then
+        if self.on_close then self.on_close() end
+        return true
+    end
+    return false
+end
+
+function DAppRecents:_dockApps()
+    local appdock = self.manager and self.manager.appdock
+    local apps, seen = {}, {}
+    if not appdock then return apps end
+    local function add(list)
+        for _, app in ipairs(list or {}) do
+            if #apps >= 5 then return end
+            if type(app) == "table" and type(app.id) == "string" and not seen[app.id]
+                    and app.id ~= "system:manage" and app.id ~= "system:open_apps" then
+                apps[#apps + 1], seen[app.id] = app, true
+            end
+        end
+    end
+    if type(appdock.getPinnedApps) == "function" then
+        local ok, pinned = pcall(appdock.getPinnedApps, appdock)
+        if ok then add(pinned) end
+    end
+    return apps
+end
+
+function DAppRecents:_closeAll()
+    local ids = {}
+    for _, app in ipairs(self.manager:getOpenApps()) do ids[#ids + 1] = app.id end
+    for _, id in ipairs(ids) do self.manager:closeDApp(id) end
+    UIManager:close(self)
+    UIManager:nextTick(function() self.manager.appdock:showHome(true) end)
+end
+
 function DAppRecents:build()
     local width, height = self.dimen.w, self.dimen.h
-    local expressive = type(self.manager.appdock.isExpressiveUiEnabled) == "function" and self.manager.appdock:isExpressiveUiEnabled()
-    local margin = expressive and scale(14) or scale(18)
-    local card_width = width - 2 * margin
-    local card_height = expressive and scale(64) or scale(60)
-    local gap = expressive and scale(6) or scale(6)
-    local heading_title = TextWidget:new{
-        text = _("Open apps"),
-        face = Font:getFace("cfont", expressive and Theme.adjustText(self.manager.appdock, scale(23), scale(16)) or scale(25)),
-        fgcolor = PALETTE.on_surface,
-        bold = true,
-        padding = 0,
-        padding = 0,
-    }
-    local heading_subtitle = TextWidget:new{
-        text = _("Hold an app for split screen and window actions"),
-        face = Font:getFace("smallinfofont", expressive and scale(11) or scale(12)),
-        fgcolor = PALETTE.on_variant,
-        max_width = card_width,
-        padding = 0,
-    }
-    local header_height = math.max(expressive and scale(56) or scale(54), heading_title:getSize().h + heading_subtitle:getSize().h + scale(8))
-    local header_positions = Theme.centeredStack(header_height, { heading_title, heading_subtitle }, scale(4), scale(5))
-    heading_title.overlap_offset = { expressive and margin + scale(14) or margin, header_positions[1] }
-    heading_subtitle.overlap_offset = { margin, header_positions[2] }
-    local content = OverlapGroup:new{
-        dimen = Geom:new{ w = width, h = height },
-        allow_mirroring = false,
-        FrameContainer:new{
-            width = width, height = height, padding = 0, bordersize = 0,
-            background = PALETTE.background,
-            emptySizedWidget(width, height),
-        },
-    }
-    if expressive then
-        table.insert(content, FrameContainer:new{
-            width = width - 2 * margin, height = header_height - scale(6), padding = 0, bordersize = 0,
-            radius = math.floor((header_height - scale(6)) / 2), background = PALETTE.surface,
-            emptySizedWidget(width - 2 * margin, header_height - scale(6)), overlap_offset = { margin, scale(3) },
-        })
-    end
-    table.insert(content, heading_title)
-    table.insert(content, heading_subtitle)
+    local m = recentsMetrics(width, height)
     local open_apps = self.manager:getOpenApps()
-    if #open_apps == 0 then
-        table.insert(content, TextWidget:new{
-            text = _("No DApps are open yet."),
-            face = Font:getFace("smallinfofont", scale(16)),
-            fgcolor = PALETTE.on_variant,
-            overlap_offset = { margin, header_height + gap },
-        })
+    if #open_apps == 0 then self.focus = nil
+    else
+        if not self.focus then
+            self.focus = #open_apps
+            for index, app in ipairs(open_apps) do
+                if app.id == self.manager.active_id then self.focus = index end
+            end
+        end
+        self.focus = math.max(1, math.min(#open_apps, self.focus))
     end
-    for index, app in ipairs(open_apps) do
-        local y = header_height + gap + (index - 1) * (card_height + gap)
-        table.insert(content, ActionChip:new{
-            title = app.title,
-            symbol = app.symbol,
-            logo = app.logo,
-            width = card_width, height = card_height,
-            background = expressive and (index % 2 == 0 and PALETTE.secondary or PALETTE.surface) or PALETTE.surface,
-            foreground = PALETTE.on_surface,
-            callback = function()
+    self.hit_rects = {}
+    local function hit(x, y, w, h) self.hit_rects[#self.hit_rects + 1] = Geom:new{ x = x, y = y, w = w, h = h } end
+    -- Transparent root: the blurred backdrop is painted in paintTo().
+    local content = OverlapGroup:new{ dimen = Geom:new{ w = width, h = height }, allow_mirroring = false }
+
+    -- "Close all apps" pill, top right.
+    local label = TextWidget:new{
+        text = _("Close all apps"), face = Font:getFace("cfont", Theme.adjustText(self.manager.appdock, scale(18), scale(13))),
+        fgcolor = RC.white, bold = true, padding = 0,
+    }
+    local sweep = DAppLogo:new{ kind = "sync", size = scale(24), ink = RC.white }
+    local pill_w = scale(18) + scale(24) + scale(12) + label:getSize().w + scale(22)
+    local pill_x = width - m.margin - pill_w
+    table.insert(content, Glass.Shape:new{ width = pill_w, height = m.pill_h, radius = math.floor(m.pill_h / 2), color = Glass.COLORS.glass, overlap_offset = { pill_x, m.pill_y } })
+    sweep.overlap_offset = { pill_x + scale(18), m.pill_y + math.floor((m.pill_h - scale(24)) / 2) }
+    label.overlap_offset = { pill_x + scale(18) + scale(24) + scale(12), m.pill_y + math.floor((m.pill_h - label:getSize().h) / 2) }
+    table.insert(content, sweep)
+    table.insert(content, label)
+    table.insert(content, TapZone:new{
+        width = pill_w, height = m.pill_h,
+        callback = function() self:_closeAll() end,
+        overlap_offset = { pill_x, m.pill_y },
+    })
+    hit(pill_x, m.pill_y, pill_w, m.pill_h)
+
+    -- Carousel with the focused card.
+    if #open_apps == 0 then
+        local empty = TextWidget:new{
+            text = _("No apps are open."), face = Font:getFace("cfont", scale(20)),
+            fgcolor = RC.white, bold = true, padding = 0,
+        }
+        empty.overlap_offset = { math.floor((width - empty:getSize().w) / 2), math.floor((m.area_top + m.area_bottom) / 2) }
+        table.insert(content, empty)
+    else
+        local app = open_apps[self.focus]
+        local entry = self.manager.recent_thumbs and self.manager.recent_thumbs[app.id]
+        if entry and (entry.w ~= m.thumb_w or entry.h ~= m.thumb_h) then entry = nil end
+        local card_x = math.floor((width - m.card_w) / 2)
+        local card_y = m.area_top + math.max(0, math.floor((m.area_bottom - m.area_top - m.card_h) / 2))
+        table.insert(content, RecentCard:new{
+            app = app, thumb = entry, width = m.card_w, height = m.card_h, header_h = m.header_h, focused = true,
+            on_open = function()
                 UIManager:close(self)
                 UIManager:nextTick(function() self.manager:activate(app.id) end)
             end,
-            hold_callback = function()
-                self.manager:showDAppActions(app.id, self)
-            end,
-            overlap_offset = { margin, y },
-        })
-        table.insert(content, ActionChip:new{
-            title = "", symbol = "×", width = scale(30), height = scale(30),
-            background = PALETTE.surface_variant, foreground = PALETTE.on_variant,
-            callback = function()
+            on_hold = function() self.manager:showDAppActions(app.id, self) end,
+            on_close = function()
                 self.manager:closeDApp(app.id)
+                if self.focus > #self.manager:getOpenApps() then self.focus = #self.manager:getOpenApps() end
                 self:build()
                 UIManager:setDirty(self, "ui")
             end,
-            overlap_offset = { width - margin - scale(38), y + math.floor((card_height - scale(30)) / 2) },
+            overlap_offset = { card_x, card_y },
         })
+        hit(card_x, card_y, m.card_w, m.card_h)
+        -- Page dots under the card.
+        if #open_apps > 1 then
+            local dot, dot_gap = scale(8), scale(12)
+            local total = #open_apps * dot + (#open_apps - 1) * dot_gap
+            local dx = math.floor((width - total) / 2)
+            local dy = card_y + m.card_h + scale(18)
+            for index = 1, #open_apps do
+                local active = index == self.focus
+                local size = active and scale(10) or dot
+                table.insert(content, Glass.Shape:new{
+                    width = size, height = size, radius = math.floor(size / 2),
+                    color = active and Glass.COLORS.white or Glass.COLORS.white_soft,
+                    overlap_offset = { dx + (index - 1) * (dot + dot_gap) - (active and 1 or 0), dy - (active and 1 or 0) },
+                })
+            end
+        end
     end
-    table.insert(content, ActionChip:new{
-        title = "", symbol = "⌂", width = scale(72), height = scale(44),
-        background = PALETTE.primary, foreground = PALETTE.on_primary,
-        callback = function()
-            UIManager:close(self)
-            UIManager:nextTick(function() self.manager.appdock:showHome(true) end)
-        end,
-        overlap_offset = { margin, height - (expressive and scale(56) or scale(54)) },
-    })
+
+    -- Dock: translucent rounded bar with round-cornered tiles.
+    local dock_apps = self:_dockApps()
+    if #dock_apps > 0 then
+        local tile, tile_gap = scale(64), scale(18)
+        local dock_w = #dock_apps * tile + (#dock_apps + 1) * tile_gap
+        local dock_x = math.floor((width - dock_w) / 2)
+        local dock_y = height - m.dock_bottom - m.dock_h
+        table.insert(content, Glass.Shape:new{ width = dock_w, height = m.dock_h, radius = scale(32), color = Glass.COLORS.glass, overlap_offset = { dock_x, dock_y } })
+        hit(dock_x, dock_y, dock_w, m.dock_h)
+        for index, app in ipairs(dock_apps) do
+            local tx = dock_x + tile_gap + (index - 1) * (tile + tile_gap)
+            local ty = dock_y + math.floor((m.dock_h - tile) / 2)
+            table.insert(content, FrameContainer:new{
+                width = tile, height = tile, padding = 0, bordersize = 0, radius = scale(20), background = RC.tile,
+                CenterContainer:new{ dimen = Geom:new{ w = tile, h = tile }, DAppLogo:new{ kind = app.logo or "appdock", size = math.floor(tile * .58), ink = RC.tile_ink } },
+                overlap_offset = { tx, ty },
+            })
+            table.insert(content, TapZone:new{
+                width = tile, height = tile,
+                callback = function() self.manager.appdock:launchApp(app, self) end,
+                overlap_offset = { tx, ty },
+            })
+        end
+    end
+
+    -- Home indicator.
+    local bar_w, bar_h = scale(240), scale(5)
+    table.insert(content, Glass.Shape:new{ width = bar_w, height = bar_h, radius = math.floor(bar_h / 2), color = Glass.COLORS.pager,
+        overlap_offset = { math.floor((width - bar_w) / 2), height - scale(22) } })
+    self.layout = { android_recents = true, card_count = #open_apps, focus = self.focus, dock_count = #dock_apps }
     self:clear()
     self[1] = content
+end
+
+function DAppRecents:paintTo(bb, x, y)
+    local range = self.ges_events and self.ges_events.TapRecents and self.ges_events.TapRecents[1].range
+    if range then range.x, range.y, range.w, range.h = x, y, self.dimen.w, self.dimen.h end
+    -- Blur the screen that was showing before this overlay, once.
+    if not self._backdrop and not self._backdrop_failed then
+        self._backdrop = Glass.buildBackdrop(bb, self.dimen.w, self.dimen.h, x, y)
+        self._backdrop_failed = self._backdrop == nil
+    end
+    local drawn = false
+    if self._backdrop then drawn = pcall(bb.blitFrom, bb, self._backdrop, x, y, 0, 0, self.dimen.w, self.dimen.h) end
+    if not drawn then bb:paintRect(x, y, self.dimen.w, self.dimen.h, Glass.solid(Glass.COLORS.tint)) end
+    return InputContainer.paintTo(self, bb, x, y)
+end
+
+function DAppRecents:onTapRecents(_, ges)
+    local pos = ges and ges.pos
+    if pos then
+        for _, rect in ipairs(self.hit_rects or {}) do
+            if pos:intersectWith(rect) then return true end
+        end
+    end
+    -- Tapping the empty background returns home, like Android.
+    return self:onClose()
+end
+
+function DAppRecents:onSwipeRecents(_, ges)
+    local direction = ges and ges.direction
+    local count = #self.manager:getOpenApps()
+    if count < 2 then return false end
+    if direction == "west" then self.focus = math.min(count, (self.focus or 1) + 1)
+    elseif direction == "east" then self.focus = math.max(1, (self.focus or 1) - 1)
+    else return false end
+    self:build()
+    UIManager:setDirty(self, "ui")
+    return true
+end
+
+function DAppRecents:onCloseWidget()
+    if self._backdrop and self._backdrop.free then pcall(self._backdrop.free, self._backdrop) end
+    self._backdrop = nil
+    self._backdrop_failed = nil
 end
 
 function DAppRecents:onClose()
