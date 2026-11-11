@@ -307,44 +307,63 @@ function Glass.drawIcon(bb, x, y, size, kind, c)
 end
 
 -- Blurred, darkened copy of whatever is currently on screen ---------------------
+-- Pure Blitbuffer calls (no native image scaler): the screen is sampled on a
+-- coarse grid, then repainted in small blocks with bilinear interpolation.
 function Glass.buildBackdrop(bb, width, height)
-    local ok, copy = pcall(function()
-        local buffer = Blitbuffer.new(width, height, bb:getType())
-        buffer:blitFrom(bb, 0, 0, 0, 0, width, height)
-        return buffer
-    end)
-    if not ok or not copy then return nil end
-    local result = copy
-    if isColor() then
-        local ok_ri, RenderImage = pcall(require, "ui/renderimage")
-        if ok_ri and RenderImage and RenderImage.scaleBlitBuffer then
-            local ok_blur, blurred = pcall(function()
-                -- Shrink hard, then grow in two smooth steps: a large soft blur.
-                local tiny = RenderImage:scaleBlitBuffer(copy, math.max(6, math.floor(width / 26)), math.max(6, math.floor(height / 26)), true)
-                local mid = RenderImage:scaleBlitBuffer(tiny, math.max(12, math.floor(width / 7)), math.max(12, math.floor(height / 7)), true)
-                return RenderImage:scaleBlitBuffer(mid, width, height, true)
-            end)
-            if ok_blur and blurred then
-                result = blurred
-            else
-                -- scaleBlitBuffer may already have freed the copy: re-grab it.
-                local ok_again, again = pcall(function()
-                    local buffer = Blitbuffer.new(width, height, bb:getType())
-                    buffer:blitFrom(bb, 0, 0, 0, 0, width, height)
-                    return buffer
-                end)
-                if ok_again and again then result = again else return nil end
+    local ok, result = pcall(function()
+        local out = Blitbuffer.new(width, height, bb:getType())
+        local tint = Glass.COLORS.tint
+        if not isColor() then
+            out:paintRect(0, 0, width, height, Blitbuffer.COLOR_BLACK)
+            return out
+        end
+        local cell = math.max(16, math.floor(math.min(width, height) / 40))
+        local gw, gh = math.ceil(width / cell), math.ceil(height / cell)
+        local grid = {}
+        for gy = 0, gh - 1 do
+            grid[gy] = {}
+            for gx = 0, gw - 1 do
+                local r, g, b, n = 0, 0, 0, 0
+                for sy = 1, 3 do
+                    for sx = 1, 3 do
+                        local px = math.min(width - 1, math.floor(gx * cell + sx * cell / 4))
+                        local py = math.min(height - 1, math.floor(gy * cell + sy * cell / 4))
+                        local c = bb:getPixel(px, py):getColorRGB32()
+                        r, g, b, n = r + c.r, g + c.g, b + c.b, n + 1
+                    end
+                end
+                grid[gy][gx] = { r / n, g / n, b / n }
             end
         end
-    end
-    local tint = Glass.COLORS.tint
-    if isColor() and result.blendRectRGB32 then
-        local value = nativeColor(tint)
-        if value then pcall(result.blendRectRGB32, result, 0, 0, width, height, value) end
-    else
-        pcall(result.paintRect, result, 0, 0, width, height, Blitbuffer.COLOR_BLACK)
-    end
-    return result
+        local block = math.max(4, math.floor(cell / 4))
+        local ta = tint.a / 255
+        for y = 0, height - 1, block do
+            local fy = (y + block / 2) / cell - 0.5
+            local y0 = math.max(0, math.min(gh - 1, math.floor(fy)))
+            local y1 = math.min(gh - 1, y0 + 1)
+            local ty = math.max(0, math.min(1, fy - y0))
+            for x = 0, width - 1, block do
+                local fx = (x + block / 2) / cell - 0.5
+                local x0 = math.max(0, math.min(gw - 1, math.floor(fx)))
+                local x1 = math.min(gw - 1, x0 + 1)
+                local tx = math.max(0, math.min(1, fx - x0))
+                local c1, c2, c3, c4 = grid[y0][x0], grid[y0][x1], grid[y1][x0], grid[y1][x1]
+                local rgb = {}
+                for i = 1, 3 do
+                    local top = c1[i] * (1 - tx) + c2[i] * tx
+                    local bottom = c3[i] * (1 - tx) + c4[i] * tx
+                    local v = top * (1 - ty) + bottom * ty
+                    local t = (i == 1 and tint.r) or (i == 2 and tint.g) or tint.b
+                    rgb[i] = math.floor(v * (1 - ta) + t * ta + .5)
+                end
+                out:paintRect(x, y, math.min(block, width - x), math.min(block, height - y),
+                    Blitbuffer.ColorRGB32(rgb[1], rgb[2], rgb[3], 255))
+            end
+        end
+        return out
+    end)
+    if ok and result then return result end
+    return nil
 end
 
 -- Widgets ---------------------------------------------------------------------------
