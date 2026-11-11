@@ -584,4 +584,5 @@ local function toggleWifi(NetworkMgr, wifi_on, callback)
     return true
 end
 return { Modal=Modal, ButtonDialog=ButtonDialog, InputDialog=InputDialog,
-    ConfirmBox=ConfirmBox, InfoMessage=InfoMessage, toggleWifi=toggleWifi }
+    ConfirmBox=ConfirmBox, InfoMessage=InfoMessage, toggleWifi=toggleWifi,
+    paintFrostedVeil=paintFrostedVeil }

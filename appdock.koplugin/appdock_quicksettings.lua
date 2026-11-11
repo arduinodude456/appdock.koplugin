@@ -1266,10 +1266,13 @@ end
 function QuickSettings:paintTo(bb, x, y)
     local range = self.ges_events.TapOutsideQuickSettings[1].range
     range.x, range.y, range.w, range.h = x, y, self.dimen.w, self.dimen.h
-    -- Do not allocate or blit a second native buffer here. Some Android
-    -- KOReader builds can destroy a Blitbuffer mutex while a queued repaint
-    -- still references it, which crashes the process before Lua can recover.
-    -- The Glass tiles and sheet are self-contained and remain fully usable.
+    -- Use the same guarded frosted veil as AppDock's own modal dialogs:
+    -- direct alpha blend first, short-lived addblitFrom overlay second, and
+    -- an opaque grayscale fallback last. This avoids a persistent backdrop
+    -- buffer while keeping the page softly visible behind the shade.
+    if AppDockDialogs.paintFrostedVeil then
+        AppDockDialogs.paintFrostedVeil(bb, self.dimen.w, self.dimen.h)
+    end
     return InputContainer.paintTo(self, bb, x, y)
 end
 
