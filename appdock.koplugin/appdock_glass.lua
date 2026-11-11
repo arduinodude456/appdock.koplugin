@@ -52,7 +52,9 @@ local function nativeColor(c, alpha)
     local a = math.max(0, math.min(255, math.floor((alpha or c.a) + .5)))
     local key = c.r .. "," .. c.g .. "," .. c.b .. "," .. a
     local value = native_cache[key]
-    if value == nil then
+    -- ColorRGB32 values have a device-specific __eq metamethod which may
+    -- dereference its other operand even when comparing against nil.
+    if type(value) == "nil" then
         local ok, made = pcall(Blitbuffer.ColorRGB32, c.r, c.g, c.b, a)
         value = ok and made or false
         native_cache[key] = value

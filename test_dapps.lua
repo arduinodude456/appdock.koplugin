@@ -293,6 +293,7 @@ assert(quick_settings_source:find("symbol_widget = self.icon_kind and DAppLogo:n
 assert(quick_settings_source:find('local Glass = require("appdock_glass")', 1, true) and not quick_settings_source:find("Glass.buildBackdrop", 1, true) and quick_settings_source:find('kind = "bare"', 1, true), "Quick Settings must keep Glass controls without allocating a native backdrop buffer")
 local glass_source = assert(io.open(plugin_dir .. "appdock_glass.lua", "rb")):read("*a")
 assert(glass_source:find("out:blitFrom(bb", 1, true) and not glass_source:find("bb:getPixel", 1, true), "Glass backdrop must use the safe blit copy path without live per-pixel reads")
+assert(glass_source:find('type(value) == "nil"', 1, true) and not glass_source:find("value == nil", 1, true), "Glass colors must not compare native ColorRGB32 userdata with nil")
 local appstore_source = assert(io.open(plugin_dir .. "appdock_appstore.lua", "rb")):read("*a")
 assert(appstore_source:find("local bar_height = scale(50)", 1, true) and appstore_source:find("local search_y = bar_height + scale(2)", 1, true), "AppStore must open with the Google Play app bar and its search pill")
 assert(appstore_source:find("padding = 0", 1, true), "AppStore fixed-height labels must not inherit TextWidget vertical padding")
