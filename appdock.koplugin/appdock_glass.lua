@@ -306,59 +306,20 @@ function Glass.drawIcon(bb, x, y, size, kind, c)
     end
 end
 
--- Blurred, darkened copy of whatever is currently on screen ---------------------
--- Pure Blitbuffer calls (no native image scaler): the screen is sampled on a
--- coarse grid, then repainted in small blocks with bilinear interpolation.
+-- Darkened copy of whatever is currently on screen ------------------------------
+-- Keep this path deliberately conservative: some KOReader/device Blitbuffer
+-- implementations do not safely expose per-pixel RGB reads during a live UI
+-- repaint. A failed backdrop must never prevent Quick Settings from opening.
 function Glass.buildBackdrop(bb, width, height)
     local ok, result = pcall(function()
         local out = Blitbuffer.new(width, height, bb:getType())
+        out:blitFrom(bb, 0, 0, 0, 0, width, height)
         local tint = Glass.COLORS.tint
-        if not isColor() then
+        if isColor() and out.blendRectRGB32 then
+            local value = nativeColor(tint)
+            if value then out:blendRectRGB32(0, 0, width, height, value) end
+        else
             out:paintRect(0, 0, width, height, Blitbuffer.COLOR_BLACK)
-            return out
-        end
-        local cell = math.max(16, math.floor(math.min(width, height) / 40))
-        local gw, gh = math.ceil(width / cell), math.ceil(height / cell)
-        local grid = {}
-        for gy = 0, gh - 1 do
-            grid[gy] = {}
-            for gx = 0, gw - 1 do
-                local r, g, b, n = 0, 0, 0, 0
-                for sy = 1, 3 do
-                    for sx = 1, 3 do
-                        local px = math.min(width - 1, math.floor(gx * cell + sx * cell / 4))
-                        local py = math.min(height - 1, math.floor(gy * cell + sy * cell / 4))
-                        local c = bb:getPixel(px, py):getColorRGB32()
-                        r, g, b, n = r + c.r, g + c.g, b + c.b, n + 1
-                    end
-                end
-                grid[gy][gx] = { r / n, g / n, b / n }
-            end
-        end
-        local block = math.max(4, math.floor(cell / 4))
-        local ta = tint.a / 255
-        for y = 0, height - 1, block do
-            local fy = (y + block / 2) / cell - 0.5
-            local y0 = math.max(0, math.min(gh - 1, math.floor(fy)))
-            local y1 = math.min(gh - 1, y0 + 1)
-            local ty = math.max(0, math.min(1, fy - y0))
-            for x = 0, width - 1, block do
-                local fx = (x + block / 2) / cell - 0.5
-                local x0 = math.max(0, math.min(gw - 1, math.floor(fx)))
-                local x1 = math.min(gw - 1, x0 + 1)
-                local tx = math.max(0, math.min(1, fx - x0))
-                local c1, c2, c3, c4 = grid[y0][x0], grid[y0][x1], grid[y1][x0], grid[y1][x1]
-                local rgb = {}
-                for i = 1, 3 do
-                    local top = c1[i] * (1 - tx) + c2[i] * tx
-                    local bottom = c3[i] * (1 - tx) + c4[i] * tx
-                    local v = top * (1 - ty) + bottom * ty
-                    local t = (i == 1 and tint.r) or (i == 2 and tint.g) or tint.b
-                    rgb[i] = math.floor(v * (1 - ta) + t * ta + .5)
-                end
-                out:paintRect(x, y, math.min(block, width - x), math.min(block, height - y),
-                    Blitbuffer.ColorRGB32(rgb[1], rgb[2], rgb[3], 255))
-            end
         end
         return out
     end)

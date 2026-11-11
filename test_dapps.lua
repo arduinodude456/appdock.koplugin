@@ -291,6 +291,8 @@ local quick_settings_source = assert(io.open(plugin_dir .. "appdock_quicksetting
 assert(quick_settings_source:find("local function buildStack", 1, true) and quick_settings_source:find("Theme.centeredStack(self.height, stack", 1, true) and quick_settings_source:find("tile_y = row1_y", 1, true), "Quick Settings must measure tile text and reserve a header gap before tiles")
 assert(quick_settings_source:find("symbol_widget = self.icon_kind and DAppLogo:new", 1, true) and quick_settings_source:find("padding = 0", 1, true) and quick_settings_source:find("while stack_height > available_height", 1, true), "Quick Settings tiles must use semantic icons, measured glyph boxes, and shrink before overflowing fixed controls")
 assert(quick_settings_source:find('local Glass = require("appdock_glass")', 1, true) and quick_settings_source:find("Glass.buildBackdrop", 1, true) and quick_settings_source:find('kind = "bare"', 1, true), "Glass Quick Settings must use the shared backdrop, vector icons, and bare header controls")
+local glass_source = assert(io.open(plugin_dir .. "appdock_glass.lua", "rb")):read("*a")
+assert(glass_source:find("out:blitFrom(bb", 1, true) and not glass_source:find("bb:getPixel", 1, true), "Glass backdrop must use the safe blit copy path without live per-pixel reads")
 local appstore_source = assert(io.open(plugin_dir .. "appdock_appstore.lua", "rb")):read("*a")
 assert(appstore_source:find("local bar_height = scale(50)", 1, true) and appstore_source:find("local search_y = bar_height + scale(2)", 1, true), "AppStore must open with the Google Play app bar and its search pill")
 assert(appstore_source:find("padding = 0", 1, true), "AppStore fixed-height labels must not inherit TextWidget vertical padding")
