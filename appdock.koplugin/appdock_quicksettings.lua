@@ -1266,15 +1266,10 @@ end
 function QuickSettings:paintTo(bb, x, y)
     local range = self.ges_events.TapOutsideQuickSettings[1].range
     range.x, range.y, range.w, range.h = x, y, self.dimen.w, self.dimen.h
-    -- Frosted backdrop: capture the screen below once (first paint), blur and
-    -- darken it, then reuse the cached copy for every later repaint.
-    if not self._backdrop_tried then
-        self._backdrop_tried = true
-        self._backdrop = Glass.buildBackdrop(bb, self.dimen.w, self.dimen.h)
-    end
-    if self._backdrop then
-        bb:blitFrom(self._backdrop, x, y, 0, 0, self.dimen.w, self.dimen.h)
-    end
+    -- Do not allocate or blit a second native buffer here. Some Android
+    -- KOReader builds can destroy a Blitbuffer mutex while a queued repaint
+    -- still references it, which crashes the process before Lua can recover.
+    -- The Glass tiles and sheet are self-contained and remain fully usable.
     return InputContainer.paintTo(self, bb, x, y)
 end
 
@@ -1294,7 +1289,6 @@ function QuickSettings:onShow()
 end
 
 function QuickSettings:onCloseWidget()
-    if self._backdrop and self._backdrop.free then pcall(self._backdrop.free, self._backdrop) end
     self._backdrop = nil
     self:_refresh("ui", nil, true)
 end
