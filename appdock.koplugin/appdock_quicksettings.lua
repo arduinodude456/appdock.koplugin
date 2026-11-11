@@ -1266,11 +1266,19 @@ end
 function QuickSettings:paintTo(bb, x, y)
     local range = self.ges_events.TapOutsideQuickSettings[1].range
     range.x, range.y, range.w, range.h = x, y, self.dimen.w, self.dimen.h
-    -- Use the same guarded frosted veil as AppDock's own modal dialogs:
-    -- direct alpha blend first, short-lived addblitFrom overlay second, and
-    -- an opaque grayscale fallback last. This avoids a persistent backdrop
-    -- buffer while keeping the page softly visible behind the shade.
-    if AppDockDialogs.paintFrostedVeil then
+    -- Real backdrop blur: the page below the shade is captured once (first
+    -- paint, while the screen still shows the clean page), blurred and tinted,
+    -- then simply blitted on every later repaint. If anything in that path
+    -- fails, the guarded frosted veil used by AppDock's dialogs takes over.
+    if not self._backdrop and not self._backdrop_failed then
+        self._backdrop = Glass.buildBackdrop(bb, self.dimen.w, self.dimen.h, x, y)
+        self._backdrop_failed = self._backdrop == nil
+    end
+    local drawn = false
+    if self._backdrop then
+        drawn = pcall(bb.blitFrom, bb, self._backdrop, x, y, 0, 0, self.dimen.w, self.dimen.h)
+    end
+    if not drawn and AppDockDialogs.paintFrostedVeil then
         AppDockDialogs.paintFrostedVeil(bb, self.dimen.w, self.dimen.h)
     end
     return InputContainer.paintTo(self, bb, x, y)
@@ -1292,7 +1300,9 @@ function QuickSettings:onShow()
 end
 
 function QuickSettings:onCloseWidget()
+    if self._backdrop and self._backdrop.free then pcall(self._backdrop.free, self._backdrop) end
     self._backdrop = nil
+    self._backdrop_failed = nil
     self:_refresh("ui", nil, true)
 end
 

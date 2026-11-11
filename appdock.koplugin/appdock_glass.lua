@@ -308,22 +308,131 @@ function Glass.drawIcon(bb, x, y, size, kind, c)
     end
 end
 
--- Darkened copy of whatever is currently on screen ------------------------------
--- Keep this path deliberately conservative: some KOReader/device Blitbuffer
--- implementations do not safely expose per-pixel RGB reads during a live UI
--- repaint. A failed backdrop must never prevent Quick Settings from opening.
-function Glass.buildBackdrop(bb, width, height)
-    local ok, result = pcall(function()
-        local out = Blitbuffer.new(width, height, bb:getType())
-        out:blitFrom(bb, 0, 0, 0, 0, width, height)
-        local tint = Glass.COLORS.tint
-        if isColor() and out.blendRectRGB32 then
-            local value = nativeColor(tint)
-            if value then out:blendRectRGB32(0, 0, width, height, value) end
-        else
-            out:paintRect(0, 0, width, height, Blitbuffer.COLOR_BLACK)
+-- Blurred + tinted copy of whatever is currently on screen -------------------
+-- True backdrop blur: the captured screen is shrunk and enlarged again with
+-- smooth scaling (twice, so the result is a soft gaussian-like blur), then
+-- tinted dark navy on colour screens. Every step is guarded: a failed blur
+-- falls back to a plain tinted copy, and a failed copy returns nil so the
+-- caller can use the frosted veil. Quick Settings must always open.
+local function smoothScale(src, w, h)
+    w, h = math.max(1, math.floor(w)), math.max(1, math.floor(h))
+    local ok_mod, RenderImage = pcall(require, "ui/renderimage")
+    if ok_mod and type(RenderImage) == "table" and RenderImage.scaleBlitBuffer then
+        local ok, out = pcall(RenderImage.scaleBlitBuffer, RenderImage, src, w, h, false)
+        if ok and out and out ~= src then return out end
+    end
+    if src.scale then
+        local ok, out = pcall(src.scale, src, w, h)
+        if ok and out and out ~= src then return out end
+    end
+    return nil
+end
+
+-- Pure-Lua fallback for builds without smooth scaling: sample a coarse grid
+-- and paint bilinear-interpolated blocks. Slower, but runs once per opening.
+local function manualBlur(src, width, height)
+    local step = 8
+    local cols, rows = math.ceil(width / step) + 1, math.ceil(height / step) + 1
+    local grid = {}
+    local box = step
+    for j = 0, rows - 1 do
+        local row = {}
+        for i = 0, cols - 1 do
+            local r, g, b, n = 0, 0, 0, 0
+            for dy = -1, 1 do
+                for dx = -1, 1 do
+                    local px = math.max(0, math.min(width - 1, i * step + dx * box))
+                    local py = math.max(0, math.min(height - 1, j * step + dy * box))
+                    local c = src:getPixel(px, py)
+                    local rgb = c.getColorRGB32 and c:getColorRGB32() or c
+                    local cr = rgb.r or rgb.a or 0
+                    local cg = rgb.g or rgb.a or 0
+                    local cb = rgb.b or rgb.a or 0
+                    r, g, b, n = r + cr, g + cg, b + cb, n + 1
+                end
+            end
+            row[i] = { r / n, g / n, b / n }
         end
-        return out
+        grid[j] = row
+    end
+    local out = Blitbuffer.new(width, height, src:getType())
+    local sub = 4
+    for y = 0, height - 1, sub do
+        local gy = y / step
+        local j0 = math.floor(gy)
+        local fy = gy - j0
+        local j1 = math.min(rows - 1, j0 + 1)
+        for x = 0, width - 1, sub do
+            local gx = x / step
+            local i0 = math.floor(gx)
+            local fx = gx - i0
+            local i1 = math.min(cols - 1, i0 + 1)
+            local a, b, c, d = grid[j0][i0], grid[j0][i1], grid[j1][i0], grid[j1][i1]
+            local r = (a[1] * (1 - fx) + b[1] * fx) * (1 - fy) + (c[1] * (1 - fx) + d[1] * fx) * fy
+            local g = (a[2] * (1 - fx) + b[2] * fx) * (1 - fy) + (c[2] * (1 - fx) + d[2] * fx) * fy
+            local bl = (a[3] * (1 - fx) + b[3] * fx) * (1 - fy) + (c[3] * (1 - fx) + d[3] * fx) * fy
+            local color = Blitbuffer.ColorRGB32(math.floor(r + .5), math.floor(g + .5), math.floor(bl + .5), 255)
+            out:paintRect(x, y, math.min(sub, width - x), math.min(sub, height - y), color)
+        end
+    end
+    return out
+end
+
+local function blurBuffer(src, width, height)
+    -- Two shrink/enlarge cycles: 1/10 and 1/28 of the screen resolution.
+    local small = smoothScale(src, width / 10, height / 10)
+    if small then
+        local smaller = smoothScale(small, width / 28, height / 28)
+        local base = smaller or small
+        local up = smoothScale(base, width / 6, height / 6)
+        if smaller and up then
+            if small.free then pcall(small.free, small) end
+            if base.free then pcall(base.free, base) end
+            base = up
+        elseif up then
+            if base.free then pcall(base.free, base) end
+            base = up
+        elseif smaller and small.free then
+            pcall(small.free, small)
+        end
+        local full = smoothScale(base, width, height)
+        if base.free then pcall(base.free, base) end
+        if full then return full end
+    end
+    local ok, out = pcall(manualBlur, src, width, height)
+    if ok and out then return out end
+    return nil
+end
+
+function Glass.buildBackdrop(bb, width, height, src_x, src_y)
+    width, height = math.floor(width), math.floor(height)
+    src_x, src_y = src_x or 0, src_y or 0
+    local ok, result = pcall(function()
+        local copy = Blitbuffer.new(width, height, bb:getType())
+        copy:blitFrom(bb, 0, 0, src_x, src_y, width, height)
+        local blurred = blurBuffer(copy, width, height)
+        if blurred then
+            if blurred:getType() ~= copy:getType() then
+                local converted = Blitbuffer.new(width, height, copy:getType())
+                converted:blitFrom(blurred, 0, 0, 0, 0, width, height)
+                if blurred.free then pcall(blurred.free, blurred) end
+                blurred = converted
+            end
+            if copy.free then pcall(copy.free, copy) end
+            copy = blurred
+        end
+        if isColor() and copy.blendRectRGB32 then
+            local value = nativeColor(Glass.COLORS.tint)
+            if value then copy:blendRectRGB32(0, 0, width, height, value) end
+        else
+            -- Grayscale panels: keep the soft blurred page visible under a
+            -- light veil so the gray glass shapes remain readable.
+            local veil = Blitbuffer.new(width, height, copy:getType())
+            veil:fill(Blitbuffer.COLOR_WHITE)
+            if copy.addblitFrom then pcall(copy.addblitFrom, copy, veil, 0, 0, 0, 0, width, height, .45) end
+            if veil.free then pcall(veil.free, veil) end
+        end
+        return copy
     end)
     if ok and result then return result end
     return nil

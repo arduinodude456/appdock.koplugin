@@ -284,6 +284,34 @@ local PALETTE = {
     outline = color(121, 117, 128, Blitbuffer.COLOR_GRAY),
 }
 
+-- Android (Material You, warm peach) look used by the Settings DApp. Values are
+-- measured from the reference Android Settings screenshot. Grayscale panels
+-- fall back to the fixed contrast roles.
+local SP = {
+    background = color(255, 237, 231, Blitbuffer.COLOR_WHITE),
+    surface = color(255, 251, 255, Blitbuffer.COLOR_WHITE),
+    surface_variant = color(253, 219, 208, Blitbuffer.COLOR_GRAY_8),
+    primary = color(168, 57, 0, Blitbuffer.COLOR_DARK_GRAY),
+    on_primary = color(255, 255, 255, Blitbuffer.COLOR_WHITE),
+    secondary = color(253, 219, 208, Blitbuffer.COLOR_GRAY_7),
+    on_secondary = color(25, 25, 25, Blitbuffer.COLOR_BLACK),
+    on_surface = color(25, 25, 25, Blitbuffer.COLOR_BLACK),
+    on_variant = color(128, 128, 128, Blitbuffer.COLOR_DARK_GRAY),
+    section = color(102, 102, 102, Blitbuffer.COLOR_DARK_GRAY),
+    placeholder = color(153, 153, 153, Blitbuffer.COLOR_GRAY),
+    outline = color(121, 117, 128, Blitbuffer.COLOR_GRAY),
+    title = color(0, 0, 0, Blitbuffer.COLOR_BLACK),
+}
+-- Round category icons, one colour per category like Android Settings.
+local SETTINGS_ICON_COLORS = {
+    network = color(35, 113, 238, Blitbuffer.COLOR_DARK_GRAY),
+    display = color(237, 105, 9, Blitbuffer.COLOR_DARK_GRAY),
+    storage = color(0, 131, 144, Blitbuffer.COLOR_DARK_GRAY),
+    simple = color(0, 135, 88, Blitbuffer.COLOR_DARK_GRAY),
+    other = color(118, 118, 118, Blitbuffer.COLOR_DARK_GRAY),
+    search = color(118, 118, 118, Blitbuffer.COLOR_DARK_GRAY),
+}
+
 local function applyTheme(appdock)
     ACTIVE_APPDOCK = appdock
     local palette = Theme.getPalette(appdock)
@@ -1114,40 +1142,41 @@ function SplitDivider:paintTo(bb, x, y)
 end
 
 local function settingsCardFrame(width, height, radius)
-    radius = radius or scale(18)
+    radius = radius or scale(26)
     local style = Theme.getButtonFrameStyle(ACTIVE_APPDOCK, math.min(height, scale(48)), radius)
     return FrameContainer:new{
         width = width, height = height, padding = 0,
         bordersize = style.bordersize or 0, color = style.color,
-        radius = style.radius or radius, background = PALETTE.surface,
+        radius = style.radius or radius, background = SP.surface,
         emptySizedWidget(width, height),
     }
 end
 
 function SettingsSearchBar:init()
     self.dimen = Geom:new{ w = self.width, h = self.height }
-    local border = math.max(1, scale(1))
-    local inner_w, inner_h = self.width - border * 2, self.height - border * 2
-    local icon_size = math.max(scale(15), math.floor(self.height * .45))
-    local label_size = Theme.adjustText(ACTIVE_APPDOCK, math.max(scale(10), math.floor(self.height * .31)), scale(9))
+    local pad = scale(14)
+    local icon_size = math.max(scale(18), math.floor(self.height * .50))
+    local label_size = Theme.adjustText(ACTIVE_APPDOCK, math.max(scale(11), math.floor(self.height * .36)), scale(9))
     local is_placeholder = self.text == nil or self.text == _("Search settings")
-    local label = Theme.fitLabel(self.text or _("Search settings"), inner_w - scale(44), label_size, 0)
-    local icon = TextWidget:new{ text = "⌕", face = Font:getFace("cfont", icon_size), fgcolor = PALETTE.primary, bold = true, padding = 0 }
+    local text_x = pad + icon_size + scale(10)
+    local max_w = self.width - text_x - pad
+    local label = Theme.fitLabel(self.text or _("Search settings"), max_w, label_size, 0)
+    local icon = DAppLogo:new{ kind = "search", size = icon_size, ink = SP.on_surface }
     local text = TextWidget:new{
-        text = label, face = Font:getFace("smallinfofont", label_size),
-        fgcolor = is_placeholder and PALETTE.on_variant or PALETTE.on_surface,
-        bold = not is_placeholder, max_width = inner_w - scale(44), padding = 0,
+        text = label, face = Font:getFace("cfont", label_size),
+        fgcolor = is_placeholder and SP.placeholder or SP.on_surface,
+        bold = true, max_width = max_w, padding = 0,
     }
     self.settings_search = true
+    -- Android search pill: borderless, filled with the tonal container colour.
     self[1] = FrameContainer:new{
-        width = self.width, height = self.height, padding = 0, bordersize = border,
-        color = PALETTE.outline or PALETTE.surface_variant,
-        radius = math.floor(self.height / 2), background = PALETTE.surface,
+        width = self.width, height = self.height, padding = 0, bordersize = 0,
+        radius = scale(14), background = SP.surface_variant,
         Layout.FixedStack:new{
-            width = inner_w, height = inner_h,
+            width = self.width, height = self.height,
             entries = {
-                { widget = icon, x = scale(12), y = math.max(0, math.floor((inner_h - icon:getSize().h) / 2)) },
-                { widget = text, x = scale(36), y = math.max(0, math.floor((inner_h - text:getSize().h) / 2)) },
+                { widget = icon, x = pad, y = math.floor((self.height - icon_size) / 2) },
+                { widget = text, x = text_x, y = math.max(0, math.floor((self.height - text:getSize().h) / 2)) },
             },
         },
     }
@@ -1173,9 +1202,9 @@ function SettingsAppearancePreview:init()
     local caption_h = caption_size + scale(8)
     local mini_height = math.max(scale(36), self.height - padding * 2 - caption_h)
     local function modeCell(label, dark, selected)
-        local background = dark and PALETTE.on_surface or PALETTE.background
-        local foreground = dark and PALETTE.background or PALETTE.on_surface
-        local line_color = dark and PALETTE.surface_variant or PALETTE.secondary
+        local background = dark and SP.on_surface or SP.background
+        local foreground = dark and SP.background or SP.on_surface
+        local line_color = dark and SP.surface_variant or SP.secondary
         local border = selected and math.max(2, scale(2)) or math.max(1, scale(1))
         local inner_w, inner_h = cell_width - border * 2, mini_height - border * 2
         local clock = TextWidget:new{ text = "10:12", face = Font:getFace("cfont", math.max(scale(12), math.floor(inner_h * .27))), fgcolor = foreground, padding = 0 }
@@ -1186,7 +1215,7 @@ function SettingsAppearancePreview:init()
         end
         local mini = FrameContainer:new{
             width = cell_width, height = mini_height, padding = 0, bordersize = border,
-            color = selected and PALETTE.primary or (PALETTE.outline or PALETTE.surface_variant),
+            color = selected and SP.primary or (SP.outline or SP.surface_variant),
             radius = math.max(scale(9), math.floor(mini_height * .14)), background = background,
             Layout.FixedStack:new{
                 width = inner_w, height = inner_h,
@@ -1198,7 +1227,7 @@ function SettingsAppearancePreview:init()
                 },
             },
         }
-        local caption = TextWidget:new{ text = label, face = Font:getFace("smallinfofont", caption_size), fgcolor = selected and PALETTE.primary or PALETTE.on_surface, bold = selected, padding = 0 }
+        local caption = TextWidget:new{ text = label, face = Font:getFace("smallinfofont", caption_size), fgcolor = selected and SP.primary or SP.on_surface, bold = selected, padding = 0 }
         return Layout.FixedStack:new{
             width = cell_width, height = mini_height + caption_h,
             entries = {
@@ -1207,7 +1236,7 @@ function SettingsAppearancePreview:init()
             },
         }
     end
-    local card = settingsCardFrame(self.width, self.height, scale(16))
+    local card = settingsCardFrame(self.width, self.height, scale(26))
     self.settings_appearance_preview = true
     self[1] = Layout.FixedStack:new{
         width = self.width, height = self.height,
@@ -1233,45 +1262,34 @@ end
 
 function SettingsCategory:init()
     self.dimen = Geom:new{ w = self.width, h = self.height }
-    local inset = scale(4)
-    local icon_size = math.max(scale(24), math.min(scale(32), math.floor(self.height * .58)))
-    local title_size = Theme.adjustText(ACTIVE_APPDOCK, math.max(scale(10), math.min(scale(13), math.floor(self.height * .26))), scale(8))
-    local sub_size = Theme.adjustText(ACTIVE_APPDOCK, math.max(scale(8), math.min(scale(10), math.floor(self.height * .19))), scale(7))
-    local text_x = inset + scale(12) + icon_size + scale(10)
+    local icon_size = math.max(scale(28), math.min(scale(40), math.floor(self.height * .62)))
+    local title_size = Theme.adjustText(ACTIVE_APPDOCK, math.max(scale(11), math.min(scale(16), math.floor(self.height * .30))), scale(9))
+    local sub_size = Theme.adjustText(ACTIVE_APPDOCK, math.max(scale(10), math.min(scale(13), math.floor(self.height * .24))), scale(8))
+    local text_x = scale(16) + icon_size + scale(16)
     local value_w = 0
     local value
     if type(self.value) == "string" and self.value ~= "" then
-        value = TextWidget:new{ text = self.value, face = Font:getFace("smallinfofont", sub_size), fgcolor = PALETTE.primary, bold = true, padding = 0 }
-        value_w = value:getSize().w + scale(10)
+        value = TextWidget:new{ text = self.value, face = Font:getFace("smallinfofont", sub_size), fgcolor = SP.on_variant, bold = true, padding = 0 }
+        value_w = value:getSize().w + scale(12)
     end
-    local available = math.max(scale(20), self.width - text_x - scale(10) - value_w)
-    local title = TextWidget:new{ text = Theme.fitLabel(self.title or "", available, title_size, 0), face = Font:getFace("smallinfofont", title_size), fgcolor = PALETTE.on_surface, bold = self.selected, max_width = available, padding = 0 }
-    local subtitle
-    if type(self.subtitle) == "string" and self.subtitle ~= "" then
-        local candidate = TextWidget:new{ text = Theme.fitLabel(self.subtitle, available, sub_size, 0), face = Font:getFace("smallinfofont", sub_size), fgcolor = PALETTE.on_variant, max_width = available, padding = 0 }
-        if title:getSize().h + candidate:getSize().h + scale(2) <= self.height - scale(8) then subtitle = candidate end
-    end
-    local text_total = title:getSize().h + (subtitle and (subtitle:getSize().h + scale(2)) or 0)
-    local title_y = math.floor((self.height - text_total) / 2)
+    local available = math.max(scale(20), self.width - text_x - scale(16) - value_w)
+    -- Android shows only the title and an optional value in the category list.
+    local title = TextWidget:new{ text = Theme.fitLabel(self.title or "", available, title_size, 0), face = Font:getFace("cfont", title_size), fgcolor = SP.on_surface, bold = true, max_width = available, padding = 0 }
+    local title_y = math.floor((self.height - title:getSize().h) / 2)
+    local icon_color = SETTINGS_ICON_COLORS[self.category_id or ""] or SETTINGS_ICON_COLORS.other
     local icon = FrameContainer:new{
         width = icon_size, height = icon_size, padding = 0, bordersize = 0,
-        radius = math.floor(icon_size * .32),
-        background = self.selected and PALETTE.primary or PALETTE.surface_variant,
-        CenterContainer:new{ dimen = Geom:new{ w = icon_size, h = icon_size }, DAppLogo:new{ kind = self.logo or "settings", size = math.floor(icon_size * .60), ink = self.selected and PALETTE.on_primary or PALETTE.on_surface } },
+        radius = math.floor(icon_size / 2), background = icon_color,
+        CenterContainer:new{ dimen = Geom:new{ w = icon_size, h = icon_size }, DAppLogo:new{ kind = self.logo or "settings", size = math.floor(icon_size * .58), ink = SP.on_primary } },
     }
     local entries = {}
     if self.selected then
-        local band_h = math.max(scale(10), self.height - scale(4))
-        local band_y = math.floor((self.height - band_h) / 2)
-        entries[#entries + 1] = { widget = FrameContainer:new{ width = self.width - inset * 2, height = band_h, padding = 0, bordersize = 0, radius = scale(12), background = PALETTE.surface_variant, emptySizedWidget(self.width - inset * 2, band_h) }, x = inset, y = band_y }
-        local bar_h = math.max(scale(12), math.floor(band_h * .5))
-        local bar_w = math.max(2, scale(3))
-        entries[#entries + 1] = { widget = FrameContainer:new{ width = bar_w, height = bar_h, padding = 0, bordersize = 0, radius = math.floor(bar_w / 2), background = PALETTE.primary, emptySizedWidget(bar_w, bar_h) }, x = inset + scale(3), y = math.floor((self.height - bar_h) / 2) }
+        -- Selected entry: full-width tonal capsule, like the Android sidebar.
+        entries[#entries + 1] = { widget = FrameContainer:new{ width = self.width, height = self.height, padding = 0, bordersize = 0, radius = math.floor(self.height / 2), background = SP.surface_variant, emptySizedWidget(self.width, self.height) }, x = 0, y = 0 }
     end
-    entries[#entries + 1] = { widget = icon, x = inset + scale(12), y = math.floor((self.height - icon_size) / 2) }
+    entries[#entries + 1] = { widget = icon, x = scale(16), y = math.floor((self.height - icon_size) / 2) }
     entries[#entries + 1] = { widget = title, x = text_x, y = title_y }
-    if subtitle then entries[#entries + 1] = { widget = subtitle, x = text_x, y = title_y + title:getSize().h + scale(2) } end
-    if value then entries[#entries + 1] = { widget = value, x = self.width - scale(12) - value:getSize().w, y = math.floor((self.height - value:getSize().h) / 2) } end
+    if value then entries[#entries + 1] = { widget = value, x = self.width - scale(18) - value:getSize().w, y = math.floor((self.height - value:getSize().h) / 2) } end
     self.layout = { android_category = true, title_y = title_y, selected = self.selected }
     self[1] = Layout.FixedStack:new{ width = self.width, height = self.height, entries = entries }
     self.ges_events = { TapSettingsCategory = { GestureRange:new{ ges = "tap", range = self.dimen } } }
@@ -1291,76 +1309,53 @@ end
 function SettingsRow:init()
     self.dimen = Geom:new{ w = self.width, h = self.height }
     local is_toggle = self.toggle == true and self.show_state ~= false
-    local icon_size = math.max(scale(24), math.min(scale(32), math.floor(self.height * .58)))
-    local pad = scale(14)
-    local track_w, track_h = scale(44), scale(24)
-    local trailing_width = is_toggle and (track_w + scale(14)) or scale(28)
-    local text_x = pad + icon_size + scale(12)
-    local available = math.max(scale(18), self.width - text_x - trailing_width - scale(6))
-    local title_size = Theme.adjustText(ACTIVE_APPDOCK, math.max(scale(10), math.min(scale(14), math.floor(self.height * .29))), scale(9))
-    local detail_size = Theme.adjustText(ACTIVE_APPDOCK, math.max(scale(8), math.min(scale(11), math.floor(self.height * .21))), scale(7))
+    local pad = scale(20)
+    local track_w, track_h = scale(52), scale(30)
+    local trailing_width = is_toggle and (track_w + scale(18)) or scale(8)
+    local text_x = pad
+    local title_size = Theme.adjustText(ACTIVE_APPDOCK, math.max(scale(11), math.min(scale(16), math.floor(self.height * .30))), scale(9))
+    local detail_size = Theme.adjustText(ACTIVE_APPDOCK, math.max(scale(9), math.min(scale(13), math.floor(self.height * .22))), scale(7))
+    local available = math.max(scale(18), self.width - text_x - trailing_width - scale(8))
     local value
     if not is_toggle and type(self.value) == "string" and self.value ~= "" then
-        local value_text = TextWidget:new{ text = Theme.fitLabel(self.value, math.floor(available * .4), detail_size, 0), face = Font:getFace("smallinfofont", detail_size), fgcolor = PALETTE.on_surface, bold = true, max_width = math.floor(available * .4), padding = 0 }
-        local pill_w, pill_h = value_text:getSize().w + scale(16), value_text:getSize().h + scale(6)
-        value = FrameContainer:new{
-            width = pill_w, height = pill_h, padding = 0, bordersize = 0,
-            radius = math.floor(pill_h / 2), background = PALETTE.surface_variant,
-            CenterContainer:new{ dimen = Geom:new{ w = pill_w, h = pill_h }, value_text },
-        }
-        value.pill_size = { w = pill_w, h = pill_h }
+        value = TextWidget:new{ text = Theme.fitLabel(self.value, math.floor(available * .4), detail_size, 0), face = Font:getFace("smallinfofont", detail_size), fgcolor = SP.on_variant, bold = true, max_width = math.floor(available * .4), padding = 0 }
     end
-    local text_width = math.max(scale(18), available - (value and (value.pill_size.w + scale(8)) or 0))
-    local title = TextWidget:new{ text = Theme.fitLabel(self.title or "", text_width, title_size, 0), face = Font:getFace("smallinfofont", title_size), fgcolor = PALETTE.on_surface, bold = true, max_width = text_width, padding = 0 }
+    local text_width = math.max(scale(18), available - (value and (value:getSize().w + scale(10)) or 0))
+    local title = TextWidget:new{ text = Theme.fitLabel(self.title or "", text_width, title_size, 0), face = Font:getFace("cfont", title_size), fgcolor = SP.on_surface, bold = true, max_width = text_width, padding = 0 }
     local detail_text = Theme.fitLabel(self.subtitle or "", text_width, detail_size, 0)
-    local detail = detail_text ~= "" and TextWidget:new{ text = detail_text, face = Font:getFace("smallinfofont", detail_size), fgcolor = PALETTE.on_variant, max_width = text_width, padding = 0 } or nil
+    local detail = detail_text ~= "" and TextWidget:new{ text = detail_text, face = Font:getFace("smallinfofont", detail_size), fgcolor = SP.on_variant, max_width = text_width, padding = 0 } or nil
     local text_total = title:getSize().h + (detail and detail:getSize().h + scale(2) or 0)
     local text_y = math.max(scale(3), math.floor((self.height - text_total) / 2))
-    local icon = FrameContainer:new{
-        width = icon_size, height = icon_size, padding = 0, bordersize = 0,
-        radius = math.floor(icon_size * .32), background = PALETTE.primary,
-        CenterContainer:new{ dimen = Geom:new{ w = icon_size, h = icon_size }, DAppLogo:new{ kind = self.icon or "settings", size = math.floor(icon_size * .60), ink = PALETTE.on_primary } },
-    }
     local entries = {
-        { widget = icon, x = pad, y = math.floor((self.height - icon_size) / 2) },
         { widget = title, x = text_x, y = text_y },
     }
     if detail then table.insert(entries, { widget = detail, x = text_x, y = text_y + title:getSize().h + scale(2) }) end
-    local chevron_w = 0
     if is_toggle then
-        -- Android-style switch: filled track + large thumb when on, outlined track + small thumb when off.
+        -- Material 3 switch: accent track + large white thumb when on, outlined
+        -- track + small outline-coloured thumb when off.
         local on = self.enabled == true
-        local track_x = self.width - track_w - scale(14)
-        local border = on and 0 or math.max(1, scale(2))
-        local track = FrameContainer:new{ width = track_w, height = track_h, padding = 0, bordersize = border, color = PALETTE.outline or PALETTE.on_variant, radius = math.floor(track_h / 2), background = on and PALETTE.primary or PALETTE.surface_variant, emptySizedWidget(track_w - border * 2, track_h - border * 2) }
-        local thumb_size = on and (track_h - scale(6)) or scale(12)
-        local thumb = FrameContainer:new{ width = thumb_size, height = thumb_size, padding = 0, bordersize = 0, radius = math.floor(thumb_size / 2), background = on and PALETTE.on_primary or (PALETTE.outline or PALETTE.on_variant), emptySizedWidget(thumb_size, thumb_size) }
-        local thumb_x = on and (track_x + track_w - thumb_size - scale(3)) or (track_x + scale(6))
+        local track_x = self.width - track_w - scale(20)
+        local border = on and 0 or math.max(2, scale(2))
+        local track = FrameContainer:new{ width = track_w, height = track_h, padding = 0, bordersize = border, color = SP.outline, radius = math.floor(track_h / 2), background = on and SP.primary or SP.background, emptySizedWidget(track_w - border * 2, track_h - border * 2) }
+        local thumb_size = on and (track_h - scale(6)) or scale(14)
+        local thumb = FrameContainer:new{ width = thumb_size, height = thumb_size, padding = 0, bordersize = 0, radius = math.floor(thumb_size / 2), background = on and SP.on_primary or SP.outline, emptySizedWidget(thumb_size, thumb_size) }
+        local thumb_x = on and (track_x + track_w - thumb_size - scale(3)) or (track_x + scale(8))
         table.insert(entries, { widget = track, x = track_x, y = math.floor((self.height - track_h) / 2) })
         table.insert(entries, { widget = thumb, x = thumb_x, y = math.floor((self.height - thumb_size) / 2) })
-    else
-        local chevron = TextWidget:new{ text = "›", face = Font:getFace("cfont", math.max(scale(18), math.floor(self.height * .46))), fgcolor = PALETTE.on_variant, bold = true, padding = 0 }
-        chevron_w = chevron:getSize().w
-        local chevron_x = self.width - chevron_w - scale(14)
-        table.insert(entries, { widget = chevron, x = chevron_x, y = math.floor((self.height - chevron:getSize().h) / 2) })
-        if value then table.insert(entries, { widget = value, x = chevron_x - scale(8) - value.pill_size.w, y = math.floor((self.height - value.pill_size.h) / 2) }) end
-    end
-    if self.group_position ~= "last" and self.group_position ~= "single" then
-        local divider_w = self.width - text_x - scale(14)
-        local divider_h = math.max(1, scale(1))
-        table.insert(entries, { widget = FrameContainer:new{ width = divider_w, height = divider_h, padding = 0, bordersize = 0, background = PALETTE.surface_variant, emptySizedWidget(divider_w, divider_h) }, x = text_x, y = self.height - divider_h })
+    elseif value then
+        table.insert(entries, { widget = value, x = self.width - scale(20) - value:getSize().w, y = math.floor((self.height - value:getSize().h) / 2) })
     end
     self.layout = { android_row = true, title = title.text, detail = detail_text, is_toggle = is_toggle, group_position = self.group_position }
     if self.in_card then
         -- Group card background is drawn once behind all rows of the group.
         self[1] = Layout.FixedStack:new{ width = self.width, height = self.height, entries = entries }
     else
-        local radius = math.max(scale(12), math.floor(self.height * .26))
+        local radius = math.max(scale(16), math.floor(self.height * .30))
         local frame_style = Theme.getButtonFrameStyle(ACTIVE_APPDOCK, self.height, radius)
         self[1] = FrameContainer:new{
             width = self.width, height = self.height, padding = 0,
             bordersize = frame_style.bordersize or 0, color = frame_style.color,
-            radius = frame_style.radius or radius, background = PALETTE.surface,
+            radius = frame_style.radius or radius, background = SP.surface,
             Layout.FixedStack:new{ width = self.width, height = self.height, entries = entries },
         }
     end
@@ -4305,11 +4300,11 @@ function DAppManager:_buildSettingsPane(instance, context)
     local width, height = context.dimen.w, context.dimen.h
     -- The base rhythm remains compact for E-Ink. Content itself scrolls like
     -- Android Settings, so controls never need to become unreadably small.
-    local margin, gap = scale(10), scale(4)
-    local sidebar_width = math.min(scale(224), math.max(scale(116), math.floor(width * .30)))
+    local margin, gap = scale(16), scale(14)
+    local sidebar_width = math.min(scale(280), math.max(scale(116), math.floor(width * .36)))
     local content_x = margin + sidebar_width + gap
     local content_width = math.max(scale(96), width - content_x - margin)
-    local row_height = math.max(scale(50), math.min(scale(62), math.floor(height * .09)))
+    local row_height = math.max(scale(54), math.min(scale(68), math.floor(height * .095)))
     local categories = {
         { id = "network", title = _("Network"), subtitle = _("Connections"), logo = "network" },
         { id = "display", title = _("Display"), subtitle = _("Light and theme"), logo = "display" },
@@ -4685,18 +4680,18 @@ function DAppManager:_buildSettingsPane(instance, context)
         rows[1].subtitle = humanSize(storage_total) .. " · " .. tostring(storage_file_count) .. " files scanned"
     end
 
-    local sidebar_title_height = scale(26)
-    local search_height = scale(38)
-    local sidebar_search_y = margin + sidebar_title_height + scale(4)
-    local sidebar_list_y = sidebar_search_y + search_height + scale(10)
+    local sidebar_title_height = scale(34)
+    local search_height = scale(44)
+    local sidebar_search_y = margin + sidebar_title_height + scale(12)
+    local sidebar_list_y = sidebar_search_y + search_height + scale(18)
     local category_groups = { { "network" }, { "display", "storage" }, { "simple", "other" } }
-    local group_gap = scale(8)
+    local group_gap = scale(16)
     local category_available = height - sidebar_list_y - margin - group_gap * (#category_groups - 1)
-    local category_height = math.max(scale(36), math.min(scale(58), math.floor(category_available / #categories)))
+    local category_height = math.max(scale(40), math.min(scale(64), math.floor(category_available / #categories)))
     local preview_height = selected_category.id == "display" and math.max(scale(100), math.min(scale(132), math.floor(content_width * .40))) or 0
     local content_header_y = margin
-    local content_caption_y = content_header_y + scale(30)
-    local list_y = selected_category.id == "display" and (content_caption_y + scale(20) + preview_height + scale(8)) or (content_caption_y + scale(22))
+    local content_caption_y = content_header_y + scale(40)
+    local list_y = selected_category.id == "display" and (content_caption_y + preview_height + scale(10)) or (content_caption_y + scale(4))
     local list_height = math.max(scale(72), height - list_y - margin)
 
     local content = OverlapGroup:new{
@@ -4704,13 +4699,13 @@ function DAppManager:_buildSettingsPane(instance, context)
         allow_mirroring = false,
         FrameContainer:new{
             width = width, height = height, padding = 0, bordersize = 0,
-            background = PALETTE.background,
+            background = SP.background,
             emptySizedWidget(width, height),
         },
         TextWidget:new{
-            text = _("Settings"), face = Font:getFace("cfont", Theme.adjustText(ACTIVE_APPDOCK, scale(22), scale(15))),
-            fgcolor = PALETTE.on_surface, bold = true, padding = 0,
-            overlap_offset = { margin, margin },
+            text = _("Settings"), face = Font:getFace("cfont", Theme.adjustText(ACTIVE_APPDOCK, scale(28), scale(18))),
+            fgcolor = SP.title, bold = true, max_width = sidebar_width, padding = 0,
+            overlap_offset = { margin + scale(4), margin },
         },
         SettingsSearchBar:new{
             text = search_query ~= "" and search_query or _("Search settings"),
@@ -4719,15 +4714,9 @@ function DAppManager:_buildSettingsPane(instance, context)
             overlap_offset = { margin, sidebar_search_y },
         },
         TextWidget:new{
-            text = selected_category.title, face = Font:getFace("cfont", Theme.adjustText(ACTIVE_APPDOCK, scale(24), scale(16))),
-            fgcolor = PALETTE.on_surface, bold = true, max_width = content_width, padding = 0,
-            overlap_offset = { content_x, content_header_y },
-        },
-        TextWidget:new{
-            text = selected_category.id == "display" and _("Appearance") or selected_category.subtitle,
-            face = Font:getFace("smallinfofont", Theme.adjustText(ACTIVE_APPDOCK, scale(11), scale(8))),
-            fgcolor = PALETTE.on_variant, max_width = content_width, padding = 0,
-            overlap_offset = { content_x, content_caption_y },
+            text = selected_category.title, face = Font:getFace("cfont", Theme.adjustText(ACTIVE_APPDOCK, scale(28), scale(18))),
+            fgcolor = SP.title, bold = true, max_width = content_width, padding = 0,
+            overlap_offset = { content_x + scale(4), content_header_y },
         },
     }
     local sidebar_cursor = sidebar_list_y
@@ -4737,12 +4726,12 @@ function DAppManager:_buildSettingsPane(instance, context)
             if category_by_id[group_id] then table.insert(group_items, category_by_id[group_id]) end
         end
         if #group_items > 0 then
-            local card = settingsCardFrame(sidebar_width, #group_items * category_height, scale(18))
+            local card = settingsCardFrame(sidebar_width, #group_items * category_height, math.floor(category_height / 2))
             card.overlap_offset = { margin, sidebar_cursor }
             table.insert(content, card)
             for item_index, category in ipairs(group_items) do
                 table.insert(content, SettingsCategory:new{
-                    title = category.title, subtitle = category.subtitle, logo = category.logo, value = category.value,
+                    title = category.title, logo = category.logo, value = category.value, category_id = category.id,
                     selected = normalized_query == "" and category.id == selected_category.id,
                     width = sidebar_width, height = category_height,
                     callback = function()
@@ -4760,7 +4749,7 @@ function DAppManager:_buildSettingsPane(instance, context)
         table.insert(content, SettingsAppearancePreview:new{
             width = content_width, height = preview_height, night_mode = night_mode,
             callback = function() self:toggleColorTheme(context) end,
-            overlap_offset = { content_x, content_caption_y + scale(18) },
+            overlap_offset = { content_x, content_caption_y },
         })
     end
 
@@ -4768,7 +4757,7 @@ function DAppManager:_buildSettingsPane(instance, context)
     if #rows == 0 then
         local no_results = TextWidget:new{
             text = _("No settings found. Try a different search."),
-            face = Font:getFace("smallinfofont", scale(12)), fgcolor = PALETTE.on_variant,
+            face = Font:getFace("smallinfofont", scale(12)), fgcolor = SP.on_variant,
             max_width = content_width - scale(20), padding = 0,
         }
         table.insert(list_entries, { widget = no_results, x = scale(10), y = scale(14) })
@@ -4779,17 +4768,17 @@ function DAppManager:_buildSettingsPane(instance, context)
             local section = rows[row_index].section
             local last_index = row_index
             while rows[last_index + 1] and rows[last_index + 1].section == section do last_index = last_index + 1 end
-            if current_section ~= nil then cursor_y = cursor_y + scale(14) end
+            if current_section ~= nil then cursor_y = cursor_y + scale(10) end
             current_section = section
             local label = TextWidget:new{
-                text = Theme.fitLabel(current_section or _("Settings"), content_width - scale(18), scale(11), 0),
-                face = Font:getFace("smallinfofont", scale(11)), fgcolor = PALETTE.primary, bold = true,
+                text = Theme.fitLabel(current_section or _("Settings"), content_width - scale(18), scale(12), 0),
+                face = Font:getFace("cfont", scale(12)), fgcolor = SP.section, bold = true,
                 max_width = content_width - scale(18), padding = 0,
             }
-            table.insert(list_entries, { widget = label, x = scale(14), y = cursor_y })
+            table.insert(list_entries, { widget = label, x = scale(18), y = cursor_y })
             cursor_y = cursor_y + label:getSize().h + scale(8)
             local group_count = last_index - row_index + 1
-            table.insert(list_entries, { widget = settingsCardFrame(content_width, group_count * row_height, scale(18)), x = 0, y = cursor_y })
+            table.insert(list_entries, { widget = settingsCardFrame(content_width, group_count * row_height, scale(26)), x = 0, y = cursor_y })
             for index = row_index, last_index do
                 local row = rows[index]
                 local position = group_count == 1 and "single" or (index == row_index and "first" or (index == last_index and "last" or "middle"))
@@ -4803,7 +4792,7 @@ function DAppManager:_buildSettingsPane(instance, context)
                     x = 0, y = cursor_y + (index - row_index) * row_height,
                 })
             end
-            cursor_y = cursor_y + group_count * row_height + scale(8)
+            cursor_y = cursor_y + group_count * row_height + scale(12)
             row_index = last_index + 1
         end
     end
