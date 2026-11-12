@@ -20,6 +20,7 @@ local GestureRange = require("ui/gesturerange")
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local AppDockKeyboard = require("appdock_keyboard")
 local AppDockDialogs = require("appdock_dialogs")
+local Anim = require("appdock_anim")
 local ButtonDialog = AppDockDialogs.ButtonDialog
 local InfoMessage = AppDockDialogs.InfoMessage
 local DeviceControls = require("appdock_device_controls")
@@ -291,10 +292,18 @@ end
 
 -- Hand-stitched seam: a dashed line that follows the rounded bottom of a
 -- panel (left edge down, around the corner, along the bottom, up the right).
-local function paintStitchedSeam(bb, x, y, w, h, radius, inset, thick, ink)
+-- The dot positions only depend on the geometry, so they are computed once and
+-- every later paint is just a list of paintRect calls (same pixels as before).
+local seam_cache, seam_cache_order = {}, {}
+
+local function seamDots(x, y, w, h, radius, inset, thick)
+    local key = table.concat({ x, y, w, h, radius, inset, thick }, ":")
+    local dots = seam_cache[key]
+    if dots then return dots end
+    dots = {}
     local idx = 0
     local function dot(px, py)
-        if idx % 7 < 4 then bb:paintRect(math.floor(px), math.floor(py), thick, thick, ink) end
+        if idx % 7 < 4 then dots[#dots + 1] = { math.floor(px), math.floor(py) } end
         idx = idx + 1
     end
     local r = math.max(2, radius - inset)
@@ -312,6 +321,16 @@ local function paintStitchedSeam(bb, x, y, w, h, radius, inset, thick, ink)
         dot(cx2 + r * math.cos(a), cy + r * math.sin(a))
     end
     for py = cy, y, -thick do dot(right, py) end
+    seam_cache[key] = dots
+    seam_cache_order[#seam_cache_order + 1] = key
+    if #seam_cache_order > 6 then seam_cache[table.remove(seam_cache_order, 1)] = nil end
+    return dots
+end
+
+local function paintStitchedSeam(bb, x, y, w, h, radius, inset, thick, ink)
+    for _, d in ipairs(seamDots(x, y, w, h, radius, inset, thick)) do
+        bb:paintRect(d[1], d[2], thick, thick, ink)
+    end
 end
 
 -- Strong "ink" color used for outlines and hard shadows. Color E-Ink panels
@@ -1407,11 +1426,48 @@ function AppDockHomeScreen:_showPage(page)
     local page_count = self:_pageCount()
     page = math.max(1, math.min(page_count, tonumber(page) or self.page))
     if page == self.page or self._page_transition then return false end
+    local previous_page = self.page
+    local rect = self:_pageAnimRect()
+    local old_snapshot
+    if rect and not self.edit_mode and Anim.enabled(self.appdock) then
+        old_snapshot = Anim.capture(rect)
+    end
     self.page = page
     self:build()
+    local new_snapshot = old_snapshot and Anim.render(self, rect)
+    if old_snapshot and new_snapshot then
+        -- Swiping left (next page) pushes the content to the left.
+        local direction = page > previous_page and "left" or "right"
+        self._page_transition = true
+        local started = Anim.run{
+            region = rect,
+            frames = 6,
+            draw = function(bb, t) Anim.drawPush(bb, old_snapshot, new_snapshot, rect, direction, t) end,
+            done = function() self._page_transition = false end,
+            cleanup = function() Anim.free(old_snapshot); Anim.free(new_snapshot) end,
+        }
+        if started then return true end
+        -- Anim.run already ran done/cleanup when it could not start.
+        UIManager:setDirty(self, "ui")
+        return true
+    end
+    Anim.free(old_snapshot); Anim.free(new_snapshot)
     self._page_transition = false
     UIManager:setDirty(self, "ui")
     return true
+end
+
+-- The part of the homescreen that differs between pages: everything above the
+-- Quick access dock (clock/search on page 1, the app grid, the page dots). The
+-- dock itself stays put, like on Android.
+function AppDockHomeScreen:_pageAnimRect()
+    local layout = self.normal_layout
+    if type(layout) ~= "table" then return nil end
+    local height = self.dimen.h
+    if layout.has_app_dock_surface and tonumber(layout.quick_access_y) then
+        height = math.max(scale(120), math.floor(layout.quick_access_y - scale(6)))
+    end
+    return { x = 0, y = 0, w = self.dimen.w, h = height }
 end
 
 function AppDockHomeScreen:beginLayoutEdit(selected_app_id)
@@ -1923,8 +1979,10 @@ function AppDockHomeScreen:build()
                 table.insert(apps, app)
             end
         end
+        local sort_keys = {}
+        for _, app in ipairs(apps) do sort_keys[app] = (app.title or ""):lower() end
         table.sort(apps, function(left, right)
-            local left_title, right_title = (left.title or ""):lower(), (right.title or ""):lower()
+            local left_title, right_title = sort_keys[left], sort_keys[right]
             if left_title == right_title then return left.id < right.id end
             return left_title < right_title
         end)

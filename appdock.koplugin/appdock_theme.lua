@@ -268,12 +268,34 @@ function Theme.normalizeDesignDefinition(definition)
     }
 end
 
+-- getActiveDesign() runs for every app tile (logo shape + frame style) and for
+-- every palette lookup, and each call re-validated five hex colors with
+-- pattern matching. The normalized result is memoized per stored record and
+-- revalidated through a cheap signature, so an edited design is still picked up.
+local design_cache = setmetatable({}, { __mode = "k" })
+
+local function designSignature(record)
+    return table.concat({
+        tostring(record.id), tostring(record.title), tostring(record.version),
+        tostring(record.highlight), tostring(record.background), tostring(record.button),
+        tostring(record.text), tostring(record.dropdown), tostring(record.button_style),
+        tostring(record.logo_shape), tostring(record.wallpaper), tostring(record.source_path),
+        tostring(record.file), tostring(record.wallpaper_file),
+    }, "\1")
+end
+
 function Theme.getActiveDesign(settings)
     local design = type(settings) == "table" and type(settings.design) == "table" and settings.design or nil
     local active_id = design and design.active_id
     local installed = design and type(design.installed) == "table" and design.installed or nil
     local record = type(active_id) == "string" and installed and installed[active_id] or nil
-    return Theme.normalizeDesignDefinition(record)
+    if type(record) ~= "table" then return nil end
+    local signature = designSignature(record)
+    local entry = design_cache[record]
+    if entry and entry.signature == signature then return entry.value end
+    local value = Theme.normalizeDesignDefinition(record)
+    design_cache[record] = { signature = signature, value = value }
+    return value
 end
 
 function Theme.getAppLogoShape(appdock)
@@ -297,7 +319,7 @@ function Theme.getButtonFrameStyle(appdock, height, rounded_radius)
     }
 end
 
-function Theme.getPalette(appdock)
+local function computePalette(appdock)
     local settings = appdock and appdock.settings or nil
     local design = Theme.getActiveDesign(settings)
     local resolved_theme_id, definition = Theme.resolveDefinition(settings)
@@ -352,6 +374,32 @@ function Theme.getPalette(appdock)
         text_hex = on_background,
         high_contrast = high_contrast,
     }
+end
+
+-- The palette is a pure function of the theme settings and the panel's color
+-- mode, so it is computed once per distinct combination instead of on every
+-- homescreen build, dialog and DApp frame. A shallow copy is returned because
+-- Store DApps receive this table and must not be able to alter the shared one.
+local palette_cache, palette_cache_key = nil, nil
+
+function Theme.getPalette(appdock)
+    local settings = appdock and appdock.settings or nil
+    local design = Theme.getActiveDesign(settings)
+    local resolved_theme_id, definition = Theme.resolveDefinition(settings)
+    local high_contrast = settings and settings.accessibility and settings.accessibility.high_contrast == true
+    local key = table.concat({
+        Device.screen:isColorEnabled() and "c" or "g",
+        high_contrast and "h" or "n",
+        tostring(resolved_theme_id), tostring(definition and definition.primary),
+        design and designSignature(design) or "-",
+    }, "\1")
+    if palette_cache_key ~= key or not palette_cache then
+        palette_cache = computePalette(appdock)
+        palette_cache_key = key
+    end
+    local copy = {}
+    for name, value in pairs(palette_cache) do copy[name] = value end
+    return copy
 end
 
 function Theme.createCustom(settings, title, hex)

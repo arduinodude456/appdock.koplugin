@@ -21,6 +21,7 @@ local InputContainer = require("ui/widget/container/inputcontainer")
 local Layout = require("appdock_layout")
 local Media = require("appdock_media")
 local Motion = require("appdock_motion")
+local Anim = require("appdock_anim")
 local Theme = require("appdock_theme")
 local OverlapGroup = require("ui/widget/overlapgroup")
 local TextWidget = require("ui/widget/textwidget")
@@ -782,7 +783,49 @@ local function getBatteryInfo()
 end
 
 function QuickSettings:show(args)
-    UIManager:show(QuickSettings:new(args))
+    local shade = QuickSettings:new(args)
+    if Anim.enabled(args and args.appdock) and shade:_animateIn() then return end
+    UIManager:show(shade)
+end
+
+-- The band at the top of the screen that the shade occupies.
+function QuickSettings:_shadeRect()
+    local height = math.min(self.dimen.h, math.floor((self.sheet_height or 0) + scale(14)))
+    return { x = 0, y = 0, w = self.dimen.w, h = height }
+end
+
+-- Dropdown: the finished shade slides down from the top edge over the page,
+-- drawn in the eight fast colors with fast refreshes. The real shade is shown
+-- (normal refresh, real colors, blurred page) once it has landed.
+function QuickSettings:_animateIn()
+    local rect = self:_shadeRect()
+    if rect.h < scale(40) then return false end
+    local base, panel
+    local ok = pcall(function()
+        local canvas = Anim.copyScreen()
+        base = Anim.capture(rect, canvas)
+        -- Painting builds the blurred backdrop from the clean page, exactly
+        -- as the first real paint would.
+        self:paintTo(canvas, 0, 0)
+        panel = Anim.capture(rect, canvas)
+        if canvas.free then pcall(canvas.free, canvas) end
+    end)
+    if not ok or not base or not panel then
+        Anim.free(base); Anim.free(panel)
+        self._backdrop, self._backdrop_failed = nil, nil
+        return false
+    end
+    self._anim_base = base
+    Anim.run{
+        region = rect,
+        ease = Anim.easeOut,
+        draw = function(bb, t)
+            Anim.drawSprite(bb, base, panel, rect, 0, rect.y + math.floor(t * rect.h + .5) - rect.h)
+        end,
+        done = function() UIManager:show(self) end,
+        cleanup = function() Anim.free(panel) end,
+    }
+    return true
 end
 
 function QuickSettings:init()
@@ -1300,6 +1343,8 @@ function QuickSettings:onShow()
 end
 
 function QuickSettings:onCloseWidget()
+    Anim.free(self._anim_base)
+    self._anim_base = nil
     if self._backdrop and self._backdrop.free then pcall(self._backdrop.free, self._backdrop) end
     self._backdrop = nil
     self._backdrop_failed = nil
@@ -1307,6 +1352,30 @@ function QuickSettings:onCloseWidget()
 end
 
 function QuickSettings:onClose()
+    if self._closing then return true end
+    local base = self._anim_base
+    if base and base.bb and Anim.enabled(self.appdock) then
+        -- Retract: the shade slides back up and reveals the page again.
+        local rect = self:_shadeRect()
+        rect.h = math.min(rect.h, base.h)
+        local sprite = Anim.capture(rect)
+        if sprite then
+            self._closing = true
+            Anim.run{
+                region = rect,
+                ease = Anim.easeIn,
+                draw = function(bb, t)
+                    Anim.drawSprite(bb, base, sprite, rect, 0, rect.y - math.floor(t * rect.h + .5))
+                end,
+                done = function()
+                    UIManager:close(self)
+                    self:_refresh("ui", nil, true)
+                end,
+                cleanup = function() Anim.free(sprite) end,
+            }
+            return true
+        end
+    end
     UIManager:close(self)
     self:_refresh("ui", nil, true)
     return true

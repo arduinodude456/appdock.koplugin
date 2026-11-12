@@ -35,8 +35,22 @@ end
 -- and shared by later ImageWidgets (keyed by path, size, night-mode flag and
 -- file modification time, so a changed file is always reloaded).
 local lfs_ok, lfs = pcall(require, "libs/libkoreader-lfs")
-local CACHE_LIMIT = 6
-local cache, cache_order = {}, {}
+-- The cache used to hold only 6 bitmaps. A homescreen already shows ~10
+-- different logos plus the wallpaper, so every rebuild thrashed it and
+-- re-decoded PNGs from flash. It is now a true LRU bounded by memory (not by
+-- entry count), so everything on screen stays decoded between rebuilds.
+local CACHE_BYTE_LIMIT = 24 * 1024 * 1024
+local CACHE_ENTRY_LIMIT = 96
+local cache, cache_order, cache_bytes, cache_sizes = {}, {}, 0, {}
+
+local function bitmapBytes(bb)
+    local ok, bytes = pcall(function()
+        local stride = rawget(bb, "stride") or bb.stride
+        if type(stride) == "number" and stride > 0 then return stride * bb:getHeight() end
+        return bb:getWidth() * bb:getHeight() * 4
+    end)
+    return ok and bytes or 0
+end
 
 local function cacheKey(path, width, height, keep_original)
     if not lfs_ok or not lfs or not lfs.attributes then return nil end
@@ -46,24 +60,50 @@ local function cacheKey(path, width, height, keep_original)
         tostring(attr.modification), tostring(attr.size) }, "|")
 end
 
-local function cacheStore(key, bb)
-    if not cache[key] then
-        table.insert(cache_order, key)
-        while #cache_order > CACHE_LIMIT do
-            cache[table.remove(cache_order, 1)] = nil
+local function cacheTouch(key)
+    for index = #cache_order, 1, -1 do
+        if cache_order[index] == key then
+            if index ~= #cache_order then
+                table.remove(cache_order, index)
+                cache_order[#cache_order + 1] = key
+            end
+            return
         end
     end
+end
+
+local function cacheDrop(key)
+    cache[key] = nil
+    cache_bytes = cache_bytes - (cache_sizes[key] or 0)
+    cache_sizes[key] = nil
+end
+
+local function cacheStore(key, bb)
+    if cache[key] then
+        cacheDrop(key)
+        for index = #cache_order, 1, -1 do
+            if cache_order[index] == key then table.remove(cache_order, index) break end
+        end
+    end
+    local bytes = bitmapBytes(bb)
     cache[key] = bb
+    cache_sizes[key] = bytes
+    cache_bytes = cache_bytes + bytes
+    cache_order[#cache_order + 1] = key
+    while (#cache_order > CACHE_ENTRY_LIMIT or cache_bytes > CACHE_BYTE_LIMIT) and #cache_order > 1 do
+        cacheDrop(table.remove(cache_order, 1))
+    end
 end
 
 function Wallpaper.clearCache()
-    cache, cache_order = {}, {}
+    cache, cache_order, cache_bytes, cache_sizes = {}, {}, 0, {}
 end
 
 function Wallpaper.buildPath(path, width, height, keep_original, no_cache)
     if not Wallpaper.isValidPath(path) then return nil end
     local key = not no_cache and cacheKey(path, width, height, keep_original) or nil
     if key and cache[key] then
+        cacheTouch(key)
         local ok, image = pcall(ImageWidget.new, ImageWidget, {
             image = cache[key],
             image_disposable = false,
@@ -74,7 +114,10 @@ function Wallpaper.buildPath(path, width, height, keep_original, no_cache)
             original_in_nightmode = keep_original == true,
         })
         if ok and image then return image end
-        cache[key] = nil
+        cacheDrop(key)
+        for index = #cache_order, 1, -1 do
+            if cache_order[index] == key then table.remove(cache_order, index) break end
+        end
     end
     if not key then
         local file = io.open(path, "rb")

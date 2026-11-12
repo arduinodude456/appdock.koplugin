@@ -23,6 +23,7 @@ local InputContainer = require("ui/widget/container/inputcontainer")
 local InputDialog = AppDockDialogs.InputDialog
 local DeviceControls = require("appdock_device_controls")
 local WindowDither = require("appdock_dither")
+local Anim = require("appdock_anim")
 local AppDockKeyboard = require("appdock_keyboard")
 local DAppLogo = require("appdock_logo")
 local Glass = require("appdock_glass")
@@ -813,13 +814,85 @@ function RecentDrawer:build()
     }
 end
 
+-- Screen band from the top edge of the sheet to the bottom of the screen.
+function RecentDrawer:_sheetBand()
+    return { x = 0, y = self.sheet_y, w = self.dimen.w, h = self.dimen.h - self.sheet_y }
+end
+
+function RecentDrawer:_sheetRect()
+    return { x = self.sheet_x, y = self.sheet_y, w = self.sheet_frame.width, h = self.sheet_height }
+end
+
+-- Slide-up: the finished sheet rises from the bottom edge over the page (eight
+-- fast colors, fast refreshes). The real drawer is shown when it has landed.
+-- Returns false when it could not be prepared; nothing was shown then.
+function RecentDrawer:_animateIn()
+    local band, sheet_rect = self:_sheetBand(), self:_sheetRect()
+    local base, sprite
+    local ok = pcall(function()
+        local canvas = Anim.copyScreen()
+        base = Anim.capture(band, canvas)
+        self.sheet_layer.overlap_offset[2] = self.sheet_y
+        self:paintTo(canvas, 0, 0)
+        sprite = Anim.capture(sheet_rect, canvas)
+        if canvas.free then pcall(canvas.free, canvas) end
+    end)
+    self.sheet_layer.overlap_offset[2] = self.dimen.h + scale(12)
+    if not ok or not base or not sprite then
+        Anim.free(base); Anim.free(sprite)
+        return false
+    end
+    self._anim_base = base
+    Anim.run{
+        region = band,
+        ease = Anim.easeOut,
+        draw = function(bb, t)
+            Anim.drawSprite(bb, base, sprite, band, sheet_rect.x,
+                self.sheet_y + math.floor((1 - t) * band.h + .5))
+        end,
+        done = function() UIManager:show(self, "partial", band) end,
+        cleanup = function() Anim.free(sprite) end,
+    }
+    return true
+end
+
+-- Slide-down: the sheet leaves through the bottom edge, then `done` runs.
+function RecentDrawer:_animateOut(done)
+    local base = self._anim_base
+    if not (base and base.bb) or self._anim_leaving or not Anim.enabled(self.manager.appdock) then return false end
+    local band = self:_sheetBand()
+    local sheet_rect = self:_sheetRect()
+    local sprite = Anim.capture(sheet_rect)
+    if not sprite then return false end
+    self._anim_leaving = true
+    Anim.run{
+        region = band,
+        ease = Anim.easeIn,
+        draw = function(bb, t)
+            Anim.drawSprite(bb, base, sprite, band, sheet_rect.x,
+                self.sheet_y + math.floor(t * band.h + .5))
+        end,
+        done = function()
+            self.sheet_layer.overlap_offset[2] = self.dimen.h + scale(12)
+            if done then done() end
+        end,
+        cleanup = function() Anim.free(sprite) end,
+    }
+    return true
+end
+
 function RecentDrawer:_animateTo(target_y, done)
     if not self.sheet_layer then
         if done then done() end
         return
     end
+    if target_y > self.sheet_y + 1 and self:_animateOut(done) then return end
     self.sheet_layer.overlap_offset[2] = target_y
-    UIManager:setDirty(self, "ui")
+    if self._anim_base then
+        UIManager:setDirty(self, "partial", self:_sheetBand())
+    else
+        UIManager:setDirty(self, "ui")
+    end
     if done then done() end
 end
 
@@ -881,7 +954,11 @@ function RecentDrawer:onDismissRecentDrawer()
 end
 
 function RecentDrawer:onCloseWidget()
-    UIManager:setDirty("all", "ui")
+    -- Animated drawers already settle their own band without a full-screen refresh.
+    local animated = self._anim_base ~= nil
+    Anim.free(self._anim_base)
+    self._anim_base = nil
+    if not animated then UIManager:setDirty("all", "ui") end
 end
 
 function RecentDrawer:onClose()
@@ -1999,7 +2076,9 @@ function DAppManager:getCatalogApps()
             kind = "dapp",
         })
     end
-    table.sort(apps, function(left, right) return left.title:lower() < right.title:lower() end)
+    -- Lower-case each title once instead of twice per comparison.
+    for _, app in ipairs(apps) do app._sort_key = tostring(app.title or ""):lower() end
+    table.sort(apps, function(left, right) return left._sort_key < right._sort_key end)
     return apps
 end
 
@@ -3165,21 +3244,58 @@ function DAppManager:_captureRecentThumb(id)
 end
 
 function DAppManager:showRecents(home)
+    -- Capture the screen the user is leaving before anything is closed.
+    local canvas, old_snapshot
+    if Anim.enabled(self.appdock) then
+        local ok = pcall(function()
+            canvas = Anim.copyScreen()
+            old_snapshot = Anim.capture(Anim.screenRect(), canvas)
+        end)
+        if not ok or not old_snapshot then
+            Anim.free(old_snapshot); old_snapshot = nil
+        end
+    end
     if home then UIManager:close(home) end
     if self.active_host then
         self:_captureRecentThumb(self.active_id)
         UIManager:close(self.active_host)
     end
-    UIManager:show(DAppRecents:new{ manager = self })
+    local recents = DAppRecents:new{ manager = self }
+    if old_snapshot then
+        -- Open apps rises from the bottom over the old screen. It is painted
+        -- offscreen on the old screen, so its blurred backdrop is the page the
+        -- user just left.
+        local rect = Anim.screenRect()
+        local new_snapshot = Anim.render(recents, rect, canvas)
+        if new_snapshot then
+            Anim.run{
+                region = rect,
+                frames = 5,
+                ease = Anim.easeOut,
+                draw = function(bb, t)
+                    Anim.drawSprite(bb, old_snapshot, new_snapshot, rect, 0, math.floor((1 - t) * rect.h + .5))
+                end,
+                done = function() UIManager:show(recents, "partial") end,
+                cleanup = function() Anim.free(old_snapshot); Anim.free(new_snapshot) end,
+            }
+            if canvas and canvas.free then pcall(canvas.free, canvas) end
+            return
+        end
+        Anim.free(old_snapshot)
+    end
+    if canvas and canvas.free then pcall(canvas.free, canvas) end
+    UIManager:show(recents)
 end
 
 function DAppManager:showRecentDrawer(source, launch_home, dismiss)
-    UIManager:show(RecentDrawer:new{
+    local drawer = RecentDrawer:new{
         manager = self,
         source = source,
         launch_home = launch_home or source,
         dismiss = dismiss,
-    })
+    }
+    if Anim.enabled(self.appdock) and drawer:_animateIn() then return end
+    UIManager:show(drawer)
 end
 
 function DAppManager:showAllApps(source, launch_home, dismiss)
@@ -5966,6 +6082,41 @@ function DAppRecents:_dockApps()
     return apps
 end
 
+-- The band that holds the focused card, its page dots and some spare room.
+function DAppRecents:_cardRect()
+    local m = recentsMetrics(self.dimen.w, self.dimen.h)
+    return { x = 0, y = m.area_top, w = self.dimen.w, h = m.area_bottom - m.area_top + scale(34) }
+end
+
+-- Runs `mutate` (which must rebuild the view) and slides from the old card
+-- band to the new one. kind: "left" / "right" (browse) or "fly_up" (dismiss).
+function DAppRecents:_transition(kind, mutate)
+    local rect = self:_cardRect()
+    local old = Anim.enabled(self.manager.appdock) and Anim.capture(rect) or nil
+    mutate()
+    local new = old and Anim.render(self, rect) or nil
+    if not (old and new) then
+        Anim.free(old); Anim.free(new)
+        UIManager:setDirty(self, "ui")
+        return
+    end
+    local started = Anim.run{
+        region = rect,
+        frames = 5,
+        ease = kind == "fly_up" and Anim.easeIn or Anim.easeInOut,
+        draw = function(bb, t)
+            if kind == "fly_up" then
+                -- The dismissed card flies up and off; the next one is already below it.
+                Anim.drawSprite(bb, new, old, rect, rect.x, rect.y - math.floor(t * rect.h + .5))
+            else
+                Anim.drawPush(bb, old, new, rect, kind, t)
+            end
+        end,
+        cleanup = function() Anim.free(old); Anim.free(new) end,
+    }
+    if not started then UIManager:setDirty(self, "ui") end
+end
+
 function DAppRecents:_closeAll()
     local ids = {}
     for _, app in ipairs(self.manager:getOpenApps()) do ids[#ids + 1] = app.id end
@@ -6036,9 +6187,10 @@ function DAppRecents:build()
             on_hold = function() self.manager:showDAppActions(app.id, self) end,
             on_close = function()
                 self.manager:closeDApp(app.id)
-                if self.focus > #self.manager:getOpenApps() then self.focus = #self.manager:getOpenApps() end
-                self:build()
-                UIManager:setDirty(self, "ui")
+                self:_transition("fly_up", function()
+                    if self.focus > #self.manager:getOpenApps() then self.focus = #self.manager:getOpenApps() end
+                    self:build()
+                end)
             end,
             overlap_offset = { card_x, card_y },
         })
@@ -6124,11 +6276,15 @@ function DAppRecents:onSwipeRecents(_, ges)
     local direction = ges and ges.direction
     local count = #self.manager:getOpenApps()
     if count < 2 then return false end
-    if direction == "west" then self.focus = math.min(count, (self.focus or 1) + 1)
-    elseif direction == "east" then self.focus = math.max(1, (self.focus or 1) - 1)
+    local target, kind
+    if direction == "west" then target, kind = math.min(count, (self.focus or 1) + 1), "left"
+    elseif direction == "east" then target, kind = math.max(1, (self.focus or 1) - 1), "right"
     else return false end
-    self:build()
-    UIManager:setDirty(self, "ui")
+    if target == self.focus then return true end
+    self:_transition(kind, function()
+        self.focus = target
+        self:build()
+    end)
     return true
 end
 

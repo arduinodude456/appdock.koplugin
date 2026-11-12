@@ -15,6 +15,15 @@ local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local _ = require("gettext")
 
 local Boot = {}
+
+-- The two boot frames are kept exactly as designed, but their pauses were a
+-- fixed ~2 s during which the CPU sat idle and the homescreen (plus the keyboard,
+-- DApp service and quick settings modules) was only loaded afterwards. The
+-- pauses are now shorter and that idle time is used to preload those modules,
+-- so the homescreen appears the moment the second frame is done.
+local FRAME_ONE_SECONDS = 0.55
+local FRAME_TWO_SECONDS = 0.55
+
 local BootScreen = WidgetContainer:extend{ on_finish = nil, stage = 1, _advance = nil, _finish = nil, completed = false }
 
 local function scale(value)
@@ -52,10 +61,11 @@ function BootScreen:init()
         self.stage = 2
         self:rebuild()
         UIManager:setDirty(self, "ui")
-        UIManager:scheduleIn(1.0, self._finish)
+        UIManager:scheduleIn(FRAME_TWO_SECONDS, self._finish)
     end
     self._finish = function()
         if self.completed then return end
+        self:_runPreload(true)
         self.completed = true
         UIManager:close(self)
         UIManager:nextTick(function()
@@ -64,19 +74,41 @@ function BootScreen:init()
     end
 end
 
+-- Runs the queued preload steps one per tick (so frames and touch stay
+-- responsive). `flush` runs whatever is left immediately.
+function BootScreen:_runPreload(flush)
+    local steps = self.preload
+    if type(steps) ~= "table" then return end
+    while #steps > 0 do
+        local step = table.remove(steps, 1)
+        pcall(step)
+        if not flush then
+            if #steps > 0 then
+                self._preload_tick = function() self._preload_tick = nil self:_runPreload(false) end
+                UIManager:scheduleIn(0.02, self._preload_tick)
+            end
+            return
+        end
+    end
+end
+
 function BootScreen:onShow()
     UIManager:setDirty(self, "ui")
-    UIManager:scheduleIn(0.95, self._advance)
+    UIManager:scheduleIn(FRAME_ONE_SECONDS, self._advance)
+    -- Start preloading only after the first frame has been painted.
+    self._preload_tick = function() self._preload_tick = nil self:_runPreload(false) end
+    UIManager:scheduleIn(0.08, self._preload_tick)
     return true
 end
 
 function BootScreen:onCloseWidget()
     if self._advance then UIManager:unschedule(self._advance) end
     if self._finish then UIManager:unschedule(self._finish) end
+    if self._preload_tick then UIManager:unschedule(self._preload_tick) end
 end
 
-function Boot.show(on_finish)
-    UIManager:show(BootScreen:new{ on_finish = on_finish })
+function Boot.show(on_finish, preload)
+    UIManager:show(BootScreen:new{ on_finish = on_finish, preload = preload })
 end
 
 Boot._test = { BootScreen = BootScreen, brandInk = brandInk }

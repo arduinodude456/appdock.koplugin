@@ -38,13 +38,20 @@ local RASTER_LOGOS = {
     minecraft = "minecraft.png",
 }
 
+-- The bundled logo files never change at runtime, so the existence check is
+-- done once per kind instead of one io.open per tile and per rebuild.
+local raster_path_cache = {}
+
 local function rasterPath(kind)
+    local cached = raster_path_cache[kind]
+    if cached ~= nil then return cached or nil end
     local filename = RASTER_LOGOS[kind]
-    if not filename then return nil end
+    if not filename then raster_path_cache[kind] = false return nil end
     local path = MODULE_DIR .. "assets/logos/" .. filename
     local file = io.open(path, "rb")
-    if not file then return nil end
+    if not file then raster_path_cache[kind] = false return nil end
     file:close()
+    raster_path_cache[kind] = path
     return path
 end
 

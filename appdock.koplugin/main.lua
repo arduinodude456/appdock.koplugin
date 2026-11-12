@@ -99,6 +99,7 @@ local DEFAULT_SETTINGS = {
     keyboard = { language = "auto", enabled = true },
     file_browser = { sort_category = "all", show_hidden = false, hidden_paths = {} },
     power_saving = false,
+    animations = true,
     volume_percent = 100,
     refresh_interval = 60,
     sleepscreen_enabled = false,
@@ -326,6 +327,7 @@ function AppDock:_loadSettings()
         keyboard = tableValue(stored.keyboard, { language = "auto" }),
         file_browser = tableValue(stored.file_browser, { sort_category = "all", show_hidden = false, hidden_paths = {} }),
         power_saving = stored.power_saving == true,
+        animations = stored.animations ~= false,
         volume_percent = math.max(0, math.min(100, tonumber(stored.volume_percent) or 100)),
         refresh_interval = tonumber(stored.refresh_interval) or DEFAULT_SETTINGS.refresh_interval,
         sleepscreen_enabled = stored.sleepscreen_enabled == true,
@@ -630,6 +632,7 @@ function AppDock:_loadSettings()
 end
 
 function AppDock:_saveSettings()
+    self._unread_counts = nil
     G_reader_settings:saveSetting(self.settings_key, self.settings)
     -- Cloud writes are debounced and intentionally happen after a local save;
     -- an unavailable connection can therefore never cost local settings.
@@ -1004,6 +1007,11 @@ function AppDock:setSleepScreenEnabled(enabled)
     return self.settings.sleepscreen_enabled
 end
 
+function AppDock:setAnimations(enabled)
+    self.settings.animations = enabled ~= false
+    self:_saveSettings()
+end
+
 function AppDock:setPowerSaving(enabled)
     self.settings.power_saving = enabled == true
     self:_saveSettings()
@@ -1178,13 +1186,22 @@ function AppDock:getUnreadNotificationCount()
     return count
 end
 
+-- Every app tile asked for its unread count on every repaint, each time
+-- walking all (up to 50) notifications. The counts are now built in a single
+-- pass and reused until the settings change (all notification changes go
+-- through _saveSettings, which drops the table).
 function AppDock:getUnreadNotificationCountForApp(app_id)
     if type(app_id) ~= "string" or app_id == "" then return 0 end
-    local count = 0
-    for _, item in ipairs(self.settings.notifications.items or {}) do
-        if not item.read and item.app_id == app_id then count = count + 1 end
+    local items = self.settings.notifications.items or {}
+    local counts = self._unread_counts
+    if not counts or self._unread_counts_items ~= items or self._unread_counts_len ~= #items then
+        counts = {}
+        for _, item in ipairs(items) do
+            if not item.read and item.app_id then counts[item.app_id] = (counts[item.app_id] or 0) + 1 end
+        end
+        self._unread_counts, self._unread_counts_items, self._unread_counts_len = counts, items, #items
     end
-    return count
+    return counts[app_id] or 0
 end
 
 function AppDock:_refreshNotificationBadges()
@@ -1324,6 +1341,23 @@ function AppDock:addToMainMenu(menu_items)
                     self:showManager()
                 end,
             },
+            {
+                text = _("Animation status"),
+                keep_menu_open = true,
+                callback = function()
+                    local Anim = require("appdock_anim")
+                    Anim.enabled(self)
+                    UIManager:show(InfoMessage:new{ text = _("Last animation status: ") .. tostring(Anim.last_reason) })
+                end,
+            },
+            {
+                text = _("Slide animations (fast refresh, 8 colors)"),
+                checked_func = function() return self.settings.animations ~= false end,
+                keep_menu_open = true,
+                callback = function()
+                    self:setAnimations(self.settings.animations == false)
+                end,
+            },
         },
     }
 end
@@ -1346,7 +1380,17 @@ function AppDock:showHome(skip_lock, on_ready)
         self._boot_shown = true
         local ok, Boot = pcall(require, "appdock_boot")
         if ok and Boot and Boot.show then
-            Boot.show(function() self:showHome(true, on_ready) end)
+            -- Modules the homescreen needs are loaded while the boot frames
+            -- are on screen instead of after them (each step is guarded).
+            local preload = {
+                function() require("appdock_theme") end,
+                function() require("appdock_logo") end,
+                function() require("appdock_keyboard") end,
+                function() require("appdock_homescreen") end,
+                function() self:getDAppManager() end,
+                function() require("appdock_quicksettings") end,
+            }
+            Boot.show(function() self:showHome(true, on_ready) end, preload)
             return
         end
     end
@@ -1559,8 +1603,10 @@ function AppDock:getPluginApps()
         local ok, app = pcall(self._makePluginApp, self, plugin_module)
         if ok and app then table.insert(apps, app) end
     end
+    local sort_keys = {}
+    for _, app in ipairs(apps) do sort_keys[app] = app.title:lower() end
     table.sort(apps, function(left, right)
-        return left.title:lower() < right.title:lower()
+        return sort_keys[left] < sort_keys[right]
     end)
     self._plugin_apps_cache = { time = now, apps = apps }
     return apps
