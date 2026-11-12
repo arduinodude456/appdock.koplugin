@@ -197,6 +197,7 @@ opts:
   draw     function(bb, t, rect): paint frame `t` (0..1, already eased)
   done     function(): the new state; runs once after the last frame
   after    function(): optional callback after the overlay is closed
+  close_refresh false: close the overlay without enqueueing another refresh
   cleanup  function(): free snapshots; runs once, after done
   frames, interval, ease: optional
 Returns true when the animation started. When it could not start `done` and
@@ -216,7 +217,7 @@ function Anim.run(opts)
     local ease = opts.ease or Anim.easeInOut
     -- Let the first show paint the first moved frame instead of painting a
     -- static t=0 frame and then repainting it again when the timer starts.
-    local progress, frame, finished = ease(1 / frames), 0, false
+    local progress, frame, finished = ease(1 / frames), 1, false
     local overlay, tick, finish
 
     local started = pcall(function()
@@ -240,7 +241,13 @@ function Anim.run(opts)
         end
         -- Keep the hand-off in the same regional fast-refresh path as the
         -- frames. A partial/full settle here causes a visible flash on E-Ink.
-        if not pcall(UIManager.close, UIManager, overlay, "fast", overlay.dimen) then
+        local closed
+        if opts.close_refresh == false then
+            closed = pcall(UIManager.close, UIManager, overlay)
+        else
+            closed = pcall(UIManager.close, UIManager, overlay, "fast", overlay.dimen)
+        end
+        if not closed then
             pcall(UIManager.close, UIManager, overlay)
         end
         if opts.after then
@@ -266,10 +273,25 @@ function Anim.run(opts)
     end
 
     Anim._busy = true
-    local shown = pcall(UIManager.show, UIManager, overlay, "fast", overlay.dimen)
+    -- Register the overlay without making UIManager repaint it. Paint the
+    -- first moved frame directly into the already visible screen buffer, then
+    -- enqueue only the refresh that actually displays that frame. This avoids
+    -- the extra static/old-screen refresh immediately before the animation.
+    local shown = pcall(UIManager.show, UIManager, overlay)
     if not shown then
         Anim._busy = false
         return bail()
+    end
+    local first_painted = false
+    if type(UIManager.widgetRepaint) == "function" then
+        first_painted = pcall(UIManager.widgetRepaint, UIManager, overlay, rect.x, rect.y)
+    end
+    if first_painted then
+        pcall(UIManager.setDirty, UIManager, nil, "fast", rect)
+        if UIManager.forceRePaint then UIManager:forceRePaint() end
+    else
+        pcall(UIManager.setDirty, UIManager, overlay, "fast", rect)
+        if UIManager.forceRePaint then UIManager:forceRePaint() end
     end
     -- Safety net: whatever happens, the overlay never stays on screen.
     UIManager:scheduleIn(8 + frames * 0.6, finish)

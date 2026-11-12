@@ -1444,6 +1444,13 @@ function AppDockHomeScreen:_showPage(page)
             frames = 6,
             draw = function(bb, t) Anim.drawPush(bb, old_snapshot, new_snapshot, rect, direction, t) end,
             done = function() self._page_transition = false end,
+            close_refresh = false,
+            after = function()
+                -- The animation is the only refresh before this point. Once
+                -- the overlay is gone, clear E-Ink ghosting exactly once.
+                UIManager:setDirty("all", "full")
+                if UIManager.forceRePaint then UIManager:forceRePaint() end
+            end,
             cleanup = function() Anim.free(old_snapshot); Anim.free(new_snapshot) end,
         }
         if started then return true end

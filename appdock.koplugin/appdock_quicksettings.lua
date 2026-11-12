@@ -1368,6 +1368,7 @@ function QuickSettings:onClose()
                 done = function()
                     UIManager:close(self, "fast", rect)
                 end,
+                close_refresh = false,
                 after = function()
                     -- The page underneath has accumulated fast-waveform
                     -- ghosting during the retract. Clear it exactly once,
