@@ -796,7 +796,7 @@ end
 
 -- Dropdown: the finished shade slides down from the top edge over the page,
 -- drawn in the eight fast colors with fast refreshes. The real shade is shown
--- (normal refresh, real colors, blurred page) once it has landed.
+-- with the same regional fast refresh once it has landed.
 function QuickSettings:_animateIn()
     local rect = self:_shadeRect()
     if rect.h < scale(40) then return false end
@@ -822,7 +822,7 @@ function QuickSettings:_animateIn()
         draw = function(bb, t)
             Anim.drawSprite(bb, base, panel, rect, 0, rect.y + math.floor(t * rect.h + .5) - rect.h)
         end,
-        done = function() UIManager:show(self) end,
+        done = function() UIManager:show(self, "fast", rect) end,
         cleanup = function() Anim.free(panel) end,
     }
     return true
@@ -1338,7 +1338,6 @@ function QuickSettings:onTapOutsideQuickSettings(arg, ges_ev)
 end
 
 function QuickSettings:onShow()
-    self:_refresh("ui", nil, true)
     return true
 end
 
@@ -1348,7 +1347,6 @@ function QuickSettings:onCloseWidget()
     if self._backdrop and self._backdrop.free then pcall(self._backdrop.free, self._backdrop) end
     self._backdrop = nil
     self._backdrop_failed = nil
-    self:_refresh("ui", nil, true)
 end
 
 function QuickSettings:onClose()
@@ -1368,8 +1366,7 @@ function QuickSettings:onClose()
                     Anim.drawSprite(bb, base, sprite, rect, 0, rect.y - math.floor(t * rect.h + .5))
                 end,
                 done = function()
-                    UIManager:close(self)
-                    self:_refresh("ui", nil, true)
+                    UIManager:close(self, "fast", rect)
                 end,
                 cleanup = function() Anim.free(sprite) end,
             }
@@ -1377,7 +1374,6 @@ function QuickSettings:onClose()
         end
     end
     UIManager:close(self)
-    self:_refresh("ui", nil, true)
     return true
 end
 

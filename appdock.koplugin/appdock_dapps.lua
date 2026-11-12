@@ -824,7 +824,8 @@ function RecentDrawer:_sheetRect()
 end
 
 -- Slide-up: the finished sheet rises from the bottom edge over the page (eight
--- fast colors, fast refreshes). The real drawer is shown when it has landed.
+-- fast colors, fast refreshes). The real drawer is shown with the same
+-- regional fast refresh when it has landed.
 -- Returns false when it could not be prepared; nothing was shown then.
 function RecentDrawer:_animateIn()
     local band, sheet_rect = self:_sheetBand(), self:_sheetRect()
@@ -850,7 +851,7 @@ function RecentDrawer:_animateIn()
             Anim.drawSprite(bb, base, sprite, band, sheet_rect.x,
                 self.sheet_y + math.floor((1 - t) * band.h + .5))
         end,
-        done = function() UIManager:show(self, "partial", band) end,
+        done = function() UIManager:show(self, "fast", band) end,
         cleanup = function() Anim.free(sprite) end,
     }
     return true
@@ -889,7 +890,7 @@ function RecentDrawer:_animateTo(target_y, done)
     if target_y > self.sheet_y + 1 and self:_animateOut(done) then return end
     self.sheet_layer.overlap_offset[2] = target_y
     if self._anim_base then
-        UIManager:setDirty(self, "partial", self:_sheetBand())
+        UIManager:setDirty(self, "fast", self:_sheetBand())
     else
         UIManager:setDirty(self, "ui")
     end
@@ -3275,7 +3276,7 @@ function DAppManager:showRecents(home)
                 draw = function(bb, t)
                     Anim.drawSprite(bb, old_snapshot, new_snapshot, rect, 0, math.floor((1 - t) * rect.h + .5))
                 end,
-                done = function() UIManager:show(recents, "partial") end,
+                done = function() UIManager:show(recents, "fast", rect) end,
                 cleanup = function() Anim.free(old_snapshot); Anim.free(new_snapshot) end,
             }
             if canvas and canvas.free then pcall(canvas.free, canvas) end

@@ -37,10 +37,9 @@ function Motion.run(target, frames, interval, draw, done, region)
         if frame < frames then
             UIManager:scheduleIn(interval, tick)
         elseif done then
-            -- Clear accumulated ghosting after the last fast frame. A full
-            -- refresh here is intentional and happens only once per gesture.
-            UIManager:setDirty("all", "full")
-            if UIManager.forceRePaint then UIManager:forceRePaint() end
+            -- Keep the final hand-off on the same fast path. A full refresh
+            -- here causes the flash that makes short control animations feel
+            -- broken on E-Ink.
             done()
         end
     end

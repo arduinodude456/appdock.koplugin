@@ -10,9 +10,9 @@ Rules every animation here follows:
     shimmer.
   * Every frame is refreshed with the "fast" waveform, restricted to the
     moving region.
-  * When the last frame is on screen the overlay is closed and KOReader
-    repaints the real widgets with its normal "ui" refresh, so the true
-    colors come back exactly once.
+  * When the last frame is on screen the overlay is closed with the same
+    regional "fast" refresh. There is no extra full/partial refresh before or
+    after the animation, so the transition cannot flash.
   * The overlay swallows touch gestures while it runs, so a second swipe or
     a tap cannot start something in the middle of a transition.
   * Anything that fails (missing buffer type, painting error, ...) falls back
@@ -235,10 +235,9 @@ function Anim.run(opts)
             local ok, err = pcall(opts.done)
             if not ok then logger.warn("AppDock animation: done failed", err) end
         end
-        -- Closing the overlay repaints the real widgets below it (normal "ui"
-        -- refresh, real colors) for exactly this region.
-        -- "partial" (never "full"): no black/white flash, only this region.
-        if not pcall(UIManager.close, UIManager, overlay, opts.settle or "partial", overlay.dimen) then
+        -- Keep the hand-off in the same regional fast-refresh path as the
+        -- frames. A partial/full settle here causes a visible flash on E-Ink.
+        if not pcall(UIManager.close, UIManager, overlay, "fast", overlay.dimen) then
             pcall(UIManager.close, UIManager, overlay)
         end
         if opts.cleanup then pcall(opts.cleanup) end
