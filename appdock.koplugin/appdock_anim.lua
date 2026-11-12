@@ -273,6 +273,13 @@ function Anim.run(opts)
     end
 
     Anim._busy = true
+    -- A transition often follows UIManager:close(), whose CloseWidget
+    -- handlers may have queued a repaint of the newly uncovered widgets.
+    -- Do not let the first forceRePaint below drain that stale queue before
+    -- the animation's first frame: on E-Ink that produces a visible flash.
+    -- The animation owns the affected region and will repaint it immediately.
+    UIManager._dirty = {}
+    UIManager._refresh_stack = {}
     -- Register the overlay without making UIManager repaint it. Paint the
     -- first moved frame directly into the already visible screen buffer, then
     -- enqueue only the refresh that actually displays that frame. This avoids

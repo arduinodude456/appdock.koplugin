@@ -1140,7 +1140,6 @@ function AppTile:onTapSelectAppTile()
         self.home:showAppGroup(self.app)
         return true
     end
-    UIManager:setDirty(self, "fast")
     self.appdock:launchApp(self.app, self.home)
     return true
 end
