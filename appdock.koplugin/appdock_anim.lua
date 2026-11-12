@@ -196,6 +196,7 @@ opts:
   region   {x, y, w, h}  screen rectangle that moves (refreshed every frame)
   draw     function(bb, t, rect): paint frame `t` (0..1, already eased)
   done     function(): the new state; runs once after the last frame
+  after    function(): optional callback after the overlay is closed
   cleanup  function(): free snapshots; runs once, after done
   frames, interval, ease: optional
 Returns true when the animation started. When it could not start `done` and
@@ -213,7 +214,9 @@ function Anim.run(opts)
     local frames = math.max(2, math.floor(opts.frames or Anim.frames))
     local interval = tonumber(opts.interval) or Anim.interval
     local ease = opts.ease or Anim.easeInOut
-    local progress, frame, finished = 0, 0, false
+    -- Let the first show paint the first moved frame instead of painting a
+    -- static t=0 frame and then repainting it again when the timer starts.
+    local progress, frame, finished = ease(1 / frames), 0, false
     local overlay, tick, finish
 
     local started = pcall(function()
@@ -239,6 +242,10 @@ function Anim.run(opts)
         -- frames. A partial/full settle here causes a visible flash on E-Ink.
         if not pcall(UIManager.close, UIManager, overlay, "fast", overlay.dimen) then
             pcall(UIManager.close, UIManager, overlay)
+        end
+        if opts.after then
+            local ok, err = pcall(opts.after)
+            if not ok then logger.warn("AppDock animation: after failed", err) end
         end
         if opts.cleanup then pcall(opts.cleanup) end
     end

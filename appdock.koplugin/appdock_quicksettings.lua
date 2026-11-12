@@ -1368,6 +1368,13 @@ function QuickSettings:onClose()
                 done = function()
                     UIManager:close(self, "fast", rect)
                 end,
+                after = function()
+                    -- The page underneath has accumulated fast-waveform
+                    -- ghosting during the retract. Clear it exactly once,
+                    -- after both the shade and its animation overlay are gone.
+                    UIManager:setDirty("all", "ui")
+                    if UIManager.forceRePaint then UIManager:forceRePaint() end
+                end,
                 cleanup = function() Anim.free(sprite) end,
             }
             return true
