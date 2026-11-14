@@ -870,8 +870,9 @@ end
 assert(appdock:setAccessibility({ text_scale = 1.3, high_contrast = true }) and Theme.getPalette(appdock).high_contrast, "Accessibility settings must persist a bounded text scale and activate the high-contrast palette")
 manager:showFrontlightSettings()
 assert(log.events[#log.events] == "ShowFlDialog", "Brightness and warmth must use KOReader's native frontlight dialog")
-manager:toggleColorTheme({ requestRebuild = function() log.settings_rebuilds = (log.settings_rebuilds or 0) + 1 end })
-assert(log.events[#log.events] == "ToggleNightMode" and log.settings_rebuilds == 1, "Color themes must trigger KOReader's night-mode event")
+manager:toggleNightMode({ requestRebuild = function() log.settings_rebuilds = (log.settings_rebuilds or 0) + 1 end })
+assert(appdock.settings.theme.night_mode and Theme.getPalette(appdock).background_hex ~= "#FAF8FF", "The AppDock appearance toggle must activate its own dark theme")
+assert(log.events[#log.events] == "ShowFlDialog" and log.settings_rebuilds == 1, "AppDock appearance changes must rebuild locally without broadcasting KOReader's inversion event")
 settings_instance.settings_category = "other"
 manager:activate("settings")
 assert(settings_instance.pane.settings_layout.category == "other" and settings_instance.pane.settings_layout.row_count == 11, "Other category must include the AppDock keyboard switch alongside the sleep screen, setup wizard and other options")

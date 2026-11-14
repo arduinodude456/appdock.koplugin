@@ -4,7 +4,7 @@ It exposes selected KOReader plugin menu actions as configurable app tiles.
 --]]--
 
 local MODULE_DIR = (debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "")
-local APPDOCK_RELEASE = "9.0.0"
+local APPDOCK_RELEASE = "9.5.1"
 local AppDockRecovery
 local recovery_context
 do
@@ -68,7 +68,7 @@ local DEFAULT_SETTINGS = {
         store_order = {},
     },
     did_seed = false,
-    theme = { selected = "lavender", custom = {} },
+    theme = { selected = "lavender", custom = {}, night_mode = false },
     design = { active_id = nil, installed = {} },
     plugin_logos = {},
     store = { installed = {} },
@@ -99,7 +99,6 @@ local DEFAULT_SETTINGS = {
     keyboard = { language = "auto", enabled = true },
     file_browser = { sort_category = "all", show_hidden = false, hidden_paths = {} },
     power_saving = false,
-    animations = true,
     volume_percent = 100,
     refresh_interval = 60,
     sleepscreen_enabled = false,
@@ -213,12 +212,16 @@ local function normalizeYouTubeSettings(stored)
 end
 
 function AppDock:init()
+    pcall(function() require("appdock_theme").bind(self) end)
     self:_loadSettings()
     if self.ui and self.ui.menu and self.ui.menu.registerToMainMenu then
         self.ui.menu:registerToMainMenu(self)
     end
     self:_scheduleScreenRefresh()
     self:_scheduleDAppTasks()
+    -- Health & reading: eye-protection schedule, statistics, reminders.
+    local health_ok, Health = pcall(require, "appdock_health")
+    if health_ok and Health and Health.attach then pcall(Health.attach, self) end
     UIManager:nextTick(function()
         local manager = self:getDAppManager()
         if manager and manager.runPermittedAutostarts then manager:runPermittedAutostarts() end
@@ -251,7 +254,21 @@ function AppDock:init()
     end)
 end
 
+-- Health & reading hooks. They never consume the event (return nil), so the
+-- reader and other plugins still receive it.
+local function healthCall(self, name, ...)
+    if not self.health_state then return end
+    local ok, Health = pcall(require, "appdock_health")
+    if ok and Health and type(Health[name]) == "function" then pcall(Health[name], self.health_state, ...) end
+end
+
+function AppDock:onReaderReady() healthCall(self, "touch") end
+function AppDock:onPageUpdate() healthCall(self, "touch") end
+function AppDock:onPosUpdate() healthCall(self, "touch") end
+function AppDock:onCloseDocument() healthCall(self, "onCloseDocument") end
+
 function AppDock:onSuspend()
+    healthCall(self, "onSuspend")
     if self.settings.sleepscreen_enabled then
         local ok, SleepScreen = pcall(require, "appdock_sleepscreen")
         if ok and SleepScreen and SleepScreen.show then SleepScreen.show(self) end
@@ -265,6 +282,7 @@ function AppDock:onSuspend()
 end
 
 function AppDock:onResume()
+    healthCall(self, "onResume")
     local ok, SleepScreen = pcall(require, "appdock_sleepscreen")
     if ok and SleepScreen and SleepScreen.close then SleepScreen.close() end
     if not self._lock_after_resume then return end
@@ -301,7 +319,7 @@ function AppDock:_loadSettings()
             store_order = {},
         }),
         did_seed = stored.did_seed or false,
-        theme = tableValue(stored.theme, { selected = "lavender", custom = {} }),
+        theme = tableValue(stored.theme, { selected = "lavender", custom = {}, night_mode = false }),
         design = tableValue(stored.design, { active_id = nil, installed = {} }),
         plugin_logos = tableValue(stored.plugin_logos),
         store = tableValue(stored.store, { installed = {} }),
@@ -320,6 +338,7 @@ function AppDock:_loadSettings()
         tbs_account = tableValue(stored.tbs_account, { enabled = false, username = "", display_name = "" }),
         setup_assistant = tableValue(stored.setup_assistant, { offered_version = "", completed_version = "" }),
         update_dialog = tableValue(stored.update_dialog, { dismissed_version = "" }),
+        health = tableValue(stored.health),
         onboarding = tableValue(stored.onboarding, { completed = false, completed_at = 0, version = 1 }),
         device = tableValue(stored.device, { name = "", kind = "" }),
         privacy = tableValue(stored.privacy, { cloud_backup = true, share_app_usage = true }),
@@ -327,7 +346,6 @@ function AppDock:_loadSettings()
         keyboard = tableValue(stored.keyboard, { language = "auto" }),
         file_browser = tableValue(stored.file_browser, { sort_category = "all", show_hidden = false, hidden_paths = {} }),
         power_saving = stored.power_saving == true,
-        animations = stored.animations ~= false,
         volume_percent = math.max(0, math.min(100, tonumber(stored.volume_percent) or 100)),
         refresh_interval = tonumber(stored.refresh_interval) or DEFAULT_SETTINGS.refresh_interval,
         sleepscreen_enabled = stored.sleepscreen_enabled == true,
@@ -466,6 +484,7 @@ function AppDock:_loadSettings()
     self.settings.theme = self.settings.theme or { selected = "lavender", custom = {} }
     self.settings.theme.selected = self.settings.theme.selected or "lavender"
     self.settings.theme.custom = tableValue(self.settings.theme.custom)
+    self.settings.theme.night_mode = self.settings.theme.night_mode == true
     self.settings.design = self.settings.design or { active_id = nil, installed = {} }
     self.settings.design.installed = tableValue(self.settings.design.installed)
     local Theme = require("appdock_theme")
@@ -1007,11 +1026,6 @@ function AppDock:setSleepScreenEnabled(enabled)
     return self.settings.sleepscreen_enabled
 end
 
-function AppDock:setAnimations(enabled)
-    self.settings.animations = enabled ~= false
-    self:_saveSettings()
-end
-
 function AppDock:setPowerSaving(enabled)
     self.settings.power_saving = enabled == true
     self:_saveSettings()
@@ -1269,6 +1283,13 @@ function AppDock:setTheme(theme_id)
     return false
 end
 
+function AppDock:setNightMode(enabled)
+    self.settings.theme = self.settings.theme or { selected = "lavender", custom = {} }
+    self.settings.theme.night_mode = enabled == true
+    self:_saveSettings()
+    return self.settings.theme.night_mode
+end
+
 function AppDock:createCustomTheme(title, hex)
     local Theme = require("appdock_theme")
     local id = Theme.createCustom(self.settings, title, hex)
@@ -1308,6 +1329,7 @@ function AppDock:_scheduleDAppTasks()
 end
 
 function AppDock:onCloseWidget()
+    healthCall(self, "detach")
     -- Background music must not outlive the plugin.
     local media_ok, Media = pcall(require, "appdock_media")
     if media_ok and Media and Media.stop then pcall(Media.stop) end
@@ -1339,23 +1361,6 @@ function AppDock:addToMainMenu(menu_items)
                 text = _("Manage apps and widgets"),
                 callback = function()
                     self:showManager()
-                end,
-            },
-            {
-                text = _("Animation status"),
-                keep_menu_open = true,
-                callback = function()
-                    local Anim = require("appdock_anim")
-                    Anim.enabled(self)
-                    UIManager:show(InfoMessage:new{ text = _("Last animation status: ") .. tostring(Anim.last_reason) })
-                end,
-            },
-            {
-                text = _("Slide animations (fast refresh, 8 colors)"),
-                checked_func = function() return self.settings.animations ~= false end,
-                keep_menu_open = true,
-                callback = function()
-                    self:setAnimations(self.settings.animations == false)
                 end,
             },
         },

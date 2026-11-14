@@ -4,7 +4,7 @@
 
 # New releases regulary commited at 3:00 AM CET
 
-**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **8.9.3** reduces redundant homescreen catalog and widget work without changing its appearance or functionality. [Release notes](RELEASE_NOTES_8.9.3.md).
+**AppDock** is a KOReader plugin that provides a customizable homescreen *inside* KOReader. Version **9.5.1** keeps Night mode local to AppDock and adds Health & reading helpers. [Release notes](RELEASE_NOTES_9.5.1.md).
 
 > **E-Ink approach:** AppDock deliberately borrows the visual language and information structure, not Android's animations, blur, or transparency effects. This keeps updates economical and maintains contrast on monochrome readers.
 
@@ -207,7 +207,7 @@ The small down-arrow tile in the system row opens a drawn Quick Settings interfa
 |---|---|
 | **Brightness** | Tapping or dragging changes native frontlight intensity with a fast scoped refresh. |
 | **Wi-Fi** | Switches Wi-Fi through KOReader's `NetworkMgr`. |
-| **Night** | Triggers KOReader's existing `ToggleNightMode` event. |
+| **Night** | Toggles AppDock's own dark theme palette without enabling KOReader's screen inversion. |
 | **Refresh** | Rebuilds the visible interface and requests a full refresh. |
 | **Edit** | Closes Quick Settings and opens the AppDock editor. |
 
@@ -246,6 +246,7 @@ The first six pinned apps occupy the current 3×2 page. Further apps appear on a
 | DApp smoke test | Passed: registry, Analog Clock, Settings, state retention, DApp host, recents, and closing. |
 | File Manager test | Passed: listing, sorting, folder navigation, pane construction, and ReaderUI handover. |
 | Theme and AppStore test | Passed: custom-theme persistence, safe manifest parsing, path traversal rejection, version comparison, updates, and confirmed installation/uninstall. |
+| Night mode and Health regression | Passed: AppDock's local palette remains independent of KOReader inversion; grayscale contrast and Health helpers are covered. |
 | Storage regression | Passed: protected scan helpers, safe empty-path fallback, and Settings-pane construction. |
 | Physical E-Ink validation | Ongoing across multiple devices. |
 

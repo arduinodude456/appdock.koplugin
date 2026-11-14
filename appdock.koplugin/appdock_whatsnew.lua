@@ -5,7 +5,8 @@ Uses the card layout of the first-run setup assistant (white card, blue pill
 button, page dots) to walk through the changes of the current release.
 The wizard's own drawing helpers are reused, so both flows look identical.
 
-* Opened automatically once per AppDock version (AppDock:shouldShowUpdateDialog)
+* Opened automatically once per AppDock version (AppDock:shouldShowUpdateDialog),
+  i.e. exactly once for everyone who updates; it only explains what is new in Settings
   and from Settings > Update notice.
 * English and Deutsch, following the AppDock language setting.
 * Finishing or skipping marks this version as seen.
@@ -32,79 +33,90 @@ local WhatsNew = {}
 local STRINGS = {
     en = {
         intro_title = "What's new",
-        intro_sub = "Here is what changed in AppDock %s.",
+        intro_sub = "AppDock %s brings something new. Here is a quick tour.",
         start = "Show me", next = "Next", back = "Back", skip = "Skip", done = "Done",
         outro_title = "That's it!",
-        outro_sub = "You can open this overview again in Settings under Update notice.",
+        outro_sub = "You can open this overview again under Update notice.",
         page_of = "%d of %d",
     },
     de = {
         intro_title = "Neuigkeiten",
-        intro_sub = "Das hat sich in AppDock %s geändert.",
+        intro_sub = "AppDock %s bringt Neues mit. Hier die Kurzübersicht.",
         start = "Zeig's mir", next = "Weiter", back = "Zurück", skip = "Überspringen", done = "Fertig",
         outro_title = "Das war's!",
-        outro_sub = "Du kannst diese Übersicht jederzeit in den Einstellungen unter „Update-Hinweis“ erneut öffnen.",
+        outro_sub = "Diese Übersicht kannst du unter „Update-Hinweis“ erneut öffnen.",
         page_of = "%d von %d",
     },
 }
 
 -- glyph: single character shown in the blue circle.
+-- Themed keyboard and dialogs first, then the "Health & reading" section of Settings.
 local PAGES = {
     {
-        glyph = "♪",
+        glyph = "☾",
         en = {
-            title = "Music keeps playing",
-            text = "Close YouTube Music and the track plays on in the background. A notification at the top shows what is playing. When a track ends, the next one in your library starts.",
+            title = "A reworked Dark Mode",
+            text = "The Dark Mode has been reworked and no longer simply inverts all colors, to create a visually higher-quality experience.",
         },
         de = {
-            title = "Musik läuft weiter",
-            text = "Schließt du YouTube Music, spielt der Titel im Hintergrund weiter. Eine Benachrichtigung oben zeigt, was läuft. Endet ein Titel, startet der nächste aus deiner Bibliothek.",
+            title = "Überarbeiteter Dark Mode",
+            text = "Der Dark Mode wurde überarbeitet und invertiert jetzt nicht mehr bloß alle Farben, um ein visuell hochwertigeres Erlebnis zu schaffen.",
         },
     },
     {
-        glyph = "▶",
+        glyph = "◐",
         en = {
-            title = "Media card in quick settings",
-            text = "Swipe down to see the media card, just like on Android: play and pause, previous and next, tap the progress bar to jump, and × to stop.",
+            title = "Themed Keyboard and Dialogs",
+            text = "The AppDock keyboard and all AppDock dialogs now follow your active color theme. On color screens the keyboard is drawn in the eight fast E-Ink colors (black, white, red, green, blue, yellow, magenta and cyan) and dithered, so it keeps refreshing quickly. Everything else is unchanged.",
         },
         de = {
-            title = "Medienkarte in den Schnelleinstellungen",
-            text = "Wische nach unten und sieh die Medienkarte wie bei Android: Wiedergabe und Pause, Zurück und Weiter, Tippen auf den Fortschrittsbalken springt, × beendet die Wiedergabe.",
-        },
-    },
-    {
-        glyph = "≡",
-        en = {
-            title = "All apps from the recents bar",
-            text = "Swipe up from the bottom edge and tap All apps. You get a searchable list of every app, sorted A to Z. Swipe left or right to change pages.",
-        },
-        de = {
-            title = "Alle Apps in der Leiste",
-            text = "Wische vom unteren Rand nach oben und tippe auf „All apps“. Du bekommst eine durchsuchbare Liste aller Apps von A bis Z. Mit Wischen nach links oder rechts blätterst du.",
+            title = "Themed Keyboard and Dialogs",
+            text = "Die AppDock-Tastatur und alle AppDock-Dialoge folgen jetzt deinem aktiven Farbthema. Auf Farbdisplays wird die Tastatur in den acht schnellen E-Ink-Farben (Schwarz, Weiß, Rot, Grün, Blau, Gelb, Magenta und Cyan) gezeichnet und gedithert, damit sie weiterhin schnell aktualisiert. Alles andere bleibt unverändert.",
         },
     },
     {
         glyph = "+",
         en = {
-            title = "Faster homescreen",
-            text = "The homescreen now does less redundant work while it is built. It looks and works exactly as before.",
+            title = "New in Settings: Health & reading",
+            text = "Settings has a new section called Health & reading. It collects everything that looks after your eyes and your reading habits. All of it is optional and off until you switch it on.",
         },
         de = {
-            title = "Schnellerer Startbildschirm",
-            text = "Der Startbildschirm erledigt beim Aufbau weniger doppelte Arbeit. Aussehen und Funktionen bleiben unverändert.",
+            title = "Neu in den Einstellungen: Gesundheit und Lesen",
+            text = "In den Einstellungen gibt es die neue Sektion „Gesundheit und Lesen“. Sie bündelt alles, was deine Augen und deine Lesegewohnheiten schont. Alles ist optional und bleibt aus, bis du es einschaltest.",
         },
     },
-}
--- Last page: an announcement, not a change in this release.
-PAGES[#PAGES + 1] = {
-    glyph = "»",
-    en = {
-        title = "Coming soon: Android 4.4.2",
-        text = "Android 4.4.2 for AppDock will be released soon. Stay tuned for the update!",
+    {
+        glyph = "☼",
+        en = {
+            title = "Eye protection: your day timeline",
+            text = "Plan brightness and warmth by time of day. Four points (morning, midday, evening, night) form a curve on a 24-hour chart. Pick a point, tap the chart to move it, or start from a preset like Night owl. The light then follows the curve by itself.",
+        },
+        de = {
+            title = "Augenschutz: deine Tages-Timeline",
+            text = "Plane Helligkeit und Wärme nach Tageszeit. Vier Punkte (Morgen, Mittag, Abend, Nacht) bilden eine Kurve auf einem 24-Stunden-Diagramm. Wähle einen Punkt, tippe ins Diagramm, um ihn zu verschieben, oder starte mit einer Vorlage wie Nachteule. Das Licht folgt der Kurve dann von selbst.",
+        },
     },
-    de = {
-        title = "Demnächst: Android 4.4.2",
-        text = "Android 4.4.2 für AppDock wird demnächst veröffentlicht. Bleib gespannt auf das Update!",
+    {
+        glyph = "≡",
+        en = {
+            title = "Statistics: reading and on-time",
+            text = "See how long you read and how long your reader was on, today and over the last 7 days, with daily averages, totals and your reading streak. Counting stays on this device and can be switched off or reset at any time.",
+        },
+        de = {
+            title = "Statistiken: Lesezeit und Reader-An-Zeit",
+            text = "Sieh, wie lange du liest und wie lange dein Reader an war: heute und in den letzten 7 Tagen, mit Tagesdurchschnitt, Gesamtzeit und Lese-Serie. Gezählt wird nur auf diesem Gerät. Du kannst es jederzeit ausschalten oder zurücksetzen.",
+        },
+    },
+    {
+        glyph = "♪",
+        en = {
+            title = "Health: reading breaks and bedtime",
+            text = "Get a gentle reminder to rest your eyes after a set reading time, and another one when it is time to go to bed, with an optional heads-up before. You choose the intervals and the times.",
+        },
+        de = {
+            title = "Gesundheit: Lesepausen und Zubettgehen",
+            text = "Lass dich nach einer festgelegten Lesezeit sanft an eine Augenpause erinnern und außerdem ans Zubettgehen, auf Wunsch mit Vorwarnung. Intervalle und Uhrzeiten stellst du selbst ein.",
+        },
     },
 }
 WhatsNew.PAGES = PAGES

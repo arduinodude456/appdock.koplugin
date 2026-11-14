@@ -13,4 +13,25 @@ color_enabled = false
 local gray_theme = assert(loadfile("appdock.koplugin/appdock_theme.lua"))()
 local forest = gray_theme.getPalette({ settings = { theme = { selected = "lavender", custom = {} }, design = { active_id = "forest", installed = { forest = { id = "forest", title = "Forest", highlight = "#A5D6A7", background = "#122219", button = "#2D6745", text = "#EFF8E9", dropdown = "#183125" } } } } })
 assert(forest.on_surface == color.COLOR_WHITE and forest.on_variant == color.COLOR_WHITE, "dark Forest surfaces must use white text on grayscale readers")
+local gray_dark = gray_theme.getPalette({ settings = { theme = { selected = "lavender", custom = {}, night_mode = true } } })
+assert((gray_dark.background == color.COLOR_BLACK or gray_dark.background == color.COLOR_DARK_GRAY) and gray_dark.on_surface == color.COLOR_WHITE, "AppDock's dark theme must remain dark and readable on grayscale readers")
+-- AppDock's own dark mode uses final palette colors and ignores KOReader's
+-- global night-mode/inversion state.
+color_enabled = true
+package.loaded["device"].screen.night_mode = true
+local night = assert(loadfile("appdock.koplugin/appdock_theme.lua"))()
+local settings = { settings = { theme = { selected = "lavender", custom = {}, night_mode = false } } }
+local light = night.getPalette(settings)
+assert(light.hex.background == "#FAF8FF", "KOReader night mode must not enable AppDock's dark palette")
+settings.settings.theme.night_mode = true
+local dark = night.getPalette(settings)
+local function lum(hex) return night._test.contrastRatio(hex, "#000000") end
+local function colorFromHex(hex)
+    return string.format("%d,%d,%d", tonumber(hex:sub(2, 3), 16), tonumber(hex:sub(4, 5), 16), tonumber(hex:sub(6, 7), 16))
+end
+assert(lum(dark.hex.background) < 1.6, "Dark mode background must be near black")
+assert(night._test.contrastRatio(dark.hex.on_background, dark.hex.background) >= 7, "Dark mode text must be clearly readable")
+assert(night._test.contrastRatio(dark.hex.primary, dark.hex.background) >= 3, "Dark mode accents must be visible on the dark surface")
+assert(dark.hex.background ~= "#FAF8FF", "Dark mode must not reuse the light palette")
+assert(dark.background == colorFromHex(dark.hex.background), "Dark palette colors must be painted directly without pre-inversion")
 print("theme-contrast-ok")

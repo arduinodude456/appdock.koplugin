@@ -99,9 +99,25 @@ local function grayscaleInk(surface)
     return relativeLuminance(surface) < 0.42 and Blitbuffer.COLOR_WHITE or Blitbuffer.COLOR_BLACK
 end
 
+-- AppDock owns its appearance mode. It never relies on KOReader's global
+-- framebuffer inversion; all palette colors are painted as their final values.
+local function isNight(appdock)
+    local settings = appdock and appdock.settings or nil
+    local theme = settings and settings.theme or nil
+    return theme and theme.night_mode == true or false
+end
+
 local function color(hex, grayscale)
     local red, green, blue = rgb(hex)
-    if not Device.screen:isColorEnabled() then return grayscale end
+    if not Device.screen:isColorEnabled() then
+        local luminance = relativeLuminance(hex)
+        -- Keep the established E-Ink roles in light mode; dark local surfaces
+        -- must not fall back to those light roles now that KOReader no longer
+        -- inverts the framebuffer for AppDock.
+        if luminance < 0.015 then return Blitbuffer.COLOR_BLACK or grayscale end
+        if luminance < 0.08 then return Blitbuffer.COLOR_DARK_GRAY or grayscale end
+        return grayscale
+    end
     return Blitbuffer.ColorRGB32(red, green, blue, 0xFF)
 end
 
@@ -319,6 +335,30 @@ function Theme.getButtonFrameStyle(appdock, height, rounded_radius)
     }
 end
 
+-- Dark theme roles derived from the active theme/design. The background is a
+-- near-black tinted with the theme's hue, text is a soft off-white, and the
+-- accent colors are lifted until they read on the dark surface.
+local function liftForDark(hex, background, minimum)
+    local lifted = hex
+    for _ = 1, 8 do
+        if contrastRatio(lifted, background) >= minimum then break end
+        lifted = mix("#FFFFFF", lifted, .22)
+    end
+    return lifted
+end
+
+local function darkRoles(primary, button)
+    local background = mix(primary, "#111114", .09)
+    local text = mix(primary, "#F1F1F4", .12)
+    return {
+        background = background,
+        text = text,
+        primary = liftForDark(primary, background, 3),
+        button = liftForDark(button, background, 3),
+        dropdown = mix(primary, "#1A1A1F", .10),
+    }
+end
+
 local function computePalette(appdock)
     local settings = appdock and appdock.settings or nil
     local design = Theme.getActiveDesign(settings)
@@ -334,6 +374,10 @@ local function computePalette(appdock)
         text = design.text
         button = design.button
         dropdown = design.dropdown
+    end
+    if isNight(appdock) then
+        local dark = darkRoles(primary, button)
+        background, text, primary, button, dropdown = dark.background, dark.text, dark.primary, dark.button, dark.dropdown
     end
     local high_contrast = settings and settings.accessibility and settings.accessibility.high_contrast == true
     if high_contrast then text = contrastInk(background) end
@@ -373,6 +417,18 @@ local function computePalette(appdock)
         background_hex = background,
         text_hex = on_background,
         high_contrast = high_contrast,
+        -- The same roles as plain hex strings. Surfaces that cannot use the
+        -- Blitbuffer values directly (the dithered keyboard, the dialogs'
+        -- translucent veil) derive their own colors from these.
+        hex = {
+            background = background, surface = surface, surface_variant = surface_variant,
+            primary = primary, secondary = secondary, tertiary = tertiary,
+            button = button, dropdown = dropdown,
+            on_primary = roleInk(primary, text), on_button = roleInk(button, text),
+            on_background = on_background, on_surface = on_surface,
+            on_variant = on_variant, on_dropdown = on_dropdown,
+            outline = mix(on_surface, background, .48),
+        },
     }
 end
 
@@ -382,13 +438,21 @@ end
 -- Store DApps receive this table and must not be able to alter the shared one.
 local palette_cache, palette_cache_key = nil, nil
 
+-- The running plugin instance registers itself here so surfaces that are
+-- created without an appdock reference (dialogs, the keyboard) still follow the
+-- active color theme.
+local bound_appdock
+function Theme.bind(appdock) bound_appdock = appdock end
+
 function Theme.getPalette(appdock)
+    appdock = appdock or bound_appdock
     local settings = appdock and appdock.settings or nil
     local design = Theme.getActiveDesign(settings)
     local resolved_theme_id, definition = Theme.resolveDefinition(settings)
     local high_contrast = settings and settings.accessibility and settings.accessibility.high_contrast == true
     local key = table.concat({
         Device.screen:isColorEnabled() and "c" or "g",
+        isNight(appdock) and "d" or "l",
         high_contrast and "h" or "n",
         tostring(resolved_theme_id), tostring(definition and definition.primary),
         design and designSignature(design) or "-",
@@ -399,8 +463,24 @@ function Theme.getPalette(appdock)
     end
     local copy = {}
     for name, value in pairs(palette_cache) do copy[name] = value end
+    if type(copy.hex) == "table" then
+        local hex = {}
+        for name, value in pairs(copy.hex) do hex[name] = value end
+        copy.hex = hex
+    end
     return copy
 end
+
+-- Role colors of the active theme as hex strings (see computePalette).
+function Theme.getHexRoles(appdock)
+    return Theme.getPalette(appdock).hex
+end
+
+-- Small public color helpers for surfaces that build their own palette.
+Theme.mixHex = mix
+Theme.inkFor = contrastInk
+Theme.toColor = color
+Theme.isNight = function(appdock) return isNight(appdock or bound_appdock) end
 
 function Theme.createCustom(settings, title, hex)
     local normalized = Theme.normalizeHex(hex)

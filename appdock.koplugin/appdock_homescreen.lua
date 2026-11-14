@@ -20,7 +20,6 @@ local GestureRange = require("ui/gesturerange")
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local AppDockKeyboard = require("appdock_keyboard")
 local AppDockDialogs = require("appdock_dialogs")
-local Anim = require("appdock_anim")
 local ButtonDialog = AppDockDialogs.ButtonDialog
 local InfoMessage = AppDockDialogs.InfoMessage
 local DeviceControls = require("appdock_device_controls")
@@ -1424,56 +1423,11 @@ end
 function AppDockHomeScreen:_showPage(page)
     local page_count = self:_pageCount()
     page = math.max(1, math.min(page_count, tonumber(page) or self.page))
-    if page == self.page or self._page_transition then return false end
-    local previous_page = self.page
-    local rect = self:_pageAnimRect()
-    local old_snapshot
-    if rect and not self.edit_mode and Anim.enabled(self.appdock) then
-        old_snapshot = Anim.capture(rect)
-    end
+    if page == self.page then return false end
     self.page = page
     self:build()
-    local new_snapshot = old_snapshot and Anim.render(self, rect)
-    if old_snapshot and new_snapshot then
-        -- Swiping left (next page) pushes the content to the left.
-        local direction = page > previous_page and "left" or "right"
-        self._page_transition = true
-        local started = Anim.run{
-            region = rect,
-            frames = 6,
-            draw = function(bb, t) Anim.drawPush(bb, old_snapshot, new_snapshot, rect, direction, t) end,
-            done = function() self._page_transition = false end,
-            close_refresh = false,
-            after = function()
-                -- The animation is the only refresh before this point. Once
-                -- the overlay is gone, clear E-Ink ghosting exactly once.
-                UIManager:setDirty("all", "full")
-                if UIManager.forceRePaint then UIManager:forceRePaint() end
-            end,
-            cleanup = function() Anim.free(old_snapshot); Anim.free(new_snapshot) end,
-        }
-        if started then return true end
-        -- Anim.run already ran done/cleanup when it could not start.
-        UIManager:setDirty(self, "ui")
-        return true
-    end
-    Anim.free(old_snapshot); Anim.free(new_snapshot)
-    self._page_transition = false
     UIManager:setDirty(self, "ui")
     return true
-end
-
--- The part of the homescreen that differs between pages: everything above the
--- Quick access dock (clock/search on page 1, the app grid, the page dots). The
--- dock itself stays put, like on Android.
-function AppDockHomeScreen:_pageAnimRect()
-    local layout = self.normal_layout
-    if type(layout) ~= "table" then return nil end
-    local height = self.dimen.h
-    if layout.has_app_dock_surface and tonumber(layout.quick_access_y) then
-        height = math.max(scale(120), math.floor(layout.quick_access_y - scale(6)))
-    end
-    return { x = 0, y = 0, w = self.dimen.w, h = height }
 end
 
 function AppDockHomeScreen:beginLayoutEdit(selected_app_id)
@@ -1540,7 +1494,7 @@ function AppDockHomeScreen:moveStoreWidgetToPoint(widget_id, x, y)
 end
 
 function AppDockHomeScreen:onSwipeHomePage(_, gesture_event)
-    if self.appdock:isSimpleModeEnabled("homescreen") or self._page_transition or not gesture_event then return false end
+    if self.appdock:isSimpleModeEnabled("homescreen") or not gesture_event then return false end
     if gesture_event.direction == "west" then
         return self:_showPage(self.page + 1)
     elseif gesture_event.direction == "east" then

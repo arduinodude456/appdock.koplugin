@@ -19,7 +19,7 @@ local function rgb(hex, alpha, fallback)
     local red = tonumber(hex:sub(2, 3), 16)
     local green = tonumber(hex:sub(4, 5), 16)
     local blue = tonumber(hex:sub(6, 7), 16)
-    if type(Blitbuffer.ColorRGB32) == "function" then
+    if Blitbuffer.ColorRGB32 ~= nil then
         local ok, value = pcall(Blitbuffer.ColorRGB32, red, green, blue, alpha or 255)
         if ok and value then return value end
     end
@@ -43,14 +43,72 @@ end
 local function dialogColor(hex, alpha, grayscale)
     return color_enabled and rgb(hex, alpha, grayscale) or grayscale
 end
-local COLORS = {
-    olive = dialogColor("#667744", 255, GRAY.olive), olive_dark = dialogColor("#40512A", 255, GRAY.olive_dark),
-    olive_soft = dialogColor("#E8EDDE", 255, GRAY.olive_soft), glass = dialogColor("#F7F8F3", 168, GRAY.glass),
-    panel = dialogColor("#FBFCF8", 255, GRAY.panel), ink = dialogColor("#26301D", 255, GRAY.ink),
-    muted = dialogColor("#5C6553", 255, GRAY.muted), outline = dialogColor("#A8B196", 255, GRAY.outline),
-    disabled = dialogColor("#E7E8E3", 255, GRAY.disabled),
-    on_olive = dialogColor("#FFFFFF", 255, GRAY.panel),
+-- Dialog colors follow the active AppDock color theme. COLORS is refreshed in
+-- place whenever a dialog is created (and while it paints), so a theme change
+-- is picked up by the next dialog without restarting anything.
+local okTheme, Theme = pcall(require, "appdock_theme")
+if not okTheme or type(Theme) ~= "table" or type(Theme.getHexRoles) ~= "function" then Theme = nil end
+local DEFAULT_ROLES = {
+    background = "#FBFCF8", surface = "#E7E8E3", surface_variant = "#E8EDDE",
+    primary = "#667744", on_primary = "#FFFFFF", on_background = "#26301D",
+    on_variant = "#26301D", outline = "#A8B196",
 }
+local COLORS = {}
+local veil_tint, glass_tint = { 238, 241, 229 }, { 248, 250, 242 }
+local shadow_hex = "#DCE2D1"
+local function hexChannels(hex)
+    return tonumber(hex:sub(2, 3), 16), tonumber(hex:sub(4, 5), 16), tonumber(hex:sub(6, 7), 16)
+end
+local function refreshColors()
+    -- Color support is decided when a dialog opens, not when this file is
+    -- loaded: the screen's color mode is not final yet at plugin load time.
+    if Screen and type(Screen.isColorEnabled) == "function" then
+        local ok, value = pcall(Screen.isColorEnabled, Screen)
+        color_enabled = ok and value == true
+    end
+    local roles = DEFAULT_ROLES
+    if Theme then
+        local ok, value = pcall(Theme.getHexRoles)
+        if ok and type(value) == "table" and value.background then roles = value end
+    end
+    local function role(name) return roles[name] or DEFAULT_ROLES[name] end
+    local mix = Theme and Theme.mixHex or function(first) return first end
+    local background, ink = role("background"), role("on_background")
+    local primary = role("primary")
+    local soft = role("surface_variant")
+    local muted = mix(ink, background, .62)
+    local outline = role("outline")
+    local disabled = role("surface")
+    shadow_hex = mix(background, ink, .86)
+    veil_tint = { hexChannels(background) }
+    glass_tint = veil_tint
+    COLORS.olive = dialogColor(primary, 255, GRAY.olive)
+    COLORS.olive_dark = dialogColor(mix(role("on_primary"), primary, .45), 255, GRAY.olive_dark)
+    COLORS.olive_soft = dialogColor(soft, 255, GRAY.olive_soft)
+    COLORS.glass = dialogColor(background, 168, GRAY.glass)
+    COLORS.panel = dialogColor(background, 255, GRAY.panel)
+    COLORS.ink = dialogColor(ink, 255, GRAY.ink)
+    COLORS.muted = dialogColor(muted, 255, GRAY.muted)
+    COLORS.outline = dialogColor(outline, 255, GRAY.outline)
+    COLORS.disabled = dialogColor(disabled, 255, GRAY.disabled)
+    COLORS.on_olive = dialogColor(role("on_primary"), 255, GRAY.panel)
+    COLORS.on_soft = dialogColor(role("on_variant"), 255, GRAY.ink)
+    -- Grayscale panels: derive the fixed grays from the theme palette so a dark
+    -- design never ends up with dark text on a dark card.
+    if not color_enabled and Theme and Theme.getPalette then
+        local ok, palette = pcall(Theme.getPalette)
+        if ok and type(palette) == "table" then
+            COLORS.panel = palette.background or COLORS.panel
+            COLORS.ink = palette.on_background or COLORS.ink
+            COLORS.olive = palette.primary or COLORS.olive
+            COLORS.on_olive = palette.on_primary or COLORS.on_olive
+            COLORS.olive_soft = palette.surface_variant or COLORS.olive_soft
+            COLORS.on_soft = palette.on_variant or COLORS.on_soft
+        end
+    end
+    return COLORS
+end
+refreshColors()
 local function drawRectRGB32(bb, x, y, width, height, fill)
     -- KOReader's BlitBuffer exposes paintRectRGB32 (rather than drawRectRGB32).
     -- Keep every custom RGB fill on that path; grayscale targets use paintRect.
@@ -81,11 +139,11 @@ local function drawGlassRoundedRect(bb, x, y, width, height, radius, opaque_fall
     local scratch
     if not bb.blendRectRGB32 and bb.addblitFrom and Blitbuffer.new and bb.getType then
         local ok, buffer = pcall(Blitbuffer.new, width, 1, bb:getType())
-        if ok and buffer then scratch = buffer; pcall(scratch.fill, scratch, GRAY.panel) end
+        if ok and buffer then scratch = buffer; pcall(scratch.fill, scratch, COLORS.panel) end
     end
     local glass_color
-    if bb.blendRectRGB32 and type(Blitbuffer.ColorRGB32) == "function" then
-        local ok, value = pcall(Blitbuffer.ColorRGB32, 248, 250, 242, 202)
+    if bb.blendRectRGB32 and Blitbuffer.ColorRGB32 ~= nil then
+        local ok, value = pcall(Blitbuffer.ColorRGB32, glass_tint[1], glass_tint[2], glass_tint[3], 202)
         if ok then glass_color = value end
     end
     for row = 0, height - 1 do
@@ -114,14 +172,14 @@ local function paintFrostedVeil(bb, width, height)
     -- True backdrop blur is not available on all KOReader targets (especially
     -- grayscale E-Ink); alpha blending keeps the page visible through a soft,
     -- light-tinted veil and reads as frosted glass without replacing the page.
-    if bb.blendRectRGB32 and type(Blitbuffer.ColorRGB32) == "function" then
-        local ok, tint = pcall(Blitbuffer.ColorRGB32, 238, 241, 229, 112)
+    if bb.blendRectRGB32 and Blitbuffer.ColorRGB32 ~= nil then
+        local ok, tint = pcall(Blitbuffer.ColorRGB32, veil_tint[1], veil_tint[2], veil_tint[3], 112)
         if ok and tint then pcall(bb.blendRectRGB32, bb, 0, 0, width, height, tint); return end
     end
     if bb.addblitFrom and Blitbuffer.new and bb.getType then
         local ok, overlay = pcall(Blitbuffer.new, width, height, bb:getType())
         if ok and overlay then
-            local fill = GRAY.glass
+            local fill = COLORS.panel
             pcall(overlay.fill, overlay, fill)
             pcall(bb.addblitFrom, bb, overlay, 0, 0, 0, 0, width, height, .34)
             if overlay.free then pcall(overlay.free, overlay) end
@@ -129,7 +187,7 @@ local function paintFrostedVeil(bb, width, height)
         end
     end
     -- Safe fallback for reduced/mock buffers without alpha-compositing APIs.
-    bb:paintRect(0, 0, width, height, GRAY.glass)
+    bb:paintRect(0, 0, width, height, COLORS.panel)
 end
 local function textWidth(face, text, fallback)
     if face and face.getWidth then
@@ -241,6 +299,7 @@ function Modal:init()
     self.card_x = math.floor((screen.w - self.card_w) / 2)
     self.max_card_h = math.max(scale(120), screen.h - self.margin * 2)
     self.content_w = self.card_w - scale(36)
+    refreshColors()
     self.palette = COLORS
     self.gray = GRAY
     self.corner = scale(16)
@@ -468,8 +527,9 @@ end
 function Modal:paintTo(bb, x, y)
     x, y = 0, 0
     self._hits = {}
+    refreshColors()
     paintFrostedVeil(bb, self.screen_w, self.screen_h)
-    local shadow = dialogColor("#DCE2D1", 255, GRAY.disabled)
+    local shadow = dialogColor(shadow_hex, 255, GRAY.disabled)
     drawRoundedRect(bb, self.card_x + scale(2), self.card_y + scale(4), self.card_w, self.card_h, self.corner, shadow)
     drawGlassRoundedRect(bb, self.card_x, self.card_y, self.card_w, self.card_h, self.corner, COLORS.panel)
     local pad, border = scale(18), math.max(1, scale(1))
@@ -483,7 +543,7 @@ function Modal:paintTo(bb, x, y)
         local input_y, input_h = y0, scale(48)
         drawRoundedRect(bb, self.card_x + pad, input_y, self.card_w - pad * 2, input_h, scale(9), COLORS.olive_soft)
         self:_paintText(bb, (self.input_value ~= "" and self.input_value or self.input_hint or "Tap to enter text"),
-            self.card_x + pad + scale(8), input_y + scale(12), self.card_w - pad * 2 - scale(16), 14, false, COLORS.ink)
+            self.card_x + pad + scale(8), input_y + scale(12), self.card_w - pad * 2 - scale(16), 14, false, COLORS.on_soft)
         self._hits[#self._hits + 1] = { x = self.card_x + pad, y = input_y, w = self.card_w - pad * 2, h = input_h, input = true }
     else
         local body_y = self.card_y + self.margin + self.title_h + scale(14)
@@ -531,7 +591,7 @@ function Modal:paintTo(bb, x, y)
         if self.page > 1 then
             local bx = self.card_x + pad
             drawRoundedRect(bb, bx, footer_y + scale(7), button_w, button_h, scale(10), COLORS.olive_soft)
-            self:_paintText(bb, _("‹ Previous"), bx + scale(5), footer_y + scale(16), button_w - scale(10), 10, true, COLORS.ink)
+            self:_paintText(bb, _("‹ Previous"), bx + scale(5), footer_y + scale(16), button_w - scale(10), 10, true, COLORS.on_soft)
             self._hits[#self._hits + 1] = { x = bx, y = footer_y, w = button_w, h = self.footer_h, action = function()
                 self.page = self.page - 1; self:_paginate(); UIManager:setDirty(self, "ui"); return true
             end }
@@ -539,7 +599,7 @@ function Modal:paintTo(bb, x, y)
         if self.page < self.pages then
             local bx = self.card_x + self.card_w - pad - button_w
             drawRoundedRect(bb, bx, footer_y + scale(7), button_w, button_h, scale(10), COLORS.olive_soft)
-            self:_paintText(bb, _("Next ›"), bx + scale(8), footer_y + scale(16), button_w - scale(12), 10, true, COLORS.ink)
+            self:_paintText(bb, _("Next ›"), bx + scale(8), footer_y + scale(16), button_w - scale(12), 10, true, COLORS.on_soft)
             self._hits[#self._hits + 1] = { x = bx, y = footer_y, w = button_w, h = self.footer_h, action = function()
                 self.page = self.page + 1; self:_paginate(); UIManager:setDirty(self, "ui"); return true
             end }

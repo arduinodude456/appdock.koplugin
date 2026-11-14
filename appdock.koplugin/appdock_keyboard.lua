@@ -9,9 +9,14 @@
 --     finger and the matching word is inserted (options.swipe = false disables)
 --   * emoji panel (categories + recents), clipboard history panel
 --   * partial "fast" refreshes only (top bar / changed keys), no per-key flashing
+--   * follows the active AppDock color theme. On color panels the whole
+--     keyboard is ordered-dithered onto the eight fast E-Ink colors (black,
+--     white, red, green, blue, yellow, #ff00ff, #00ffff) so it can keep using
+--     the fast waveform. Nothing outside the keyboard is dithered.
 local Blitbuffer = require("ffi/blitbuffer")
 local CenterContainer = require("ui/widget/container/centercontainer")
 local Device = require("device")
+local Dither = require("appdock_dither")
 local Font = require("ui/font")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
@@ -45,7 +50,9 @@ local Screen = Device.screen
 local function scale(n) return Screen:scaleBySize(n) end
 local function ui(de, en) return ui_is_de and de or en end
 
--- Fixed black/white colour scheme (no theme support).
+-- Keyboard colors. The default is the classic black/white scheme (used on
+-- grayscale panels); on color panels refreshTheme() rewrites these roles from
+-- the active AppDock color theme every time a keyboard is created.
 local theme = {
     background   = Blitbuffer.COLOR_WHITE,
     key          = Blitbuffer.COLOR_WHITE,
@@ -59,6 +66,44 @@ local theme = {
     hint         = Blitbuffer.COLOR_DARK_GRAY,
     border       = Blitbuffer.COLOR_BLACK,
 }
+
+local DEFAULT_THEME = {}
+for name, value in pairs(theme) do DEFAULT_THEME[name] = value end
+
+local function colorPanel()
+    local ok, enabled = pcall(function() return Screen.isColorEnabled and Screen:isColorEnabled() end)
+    return ok and enabled == true
+end
+
+-- Returns true when the keyboard is themed (and therefore dithered).
+local function refreshTheme()
+    for name, value in pairs(DEFAULT_THEME) do theme[name] = value end
+    local ok_theme, Theme = pcall(require, "appdock_theme")
+    if not (ok_theme and type(Theme) == "table" and Theme.getHexRoles and colorPanel()) then return false end
+    local ok, roles = pcall(Theme.getHexRoles)
+    if not ok or type(roles) ~= "table" or not roles.background then return false end
+    local mix, inkFor, toColor = Theme.mixHex, Theme.inkFor, Theme.toColor
+    -- Every text/border ink is pure black or white: the dither thresholds each
+    -- channel, so only 0/255 inks stay crisp.
+    local background = roles.background
+    local ink = inkFor(background)
+    local func = roles.surface_variant
+    local active = mix(roles.primary, ink, .55)
+    local primary = roles.primary
+    local function c(hex) return toColor(hex, Blitbuffer.COLOR_WHITE) end
+    theme.background   = c(background)
+    theme.key          = c(background)
+    theme.key_text     = c(ink)
+    theme.func         = c(func)
+    theme.func_text    = c(inkFor(func))
+    theme.active       = c(active)
+    theme.active_text  = c(inkFor(active))
+    theme.primary      = c(primary)
+    theme.primary_text = c(inkFor(primary))
+    theme.hint         = c(mix(ink, background, .8))
+    theme.border       = c(ink)
+    return true
+end
 
 local function normalizeLanguage(language)
     if language == "de" or language == "en" then return language end
@@ -469,7 +514,7 @@ function Key:init()
     self.text_widget = newText{
         text = self.label,
         face = face,
-        fgcolor = Blitbuffer.COLOR_BLACK,
+        fgcolor = theme.key_text,
         padding = 0,
     }
     local inner_dimen = Geom:new{ w = self.width - 2 * border, h = self.height - 2 * border }
@@ -484,15 +529,15 @@ function Key:init()
     end
     self.frame = FrameContainer:new{
         width = self.width, height = self.height, padding = 0,
-        bordersize = border, color = Blitbuffer.COLOR_BLACK,
-        radius = scale(8), background = Blitbuffer.COLOR_WHITE,
+        bordersize = border, color = theme.border,
+        radius = scale(8), background = theme.key,
         inner,
     }
     if self.hint and self.hint ~= "" then
         self.hint_widget = newText{
             text = self.hint,
             face = Font:getFace("cfont", math.max(scale(9), math.floor(self.height * 0.2))),
-            fgcolor = Blitbuffer.COLOR_DARK_GRAY,
+            fgcolor = theme.hint,
             padding = 0,
         }
     end
@@ -584,6 +629,7 @@ local Keyboard = InputContainer:extend{
 
 function Keyboard:init()
     ui_is_de = resolvedLanguage("auto") == "de"
+    self._dither = refreshTheme() and not self.no_dither
     self.width = Screen:getWidth()
     local screen_h = Screen:getHeight()
     self.value = self.value or ""
@@ -1616,7 +1662,7 @@ function Keyboard:_paintTrail(bb)
     local d = self.dimen
     local n = #trail
     local min_t, max_t = scale(2), scale(8)
-    local color = Blitbuffer.COLOR_BLACK
+    local color = theme.key_text
     local function stamp(x, y, size)
         local half = math.floor(size / 2)
         local rx, ry = math.floor(x) - half, math.floor(y) - half
@@ -1818,6 +1864,9 @@ end
 function Keyboard:_refresh(mode, region)
     if not self._shown or not region then return end
     local r = region:copy()
+    -- The dithered keyboard only contains the eight fast colors, so every
+    -- refresh (even "whole keyboard") stays on the fast waveform.
+    if self._dither then mode = "fast" end
     UIManager:setDirty(self, function() return mode, r end)
 end
 
@@ -1886,6 +1935,11 @@ function Keyboard:paintTo(bb, x, y)
         if self.alpha_strip and (self.mode == "letters" or self.mode == "symbols1" or self.mode == "symbols2") then
             pcall(function() self.alpha_strip:paintTo(bb, tx, ty + self.bar_h + self.gap) end)
         end
+        -- The cached keys are already dithered; only the freshly painted top
+        -- bar and suggestion strip still need it.
+        if self._dither then
+            pcall(Dither.apply, bb, { x = d.x, y = d.y, w = d.w, h = math.min(d.h, self.top_h or d.h) })
+        end
         pcall(self._paintTrail, self, bb)
         return
     end
@@ -1896,6 +1950,9 @@ function Keyboard:paintTo(bb, x, y)
         if self.title_widget then pcall(function() self.title_widget:setText(" ") end) end
         pcall(InputContainer.paintTo, self, bb, d.x, d.y)
     end
+    -- Themed keyboard: quantize everything painted so far onto the eight fast
+    -- colors before it is cached, so the cache holds the dithered pixels.
+    if self._dither then pcall(Dither.apply, bb, { x = d.x, y = d.y, w = d.w, h = d.h }) end
     pcall(function()
         if not cache or self._cache_type ~= bb_type or cache:getWidth() ~= d.w or cache:getHeight() ~= d.h then
             if cache then cache:free() end
@@ -1930,7 +1987,7 @@ end
 
 function Keyboard.open(options)
     local keyboard = Keyboard:new(options or {})
-    UIManager:show(keyboard)
+    UIManager:show(keyboard, keyboard._dither and "fast" or nil, keyboard._dither and keyboard.dimen or nil)
     return keyboard
 end
 
@@ -1942,8 +1999,9 @@ function Keyboard.setLanguage(language)
     return configured_language
 end
 
--- Theme support was removed: the keyboard is always black and white.
--- These stubs only keep older callers (setTheme/setPalette) from failing.
+-- The keyboard follows the active AppDock theme automatically (see
+-- refreshTheme). These stubs only keep older callers (setTheme/setPalette)
+-- from failing.
 function Keyboard.setTheme() return theme end
 function Keyboard.setPalette() return theme end
 function Keyboard.ensurePalette() end
@@ -2043,7 +2101,7 @@ function Keyboard.attach(dialog, options)
         end
         if not dialog_was_closed then UIManager:close(dialog) end
         active_keyboard = keyboard
-        UIManager:show(keyboard)
+        UIManager:show(keyboard, keyboard._dither and "fast" or nil, keyboard._dither and keyboard.dimen or nil)
         return true
     end
 
@@ -2079,6 +2137,8 @@ Keyboard._test = {
     trailingWord = trailingWord,
     removeLastWord = removeLastWord,
     lowerUtf8 = lowerUtf8,
+    refreshTheme = refreshTheme,
+    theme = theme,
 }
 
 return Keyboard
