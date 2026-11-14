@@ -9,6 +9,9 @@ Forget what I said. Why should anyone want to do this? But after all it is possi
 # Announcements
 
 
+## INTRODUCING: Health and reading
+*Scedule brightness and warmth plans, manage break reminders and look at your reading statistics.*
+**New Health and reading section in settings**
 ## INTRODUCING: TIC 80
 *Browse a collection of 100+ Games, Tools, Animations playable on the Tic80 port for AppDock!*
 ## INTRODUCING: YouTube shorts and InkBlog
