@@ -51,83 +51,50 @@ local STRINGS = {
 }
 
 -- glyph: single character shown in the blue circle.
--- Themed keyboard and dialogs first, then the "Health & reading" section of Settings.
+-- Release tour: Cyber mode, shelf, pet and the new file chooser.
 local PAGES = {
     {
-        glyph = "◁",
+        glyph = "◇",
         en = {
-            title = "New navigation bar",
-            text = "Inside apps, the bottom bar now works like on Android: Back, Home and Open apps, each button spanning a third of the full width. Back steps out of the app's sub page, or closes the app. Prefer swipes? Turn on Settings > Display > Gesture navigation: swipe in from the left or right screen edge for Back, swipe up quickly from the bottom for Home, or swipe up slowly for Open apps.",
+            title = "Cyber mode",
+            text = "Pick the Cyber theme (Settings > Display > Theme) for a dark neon look: chamfered cards with glowing edges and a city skyline wallpaper. Under Settings > Display > Card style you can also switch the Cyber effects on or off, or leave them on automatic so they follow the theme.",
         },
         de = {
-            title = "Neue Navigationsleiste",
-            text = "In Apps funktioniert die untere Leiste jetzt wie bei Android: Zurück, Home und Offene Apps, jeder Button über ein Drittel der gesamten Breite. Zurück geht eine Ebene in der App zurück oder schließt die App. Lieber wischen? Aktiviere Einstellungen > Anzeige > Gestennavigation: Vom linken oder rechten Bildschirmrand wischen für Zurück, unten schnell nach oben wischen für Home, unten langsam nach oben wischen für Offene Apps.",
+            title = "Cyber-Modus",
+            text = "Wähle das Cyber-Theme (Einstellungen > Anzeige > Theme) für einen dunklen Neon-Look: abgeschrägte Karten mit leuchtenden Kanten und ein Hintergrund mit Skyline. Unter Einstellungen > Anzeige > Kartenstil kannst du die Cyber-Effekte außerdem ein- oder ausschalten oder auf Automatik lassen, dann folgen sie dem Theme.",
         },
     },
     {
-        glyph = "☾",
+        glyph = "▤",
         en = {
-            title = "A reworked Dark Mode",
-            text = "The Dark Mode has been reworked and no longer simply inverts all colors, to create a visually higher-quality experience.",
+            title = "Shelf: your books at a glance",
+            text = "Turn on Settings > Features > Enable shelf and swipe right on the first homescreen page. A wooden bookcase shows the books you read recently and some featured ones. Books you download with DLib appear here too. Tap a cover to open the book. On color screens the shelf is now drawn in full color.",
         },
         de = {
-            title = "Überarbeiteter Dark Mode",
-            text = "Der Dark Mode wurde überarbeitet und invertiert jetzt nicht mehr bloß alle Farben, um ein visuell hochwertigeres Erlebnis zu schaffen.",
+            title = "Regal: deine Bücher auf einen Blick",
+            text = "Schalte unter Einstellungen > Funktionen „Regal aktivieren“ ein und wische auf der ersten Homescreen-Seite nach rechts. Ein Bücherregal aus Holz zeigt die zuletzt gelesenen und einige empfohlene Bücher. Auch Bücher, die du mit DLib herunterlädst, erscheinen hier. Tippe auf ein Cover, um das Buch zu öffnen. Auf Farbdisplays wird das Regal jetzt farbig gezeichnet.",
         },
     },
     {
-        glyph = "◐",
+        glyph = "♥",
         en = {
-            title = "Themed Keyboard and Dialogs",
-            text = "The AppDock keyboard and all AppDock dialogs now follow your active color theme. On color screens the keyboard is drawn in the eight fast E-Ink colors (black, white, red, green, blue, yellow, magenta and cyan) and dithered, so it keeps refreshing quickly. Everything else is unchanged.",
+            title = "Reading pet",
+            text = "Under Settings > Features you can adopt a pet that follows your reading: it is happy when you read every day, hungry when you do not, and grows with your total reading time. Choose a species, a name and where it appears. It never dies. On color screens it now has its real colors.",
         },
         de = {
-            title = "Themed Keyboard and Dialogs",
-            text = "Die AppDock-Tastatur und alle AppDock-Dialoge folgen jetzt deinem aktiven Farbthema. Auf Farbdisplays wird die Tastatur in den acht schnellen E-Ink-Farben (Schwarz, Weiß, Rot, Grün, Blau, Gelb, Magenta und Cyan) gezeichnet und gedithert, damit sie weiterhin schnell aktualisiert. Alles andere bleibt unverändert.",
+            title = "Lese-Haustier",
+            text = "Unter Einstellungen > Funktionen kannst du ein Haustier aufnehmen, das deinem Lesen folgt: Es freut sich, wenn du täglich liest, bekommt Hunger, wenn nicht, und wächst mit deiner gesamten Lesezeit. Wähle Tierart, Namen und wo es erscheint. Es stirbt nie. Auf Farbdisplays hat es jetzt seine echten Farben.",
         },
     },
     {
-        glyph = "+",
+        glyph = "☰",
         en = {
-            title = "New in Settings: Health & reading",
-            text = "Settings has a new section called Health & reading. It collects everything that looks after your eyes and your reading habits. All of it is optional and off until you switch it on.",
+            title = "New file chooser",
+            text = "Wherever AppDock used to ask you to type a file path (wallpaper, lockscreen picture, plugin logos, sleepscreen assets, yt-dlp and ffmpeg, music and output folders) it now opens its own file chooser. Jump between Internal, SD card and Home, tap the path to go back, swipe up or down to page and swipe right to go up. Tap a file to preview it, then confirm with Select.",
         },
         de = {
-            title = "Neu in den Einstellungen: Gesundheit und Lesen",
-            text = "In den Einstellungen gibt es die neue Sektion „Gesundheit und Lesen“. Sie bündelt alles, was deine Augen und deine Lesegewohnheiten schont. Alles ist optional und bleibt aus, bis du es einschaltest.",
-        },
-    },
-    {
-        glyph = "☼",
-        en = {
-            title = "Eye protection: your day timeline",
-            text = "Plan brightness and warmth by time of day. Four points (morning, midday, evening, night) form a curve on a 24-hour chart. Pick a point, tap the chart to move it, or start from a preset like Night owl. The light then follows the curve by itself.",
-        },
-        de = {
-            title = "Augenschutz: deine Tages-Timeline",
-            text = "Plane Helligkeit und Wärme nach Tageszeit. Vier Punkte (Morgen, Mittag, Abend, Nacht) bilden eine Kurve auf einem 24-Stunden-Diagramm. Wähle einen Punkt, tippe ins Diagramm, um ihn zu verschieben, oder starte mit einer Vorlage wie Nachteule. Das Licht folgt der Kurve dann von selbst.",
-        },
-    },
-    {
-        glyph = "≡",
-        en = {
-            title = "Statistics: reading and on-time",
-            text = "See how long you read and how long your reader was on, today and over the last 7 days, with daily averages, totals and your reading streak. Counting stays on this device and can be switched off or reset at any time.",
-        },
-        de = {
-            title = "Statistiken: Lesezeit und Reader-An-Zeit",
-            text = "Sieh, wie lange du liest und wie lange dein Reader an war: heute und in den letzten 7 Tagen, mit Tagesdurchschnitt, Gesamtzeit und Lese-Serie. Gezählt wird nur auf diesem Gerät. Du kannst es jederzeit ausschalten oder zurücksetzen.",
-        },
-    },
-    {
-        glyph = "♪",
-        en = {
-            title = "Health: reading breaks and bedtime",
-            text = "Get a gentle reminder to rest your eyes after a set reading time, and another one when it is time to go to bed, with an optional heads-up before. You choose the intervals and the times.",
-        },
-        de = {
-            title = "Gesundheit: Lesepausen und Zubettgehen",
-            text = "Lass dich nach einer festgelegten Lesezeit sanft an eine Augenpause erinnern und außerdem ans Zubettgehen, auf Wunsch mit Vorwarnung. Intervalle und Uhrzeiten stellst du selbst ein.",
+            title = "Neuer Dateiwähler",
+            text = "Überall, wo AppDock bisher einen Dateipfad zum Eintippen wollte (Hintergrundbild, Sperrbildschirm-Bild, Plugin-Logos, Schlafbild-Dateien, yt-dlp und ffmpeg, Musik- und Ausgabeordner), öffnet sich jetzt ein eigener Dateiwähler. Wechsle zwischen Intern, SD-Karte und Home, tippe auf den Pfad, um zurückzugehen, wische nach oben oder unten zum Blättern und nach rechts, um einen Ordner höher zu gehen. Tippe eine Datei an für die Vorschau und bestätige mit „Select“.",
         },
     },
 }

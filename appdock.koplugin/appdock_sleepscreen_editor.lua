@@ -3,6 +3,7 @@
 -- mutated through a shared table reference.
 local Blitbuffer = require("ffi/blitbuffer")
 local AppDockDialogs = require("appdock_dialogs")
+local AppDockFileChooser = require("appdock_filechooser")
 local ButtonDialog = AppDockDialogs.ButtonDialog
 local ConfirmBox = AppDockDialogs.ConfirmBox
 local InputDialog = AppDockDialogs.InputDialog
@@ -274,45 +275,18 @@ function SleepEditor:_afterAsset(path, kind)
     notify(_("Imported asset: ") .. asset_id)
 end
 
--- FileChooser is optional in older KOReader builds.  The explicit path dialog
--- remains a safe fallback and is useful on devices without a touchscreen file
--- chooser.  No URL is ever accepted as an asset path.
+-- Assets are picked with the AppDock file chooser. No URL is ever accepted
+-- as an asset path.
 function SleepEditor:chooseAsset(kind)
-    local ok, FileChooser = pcall(require, "ui/widget/filechooser")
-    if ok and FileChooser and FileChooser.new then
-        local chooser
-        local chooser_ui = { selected_files = {}, folder_shortcuts = {
-            getShortcutFullName = function() return nil end,
-            hasShortcut = function() return false end, hasFolderShortcut = function() return false end,
-        } }
-        local created, widget = pcall(function() return FileChooser:new{
-            name = "appdock_sleepscreen_asset", ui = chooser_ui, path = Device.home_dir or "/", show_path = true,
-            title_text = kind == "font" and _("Choose TTF or OTF font") or _("Choose image"),
-            file_filter = function(path)
-                local ext = type(path) == "string" and path:lower():match("%.([a-z0-9]+)$")
-                return kind == "font" and (ext == "ttf" or ext == "otf")
-                    or kind == "image" and (ext == "png" or ext == "jpg" or ext == "jpeg" or ext == "webp")
-            end,
-        } end)
-        if created and widget then
-            chooser = widget
-            local editor = self
-            function chooser:onFileSelect(item)
-                local path = item and item.path
-                UIManager:close(self)
-                local selected = function() if path then editor:_afterAsset(path, kind) end end
-                if UIManager.nextTick then UIManager:nextTick(selected) else selected() end
-                return true
-            end
-            UIManager:show(chooser); return
-        end
-    end
-    self:_showInput(kind == "font" and _("Import font path") or _("Import image path"), "",
-        kind == "font" and _("Local .ttf or .otf file") or _("Local .png, .jpg, .jpeg, or .webp file"),
-        function(path)
-            if path:find("://", 1, true) or path:sub(1, 1) ~= "/" then return false, _("Choose a local absolute file path.") end
-            self:_afterAsset(path, kind); return true
-        end)
+    local editor = self
+    AppDockFileChooser.pick{
+        title = kind == "font" and _("Choose TTF or OTF font") or _("Choose image"),
+        hint = kind == "font" and _("Local .ttf or .otf file") or _("Local .png, .jpg, .jpeg or .webp file"),
+        path = Device.home_dir or "/mnt/onboard",
+        extensions = kind == "font" and AppDockFileChooser.FONTS
+            or { png = true, jpg = true, jpeg = true, webp = true },
+        on_select = function(path) if path then editor:_afterAsset(path, kind) end end,
+    }
 end
 
 function SleepEditor:showImageMenu()

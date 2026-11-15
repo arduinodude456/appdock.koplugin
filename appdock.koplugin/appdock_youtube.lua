@@ -28,6 +28,7 @@ local ImageWidget
 pcall(function() ImageWidget = require("ui/widget/imagewidget") end)
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local AppDockDialogs = require("appdock_dialogs")
+local AppDockFileChooser = require("appdock_filechooser")
 local InfoMessage = AppDockDialogs.InfoMessage
 local InputContainer = require("ui/widget/container/inputcontainer")
 local InputDialog = AppDockDialogs.InputDialog
@@ -2798,20 +2799,35 @@ function YouTube:promptLink(instance, context)
 end
 
 function YouTube:promptLocalFile(instance, context)
-    promptText(_("Convert a local video"), _("Absolute path to a video file"), "", function(value)
-        if value == "" then return end
-        self:startLocalFile(instance, context, value)
-    end)
+    AppDockFileChooser.pick{
+        title = _("Convert a local video"),
+        hint = _("Choose a video file"),
+        path = "/mnt/onboard",
+        extensions = AppDockFileChooser.VIDEOS,
+        on_select = function(path) self:startLocalFile(instance, context, path) end,
+    }
 end
 
+--- Settings that hold a file or a folder (tool binaries, output folder) are picked, not typed.
 function YouTube:editToolPath(instance, context, key, title, hint)
     local settings = self:_settings()
-    promptText(title, hint, settings[key], function(value)
+    local is_folder = key == "output_dir" or key == "music_dir"
+    local function save(value)
         local patch = {}
         patch[key] = value
         self:_patchSettings(patch)
         self:redetect(instance, context)
-    end)
+    end
+    AppDockFileChooser.pick{
+        title = title,
+        hint = hint,
+        mode = is_folder and "folder" or "file",
+        path = (settings[key] and settings[key] ~= "") and settings[key] or (is_folder and "/mnt/onboard" or nil),
+        allow_clear = (settings[key] or "") ~= "",
+        clear_text = is_folder and _("Default") or _("Auto-detect"),
+        on_clear = function() save("") end,
+        on_select = save,
+    }
 end
 
 function YouTube:editAudioVideoDelay(instance, context)
@@ -3686,20 +3702,20 @@ function YouTube:_buildToolsPane(instance, context, state)
     local rows = {
         {
             title = "yt-dlp",
-            subtitle = tools.ytdlp or _("Not found. Tap to enter the path."),
+            subtitle = tools.ytdlp or _("Not found. Tap to choose the file."),
             value = tools.ytdlp and _("Found") or _("Missing"),
             action = function()
                 self:editToolPath(instance, context, "ytdlp_path", _("yt-dlp path"),
-                    _("Absolute path to the yt-dlp executable"))
+                    _("Choose the yt-dlp executable"))
             end,
         },
         {
             title = "ffmpeg",
-            subtitle = tools.ffmpeg or _("Not found. Tap to enter the path."),
+            subtitle = tools.ffmpeg or _("Not found. Tap to choose the file."),
             value = tools.ffmpeg and _("Found") or _("Missing"),
             action = function()
                 self:editToolPath(instance, context, "ffmpeg_path", _("ffmpeg path"),
-                    _("Absolute path to the ffmpeg executable"))
+                    _("Choose the ffmpeg executable"))
             end,
         },
         {
@@ -3708,7 +3724,7 @@ function YouTube:_buildToolsPane(instance, context, state)
             value = _("Edit"),
             action = function()
                 self:editToolPath(instance, context, "output_dir", _("Output folder"),
-                    _("Absolute folder for .bwr and .wav files"))
+                    _("Choose the folder for .bwr and .wav files"))
             end,
         },
         {
@@ -3817,7 +3833,7 @@ function YouTube:_buildToolsPane(instance, context, state)
     table.insert(content, detect)
 
     local hint = TextWidget:new{
-        text = _("If setup cannot fetch the tools, add yt-dlp and ffmpeg to the AppDock tools folder or enter their full paths. AppDock does not bundle them."),
+        text = _("If setup cannot fetch the tools, add yt-dlp and ffmpeg to the AppDock tools folder or choose them with the file chooser. AppDock does not bundle them."),
         face = Font:getFace("smallinfofont", scale(9)),
         fgcolor = Blitbuffer.COLOR_DARK_GRAY,
         max_width = width - 2 * margin,

@@ -4,7 +4,7 @@ It exposes selected KOReader plugin menu actions as configurable app tiles.
 --]]--
 
 local MODULE_DIR = (debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "")
-local APPDOCK_RELEASE = "9.6.2"
+local APPDOCK_RELEASE = "9.7.0"
 local AppDockRecovery
 local recovery_context
 do
@@ -56,6 +56,7 @@ local DEFAULT_SETTINGS = {
         "system:open_apps",
         "system:menu",
         "system:history",
+        "system:exit",
         "system:manage",
     },
     recent_apps = {},
@@ -77,6 +78,8 @@ local DEFAULT_SETTINGS = {
     plugin_logos = {},
     store = { installed = {} },
     layout = { app_spacing = 16, logo_shape = "rounded", search_enabled = false, ddg_search = true, split_ratio = .5, widget_scales = {} },
+    -- Card skins (9.7.0): shape or picture per card type, see appdock_skin.lua.
+    skin = { effects = "auto" },
     launch_on_start = false,
     notifications = { items = {}, next_id = 0 },
     wallpaper = { enabled = true, path = DEFAULT_WALLPAPER_PATH, source = "appdock_default" },
@@ -127,7 +130,7 @@ local DEFAULT_SETTINGS = {
         shorts_liked_profiles = "",
         shorts_interactions = "",
     },
-    layout_version = 26,
+    layout_version = 27,
 }
 
 
@@ -291,6 +294,9 @@ function AppDock:onResume()
     if ok and SleepScreen and SleepScreen.close then SleepScreen.close() end
     if not self._lock_after_resume then return end
     self._lock_after_resume = false
+    -- After "Exit" the reader chose plain KOReader; do not pull AppDock back
+    -- up when the device wakes. Opening the homescreen again clears this.
+    if self._exited then return end
     UIManager:nextTick(function() self:showHome() end)
 end
 
@@ -329,6 +335,7 @@ function AppDock:_loadSettings()
         plugin_logos = tableValue(stored.plugin_logos),
         store = tableValue(stored.store, { installed = {} }),
         layout = tableValue(stored.layout),
+        skin = tableValue(stored.skin, { effects = "auto" }),
         launch_on_start = stored.launch_on_start == true,
         notifications = tableValue(stored.notifications, { items = {}, next_id = 0 }),
         wallpaper = tableValue(stored.wallpaper, { enabled = true, path = DEFAULT_WALLPAPER_PATH, source = "appdock_default" }),
@@ -336,6 +343,7 @@ function AppDock:_loadSettings()
         beta = tableValue(stored.beta, { black_borders = false, keep_wallpaper_original_in_night = false, plugin_dapp_host = false, windows = false, windows_dither = false, manual_app_spacing = false, plugin_custom_logos = false }),
         quick_settings = tableValue(stored.quick_settings, { tiles = copyArray(DEFAULT_SETTINGS.quick_settings.tiles) }),
         simple_mode = tableValue(stored.simple_mode, { homescreen = false, quick_settings = false, focus_apps = false }),
+        features = tableValue(stored.features, {}),
         workspace = tableValue(stored.workspace, { restore_enabled = false, session = nil }),
         accessibility = tableValue(stored.accessibility, { text_scale = 1, high_contrast = false }),
         navigation = tableValue(stored.navigation, { mode = "buttons" }),
@@ -469,6 +477,20 @@ function AppDock:_loadSettings()
             table.insert(self.settings.pinned_apps, insert_at or (#self.settings.pinned_apps + 1), "dapp:youtube_shorts")
         end
     end
+    if self.settings.layout_version < 27 then
+        -- Offer the new "Exit" app once, in front of "Manage apps".
+        local pinned_exit = false
+        for _, app_id in ipairs(self.settings.pinned_apps) do
+            if app_id == "system:exit" then pinned_exit = true; break end
+        end
+        if not pinned_exit then
+            local insert_at
+            for index, app_id in ipairs(self.settings.pinned_apps) do
+                if app_id == "system:manage" then insert_at = index; break end
+            end
+            table.insert(self.settings.pinned_apps, insert_at or (#self.settings.pinned_apps + 1), "system:exit")
+        end
+    end
     -- Folder ids share the same ordered list as apps, so normalize it after
     -- all legacy app migrations have finished. This also removes malformed
     -- group records before they can occupy an invisible grid cell.
@@ -491,6 +513,7 @@ function AppDock:_loadSettings()
     self.settings.theme.selected = self.settings.theme.selected or "aurora"
     self.settings.theme.custom = tableValue(self.settings.theme.custom)
     self.settings.theme.night_mode = self.settings.theme.night_mode == true
+    self.settings.skin = require("appdock_skin").normalize(self.settings.skin)
     self.settings.rotation = type(self.settings.rotation) == "table" and self.settings.rotation or { auto = true }
     self.settings.rotation.auto = self.settings.rotation.auto ~= false
     self.settings.design = self.settings.design or { active_id = nil, installed = {} }
@@ -894,6 +917,35 @@ function AppDock:setLauncherLayout(changes)
     self:_saveSettings()
 end
 
+-- Card skins (9.7.0). `changes` may hold effects = "auto"|"on"|"off" and, per
+-- card kind ("app", "info", "widget"), a table with mode = "theme"|"shape"|
+-- "image", shape, image (a local picture path) and dim (0/25/50/75).
+function AppDock:setSkin(changes)
+    local Skin = require("appdock_skin")
+    changes = type(changes) == "table" and changes or {}
+    local skin = Skin.normalize(self.settings.skin)
+    if changes.effects == "auto" or changes.effects == "on" or changes.effects == "off" then
+        skin.effects = changes.effects
+    end
+    for _, kind in ipairs(Skin.KINDS) do
+        local change = changes[kind]
+        if type(change) == "table" then
+            for key, value in pairs(change) do skin[kind][key] = value end
+        end
+    end
+    self.settings.skin = Skin.normalize(skin)
+    Skin.clearCache()
+    self:_saveSettings()
+    return true
+end
+
+function AppDock:resetSkin()
+    local Skin = require("appdock_skin")
+    self.settings.skin = Skin.normalize({ effects = "auto" })
+    Skin.clearCache()
+    self:_saveSettings()
+end
+
 function AppDock:adjustStoreWidgetScale(widget_id, delta)
     if type(widget_id) ~= "string" or #widget_id > 120 or not widget_id:match("^[%w:_%-]+$") then return false end
     local known = false
@@ -1143,6 +1195,7 @@ end
 
 local SIMPLE_MODE_APP_IDS = {
     ["system:library"] = true,
+    ["system:exit"] = true,
     ["dapp:settings"] = true,
     ["dapp:file_manager"] = true,
     ["dapp:dreader"] = true,
@@ -1204,6 +1257,9 @@ function AppDock:setSimpleModeOption(option, enabled)
 end
 
 function AppDock:isSimpleModeAppAllowed(app)
+    -- Features > Focus mode hides games and YouTube everywhere apps are listed.
+    local features_ok, Features = pcall(require, "appdock_features")
+    if features_ok and Features and Features.isFocusBlocked(self, app) then return false end
     if not self:isSimpleModeEnabled("focus_apps") then return true end
     if type(app) ~= "table" then return false end
     if SIMPLE_MODE_APP_IDS[app.id] then return true end
@@ -1309,8 +1365,11 @@ function AppDock:notify(payload)
     while #self.settings.notifications.items > 50 do table.remove(self.settings.notifications.items) end
     self:_saveSettings()
     self:_refreshNotificationBadges()
+    -- Focus mode keeps the entry in the notification list but shows no pop-up.
+    local features_ok, Features = pcall(require, "appdock_features")
+    local focus = features_ok and Features and Features.isFocusEnabled(self)
     local ok, Notifications = pcall(require, "appdock_notifications")
-    if ok and Notifications and Notifications.showToast then Notifications.showToast(notification) end
+    if not focus and ok and Notifications and Notifications.showToast then Notifications.showToast(notification) end
     return true, notification
 end
 
@@ -1456,7 +1515,36 @@ function AppDock:_showSafeError(text)
     return false
 end
 
+-- "Exit": play the power-off animation, then close the homescreen so the
+-- normal KOReader (file manager or the open book) is what remains.
+function AppDock:exitToKOReader(home)
+    if self._exiting then return false end
+    self._exiting = true
+    local function finish()
+        self._exiting = false
+        self._exited = true
+        local target = home or self._home_screen
+        if target then pcall(UIManager.close, UIManager, target) end
+        UIManager:nextTick(function()
+            UIManager:setDirty("all", "full")
+            if UIManager.forceRePaint then pcall(UIManager.forceRePaint, UIManager) end
+        end)
+    end
+    local ok, Shutdown = pcall(require, "appdock_shutdown")
+    if not ok or type(Shutdown) ~= "table" or type(Shutdown.run) ~= "function" then
+        finish()
+        return true
+    end
+    local started, err = pcall(Shutdown.run, self, finish)
+    if not started then
+        logger.warn("AppDock: shutdown animation failed", err)
+        finish()
+    end
+    return true
+end
+
 function AppDock:showHome(skip_lock, on_ready)
+    self._exited = false
     if not skip_lock then
         local ok, LockScreen = pcall(require, "appdock_lockscreen")
         if ok and LockScreen and LockScreen.show then
@@ -1594,6 +1682,15 @@ function AppDock:getSystemApps()
             subtitle = _("Switch between open DApps"),
             callback = function(home)
                 self:showOpenApps(home)
+            end,
+        },
+        {
+            id = "system:exit",
+            title = _("Exit"),
+            subtitle = _("Close AppDock and return to KOReader"),
+            logo = "power",
+            callback = function(home)
+                self:exitToKOReader(home)
             end,
         },
         {
@@ -1829,7 +1926,7 @@ end
 
 function AppDock:_recordRecentApp(app)
     if type(app) ~= "table" or type(app.id) ~= "string" or app.id == "" then return false end
-    if app.id == "system:manage" or app.id == "system:open_apps" then return false end
+    if app.id == "system:manage" or app.id == "system:open_apps" or app.id == "system:exit" then return false end
 
     local recent, seen = { app.id }, { [app.id] = true }
     for _, app_id in ipairs(self.settings.recent_apps or {}) do
@@ -2216,7 +2313,9 @@ function AppDock:launchApp(app, home)
         return self:_showSafeError(_("This plugin host is currently unavailable."))
     end
 
-    if app.id == "system:manage" or app.id == "system:open_apps" then
+    -- These stay on the homescreen while they run (the dialogs open above it,
+    -- and Exit plays its power-off animation before closing it).
+    if app.id == "system:manage" or app.id == "system:open_apps" or app.id == "system:exit" then
         app.callback(home)
         return
     end

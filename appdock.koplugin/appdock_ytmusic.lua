@@ -24,6 +24,7 @@ local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local AppDockDialogs = require("appdock_dialogs")
+local AppDockFileChooser = require("appdock_filechooser")
 local InputDialog = AppDockDialogs.InputDialog
 local OverlapGroup = require("ui/widget/overlapgroup")
 local TextBoxWidget = require("appdock_text").TextBoxWidget
@@ -1835,20 +1836,20 @@ function Music:_buildToolsPane(instance, context, state)
     local rows = {
         {
             title = "yt-dlp",
-            subtitle = tools.ytdlp or _("Not found. Tap to enter the path."),
+            subtitle = tools.ytdlp or _("Not found. Tap to choose the file."),
             value = tools.ytdlp and _("Found") or _("Missing"),
             action = function()
                 self:editSetting(instance, context, "ytdlp_path", _("yt-dlp path"),
-                    _("Absolute path to the yt-dlp executable"))
+                    _("Choose the yt-dlp executable"))
             end,
         },
         {
             title = "ffmpeg",
-            subtitle = tools.ffmpeg or _("Not found. Tap to enter the path."),
+            subtitle = tools.ffmpeg or _("Not found. Tap to choose the file."),
             value = tools.ffmpeg and _("Found") or _("Missing"),
             action = function()
                 self:editSetting(instance, context, "ffmpeg_path", _("ffmpeg path"),
-                    _("Absolute path to the ffmpeg executable"))
+                    _("Choose the ffmpeg executable"))
             end,
         },
         {
@@ -1857,7 +1858,7 @@ function Music:_buildToolsPane(instance, context, state)
             value = _("Edit"),
             action = function()
                 self:editSetting(instance, context, "music_dir", _("Music folder"),
-                    _("Absolute folder for .wav tracks and their .jpg covers"))
+                    _("Choose the folder for .wav tracks and their .jpg covers"))
             end,
         },
         {
@@ -1937,37 +1938,26 @@ end
 
 function Music:editSetting(instance, context, key, title, hint)
     local settings = self:_settings()
-    local dialog
-    dialog = InputDialog:new{
+    local is_folder = key == "music_dir"
+    local function save(value)
+        local patch = {}
+        patch[key] = value
+        self:_patchSettings(patch)
+        local state = self:_state(instance)
+        state.tools = YouTube.detectTools(self:_settings())
+        self:_notify(instance, context, _("Saved."))
+        if context.requestRebuild then context.requestRebuild("ui") end
+    end
+    AppDockFileChooser.pick{
         title = title,
-        input = settings[key] or "",
-        input_hint = hint,
-        buttons = {
-            {
-                {
-                    text = _("Cancel"),
-                    callback = function() UIManager:close(dialog) end,
-                },
-                {
-                    text = _("Save"),
-                    callback = function()
-                        local value = trim(dialog:getInputText())
-                        UIManager:close(dialog)
-                        local patch = {}
-                        patch[key] = value
-                        self:_patchSettings(patch)
-                        local state = self:_state(instance)
-                        state.tools = YouTube.detectTools(self:_settings())
-                        self:_notify(instance, context, _("Saved."))
-                        if context.requestRebuild then context.requestRebuild("ui") end
-                    end,
-                },
-            },
-        },
+        hint = hint,
+        mode = is_folder and "folder" or "file",
+        path = (settings[key] and settings[key] ~= "") and settings[key] or (is_folder and "/mnt/onboard" or nil),
+        allow_clear = (settings[key] or "") ~= "",
+        clear_text = is_folder and _("Default") or _("Auto-detect"),
+        on_clear = function() save("") end,
+        on_select = save,
     }
-    UIManager:show(dialog)
-    AppDockKeyboard.attach(dialog)
-    dialog:onShowKeyboard()
     return true
 end
 

@@ -25,12 +25,17 @@ local DeviceControls = require("appdock_device_controls")
 local WindowDither = require("appdock_dither")
 local health_ok, Health = pcall(require, "appdock_health")
 if not health_ok then Health = nil end
+local features_ok, Features = pcall(require, "appdock_features")
+if not features_ok then Features = nil end
+local pet_ok, PetModule = pcall(require, "appdock_pet")
+if not pet_ok then PetModule = nil end
 local AppDockKeyboard = require("appdock_keyboard")
 local DAppLogo = require("appdock_logo")
 local Glass = require("appdock_glass")
 local Layout = require("appdock_layout")
 local Theme = require("appdock_theme")
 local Wallpaper = require("appdock_wallpaper")
+local AppDockFileChooser = require("appdock_filechooser")
 local Gradient = require("appdock_gradient")
 local Rotation = require("appdock_rotation")
 local InfoMessage = AppDockDialogs.InfoMessage
@@ -3789,8 +3794,7 @@ function DAppManager:showThemeEditor(instance, context)
     local buttons = {}
     local themes = Theme.getThemeList(self.appdock.settings)
     local selected_id = Theme.resolveDefinition(self.appdock.settings)
-    -- `_` is KOReader's gettext function and is called below for gradient labels.
-    for theme_index, theme in ipairs(themes) do
+    for _i, theme in ipairs(themes) do
         table.insert(buttons, {
             {
                 text = (theme.id == selected_id and "✓ " or "") .. theme.title .. "  " .. theme.primary
@@ -3924,27 +3928,158 @@ function DAppManager:showLauncherLayout(instance, context)
     UIManager:show(dialog)
 end
 
-function DAppManager:showWallpaperEditor(instance, context)
+-- Card skins (9.7.0): pick a shape or a picture for app, info and widget cards.
+local SKIN_KIND_TITLES = function()
+    return { app = _("App cards"), info = _("Info cards"), widget = _("Widget cards") }
+end
+
+local function skinKindLabel(appdock, kind)
+    local Skin = require("appdock_skin")
+    local mode, detail = Skin.describe(appdock, kind)
+    if mode == "image" then return _("Image") .. ": " .. detail end
+    if mode == "shape" then return _("Shape") .. ": " .. _(Skin.shapeTitle(detail)) end
+    return _("Theme default")
+end
+
+function DAppManager:_skinSummary()
+    local ok, text = pcall(function()
+        local Skin = require("appdock_skin")
+        local parts = {}
+        for _i, kind in ipairs(Skin.KINDS) do
+            local mode = Skin.describe(self.appdock, kind)
+            parts[#parts + 1] = mode == "theme" and "·" or (mode == "image" and "▣" or "◇")
+        end
+        return (Skin.isCyberActive(self.appdock) and _("Cyber effects on") or _("Cyber effects off"))
+            .. " · " .. _("Apps / Info / Widgets") .. " " .. table.concat(parts, " ")
+    end)
+    return ok and text or _("Shapes and pictures for cards")
+end
+
+function DAppManager:showSkinEditor(instance, context)
+    local Skin = require("appdock_skin")
     local dialog
-    local wallpaper = self.appdock.settings.wallpaper
-    dialog = InputDialog:new{
-        title = _("Homescreen background image"),
-        description = _("Local PNG, JPG, GIF, WEBP or SVG path. The image stays on this device."),
-        input_hint = _("Full image path"),
-        input = wallpaper.path or "",
-        buttons = { {
-            { text = _("Disable"), callback = function() self.appdock:setWallpaper(nil, false); UIManager:close(dialog); context.requestRebuild("ui") end },
-            { text = _("Use image"), is_enter_default = true, callback = function()
-                local enabled = self.appdock:setWallpaper(dialog:getInputText() or "", true)
-                UIManager:close(dialog)
-                if not enabled then self:showSettingsNotice(_("Choose an existing PNG, JPG, GIF, WEBP or SVG file.")) end
-                context.requestRebuild("ui")
-            end },
-        } },
+    local titles = SKIN_KIND_TITLES()
+    local buttons = {}
+    for _i, kind in ipairs(Skin.KINDS) do
+        buttons[#buttons + 1] = { { text = titles[kind] .. " · " .. skinKindLabel(self.appdock, kind), callback = function()
+            UIManager:close(dialog)
+            self:showSkinKindEditor(instance, context, kind)
+        end } }
+    end
+    local effects = (self.appdock.settings.skin or {}).effects or "auto"
+    local effects_label = effects == "on" and _("always on") or (effects == "off" and _("off") or _("automatic (Cyber theme)"))
+    buttons[#buttons + 1] = { { text = _("Cyber effects") .. ": " .. effects_label, callback = function()
+        local nxt = effects == "auto" and "on" or (effects == "on" and "off" or "auto")
+        self.appdock:setSkin({ effects = nxt })
+        UIManager:close(dialog)
+        context.requestRebuild("ui")
+        self:showSkinEditor(instance, context)
+    end } }
+    buttons[#buttons + 1] = { { text = _("Reset all cards to theme default"), callback = function()
+        self.appdock:resetSkin()
+        UIManager:close(dialog)
+        context.requestRebuild("ui")
+    end } }
+    buttons[#buttons + 1] = { { text = _("Done"), callback = function() UIManager:close(dialog) end } }
+    dialog = ButtonDialog:new{
+        title = _("Card style") .. "\n" .. _("Replace card backgrounds with a picture or a shape."),
+        buttons = buttons,
     }
-    AppDockKeyboard.attach(dialog)
     UIManager:show(dialog)
-    dialog:onShowKeyboard()
+end
+
+function DAppManager:showSkinKindEditor(instance, context, kind)
+    local Skin = require("appdock_skin")
+    local dialog
+    local cfg = (self.appdock.settings.skin or {})[kind] or {}
+    local function apply(changes)
+        self.appdock:setSkin({ [kind] = changes })
+        UIManager:close(dialog)
+        context.requestRebuild("ui")
+        self:showSkinKindEditor(instance, context, kind)
+    end
+    local buttons = {}
+    buttons[#buttons + 1] = { { text = (cfg.mode == "theme" and "✓ " or "") .. _("Theme default"), callback = function()
+        apply({ mode = "theme", image = "" })
+    end } }
+    -- Shapes, two per row. With a picture chosen, a shape only reshapes it.
+    local row = {}
+    for _i, shape in ipairs(Skin.SHAPES) do
+        if shape.id ~= "circle" or kind == "app" then
+            local active = (cfg.mode == "shape" or cfg.mode == "image") and cfg.shape == shape.id
+            row[#row + 1] = { text = (active and "✓ " or "") .. _(shape.title), callback = function()
+                apply({ mode = cfg.mode == "image" and "image" or "shape", shape = shape.id })
+            end }
+            if #row == 2 then buttons[#buttons + 1] = row; row = {} end
+        end
+    end
+    if #row > 0 then buttons[#buttons + 1] = row end
+    local has_image = cfg.mode == "image" and type(cfg.image) == "string" and cfg.image ~= ""
+    buttons[#buttons + 1] = { { text = (has_image and "✓ " or "") .. _("Choose picture…"), callback = function()
+        UIManager:close(dialog)
+        AppDockFileChooser.pick{
+            title = _("Choose picture"),
+            hint = _("PNG, JPG, GIF, WEBP or SVG"),
+            path = has_image and cfg.image or nil,
+            extensions = AppDockFileChooser.IMAGES,
+            on_select = function(path)
+                local Wallpaper = require("appdock_wallpaper")
+                if not Wallpaper.isValidPath(path) then
+                    self:showSettingsNotice(_("Choose a PNG, JPG, GIF, WebP or SVG picture."))
+                    return
+                end
+                self.appdock:setSkin({ [kind] = { mode = "image", image = path } })
+                context.requestRebuild("ui")
+                self:showSkinKindEditor(instance, context, kind)
+            end,
+            on_cancel = function() self:showSkinKindEditor(instance, context, kind) end,
+        }
+    end } }
+    if has_image then
+        local dim = tonumber(cfg.dim)
+        if dim == nil then dim = kind == "app" and 25 or 35 end
+        buttons[#buttons + 1] = { { text = string.format(_("Fade picture towards card color: %d%%"), dim), callback = function()
+            local nxt = 0
+            for _i, step in ipairs(Skin.DIM_STEPS) do
+                if step > dim then nxt = step; break end
+            end
+            apply({ dim = nxt })
+        end } }
+        buttons[#buttons + 1] = { { text = _("Remove picture"), callback = function()
+            apply({ mode = "shape", image = "" })
+        end } }
+    end
+    buttons[#buttons + 1] = { { text = _("Back"), callback = function()
+        UIManager:close(dialog)
+        self:showSkinEditor(instance, context)
+    end } }
+    dialog = ButtonDialog:new{
+        title = SKIN_KIND_TITLES()[kind] .. "\n" .. skinKindLabel(self.appdock, kind),
+        buttons = buttons,
+        rows_per_page = { 6, 7, 8 },
+    }
+    UIManager:show(dialog)
+end
+
+function DAppManager:showWallpaperEditor(instance, context)
+    local wallpaper = self.appdock.settings.wallpaper
+    local current = wallpaper and wallpaper.path
+    AppDockFileChooser.pick{
+        title = _("Homescreen background image"),
+        hint = _("PNG, JPG, GIF, WEBP or SVG · stays on this device"),
+        path = current,
+        extensions = AppDockFileChooser.IMAGES,
+        allow_clear = true, clear_text = _("Disable"),
+        on_clear = function()
+            self.appdock:setWallpaper(nil, false)
+            context.requestRebuild("ui")
+        end,
+        on_select = function(path)
+            local enabled = self.appdock:setWallpaper(path, true)
+            if not enabled then self:showSettingsNotice(_("Choose an existing PNG, JPG, GIF, WEBP or SVG file.")) end
+            context.requestRebuild("ui")
+        end,
+    }
 end
 
 function DAppManager:showLockscreenSecretDialog(instance, context, method)
@@ -4002,57 +4137,23 @@ end
 function DAppManager:showLockscreenProfileImageDialog(instance, context)
     local manager = self
     local lockscreen = self.appdock.settings.lockscreen
-    local function clearImage()
-        manager.appdock:setLockscreenProfile(lockscreen.profile_name, "")
-        context.requestRebuild("ui")
-    end
-    local function useImage(path)
-        local saved = manager.appdock:setLockscreenProfile(lockscreen.profile_name, path or "")
-        if not saved then manager:showSettingsNotice(_("Choose an existing local PNG, JPG, GIF, WEBP or SVG file.")) end
-        context.requestRebuild("ui")
-    end
-    local function showManualPath()
-        local dialog
-        dialog = InputDialog:new{
-            title = _("Lockscreen profile image"),
-            description = _("Optional local PNG, JPG, GIF, WEBP or SVG path. The image stays on this device and is not used as device security."),
-            input_hint = _("Full local image path"), input = lockscreen.profile_image_path or "",
-            buttons = { { { text = _("Clear image"), callback = function() UIManager:close(dialog); clearImage() end },
-                { text = _("Use image"), is_enter_default = true, callback = function() local path = dialog:getInputText() or ""; UIManager:close(dialog); useImage(path) end } } },
-        }
-        AppDockKeyboard.attach(dialog); UIManager:show(dialog); dialog:onShowKeyboard()
-    end
-    local function showChooser()
-        local ok_chooser, FileChooser = pcall(require, "ui/widget/filechooser")
-        if not ok_chooser or not FileChooser then return false end
-        local chooser_ui = { selected_files = {}, folder_shortcuts = {
-            getShortcutFullName = function() return nil end, hasShortcut = function() return false end, hasFolderShortcut = function() return false end,
-        } }
-        local ok_new, chooser = pcall(function() return FileChooser:new{
-            name = "appdock_lockscreen_profile_image", ui = chooser_ui,
-            path = (lockscreen.profile_image_path or "") ~= "" and lockscreen.profile_image_path or (Device.home_dir or "/"),
-            show_path = true, file_filter = function(filename) return Wallpaper.isValidPath(filename) end,
-        } end)
-        if not ok_new or not chooser then return false end
-        function chooser:onFileSelect(item)
-            local path = item and item.path
-            UIManager:close(self)
-            UIManager:nextTick(function() if path then useImage(path) else manager:showSettingsNotice(_("No profile image was selected.")) end end)
-            return true
-        end
-        UIManager:show(chooser)
-        return true
-    end
-    local menu
-    menu = ButtonDialog:new{ title = _("Lockscreen profile image"), buttons = {
-        { { text = _("Browse images"), callback = function()
-            UIManager:close(menu)
-            if not showChooser() then showManualPath() end
-        end } },
-        { { text = _("Clear image"), callback = function() UIManager:close(menu); clearImage() end } },
-        { { text = _("Cancel"), callback = function() UIManager:close(menu) end } },
-    } }
-    UIManager:show(menu)
+    AppDockFileChooser.pick{
+        title = _("Lockscreen profile image"),
+        hint = _("PNG, JPG, GIF, WEBP or SVG · stays on this device"),
+        path = lockscreen.profile_image_path,
+        extensions = AppDockFileChooser.IMAGES,
+        allow_clear = (lockscreen.profile_image_path or "") ~= "",
+        clear_text = _("Clear image"),
+        on_clear = function()
+            manager.appdock:setLockscreenProfile(lockscreen.profile_name, "")
+            context.requestRebuild("ui")
+        end,
+        on_select = function(path)
+            local saved = manager.appdock:setLockscreenProfile(lockscreen.profile_name, path or "")
+            if not saved then manager:showSettingsNotice(_("Choose an existing local PNG, JPG, GIF, WEBP or SVG file.")) end
+            context.requestRebuild("ui")
+        end,
+    }
 end
 
 function DAppManager:showLockscreenEditor(instance, context)
@@ -4101,26 +4202,23 @@ function DAppManager:showManualAppSpacingDialog(instance, context)
 end
 
 function DAppManager:showPluginLogoPathDialog(instance, context, app)
-    local dialog
-    dialog = InputDialog:new{
-        title = _("Plugin logo") .. " · " .. app.title,
-        description = _("Choose an existing local PNG, JPG, GIF, WEBP or SVG file. This logo is used only for this non-DApp plugin tile."),
-        input_hint = _("Full local image path"), input = app.custom_logo_path or "",
-        buttons = { {
-            { text = _("Clear logo"), callback = function()
-                self.appdock:setPluginLogo(app.id, nil)
-                UIManager:close(dialog); context.requestRebuild("ui")
-            end },
-            { text = _("Use image"), is_enter_default = true, callback = function()
-                local saved = self.appdock:setPluginLogo(app.id, dialog:getInputText() or "")
-                UIManager:close(dialog)
-                if not saved then self:showSettingsNotice(_("Choose an existing local PNG, JPG, GIF, WEBP or SVG file.")) end
-                context.requestRebuild("ui")
-            end },
-        } },
+    AppDockFileChooser.pick{
+        title = _("Plugin logo") .. " · " .. tostring(app.title or ""),
+        hint = _("PNG, JPG, GIF, WEBP or SVG · used only for this plugin tile"),
+        path = app.custom_logo_path,
+        extensions = AppDockFileChooser.IMAGES,
+        allow_clear = (app.custom_logo_path or "") ~= "",
+        clear_text = _("Clear logo"),
+        on_clear = function()
+            self.appdock:setPluginLogo(app.id, nil)
+            context.requestRebuild("ui")
+        end,
+        on_select = function(path)
+            local saved = self.appdock:setPluginLogo(app.id, path or "")
+            if not saved then self:showSettingsNotice(_("Choose an existing local PNG, JPG, GIF, WEBP or SVG file.")) end
+            context.requestRebuild("ui")
+        end,
     }
-    AppDockKeyboard.attach(dialog)
-    UIManager:show(dialog); dialog:onShowKeyboard()
 end
 
 function DAppManager:showPluginLogoEditor(instance, context)
@@ -4400,6 +4498,8 @@ function DAppManager:_buildSettingsPane(instance, context)
         { id = "storage", title = _("Storage"), subtitle = _("Space usage"), logo = "file_manager" },
         { id = "health", title = Health and Health.t(self.appdock, "cat_title") or _("Health & reading"),
             subtitle = Health and Health.t(self.appdock, "cat_sub") or _("Eyes, statistics, breaks"), logo = "timer" },
+        { id = "features", title = Features and Features.t(self.appdock, "cat_title") or _("Features"),
+            subtitle = Features and Features.t(self.appdock, "cat_sub") or _("Shelf, focus mode, pet"), logo = "bookmark" },
         { id = "simple", title = _("Simple Mode"), subtitle = _("Focus mode"), logo = "appdock" },
         { id = "other", title = _("Other"), subtitle = _("AppDock"), logo = "settings" },
     }
@@ -4508,6 +4608,12 @@ function DAppManager:_buildSettingsPane(instance, context)
                 subtitle = wallpaper_settings.enabled and _("Enabled · local file") or _("Disabled"),
                 show_state = false,
                 callback = function() self:showWallpaperEditor(instance, context) end,
+            },
+            {
+                title = _("Card style"),
+                subtitle = self:_skinSummary(),
+                show_state = false,
+                callback = function() self:showSkinEditor(instance, context) end,
             },
             {
                 title = _("Black outlines"),
@@ -4745,6 +4851,7 @@ function DAppManager:_buildSettingsPane(instance, context)
         },
     }
     rows_by_category.health = Health and Health.settingsRows(self.appdock, context) or {}
+    rows_by_category.features = Features and Features.settingsRows(self.appdock, context) or {}
     table.insert(rows_by_category.network, {
         title = _("Bluetooth"),
         subtitle = _("AppDock-eigene Bluetooth-Steuerung über Kobo-/BlueZ-D-Bus"),
@@ -4806,7 +4913,7 @@ function DAppManager:_buildSettingsPane(instance, context)
     local search_height = scale(44)
     local sidebar_search_y = margin + sidebar_title_height + scale(12)
     local sidebar_list_y = sidebar_search_y + search_height + scale(18)
-    local category_groups = { { "network" }, { "display", "storage" }, { "health" }, { "simple", "other" } }
+    local category_groups = { { "network" }, { "display", "storage" }, { "health", "features" }, { "simple", "other" } }
     local group_gap = scale(16)
     local category_available = height - sidebar_list_y - margin - group_gap * (#category_groups - 1)
     local category_height = math.max(scale(40), math.min(scale(64), math.floor(category_available / #categories)))
@@ -5804,7 +5911,7 @@ function DAppHost:rebuild(preserve_active)
         face = Font:getFace("smallinfofont", expressive and Theme.adjustText(self.manager.appdock, scale(17), scale(11)) or scale(17)),
         fgcolor = PALETTE.on_surface,
         bold = true,
-        max_width = width - scale(100),
+        max_width = width - scale(100) - ((PetModule and PetModule.shownAt(self.manager.appdock, "app", ids[1]) and not self.split) and scale(48) or 0),
         padding = 0,
     }
     local host_title_y = math.max(scale(2), math.floor((appbar_height - host_title:getSize().h) / 2))
@@ -5835,6 +5942,15 @@ function DAppHost:rebuild(preserve_active)
         })
         table.insert(chrome, host_title)
         table.insert(chrome, quick_action)
+        if PetModule and PetModule.shownAt(self.manager.appdock, "app", ids[1]) and not self.split then
+            local pet_size = math.min(scale(48), appbar_height - scale(4))
+            local pet_widget = PetModule.widget(self.manager.appdock, pet_size)
+            pet_widget.overlap_offset = {
+                width - (expressive and scale(52) or scale(46)) - pet_size - scale(8),
+                math.max(scale(2), math.floor((appbar_height - pet_size) / 2)),
+            }
+            table.insert(chrome, pet_widget)
+        end
     end
     if expressive and not fullscreen then
         table.insert(chrome, FrameContainer:new{

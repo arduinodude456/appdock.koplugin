@@ -509,7 +509,7 @@ function Writer:finish()
     if index_offset == nil or index_offset > 4294967295 then
         return nil, seek_error or _("The BWR2 index exceeded its 32-bit offset limit.")
     end
-    for _, offset in ipairs(self.key_offsets) do
+    for _i, offset in ipairs(self.key_offsets) do
         local written, err = self.handle:write(put_u32_le(offset))
         if not written then return nil, err or _("The BWR2 keyframe index could not be written.") end
     end

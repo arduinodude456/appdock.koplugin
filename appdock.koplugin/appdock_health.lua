@@ -416,6 +416,11 @@ local function loadStats()
     return stored
 end
 
+local function flushPet(appdock)
+    local ok, Pet = pcall(require, "appdock_pet")
+    if ok and Pet and Pet.flush then pcall(Pet.flush, appdock) end
+end
+
 local function flushStats(hard)
     local stats = Health._stats
     if not stats or not _G.G_reader_settings then return end
@@ -562,6 +567,13 @@ local function account(state, now)
         Health.addTime("on", dt)
         if reading then Health.addTime("read", dt) end
     end
+    -- The reading pet is fed by reading in a book and by DReader on screen.
+    if dt > 0 then
+        local pet_ok, Pet = pcall(require, "appdock_pet")
+        if pet_ok and Pet and Pet.isEnabled(appdock) and (reading or Pet.inDReader()) then
+            pcall(Pet.addReading, appdock, dt)
+        end
+    end
     if reading then
         state.streak = (state.streak or 0) + dt
     elseif not state.last_activity or (now - state.last_activity) > BREAK_GAP then
@@ -639,6 +651,7 @@ function Health.detach(state)
     state.detached = true
     if UIManager.unschedule then UIManager:unschedule(state.tick) end
     flushStats(true)
+    flushPet(state.appdock)
 end
 
 --- A page turn or reader start: the person is reading right now.
@@ -652,6 +665,7 @@ function Health.onSuspend(state)
     state.last_tick = nil
     state.streak = 0
     flushStats(true)
+    flushPet(state.appdock)
 end
 
 function Health.onResume(state)
@@ -668,6 +682,7 @@ function Health.onCloseDocument(state)
     state.last_activity = nil
     state.streak = 0
     flushStats(true)
+    flushPet(state.appdock)
 end
 
 ---------------------------------------------------------------------------

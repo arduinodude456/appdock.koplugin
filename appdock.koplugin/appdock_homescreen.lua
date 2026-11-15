@@ -27,8 +27,13 @@ local InputContainer = require("ui/widget/container/inputcontainer")
 local DAppLogo = require("appdock_logo")
 local Layout = require("appdock_layout")
 local Theme = require("appdock_theme")
+local features_ok, Features = pcall(require, "appdock_features")
+if not features_ok then Features = nil end
+local pet_ok, PetModule = pcall(require, "appdock_pet")
+if not pet_ok then PetModule = nil end
 local Wallpaper = require("appdock_wallpaper")
 local Gradient = require("appdock_gradient")
+local Skin = require("appdock_skin")
 local Rotation = require("appdock_rotation")
 local OverlapGroup = require("ui/widget/overlapgroup")
 local TextWidget = require("ui/widget/textwidget")
@@ -375,6 +380,20 @@ local function addShadow(group, appdock, x, y, w, h, radius, depth)
     end)
 end
 
+-- Shadow for a skinned card kind ("app", "info", "widget"). A card with a skin
+-- casts a shadow in its own shape (a neon offset in the Cyber theme); every
+-- other card keeps the classic rounded hard shadow.
+local function addCardShadow(group, appdock, kind, x, y, w, h, radius, depth)
+    local shadow = Skin.shadow(appdock, kind, w, h)
+    if not shadow then
+        if Skin.resolve(appdock, kind) then return end -- shapes without a shadow
+        return addShadow(group, appdock, x, y, w, h, radius, depth)
+    end
+    local d = depth or scale(4)
+    shadow.overlap_offset = { x + d, y + d }
+    table.insert(group, shadow)
+end
+
 local function bottomSwipeRange(dimen)
     local band_height = scale(76)
     return Geom:new{
@@ -514,6 +533,21 @@ function InfoCard:init()
         }
     end)
     if not accent_ok then accent = emptySizedWidget(1, 1) end
+    local skinned = Skin.plate(self.appdock, "info", {
+        width = self.width, height = self.height, fill = self.background or PALETTE.surface,
+        content = Layout.FixedStack:new{
+            width = self.width, height = self.height,
+            entries = {
+                { widget = accent, x = scale(14), y = scale(16) },
+                { widget = title_widget, x = scale(26), y = positions[1] },
+                { widget = body_widget, x = scale(26), y = positions[2] },
+            },
+        },
+    })
+    if skinned then
+        self[1] = skinned
+        return
+    end
     self[1] = FrameContainer:new{
         width = self.width,
         height = self.height,
@@ -580,6 +614,14 @@ function StoreWidgetCard:init()
             PanMoveStoreWidget = { GestureRange:new{ ges = "pan", range = self.dimen } },
             PanReleaseMoveStoreWidget = { GestureRange:new{ ges = "pan_release", range = self.dimen } },
         }
+    end
+    local skinned = Skin.plate(self.appdock, "widget", {
+        width = self.width, height = self.height, fill = self.background or PALETTE.surface,
+        content = OverlapGroup:new{ dimen = self.dimen, allow_mirroring = false, unpack(card_children) },
+    })
+    if skinned then
+        self[1] = skinned
+        return
     end
     self[1] = FrameContainer:new{
         width = self.width,
@@ -843,6 +885,7 @@ function AppTile:init()
         ["system:history"] = "analog_clock",
         ["system:open_apps"] = "app_store",
         ["system:manage"] = "app_store",
+        ["system:exit"] = "power",
     }
     local logo_kind = self.app.logo or builtin_logos[self.app.id]
     local icon = self.app.is_group and groupPreview(self.app, self.tile_size) or (self.symbol == "app_drawer" and AppDrawerGlyph:new{
@@ -926,6 +969,29 @@ function AppTile:init()
         plate = layers
     end
     end)
+    -- Card skin (9.7.0): a drawn shape or a picture replaces the classic plate.
+    if self.tile_size >= scale(40) then
+        local skinned, skin_cfg = Skin.plate(self.appdock, "app", {
+            width = self.tile_size, height = self.tile_size, fill = CARD,
+            selected = selected_for_edit and true or false,
+            prefer_circle = requested_shape == "circle",
+            content = CenterContainer:new{ dimen = Geom:new{ w = self.tile_size, h = self.tile_size }, icon },
+        })
+        if skinned then
+            local layers = OverlapGroup:new{
+                dimen = Geom:new{ w = self.tile_size, h = self.tile_size },
+                allow_mirroring = false,
+            }
+            local shadow = Skin.shadow(self.appdock, "app", self.tile_size, self.tile_size, skin_cfg.shape)
+            if shadow then
+                local depth = math.max(3, scale(4))
+                shadow.overlap_offset = { depth, depth }
+                table.insert(layers, shadow)
+            end
+            table.insert(layers, skinned)
+            plate = layers
+        end
+    end
     local label_size = math.max(scale(8), math.min(scale(15), self.label_height - scale(5)))
     if self.home and self.home.appdock and self.home.appdock.isExpressiveUiEnabled and self.home.appdock:isExpressiveUiEnabled() then
         label_size = Theme.adjustText(self.appdock, label_size, scale(8))
@@ -1041,6 +1107,7 @@ local PageDots = InputContainer:extend{
     home = nil,
     count = 1,
     page = 1,
+    offset = 0,   -- 1 when a shelf page sits before app page 1 (dot index 1)
     width = nil,
     height = nil,
 }
@@ -1089,7 +1156,7 @@ function PageDots:onTapPageDots(_, gesture_event)
         local distance = math.abs(gesture_event.pos.x - center)
         if not best_distance or distance < best_distance then best, best_distance = index, distance end
     end
-    if best and best ~= self.page then self.home:_showPage(best) end
+    if best and best ~= self.page then self.home:_showPage(best - (self.offset or 0)) end
     return true
 end
 
@@ -1423,9 +1490,20 @@ function AppDockHomeScreen:_pageCount()
 end
 
 function AppDockHomeScreen:_showPage(page)
+    local shelf = Features and Features.isShelfEnabled(self.appdock)
+    page = tonumber(page) or self.page
+    -- Page 0 is the shelf (Features > Shelf), placed before the app pages.
+    if shelf and page < 1 then
+        if self.shelf_view then return false end
+        self.shelf_view = true
+        self:build()
+        UIManager:setDirty(self, "ui")
+        return true
+    end
     local page_count = self:_pageCount()
-    page = math.max(1, math.min(page_count, tonumber(page) or self.page))
-    if page == self.page then return false end
+    page = math.max(1, math.min(page_count, page))
+    if page == self.page and not self.shelf_view then return false end
+    self.shelf_view = false
     self.page = page
     self:build()
     UIManager:setDirty(self, "ui")
@@ -1498,8 +1576,10 @@ end
 function AppDockHomeScreen:onSwipeHomePage(_, gesture_event)
     if self.appdock:isSimpleModeEnabled("homescreen") or not gesture_event then return false end
     if gesture_event.direction == "west" then
-        return self:_showPage(self.page + 1)
+        return self:_showPage(self.shelf_view and 1 or self.page + 1)
     elseif gesture_event.direction == "east" then
+        if self.shelf_view then return false end
+        if self.page == 1 and Features and Features.isShelfEnabled(self.appdock) then return self:_showPage(0) end
         return self:_showPage(self.page - 1)
     end
     return false
@@ -1920,6 +2000,12 @@ function AppDockHomeScreen:build()
         self:_buildSimpleMode(width, height)
         return
     end
+    local shelf_on = Features and Features.isShelfEnabled(self.appdock) or false
+    if self.shelf_view and shelf_on then
+        self:_buildShelfPage(width, height)
+        return
+    end
+    self.shelf_view = false
     local expressive = type(self.appdock.isExpressiveUiEnabled) == "function" and self.appdock:isExpressiveUiEnabled()
     local margin = scale(22)
     local top_line_height = scale(30)
@@ -2151,7 +2237,7 @@ function AppDockHomeScreen:build()
     end
     local function maxGridTileSize()
         local grid_y = measuredGridY()
-        local page_nav_space = page_count > 1 and scale(34) or 0
+        local page_nav_space = (page_count > 1 or shelf_on) and scale(34) or 0
         local bottom = dock_y - (#dock_apps > 0 and scale(8) or 0) - page_nav_space
         return math.floor((bottom - grid_y - 2 * row_gap - 3 * (label_gap + label_height)) / 3)
     end
@@ -2171,7 +2257,7 @@ function AppDockHomeScreen:build()
 
     if show_status_card then
         local status_body = safeBatteryText() or _("All systems ready")
-        addShadow(dashboard, self.appdock, margin, card_y, math.floor((width - 2 * margin - scale(10)) * 0.42),
+        addCardShadow(dashboard, self.appdock, "info", margin, card_y, math.floor((width - 2 * margin - scale(10)) * 0.42),
             info_card_height, math.floor(info_card_height * 0.34))
         table.insert(dashboard, InfoCard:new{
             appdock = self.appdock,
@@ -2192,7 +2278,7 @@ function AppDockHomeScreen:build()
         local reading_width = show_status_card
             and width - margin - reading_x
             or width - 2 * margin
-        addShadow(dashboard, self.appdock, reading_x, card_y, reading_width,
+        addCardShadow(dashboard, self.appdock, "info", reading_x, card_y, reading_width,
             info_card_height, math.floor(info_card_height * 0.34))
         table.insert(dashboard, InfoCard:new{
             appdock = self.appdock,
@@ -2226,7 +2312,7 @@ function AppDockHomeScreen:build()
             widget_id = widget.widget_id, x = widget_x, y = widget_y_pos,
             width = metrics.width, height = metrics.height, index = index, row = slot.row, column = slot.col, span = slot.span,
         }
-        addShadow(dashboard, self.appdock, widget_x, widget_y_pos, metrics.width, metrics.height,
+        addCardShadow(dashboard, self.appdock, "widget", widget_x, widget_y_pos, metrics.width, metrics.height,
             math.floor(metrics.height * 0.30))
         table.insert(dashboard, StoreWidgetCard:new{
             widget = widget,
@@ -2242,7 +2328,7 @@ function AppDockHomeScreen:build()
             overlap_offset = { widget_x, widget_y_pos },
         })
     end
-    local page_nav_space = page_count > 1 and scale(34) or 0
+    local page_nav_space = (page_count > 1 or shelf_on) and scale(34) or 0
     local grid_bottom = dock_y - (#dock_apps > 0 and scale(8) or 0) - page_nav_space
     local available_tile_size = math.floor((grid_bottom - grid_y - 2 * row_gap - 3 * (label_gap + label_height)) / 3)
     local preferred_tile_size = math.floor(math.min(width * 0.26, height * 0.15))
@@ -2303,9 +2389,11 @@ function AppDockHomeScreen:build()
         })
     end
 
-    if page_count > 1 then
+    self._app_page_count = page_count
+    if page_count > 1 or shelf_on then
         table.insert(app_grid, PageDots:new{
-            home = self, count = page_count, page = self.page, width = width,
+            home = self, count = page_count + (shelf_on and 1 or 0), page = self.page + (shelf_on and 1 or 0),
+            offset = shelf_on and 1 or 0, width = width,
             overlap_offset = { 0, grid_y + grid_height + scale(4) },
         })
     end
@@ -2377,6 +2465,48 @@ function AppDockHomeScreen:build()
         quick_access_title = dock_title,
         quick_access_y = dock_y,
         hidden_widgets_for_fit = widgets_hidden_for_fit,
+    }
+    if PetModule and PetModule.shownAt(self.appdock, "home") and self.page == 1 and not self.edit_mode then
+        local pet_size = scale(72)
+        local pet_widget = PetModule.widget(self.appdock, pet_size)
+        pet_widget.overlap_offset = { width - margin - pet_size, 0 }
+        table.insert(dashboard, pet_widget)
+    end
+    self:_appendBrightnessIndicator(dashboard)
+    self[1] = dashboard
+end
+
+-- Features > Shelf: a bookcase page in front of the app pages.
+function AppDockHomeScreen:_buildShelfPage(width, height)
+    local dots_height = scale(30)
+    local shelf_height = height - dots_height
+    local app_pages = self._app_page_count or 1
+    local dashboard = OverlapGroup:new{
+        dimen = Geom:new{ w = width, h = height },
+        allow_mirroring = false,
+        FrameContainer:new{
+            width = width, height = height, padding = 0, bordersize = 0,
+            background = PALETTE.background,
+            emptySizedWidget(width, height),
+        },
+    }
+    local shelf = Features.buildShelf(self, width, shelf_height)
+    shelf.overlap_offset = { 0, 0 }
+    table.insert(dashboard, shelf)
+    if PetModule and PetModule.shownAt(self.appdock, "home") then
+        local pet_size = scale(120)
+        local floor_y = shelf_height - scale(60)
+        local pet_widget = PetModule.widget(self.appdock, pet_size)
+        pet_widget.overlap_offset = { width - scale(30) - pet_size, floor_y + scale(10) - pet_size }
+        table.insert(dashboard, pet_widget)
+    end
+    table.insert(dashboard, PageDots:new{
+        home = self, count = app_pages + 1, page = 1, offset = 1, width = width,
+        overlap_offset = { 0, height - dots_height + scale(2) },
+    })
+    -- Swipes anywhere on the shelf page go back to the apps.
+    self.normal_layout = {
+        page_count = app_pages, grid_y = 0, grid_height = height, shelf = true,
     }
     self:_appendBrightnessIndicator(dashboard)
     self[1] = dashboard

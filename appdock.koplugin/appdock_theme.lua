@@ -24,6 +24,15 @@ local BUILTIN = {
         gradient = { angle = 168, stops = { "#050E26", "#0A3550", "#117A68", "#3F3B8F" } },
         wallpaper = "assets/lockscreen/appdock_lockscreen_aurora.jpg",
     },
+    -- Cyber (9.7.0): neon cyan on near-black navy with a violet glow. Brings
+    -- chamfered cards with neon edges through appdock_skin.lua and its own
+    -- background picture (assets/skin/cyber_city.png).
+    cyber = {
+        title = "Cyber", primary = "#00F0FF",
+        background = "#05070F", text = "#D8F6FF", button = "#0F2740", dropdown = "#0A1426",
+        gradient = { angle = 160, stops = { "#03040A", "#08122A", "#1A0A34" } },
+        wallpaper = "assets/skin/cyber_city.png",
+    },
     lavender = { title = "Lavender", primary = "#D6E3FF" },
     ocean = { title = "Ocean", primary = "#C6E7F5" },
     forest = { title = "Forest", primary = "#CDEBD5" },

@@ -1298,6 +1298,14 @@ function AppStore:install(instance, context, entry, is_update)
         return
     end
     os.remove(backup)
+    -- Focus mode (Features) needs to tell Store games from ordinary DApps.
+    if entry.kind == "game" and not is_widget then
+        local installed = context.manager.appdock.settings.store and context.manager.appdock.settings.store.installed
+        if installed and installed[definition.id] then
+            installed[definition.id].is_game = true
+            context.manager.appdock:_saveSettings()
+        end
+    end
     local action = installed_record and _("Updated") or _("Installed")
     UIManager:show(InfoMessage:new{ text = action .. " " .. entry.title .. (is_widget and _(". It is now available on the AppDock homescreen.") or _(". It is now available in AppDock apps.")) })
     context.requestRebuild("ui")

@@ -37,6 +37,7 @@ local UIManager = require("ui/uimanager")
 local Widget = require("ui/widget/widget")
 local AppDockDialogs = require("appdock_dialogs")
 local AppDockKeyboard = require("appdock_keyboard")
+local AppDockFileChooser = require("appdock_filechooser")
 local Stylus = require("appdock_stylus")
 local _ = require("gettext")
 
@@ -4767,20 +4768,18 @@ function Draw:buildPane(instance, context)
         for _index, path in ipairs(imageCandidates()) do
             rows[#rows + 1] = { text = fileName(path), run = function() placeImage(path) end }
         end
-        local ok_pc, PathChooser = pcall(require, "ui/widget/pathchooser")
-        if ok_pc and PathChooser then
-            table.insert(rows, 1, { text = _("Browse files…"), run = function()
-                UIManager:show(PathChooser:new{
-                    select_directory = false,
-                    path = "/mnt/onboard",
-                    file_filter = function(filename)
-                        local lower = filename:lower()
-                        return lower:match("%.jpe?g$") ~= nil or lower:match("%.png$") ~= nil
-                    end,
-                    onConfirm = function(path) placeImage(path) end,
-                })
-            end })
-        end
+        table.insert(rows, 1, { text = _("Browse files…"), run = function()
+            AppDockFileChooser.pick{
+                title = _("Insert image"),
+                hint = _("PNG or JPG"),
+                path = "/mnt/onboard",
+                filter = function(filename)
+                    local lower = filename:lower()
+                    return lower:match("%.jpe?g$") ~= nil or lower:match("%.png$") ~= nil
+                end,
+                on_select = function(path) placeImage(path) end,
+            }
+        end })
         table.insert(rows, 1, { text = _("Search online…"), run = openImageSearch })
         showMenu(_("Insert image"), rows)
     end

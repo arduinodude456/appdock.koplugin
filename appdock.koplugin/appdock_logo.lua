@@ -228,7 +228,7 @@ local EXTENDED_KINDS = {
     "dictionary", "document", "download", "gallery", "location", "mail", "map", "music", "palette",
     "notes", "podcast", "reading", "rss", "search", "security", "sync", "tasks", "terminal",
     "timer", "translate", "upload", "weather", "battery", "dchat", "dockupdate", "minecraft", "rotation",
-    "youtube", "youtube_shorts", "youtube_music", "draw",
+    "youtube", "youtube_shorts", "youtube_music", "draw", "power",
 }
 
 function DAppLogo.availableKinds()
@@ -460,6 +460,15 @@ function DAppLogo:_paintExtended(bb, x, y, size, kind)
         hollow(x + math.floor(size * 0.30), top, math.floor(size * 0.40), math.floor(size * 0.70), stroke)
         line(bb, x + math.floor(size * 0.30), y + math.floor(size * 0.84), cx, y + math.floor(size * 0.68), stroke, self.ink)
         line(bb, cx, y + math.floor(size * 0.68), x + math.floor(size * 0.70), y + math.floor(size * 0.84), stroke, self.ink)
+    elseif kind == "power" then
+        -- Power symbol: a ring open at the top with a bar through the gap.
+        local radius = size * 0.31
+        local dot = math.max(stroke, 2)
+        for step = 0, 48 do
+            local angle = math.rad(-60 + 300 * step / 48)
+            rect(cx + math.cos(angle) * radius - dot / 2, cy + math.sin(angle) * radius - dot / 2, dot, dot)
+        end
+        rect(cx - stroke / 2, y + size * 0.12, stroke, size * 0.42)
     elseif kind == "rss" then
         rect(left, y + math.floor(size * 0.70), stroke * 2, stroke * 2)
         for radius_index = 1, 2 do
