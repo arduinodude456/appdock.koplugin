@@ -1,4 +1,6 @@
 # AppDock
+<img width="1600" height="2560" alt="92806" src="https://github.com/user-attachments/assets/993e4995-dc83-4e0f-80f0-366f2bcfaf89" />
+
 <img width="1600" height="2560" alt="77304" src="https://github.com/user-attachments/assets/2c1a97f4-b0f4-4fbc-b9c4-87858b2b7a28" />
 
 Hi there, it's arduinodude456! I have to tel u something. **You can now use YouTube on your eReader!**
