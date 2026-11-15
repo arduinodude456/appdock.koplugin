@@ -72,8 +72,8 @@ buttons=Next
 
 [page]
 title=Lockscreen update
-text=AppDock's own lockscreen got a visual overhaul. Profile pic now can be selected with KOReader's File Browser
-image=assets/lockscreen/appdock_lockscreen_hero.png
+text=The lockscreen is now always on (minimum: swipe up). New aurora wallpaper. With a PIN or pattern, swiping up blurs the wallpaper and opens a new round glass keypad. Swipe down or tap Cancel to go back.
+image=assets/lockscreen/appdock_lockscreen_aurora.jpg
 buttons=Next
 
 [page]

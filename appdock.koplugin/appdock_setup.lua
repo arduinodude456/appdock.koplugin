@@ -21,6 +21,7 @@ local Device = require("device")
 local Font = require("ui/font")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
+local Rotation = require("appdock_rotation")
 local GestureRange = require("ui/gesturerange")
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local InputContainer = require("ui/widget/container/inputcontainer")
@@ -1090,6 +1091,8 @@ function Setup.show(appdock, on_done, options)
     Setup._current = screen
     return true
 end
+
+Rotation.attach(SetupScreen, { relayout = function(self) self:build() end })
 
 Setup._test = { SetupScreen = SetupScreen }
 

@@ -8,7 +8,22 @@ local Device = require("device")
 
 local Theme = {}
 
+local MODULE_DIR = (debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "")
+
+-- Built-in themes. The four classic themes only define a `primary` tint and
+-- derive everything else from it. A theme may also carry the full set of
+-- design roles (`background`, `text`, `button`, `dropdown`), a `gradient`
+-- (stops + angle, see Theme.normalizeGradient) and a bundled `wallpaper`
+-- (path relative to the plugin folder), exactly like an installed Store design.
 local BUILTIN = {
+    -- Aurora (9.6.0): northern lights. Deep night-sky navy that fades through
+    -- teal and green into violet, with the same photo as the lockscreen.
+    aurora = {
+        title = "Aurora", primary = "#7CF2C9",
+        background = "#0B1A36", text = "#E9F6F1", button = "#3FD0B0", dropdown = "#102448",
+        gradient = { angle = 168, stops = { "#050E26", "#0A3550", "#117A68", "#3F3B8F" } },
+        wallpaper = "assets/lockscreen/appdock_lockscreen_aurora.jpg",
+    },
     lavender = { title = "Lavender", primary = "#D6E3FF" },
     ocean = { title = "Ocean", primary = "#C6E7F5" },
     forest = { title = "Forest", primary = "#CDEBD5" },
@@ -148,6 +163,67 @@ function Theme.normalizeHex(value)
     return hex:upper()
 end
 
+-- Gradients (9.6.0). A gradient is { angle = degrees, stops = { {pos, hex}, ... } }
+-- with CSS semantics for the angle (0 = towards the top, 90 = towards the right,
+-- 180 = towards the bottom). Accepted inputs:
+--   "#112233,#445566,#778899"                       comma separated colors
+--   { "#112233", "#445566" }                         list of colors
+--   { from = "#..", via = "#..", to = "#..", angle } from / via / to
+--   { stops = { "#..", { pos = .4, color = "#.." } }, angle = 160 }
+-- Anything invalid yields nil, so a broken design simply has no gradient.
+local MAX_GRADIENT_STOPS = 6
+
+function Theme.normalizeGradient(value, default_angle)
+    local colors, positions, angle = {}, {}, tonumber(default_angle)
+    local function add(color, position)
+        local hex = Theme.normalizeHex(type(color) == "table" and (color.color or color.hex or color[1]) or color)
+        if not hex then return false end
+        colors[#colors + 1] = hex
+        positions[#positions + 1] = type(color) == "table" and tonumber(color.pos or color.position or color[2]) or position
+        return true
+    end
+    if type(value) == "string" then
+        for part in value:gmatch("[^,;%s]+") do
+            if #colors >= MAX_GRADIENT_STOPS or not add(part) then return nil end
+        end
+    elseif type(value) == "table" then
+        angle = tonumber(value.angle) or angle
+        local list = value.stops or value.colors
+        if type(list) ~= "table" then
+            list = {}
+            for _, key in ipairs({ "from", "via", "to" }) do
+                if value[key] ~= nil then list[#list + 1] = value[key] end
+            end
+            if #list == 0 then list = value end
+        end
+        for _, item in ipairs(list) do
+            if #colors >= MAX_GRADIENT_STOPS or not add(item) then return nil end
+        end
+    else
+        return nil
+    end
+    if #colors < 2 then return nil end
+    local stops = {}
+    local previous = 0
+    for index, hex in ipairs(colors) do
+        local position = positions[index]
+        if position == nil then position = (index - 1) / (#colors - 1) end
+        position = math.max(previous, math.min(1, math.max(0, position)))
+        previous = position
+        stops[index] = { pos = position, hex = hex }
+    end
+    angle = angle or 180
+    angle = angle - math.floor(angle / 360) * 360
+    return { angle = angle, stops = stops }
+end
+
+function Theme.gradientSignature(gradient)
+    if type(gradient) ~= "table" or type(gradient.stops) ~= "table" then return "-" end
+    local parts = { tostring(gradient.angle) }
+    for _, stop in ipairs(gradient.stops) do parts[#parts + 1] = tostring(stop.pos) .. stop.hex end
+    return table.concat(parts, ":")
+end
+
 function Theme.ellipsize(value, maximum_characters)
     local text = type(value) == "string" and value or tostring(value or "")
     text = text:gsub("[\r\n]+", " ")
@@ -221,7 +297,8 @@ end
 function Theme.getBuiltinThemes()
     local themes = {}
     for id, definition in pairs(BUILTIN) do
-        table.insert(themes, { id = id, title = definition.title, primary = definition.primary, builtin = true })
+        table.insert(themes, { id = id, title = definition.title, primary = definition.primary, builtin = true,
+            gradient = definition.gradient ~= nil })
     end
     table.sort(themes, function(left, right) return left.title < right.title end)
     return themes
@@ -234,11 +311,14 @@ function Theme.getThemeList(settings)
     local themes = Theme.getBuiltinThemes()
     for id, definition in pairs(custom) do
         if type(id) == "string" and type(definition) == "table" and Theme.normalizeHex(definition.primary) then
-            table.insert(themes, { id = id, title = type(definition.title) == "string" and definition.title or id, primary = definition.primary, builtin = false })
+            table.insert(themes, { id = id, title = type(definition.title) == "string" and definition.title or id, primary = definition.primary, builtin = false,
+                gradient = Theme.normalizeGradient(definition.gradient, definition.gradient_angle) ~= nil })
         end
     end
     table.sort(themes, function(left, right)
         if left.builtin ~= right.builtin then return left.builtin end
+        -- Aurora is the flagship theme of 9.6.0 and leads the list.
+        if left.id == "aurora" or right.id == "aurora" then return left.id == "aurora" end
         return left.title < right.title
     end)
     return themes
@@ -250,7 +330,11 @@ function Theme.resolveDefinition(settings)
     if BUILTIN[selected] then return selected, BUILTIN[selected] end
     local custom = type(theme.custom) == "table" and theme.custom[selected] or nil
     if type(custom) == "table" and Theme.normalizeHex(custom.primary) then
-        return selected, { title = type(custom.title) == "string" and custom.title or selected, primary = Theme.normalizeHex(custom.primary) }
+        return selected, {
+            title = type(custom.title) == "string" and custom.title or selected,
+            primary = Theme.normalizeHex(custom.primary),
+            gradient = Theme.normalizeGradient(custom.gradient, custom.gradient_angle),
+        }
     end
     return "lavender", BUILTIN.lavender
 end
@@ -281,6 +365,8 @@ function Theme.normalizeDesignDefinition(definition)
         source_path = type(definition.source_path) == "string" and definition.source_path or "",
         file = type(definition.file) == "string" and definition.file or "",
         wallpaper_file = type(definition.wallpaper_file) == "string" and definition.wallpaper_file or "",
+        -- Optional (9.6.0): a gradient painted instead of the flat background.
+        gradient = Theme.normalizeGradient(definition.gradient, definition.gradient_angle),
     }
 end
 
@@ -290,6 +376,18 @@ end
 -- revalidated through a cheap signature, so an edited design is still picked up.
 local design_cache = setmetatable({}, { __mode = "k" })
 
+-- Normalized gradients ({ angle, stops = { {pos, hex} } }) are summarised by
+-- Theme.gradientSignature; a raw record that has not been normalized yet (a
+-- string or a from/to table) falls back to its textual form.
+local function designGradientSignature(record)
+    local gradient = record.gradient
+    if type(gradient) == "table" and type(gradient.stops) == "table"
+        and type(gradient.stops[1]) == "table" and gradient.stops[1].hex then
+        return Theme.gradientSignature(gradient)
+    end
+    return tostring(gradient) .. tostring(record.gradient_angle)
+end
+
 local function designSignature(record)
     return table.concat({
         tostring(record.id), tostring(record.title), tostring(record.version),
@@ -297,6 +395,7 @@ local function designSignature(record)
         tostring(record.text), tostring(record.dropdown), tostring(record.button_style),
         tostring(record.logo_shape), tostring(record.wallpaper), tostring(record.source_path),
         tostring(record.file), tostring(record.wallpaper_file),
+        designGradientSignature(record),
     }, "\1")
 end
 
@@ -368,19 +467,67 @@ local function computePalette(appdock)
     local text = "#1F1D24"
     local button = primary
     local dropdown = background
+    local gradient
     if design then
         primary = design.highlight
         background = design.background
         text = design.text
         button = design.button
         dropdown = design.dropdown
+        gradient = design.gradient
+    elseif definition.background then
+        -- A built-in theme with its own full role set (Aurora).
+        primary = Theme.normalizeHex(definition.primary) or primary
+        background = Theme.normalizeHex(definition.background) or background
+        text = Theme.normalizeHex(definition.text) or text
+        button = Theme.normalizeHex(definition.button) or primary
+        dropdown = Theme.normalizeHex(definition.dropdown) or background
+        gradient = Theme.normalizeGradient(definition.gradient)
+    else
+        gradient = definition.gradient
     end
-    if isNight(appdock) then
+    local night = isNight(appdock)
+    if night then
         local dark = darkRoles(primary, button)
         background, text, primary, button, dropdown = dark.background, dark.text, dark.primary, dark.button, dark.dropdown
+        -- The gradient keeps its character in dark mode but is pulled towards
+        -- the dark background so text contrast is unaffected.
+        if gradient then
+            local darkened = {}
+            for index, stop in ipairs(gradient.stops) do
+                darkened[index] = { pos = stop.pos, hex = mix(stop.hex, background, .34) }
+            end
+            gradient = { angle = gradient.angle, stops = darkened }
+        end
     end
     local high_contrast = settings and settings.accessibility and settings.accessibility.high_contrast == true
     if high_contrast then text = contrastInk(background) end
+    -- Gradients are only drawn on color panels and never in high-contrast mode:
+    -- on grayscale E-Ink they band badly and slow every refresh down.
+    if high_contrast or not Device.screen:isColorEnabled() then gradient = nil end
+    if gradient then
+        -- Text sits on the gradient, so the readable ink is chosen against the
+        -- worst (closest to the text) stop, not only against `background`.
+        local worst = background
+        local worst_ratio = contrastRatio(background, text)
+        for _, stop in ipairs(gradient.stops) do
+            local ratio = contrastRatio(stop.hex, text)
+            if ratio < worst_ratio then worst, worst_ratio = stop.hex, ratio end
+        end
+        if worst_ratio < 4.5 then
+            -- Never let the gradient make the theme's text unreadable.
+            local safe = {}
+            for index, stop in ipairs(gradient.stops) do
+                local hex = stop.hex
+                for _ = 1, 8 do
+                    if contrastRatio(hex, text) >= 4.5 then break end
+                    hex = mix(background, hex, .35)
+                end
+                safe[index] = { pos = stop.pos, hex = hex }
+            end
+            gradient = { angle = gradient.angle, stops = safe }
+        end
+    end
     local secondary = mix(primary, background, high_contrast and .62 or .42)
     local tertiary = mix(button, background, high_contrast and .72 or .56)
     local surface = high_contrast and background or mix(background, text, .93)
@@ -413,6 +560,9 @@ local function computePalette(appdock)
         foreground = color(on_background, grayscaleInk(background)),
         outline = color(mix(on_surface, background, .48), GRAYS.outline),
         track = color(mix(roleInk(button, text), background, .52), GRAYS.track),
+        -- nil when the active theme/design has no gradient (or the panel is
+        -- grayscale / high contrast). Stops are hex strings; angle is CSS-style.
+        gradient = gradient,
         primary_hex = primary,
         background_hex = background,
         text_hex = on_background,
@@ -455,6 +605,7 @@ function Theme.getPalette(appdock)
         isNight(appdock) and "d" or "l",
         high_contrast and "h" or "n",
         tostring(resolved_theme_id), tostring(definition and definition.primary),
+        Theme.gradientSignature(definition and definition.gradient),
         design and designSignature(design) or "-",
     }, "\1")
     if palette_cache_key ~= key or not palette_cache then
@@ -471,6 +622,22 @@ function Theme.getPalette(appdock)
     return copy
 end
 
+-- The active gradient ({ angle, stops = { {pos, hex} } }) or nil.
+function Theme.getGradient(appdock)
+    return Theme.getPalette(appdock).gradient
+end
+
+-- Absolute path of the wallpaper bundled with the active built-in theme
+-- (Aurora), or nil. A Store design brings its own wallpaper and wins.
+function Theme.getThemeWallpaper(appdock)
+    appdock = appdock or bound_appdock
+    local settings = appdock and appdock.settings or nil
+    if Theme.getActiveDesign(settings) then return nil end
+    local _, definition = Theme.resolveDefinition(settings)
+    if type(definition.wallpaper) ~= "string" or definition.wallpaper == "" then return nil end
+    return MODULE_DIR .. definition.wallpaper
+end
+
 -- Role colors of the active theme as hex strings (see computePalette).
 function Theme.getHexRoles(appdock)
     return Theme.getPalette(appdock).hex
@@ -482,7 +649,7 @@ Theme.inkFor = contrastInk
 Theme.toColor = color
 Theme.isNight = function(appdock) return isNight(appdock or bound_appdock) end
 
-function Theme.createCustom(settings, title, hex)
+function Theme.createCustom(settings, title, hex, gradient_to)
     local normalized = Theme.normalizeHex(hex)
     local label = type(title) == "string" and title:gsub("^%s+", ""):gsub("%s+$", "") or ""
     if label == "" or not normalized then return nil end
@@ -495,7 +662,12 @@ function Theme.createCustom(settings, title, hex)
         id = "custom_" .. base_id .. "_" .. suffix
         suffix = suffix + 1
     end
-    settings.theme.custom[id] = { title = label, primary = normalized }
+    local record = { title = label, primary = normalized }
+    -- Optional second color: the custom theme then fades from its first color
+    -- into this one.
+    local second = Theme.normalizeHex(gradient_to)
+    if second then record.gradient = Theme.normalizeGradient({ from = normalized, to = second, angle = 170 }) end
+    settings.theme.custom[id] = record
     settings.theme.selected = id
     return id
 end

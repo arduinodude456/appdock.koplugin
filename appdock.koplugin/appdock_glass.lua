@@ -236,6 +236,17 @@ ICONS.bolt = function(B)
     B.seg(.70, .46, .40, .94, .06)
 end
 ICONS.corner = function(B) B.corner() end
+ICONS.backspace = function(B)
+    B.poly({ { .14, .50 }, { .34, .24 }, { .86, .24 }, { .86, .76 }, { .34, .76 } }, .045, true)
+    B.seg(.50, .40, .70, .60, .045)
+    B.seg(.70, .40, .50, .60, .045)
+end
+ICONS.check = function(B)
+    B.poly({ { .20, .52 }, { .41, .73 }, { .80, .30 } }, .065)
+end
+ICONS.chevron_up = function(B)
+    B.poly({ { .20, .66 }, { .50, .36 }, { .80, .66 } }, .06)
+end
 
 function Glass.hasIcon(kind) return ICONS[kind] ~= nil end
 

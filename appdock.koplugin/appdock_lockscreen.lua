@@ -1,43 +1,56 @@
 --[[--
 AppDock's local access screen. It protects the AppDock homescreen only; it is
 not a replacement for a device-level lockscreen or encrypted device storage.
+
+The lockscreen is always shown (it can no longer be switched off); the weakest
+setting is "swipe up to unlock". Two stages:
+
+  wall    Full-bleed aurora photo, big clock, date, optional profile chip and a
+          "swipe up" hint. With the swipe method, swiping up unlocks.
+  secret  PIN / pattern only. Swiping up blurs the photo with the same backdrop
+          blur as the quick settings shade and shows a round glass keypad on
+          top of it. Swiping down (or "Cancel") returns to the photo.
+
+Everything degrades gracefully: if the photo cannot be decoded, a dark navy
+fill is used; if the blur fails, a translucent tint is drawn over the photo.
 --]]--
 
-local CenterContainer = require("ui/widget/container/centercontainer")
+local Blitbuffer = require("ffi/blitbuffer")
+local Device = require("device")
 local Font = require("ui/font")
-local FrameContainer = require("ui/widget/container/framecontainer")
-local Geom = require("ui/geometry")
 local GestureRange = require("ui/gesturerange")
-local HorizontalSpan = require("ui/widget/horizontalspan")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local OverlapGroup = require("ui/widget/overlapgroup")
 local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
-local Device = require("device")
 local sha2 = require("ffi/sha2")
+local Glass = require("appdock_glass")
+local Rotation = require("appdock_rotation")
 local Wallpaper = require("appdock_wallpaper")
-local Theme = require("appdock_theme")
-local AppDockKeyboard = require("appdock_keyboard")
 local _ = require("gettext")
 
 local Screen = Device.screen
+local GC = Glass.COLORS
+
+local MODULE_DIR = (debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "")
+local AURORA_PATH = MODULE_DIR .. "assets/lockscreen/appdock_lockscreen_aurora.jpg"
+
+local MIN_SECRET, MAX_SECRET = 4, 32
+local MAX_PATTERN = 9
 
 local LockScreen = InputContainer:extend{
     appdock = nil,
     on_unlock = nil,
     dimen = nil,
     covers_fullscreen = true,
+    stage = "wall",
+    pin = "",
     pattern = "",
     status = nil,
+    status_is_error = false,
 }
 
 local function scale(value) return Screen:scaleBySize(value) end
-local function emptySizedWidget(width, height)
-    return CenterContainer:new{
-        dimen = Geom:new{ w = width, h = height },
-        HorizontalSpan:new{ width = 0 },
-    }
-end
 local function digest(value) return sha2.md5("appdock-lock-v1:" .. tostring(value or "")) end
 
 function LockScreen.hash(value)
@@ -56,20 +69,62 @@ local function lockMethod(profile)
     return "swipe"
 end
 
-local function patternBounds(dimen, minimum_y, footer_y)
-    local margin = scale(22)
-    local gap = math.max(scale(8), math.floor(dimen.w * .025))
-    local cell = math.max(scale(30), math.min(scale(52), math.floor((dimen.w - 2 * margin - 2 * gap) / 3)))
-    local grid_w, grid_h = cell * 3 + gap * 2, cell * 3 + gap * 2
-    local max_y = math.max(minimum_y, footer_y - grid_h - scale(18))
+local function secretMatches(profile, value)
+    return type(profile) == "table" and type(profile.secret_hash) == "string"
+        and profile.secret_hash ~= "" and LockScreen.hash(value) == profile.secret_hash
+end
+
+local function inRect(pos, rect)
+    return pos ~= nil and rect ~= nil and pos.x >= rect.x and pos.x < rect.x + rect.w
+        and pos.y >= rect.y and pos.y < rect.y + rect.h
+end
+
+-- Round-key grid used by both PIN and pattern. The grid is placed in the free
+-- band between `top_min` and `bottom_limit` (slightly above its centre).
+local function keypadLayout(width, top_min, bottom_limit)
+    local margin = scale(20)
+    local gap_ratio = .20
+    local available = math.max(1, bottom_limit - top_min)
+    local by_width = math.floor((width - 2 * margin) / (3 + 2 * gap_ratio))
+    local by_height = math.floor(available / (4 + 3 * gap_ratio))
+    local d = math.max(scale(34), math.min(scale(92), by_width, by_height))
+    local gap = math.max(scale(8), math.floor(d * gap_ratio))
+    local grid_w, grid_h = 3 * d + 2 * gap, 4 * d + 3 * gap
     return {
-        cell = cell,
-        gap = gap,
-        width = grid_w,
-        height = grid_h,
-        x = math.max(margin, math.floor((dimen.w - grid_w) / 2)),
-        y = max_y,
+        d = d, gap = gap, width = grid_w, height = grid_h,
+        x = math.floor((width - grid_w) / 2),
+        y = top_min + math.floor(math.max(0, available - grid_h) * .55),
     }
+end
+
+local function keyOrigin(layout, column, row)
+    return layout.x + column * (layout.d + layout.gap), layout.y + row * (layout.d + layout.gap)
+end
+
+-- Photo: "cover" scaled and centre cropped to exactly the screen. Returns nil
+-- when the image cannot be decoded.
+local function buildWall(width, height, like_bb)
+    local ok, result = pcall(function()
+        local RenderImage = require("ui/renderimage")
+        local source = RenderImage:renderImageFile(AURORA_PATH, false)
+        if not source then return nil end
+        local sw, sh = source:getWidth(), source:getHeight()
+        local factor = math.max(width / sw, height / sh)
+        local tw, th = math.ceil(sw * factor), math.ceil(sh * factor)
+        local scaled = source
+        if (tw ~= sw or th ~= sh) and RenderImage.scaleBlitBuffer then
+            scaled = RenderImage:scaleBlitBuffer(source, tw, th, true) or source
+            tw, th = scaled:getWidth(), scaled:getHeight()
+        end
+        local out = Blitbuffer.new(width, height, like_bb:getType())
+        out:blitFrom(scaled, 0, 0, math.max(0, math.floor((tw - width) / 2)), math.max(0, math.floor((th - height) / 2)), width, height)
+        if scaled.free then pcall(scaled.free, scaled) end
+        -- Grayscale panels: slightly darker so the white clock stays readable.
+        if not Glass.isColor() and out.darkenRect then pcall(out.darkenRect, out, 0, 0, width, height, .35) end
+        return out
+    end)
+    if ok and result then return result end
+    return nil
 end
 
 function LockScreen:freeImages()
@@ -77,163 +132,240 @@ function LockScreen:freeImages()
     self._avatar = nil
 end
 
+function LockScreen:freeBuffers()
+    for _, key in ipairs({ "_wall", "_backdrop" }) do
+        local bb = self[key]
+        if bb and bb.free then pcall(bb.free, bb) end
+        self[key] = nil
+    end
+    self._wall_failed, self._backdrop_failed = nil, nil
+end
+
+-- The blurred backdrop is dark navy on colour screens but a light veil on
+-- grayscale panels, so text colours depend on the stage.
+local function inkColor(stage, soft, error_state)
+    if Glass.isColor() then
+        if error_state then return Glass.solid(GC.sub_active) end
+        return Glass.solid(soft and GC.sub_inactive or GC.white)
+    end
+    if stage == "secret" then return Blitbuffer.COLOR_BLACK end
+    return soft and Blitbuffer.COLOR_GRAY_D or Blitbuffer.COLOR_WHITE
+end
+
 function LockScreen:build()
     self:freeImages()
     local width, height = self.dimen.w, self.dimen.h
     local profile = settingsFor(self.appdock)
     local method = lockMethod(profile)
-    local palette = Theme.getPalette(self.appdock)
-    local margin = math.max(scale(16), math.floor(width * .045))
-    local footer_y = math.max(scale(16), height - scale(34))
-    local now = os.date("%H:%M")
-    local date = os.date("%A, %d. %B")
-    local profile_name = type(profile.profile_name) == "string" and profile.profile_name:match("^%s*(.-)%s*$") or ""
-    if profile_name == "" then profile_name = _("Welcome back") end
+    local stage = self.stage
+    local layers = {}
+    self._keys, self._hint_rect, self._cancel_rect = {}, nil, nil
 
-    -- A deliberate flat hierarchy avoids a colour-photo hero that dithers badly
-    -- on E-Ink. All surfaces use the active AppDock theme and retain a readable
-    -- foreground through Theme.getPalette's contrast roles.
-    local card_w = math.max(1, width - margin * 2)
-    local card_h = math.min(math.max(scale(128), math.floor(height * .20)), scale(172))
-    local card_y = math.max(scale(118), math.floor(height * .245))
-    local avatar_size = math.min(scale(68), math.max(scale(44), math.floor(card_h * .52)))
-    local avatar_x = margin + scale(18)
-    local avatar_y = card_y + math.floor((card_h - avatar_size) / 2)
-    local text_x = avatar_x + avatar_size + scale(16)
-    local text_w = math.max(scale(80), margin + card_w - text_x - scale(18))
-    local method_y = card_y + card_h + scale(30)
-
-    local layers = {
-        FrameContainer:new{
-            width = width, height = height, padding = 0, bordersize = 0,
-            background = palette.background,
-            emptySizedWidget(width, height),
-        },
-        FrameContainer:new{
-            width = width, height = math.max(scale(5), math.floor(height * .008)), padding = 0, bordersize = 0,
-            background = palette.primary, overlap_offset = { 0, 0 },
-            emptySizedWidget(width, math.max(scale(5), math.floor(height * .008))),
-        },
-        TextWidget:new{
-            text = _("APPDOCK"), face = Font:getFace("smallinfofont", scale(10)), fgcolor = palette.on_primary,
-            bold = true, max_width = math.floor(width * .42), padding = 0, overlap_offset = { margin, scale(18) },
-        },
-        TextWidget:new{
-            text = _("LOCKED"), face = Font:getFace("smallinfofont", scale(9)), fgcolor = palette.on_variant,
-            bold = true, max_width = math.floor(width * .28), alignment = "right", padding = 0,
-            overlap_offset = { width - margin - math.floor(width * .28), scale(19) },
-        },
-        TextWidget:new{
-            text = now, face = Font:getFace("cfont", math.max(scale(30), math.floor(height * .055))), fgcolor = palette.on_surface,
-            bold = true, max_width = width - 2 * margin, alignment = "center", padding = 0,
-            overlap_offset = { margin, scale(40) },
-        },
-        TextWidget:new{
-            text = date, face = Font:getFace("smallinfofont", scale(11)), fgcolor = palette.on_variant,
-            max_width = width - 2 * margin, alignment = "center", padding = 0,
-            overlap_offset = { margin, scale(91) },
-        },
-        FrameContainer:new{
-            width = card_w, height = card_h, padding = 0, bordersize = math.max(1, scale(1)), color = palette.outline,
-            radius = scale(14), background = palette.surface, overlap_offset = { margin, card_y },
-            emptySizedWidget(card_w, card_h),
-        },
-        FrameContainer:new{
-            width = avatar_size, height = avatar_size, padding = 0, bordersize = math.max(1, scale(2)), color = palette.outline,
-            radius = math.floor(avatar_size / 2), background = palette.primary, overlap_offset = { avatar_x, avatar_y },
-            CenterContainer:new{
-                dimen = Geom:new{ w = avatar_size, h = avatar_size },
-                TextWidget:new{ text = profile_name:sub(1, 1):upper(), face = Font:getFace("cfont", math.floor(avatar_size * .42)), fgcolor = palette.on_primary, bold = true, padding = 0 },
-            },
-        },
-        TextWidget:new{
-            text = profile_name, face = Font:getFace("cfont", scale(20)), fgcolor = palette.on_surface,
-            bold = true, max_width = text_w, padding = 0, overlap_offset = { text_x, avatar_y + scale(6) },
-        },
-        TextWidget:new{
-            text = self.status or _("AppDock is locked"), face = Font:getFace("smallinfofont", scale(11)), fgcolor = palette.on_variant,
-            max_width = text_w, padding = 0, overlap_offset = { text_x, avatar_y + math.floor(avatar_size * .60) },
-        },
-    }
-
-    local avatar = Wallpaper.buildPath(profile.profile_image_path, avatar_size, avatar_size, true)
-    self._avatar = avatar
-    if avatar then
-        avatar.overlap_offset = { avatar_x, avatar_y }
-        layers[#layers + 1] = avatar
+    local function add(widget, x, y)
+        widget.overlap_offset = { x, y }
+        layers[#layers + 1] = widget
+        return widget
+    end
+    local function text(value, face_name, size, color, bold)
+        return TextWidget:new{
+            text = value, face = Font:getFace(face_name, size), fgcolor = color,
+            bold = bold == true, max_width = width - 2 * scale(16), padding = 0,
+        }
+    end
+    local function sizeOf(widget)
+        local info = widget:getSize()
+        return info and info.w or 0, info and info.h or 0
+    end
+    -- Adds `value` horizontally centred inside [box_x, box_x + box_w].
+    local function addCentered(value, face_name, size, color, y, bold, box_x, box_w)
+        box_x, box_w = box_x or 0, box_w or width
+        local widget = text(value, face_name, size, color, bold)
+        local w, h = sizeOf(widget)
+        add(widget, box_x + math.floor((box_w - w) / 2), y)
+        return h
+    end
+    local function circle(x, y, d, color)
+        add(Glass.Shape:new{ width = d, height = d, radius = math.floor(d / 2), color = color }, x, y)
     end
 
-    if method == "pattern" then
-        local bounds = patternBounds(self.dimen, method_y + scale(28), footer_y)
-        self._pattern_bounds = bounds
-        layers[#layers + 1] = TextWidget:new{
-            text = _("Draw your pattern"), face = Font:getFace("smallinfofont", scale(12)), fgcolor = palette.on_surface,
-            bold = true, max_width = width - 2 * margin, alignment = "center", padding = 0,
-            overlap_offset = { margin, bounds.y - scale(32) },
-        }
+    local profile_name = type(profile.profile_name) == "string" and profile.profile_name:match("^%s*(.-)%s*$") or ""
+    local has_image = type(profile.profile_image_path) == "string" and profile.profile_image_path ~= ""
+
+    local function addAvatar(x, y, size)
+        circle(x, y, size, GC.glass_hi)
+        local avatar = has_image and Wallpaper.buildPath(profile.profile_image_path, size, size, true) or nil
+        self._avatar = avatar
+        if avatar then
+            add(avatar, x, y)
+        else
+            local initial = (profile_name ~= "" and profile_name:sub(1, 1) or "A"):upper()
+            local widget = text(initial, "cfont", math.floor(size * .46), inkColor("wall", false), true)
+            local w, h = sizeOf(widget)
+            add(widget, x + math.floor((size - w) / 2), y + math.floor((size - h) / 2))
+        end
+    end
+
+    if stage == "wall" then
+        local margin = math.max(scale(16), math.floor(width * .06))
+        local white, soft = inkColor("wall", false), inkColor("wall", true)
+        local y = math.max(scale(46), math.floor(height * .085))
+        local clock_h = addCentered(os.date("%H:%M"), "cfont", math.max(scale(54), math.floor(height * .085)), white, y, true)
+        y = y + clock_h + scale(2)
+        local date_h = addCentered(os.date("%A, %d. %B"), "smallinfofont", scale(15), soft, y, false, margin, width - 2 * margin)
+        y = y + date_h + scale(18)
+
+        -- Optional profile chip (name and/or picture).
+        if profile_name ~= "" or has_image then
+            local label = text(profile_name ~= "" and profile_name or _("AppDock"), "cfont", scale(16), white, true)
+            label.max_width = math.floor(width * .5)
+            local label_w, label_h = sizeOf(label)
+            local avatar_size = scale(38)
+            local pad = scale(8)
+            local chip_h = avatar_size + 2 * pad
+            local chip_w = pad + avatar_size + scale(10) + label_w + scale(18)
+            local chip_x = math.floor((width - chip_w) / 2)
+            add(Glass.Shape:new{ width = chip_w, height = chip_h, radius = math.floor(chip_h / 2), color = GC.tint }, chip_x, y)
+            addAvatar(chip_x + pad, y + pad, avatar_size)
+            add(label, chip_x + pad + avatar_size + scale(10), y + math.floor((chip_h - label_h) / 2))
+        end
+
+        -- Bottom hint: chevron + pill.
+        local label_text = method == "pin" and _("Swipe up to enter PIN")
+            or method == "pattern" and _("Swipe up to draw pattern")
+            or _("Swipe up to unlock")
+        local hint = text(label_text, "smallinfofont", scale(14), white, true)
+        local hint_w, hint_h = sizeOf(hint)
+        local pill_h = scale(46)
+        local pill_w = math.min(width - 2 * margin, hint_w + scale(56))
+        local pill_x = math.floor((width - pill_w) / 2)
+        local pill_y = height - pill_h - math.max(scale(44), math.floor(height * .05))
+        local chevron = scale(30)
+        add(Glass.Icon:new{ kind = "chevron_up", size = chevron, color = GC.white }, math.floor((width - chevron) / 2), pill_y - chevron - scale(6))
+        add(Glass.Shape:new{ width = pill_w, height = pill_h, radius = math.floor(pill_h / 2), color = GC.tint }, pill_x, pill_y)
+        add(hint, pill_x + math.floor((pill_w - hint_w) / 2), pill_y + math.floor((pill_h - hint_h) / 2))
+        -- Generous tap target as a fallback for people who do not swipe.
+        local tap_y = pill_y - chevron - scale(12)
+        self._hint_rect = { x = 0, y = tap_y, w = width, h = height - tap_y }
+    else
+        local white, soft = inkColor("secret", false), inkColor("secret", true)
+        local avatar_size = scale(58)
+        local y = math.max(scale(28), math.floor(height * .045))
+        addAvatar(math.floor((width - avatar_size) / 2), y, avatar_size)
+        y = y + avatar_size + scale(8)
+        local name_h = addCentered(profile_name ~= "" and profile_name or _("AppDock"), "cfont", scale(18), white, y, true)
+        y = y + name_h + scale(4)
+        local default_status = method == "pattern" and _("Tap your pattern") or _("Enter your PIN")
+        local status_color = self.status_is_error and inkColor("secret", true, true) or soft
+        local status_h = addCentered(self.status or default_status, "smallinfofont", scale(13), status_color, y)
+        y = y + status_h + scale(16)
+
+        if method == "pin" then
+            local dot, gap = scale(14), scale(14)
+            local entered = #self.pin
+            local count = math.max(MIN_SECRET, math.min(entered, 16))
+            local row_w = count * dot + (count - 1) * gap
+            local x = math.floor((width - row_w) / 2)
+            for index = 1, count do
+                circle(x + (index - 1) * (dot + gap), y, dot, index <= entered and GC.white or GC.glass_hi)
+            end
+            y = y + dot + scale(18)
+        end
+
+        local cancel_h = scale(40)
+        local bottom_limit = height - math.max(scale(56), math.floor(height * .07)) - cancel_h
+        local layout = keypadLayout(width, y, bottom_limit)
+        local d = layout.d
+        local font_size = math.floor(d * .40)
+        local value_now = method == "pin" and self.pin or self.pattern
+        local can_submit = #value_now >= MIN_SECRET
+
+        local function addKey(column, row, value, label, icon, active)
+            local x, ky = keyOrigin(layout, column, row)
+            circle(x, ky, d, active and GC.active or GC.glass)
+            local ink = active and GC.on_active or GC.white
+            if icon then
+                local icon_size = math.floor(d * .46)
+                add(Glass.Icon:new{ kind = icon, size = icon_size, color = ink }, x + math.floor((d - icon_size) / 2), ky + math.floor((d - icon_size) / 2))
+            else
+                local widget = text(label, "cfont", font_size, Glass.isColor() and Glass.solid(ink) or (active and Blitbuffer.COLOR_BLACK or Blitbuffer.COLOR_WHITE), true)
+                local w, h = sizeOf(widget)
+                add(widget, x + math.floor((d - w) / 2), ky + math.floor((d - h) / 2))
+            end
+            self._keys[#self._keys + 1] = { x = x, y = ky, w = d, h = d, value = value }
+        end
+
         for index = 1, 9 do
             local column, row = (index - 1) % 3, math.floor((index - 1) / 3)
-            local chosen = self.pattern:find(tostring(index), 1, true) ~= nil
-            local x = bounds.x + column * (bounds.cell + bounds.gap)
-            local y = bounds.y + row * (bounds.cell + bounds.gap)
-            layers[#layers + 1] = FrameContainer:new{
-                width = bounds.cell, height = bounds.cell, padding = 0, bordersize = math.max(1, scale(2)), color = palette.outline,
-                radius = math.floor(bounds.cell / 2), background = chosen and palette.primary or palette.surface,
-                overlap_offset = { x, y },
-                CenterContainer:new{
-                    dimen = Geom:new{ w = bounds.cell, h = bounds.cell },
-                    TextWidget:new{ text = tostring(index), face = Font:getFace("smallinfofont", scale(11)), fgcolor = chosen and palette.on_primary or palette.on_surface, bold = true, padding = 0 },
-                },
-            }
+            local selected = method == "pattern" and self.pattern:find(tostring(index), 1, true) ~= nil
+            addKey(column, row, tostring(index), tostring(index), nil, selected)
         end
-    else
-        self._pattern_bounds = nil
-        local action_w = math.min(math.max(scale(210), math.floor(width * .58)), width - 2 * margin)
-        local action_h = scale(48)
-        local action_y = math.min(method_y, footer_y - action_h - scale(34))
-        local label = method == "pin" and _("Tap to enter PIN") or _("Swipe up to unlock")
-        layers[#layers + 1] = TextWidget:new{
-            text = method == "pin" and _("Enter your AppDock PIN") or _("Swipe anywhere upwards"),
-            face = Font:getFace("smallinfofont", scale(11)), fgcolor = palette.on_variant,
-            max_width = width - 2 * margin, alignment = "center", padding = 0,
-            overlap_offset = { margin, action_y - scale(26) },
-        }
-        layers[#layers + 1] = FrameContainer:new{
-            width = action_w, height = action_h, padding = 0, bordersize = math.max(1, scale(1)), color = palette.outline,
-            radius = math.floor(action_h / 2), background = method == "pin" and palette.surface or palette.primary,
-            overlap_offset = { math.floor((width - action_w) / 2), action_y },
-            CenterContainer:new{
-                dimen = Geom:new{ w = action_w, h = action_h },
-                TextWidget:new{ text = label, face = Font:getFace("smallinfofont", scale(12)), fgcolor = method == "pin" and palette.on_surface or palette.on_primary, bold = true, padding = 0 },
-            },
-        }
+        addKey(0, 3, "back", nil, "backspace", false)
+        if method == "pin" then addKey(1, 3, "0", "0", nil, false) end
+        addKey(2, 3, "ok", nil, "check", can_submit)
+
+        local cancel_label = text(_("Cancel"), "smallinfofont", scale(14), white, true)
+        local cancel_label_w, cancel_label_h = sizeOf(cancel_label)
+        local cancel_w = math.max(scale(140), cancel_label_w + scale(40))
+        local cancel_y = bottom_limit + scale(10)
+        add(cancel_label, math.floor((width - cancel_label_w) / 2), cancel_y + math.floor((cancel_h - cancel_label_h) / 2))
+        self._cancel_rect = { x = math.floor((width - cancel_w) / 2), y = cancel_y, w = cancel_w, h = cancel_h }
     end
 
-    layers[#layers + 1] = TextWidget:new{
-        text = _("This lock protects AppDock, not device storage"), face = Font:getFace("smallinfofont", scale(9)), fgcolor = palette.on_variant,
-        max_width = width - 2 * margin, alignment = "center", padding = 0, overlap_offset = { margin, footer_y },
-    }
     self:clear()
     self[1] = OverlapGroup:new{ dimen = self.dimen, allow_mirroring = false, unpack(layers) }
 end
-
-function LockScreen:onCloseWidget() self:freeImages() end
 
 function LockScreen:init()
     self.dimen = Screen:getSize()
     self:build()
     self.ges_events = {
-        UnlockGesture = { GestureRange:new{ ges = "swipe", range = self.dimen } },
-        UnlockTap = { GestureRange:new{ ges = "tap", range = self.dimen } },
+        LockSwipe = { GestureRange:new{ ges = "swipe", range = self.dimen } },
+        LockTap = { GestureRange:new{ ges = "tap", range = self.dimen } },
     }
 end
 
+function LockScreen:_paintBackground(bb, x, y)
+    local width, height = self.dimen.w, self.dimen.h
+    if not self._wall and not self._wall_failed then
+        self._wall = buildWall(width, height, bb)
+        self._wall_failed = self._wall == nil
+    end
+    local source = self._wall
+    if self.stage == "secret" and self._wall then
+        -- Same backdrop blur as the quick settings shade: captured once from
+        -- the clean photo, then simply blitted on every repaint.
+        if not self._backdrop and not self._backdrop_failed then
+            self._backdrop = Glass.buildBackdrop(self._wall, width, height, 0, 0)
+            self._backdrop_failed = self._backdrop == nil
+        end
+        source = self._backdrop or self._wall
+    end
+    local drawn = false
+    if source then drawn = pcall(bb.blitFrom, bb, source, x, y, 0, 0, width, height) end
+    if not drawn then
+        bb:paintRect(x, y, width, height, Glass.solid(Glass.rgba(8, 18, 48, 255, Blitbuffer.COLOR_BLACK)))
+    elseif self.stage == "secret" and source == self._wall then
+        -- Blur failed: at least calm the photo down with the same tint.
+        Glass.drawShape(bb, x, y, width, height, 0, GC.tint)
+    end
+end
+
 function LockScreen:paintTo(bb, x, y)
-    for _, name in ipairs({ "UnlockGesture", "UnlockTap" }) do
+    for _, name in ipairs({ "LockSwipe", "LockTap" }) do
         local range = self.ges_events[name][1].range
         range.x, range.y, range.w, range.h = x, y, self.dimen.w, self.dimen.h
     end
+    self:_paintBackground(bb, x, y)
     return InputContainer.paintTo(self, bb, x, y)
+end
+
+function LockScreen:onCloseWidget()
+    self:freeImages()
+    self:freeBuffers()
+end
+
+function LockScreen:_refresh(mode)
+    UIManager:setDirty(self, mode or "ui")
 end
 
 function LockScreen:_unlock()
@@ -241,60 +373,119 @@ function LockScreen:_unlock()
     UIManager:nextTick(function() if self.on_unlock then self.on_unlock() end end)
 end
 
-function LockScreen:_reject()
-    self.status = _("That does not match. Try again.")
-    self.pattern = ""
+function LockScreen:_setStage(stage)
+    if self.stage == stage then return end
+    self.stage = stage
+    self.pin, self.pattern, self.status, self.status_is_error = "", "", nil, false
     self:build()
-    UIManager:setDirty(self, "ui")
+    self:_refresh("flashui")
 end
 
-function LockScreen:onUnlockGesture(event, gesture)
-    if lockMethod(settingsFor(self.appdock)) == "swipe" and gesture and gesture.direction then self:_unlock(); return true end
-    return false
+function LockScreen:_advance()
+    if lockMethod(settingsFor(self.appdock)) == "swipe" then
+        self:_unlock()
+    else
+        self:_setStage("secret")
+    end
 end
 
-function LockScreen:onUnlockTap(event, gesture)
-    local settings = settingsFor(self.appdock)
-    local method = lockMethod(settings)
-    if method == "swipe" then return true end
-    if method == "pin" then
-        local AppDockDialogs = require("appdock_dialogs")
-        local InputDialog = AppDockDialogs.InputDialog
-        local dialog
-        dialog = InputDialog:new{
-            title = _("AppDock PIN"), input = "", input_type = "number", input_hint = _("PIN"),
-            buttons = { { { text = _("Cancel"), callback = function() UIManager:close(dialog) end }, { text = _("Unlock"), is_enter_default = true, callback = function()
-                local value = dialog:getInputText() or ""
-                UIManager:close(dialog)
-                if settings.secret_hash and LockScreen.hash(value) == settings.secret_hash then self:_unlock() else self:_reject() end
-            end } } },
-        }
-        AppDockKeyboard.attach(dialog, { secure = true })
-        UIManager:show(dialog); dialog:onShowKeyboard()
+function LockScreen:_reject(message)
+    self.status = message or _("That does not match. Try again.")
+    self.status_is_error = true
+    self.pin, self.pattern = "", ""
+    self:build()
+    self:_refresh("ui")
+end
+
+function LockScreen:_submit()
+    local profile = settingsFor(self.appdock)
+    local method = lockMethod(profile)
+    local value = method == "pin" and self.pin or self.pattern
+    if #value < MIN_SECRET then
+        self.status = method == "pin" and _("Enter at least 4 digits.") or _("Tap at least 4 points.")
+        self.status_is_error = true
+        self:build()
+        self:_refresh("ui")
+        return
+    end
+    if secretMatches(profile, value) then self:_unlock() else self:_reject() end
+end
+
+function LockScreen:_press(value)
+    local profile = settingsFor(self.appdock)
+    local method = lockMethod(profile)
+    if value == "ok" then return self:_submit() end
+    local field = method == "pin" and "pin" or "pattern"
+    local current = self[field]
+    if value == "back" then
+        current = current:sub(1, -2)
+    elseif method == "pin" then
+        if #current >= MAX_SECRET then return end
+        current = current .. value
+    else
+        if current:find(value, 1, true) or #current >= MAX_PATTERN then return end
+        current = current .. value
+    end
+    self[field] = current
+    self.status, self.status_is_error = nil, false
+    -- A pattern is accepted as soon as it matches, so people with a 4-point
+    -- pattern do not need the confirm key.
+    if method == "pattern" and #current >= MIN_SECRET and secretMatches(profile, current) then
+        return self:_unlock()
+    end
+    self:build()
+    self:_refresh("ui")
+end
+
+function LockScreen:onLockSwipe(args, ges)
+    local direction = ges and ges.direction
+    local up = direction == "north" or direction == "northeast" or direction == "northwest"
+    local down = direction == "south" or direction == "southeast" or direction == "southwest"
+    if self.stage == "wall" then
+        if up then self:_advance() end
+    elseif down then
+        self:_setStage("wall")
+    end
+    return true
+end
+
+function LockScreen:onLockTap(args, ges)
+    local pos = ges and ges.pos
+    if not pos then return true end
+    if self.stage == "wall" then
+        if inRect(pos, self._hint_rect) then self:_advance() end
         return true
     end
-    local bounds = self._pattern_bounds
-    if method == "pattern" and bounds and gesture and gesture.pos then
-        local column = math.floor((gesture.pos.x - bounds.x) / (bounds.cell + bounds.gap))
-        local row = math.floor((gesture.pos.y - bounds.y) / (bounds.cell + bounds.gap))
-        local within_cell = column >= 0 and column < 3 and row >= 0 and row < 3
-            and gesture.pos.x < bounds.x + column * (bounds.cell + bounds.gap) + bounds.cell
-            and gesture.pos.y < bounds.y + row * (bounds.cell + bounds.gap) + bounds.cell
-        if within_cell then
-            local point = tostring(row * 3 + column + 1)
-            if not self.pattern:find(point, 1, true) then self.pattern = self.pattern .. point; self:build(); UIManager:setDirty(self, "ui") end
-            if #self.pattern >= 4 then
-                if settings.secret_hash and LockScreen.hash(self.pattern) == settings.secret_hash then self:_unlock() else self:_reject() end
-            end
+    if inRect(pos, self._cancel_rect) then
+        self:_setStage("wall")
+        return true
+    end
+    for _, key in ipairs(self._keys or {}) do
+        if inRect(pos, key) then
+            self:_press(key.value)
+            break
         end
     end
     return true
 end
 
 function LockScreen.show(appdock, callback)
-    UIManager:show(LockScreen:new{ appdock = appdock, on_unlock = callback })
+    local widget = LockScreen:new{ appdock = appdock, on_unlock = callback }
+    UIManager:show(widget)
+    return widget
 end
 
-LockScreen._test = { patternBounds = patternBounds, lockMethod = lockMethod }
+LockScreen._test = {
+    lockMethod = lockMethod,
+    keypadLayout = keypadLayout,
+    keyOrigin = keyOrigin,
+    secretMatches = secretMatches,
+}
+
+-- Rotation (9.6.0): the photo is cropped to the screen, so it is rebuilt too.
+Rotation.attach(LockScreen, { relayout = function(self)
+    self:freeBuffers()
+    self:build()
+end })
 
 return LockScreen

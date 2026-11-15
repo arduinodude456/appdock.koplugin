@@ -161,8 +161,22 @@ function Wallpaper.build(appdock, width, height)
         if design_wallpaper then return design_wallpaper end
     end
     local settings = appdock.settings.wallpaper or {}
-    if settings.enabled ~= true then return nil end
     local keep_original = appdock.settings.beta and appdock.settings.beta.keep_wallpaper_original_in_night == true
+    -- A built-in theme can ship its own background (Aurora, 9.6.0: the same
+    -- northern-lights photo as the lockscreen). It is shown as long as the user
+    -- has not picked a wallpaper of their own (source = "user"); a custom
+    -- wallpaper always wins.
+    -- The wallpaper switch (Settings / quick tile) still turns the background
+    -- off completely.
+    if settings.enabled ~= true then return nil end
+    if settings.source == "appdock_default" then
+        local ok, Theme = pcall(require, "appdock_theme")
+        local theme_path = ok and Theme and Theme.getThemeWallpaper and Theme.getThemeWallpaper(appdock) or nil
+        if theme_path then
+            local theme_wallpaper = Wallpaper.buildPath(theme_path, width, height, keep_original)
+            if theme_wallpaper then return theme_wallpaper end
+        end
+    end
     return Wallpaper.buildPath(settings.path, width, height, keep_original)
 end
 

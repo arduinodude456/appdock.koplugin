@@ -28,6 +28,8 @@ local DAppLogo = require("appdock_logo")
 local Layout = require("appdock_layout")
 local Theme = require("appdock_theme")
 local Wallpaper = require("appdock_wallpaper")
+local Gradient = require("appdock_gradient")
+local Rotation = require("appdock_rotation")
 local OverlapGroup = require("ui/widget/overlapgroup")
 local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
@@ -1963,14 +1965,17 @@ function AppDockHomeScreen:build()
     local dashboard = OverlapGroup:new{
         dimen = Geom:new{ w = width, h = height },
         allow_mirroring = false,
-        FrameContainer:new{
-            width = width,
-            height = height,
-            padding = 0,
-            bordersize = 0,
-            background = PALETTE.background,
-            emptySizedWidget(width, height),
-        },
+        -- A theme gradient (Aurora, 9.6.0) replaces the flat page color.
+        Gradient.background(width, height, function()
+            return FrameContainer:new{
+                width = width,
+                height = height,
+                padding = 0,
+                bordersize = 0,
+                background = PALETTE.background,
+                emptySizedWidget(width, height),
+            }
+        end, self.appdock),
     }
 
     local wallpaper = Wallpaper.build(self.appdock, width, height)
@@ -2411,5 +2416,18 @@ function AppDockHomeScreen:onHoldHomeEdit()
     self:beginLayoutEdit()
     return true
 end
+
+-- Rotation (9.6.0): rebuild for the new screen size. Only the touch zone that
+-- copied the old size has to be registered again; the others read self.dimen
+-- when they are used.
+function AppDockHomeScreen:relayout()
+    self.ges_events = self.ges_events or {}
+    self.ges_events.HoldHomeEdit = {
+        GestureRange:new{ ges = "hold", range = Geom:new{ x = 0, y = 0, w = self.dimen.w, h = self.dimen.h } },
+    }
+    self:build()
+end
+
+Rotation.attach(AppDockHomeScreen, { relayout = function(self) self:relayout() end })
 
 return AppDockHomeScreen

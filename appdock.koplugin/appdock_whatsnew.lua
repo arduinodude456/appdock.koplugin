@@ -16,6 +16,7 @@ strings for both languages.
 --]]--
 
 local Setup = require("appdock_setup")
+local Rotation = require("appdock_rotation")
 local UIManager = require("ui/uimanager")
 local GestureRange = require("ui/gesturerange")
 local Device = require("device")
@@ -252,6 +253,8 @@ function WhatsNew.show(appdock, on_done)
     UIManager:show(screen)
     return true
 end
+
+Rotation.attach(NewsScreen, { relayout = function(self) self:build() end })
 
 WhatsNew._test = { NewsScreen = NewsScreen, STRINGS = STRINGS }
 

@@ -31,6 +31,8 @@ local Glass = require("appdock_glass")
 local Layout = require("appdock_layout")
 local Theme = require("appdock_theme")
 local Wallpaper = require("appdock_wallpaper")
+local Gradient = require("appdock_gradient")
+local Rotation = require("appdock_rotation")
 local InfoMessage = AppDockDialogs.InfoMessage
 local OverlapGroup = require("ui/widget/overlapgroup")
 local TextWidget = require("ui/widget/textwidget")
@@ -383,7 +385,7 @@ function RefreshIntervalDialog:rebuild()
     self.track = FrameContainer:new{ dimen = Geom:new{ x = track_x, y = track_y, w = track_w, h = track_h }, width = track_w, height = track_h, padding = 0, bordersize = 0, radius = scale(6), background = PALETTE.track, emptySizedWidget(track_w, track_h), overlap_offset = { track_x, track_y } }
     local thumb_size = scale(28); self.thumb = FrameContainer:new{ width = thumb_size, height = thumb_size, padding = 0, bordersize = 0, radius = scale(14), background = PALETTE.primary, emptySizedWidget(thumb_size, thumb_size), overlap_offset = { math.floor(track_x + ratio * track_w - thumb_size / 2), track_y - math.floor((thumb_size - track_h) / 2) } }
     self.value_label = TextWidget:new{ text = self:_formatInterval(self.interval), face = Font:getFace("cfont", scale(24)), fgcolor = PALETTE.on_surface, bold = true, padding = 0, overlap_offset = { left + scale(30), top + scale(82) } }
-    local content = OverlapGroup:new{ dimen = Geom:new{ w = width, h = height }, allow_mirroring = false, FrameContainer:new{ width = width, height = height, padding = 0, bordersize = 0, background = PALETTE.background, emptySizedWidget(width, height) }, FrameContainer:new{ width = panel_w, height = panel_h, padding = scale(24), bordersize = 0, radius = scale(18), background = PALETTE.surface, emptySizedWidget(panel_w, panel_h), overlap_offset = { left, top } }, TextWidget:new{ text = _("Refresh interval"), face = Font:getFace("cfont", scale(22)), fgcolor = PALETTE.on_surface, bold = true, padding = 0, overlap_offset = { left + scale(30), top + scale(32) } }, TextWidget:new{ text = _("Move the slider to choose the periodic full redraw."), face = Font:getFace("smallinfofont", scale(13)), fgcolor = PALETTE.on_variant, padding = 0, overlap_offset = { left + scale(30), top + scale(62) } }, self.value_label, self.track, self.thumb, ActionChip:new{ title = _("Done"), symbol = "✓", width = scale(100), height = scale(40), callback = function() UIManager:close(self) end, overlap_offset = { left + panel_w - scale(130), top + panel_h - scale(58) } } }; self:clear(); self[1] = content
+    local content = OverlapGroup:new{ dimen = Geom:new{ w = width, h = height }, allow_mirroring = false, Gradient.background(width, height, function() return FrameContainer:new{ width = width, height = height, padding = 0, bordersize = 0, background = PALETTE.background, emptySizedWidget(width, height) } end), FrameContainer:new{ width = panel_w, height = panel_h, padding = scale(24), bordersize = 0, radius = scale(18), background = PALETTE.surface, emptySizedWidget(panel_w, panel_h), overlap_offset = { left, top } }, TextWidget:new{ text = _("Refresh interval"), face = Font:getFace("cfont", scale(22)), fgcolor = PALETTE.on_surface, bold = true, padding = 0, overlap_offset = { left + scale(30), top + scale(32) } }, TextWidget:new{ text = _("Move the slider to choose the periodic full redraw."), face = Font:getFace("smallinfofont", scale(13)), fgcolor = PALETTE.on_variant, padding = 0, overlap_offset = { left + scale(30), top + scale(62) } }, self.value_label, self.track, self.thumb, ActionChip:new{ title = _("Done"), symbol = "✓", width = scale(100), height = scale(40), callback = function() UIManager:close(self) end, overlap_offset = { left + panel_w - scale(130), top + panel_h - scale(58) } } }; self:clear(); self[1] = content
 end
 function RefreshIntervalDialog:paintTo(bb, x, y)
     for _, name in ipairs({ "TapRefreshInterval", "PanRefreshInterval", "PanReleaseRefreshInterval" }) do local range = self.ges_events[name][1].range(); if range then range.x, range.y, range.w, range.h = self.track.dimen.x, self.track.dimen.y - scale(18), self.track.dimen.w, self.track.dimen.h + scale(36) end end
@@ -1070,10 +1072,12 @@ function AllAppsDrawer:build()
     self[1] = OverlapGroup:new{
         dimen = Geom:new{ w = width, h = height },
         allow_mirroring = false,
-        FrameContainer:new{
-            width = width, height = height, padding = 0, bordersize = 0,
-            background = PALETTE.background, emptySizedWidget(width, height),
-        },
+        Gradient.background(width, height, function()
+            return FrameContainer:new{
+                width = width, height = height, padding = 0, bordersize = 0,
+                background = PALETTE.background, emptySizedWidget(width, height),
+            }
+        end),
         sheet,
     }
 end
@@ -2464,7 +2468,8 @@ function DAppManager:_buildPluginHostPane(instance, context)
     end
     local pane = FrameContainer:new{
         width = width, height = height, padding = 0, bordersize = 0,
-        background = PALETTE.background,
+        -- No flat fill when the theme has a gradient: the host paints it.
+        background = (not Gradient.active()) and PALETTE.background or nil,
         emptySizedWidget(width, height),
     }
     local content = OverlapGroup:new{
@@ -2640,10 +2645,12 @@ function DAppManager:_buildFailurePane(instance, context, err)
     retry.overlap_offset = { math.max(margin, math.floor((width - retry_width) / 2)), card_y + card_h - retry:getSize().h - scale(14) }
     pane[1] = OverlapGroup:new{
         dimen = pane.dimen, allow_mirroring = false,
-        FrameContainer:new{
-            width = width, height = height, padding = 0, bordersize = 0,
-            background = PALETTE.background, emptySizedWidget(width, height),
-        },
+        Gradient.background(width, height, function()
+            return FrameContainer:new{
+                width = width, height = height, padding = 0, bordersize = 0,
+                background = PALETTE.background, emptySizedWidget(width, height),
+            }
+        end),
         FrameContainer:new{
             width = width - margin * 2, height = card_h, padding = 0, bordersize = scale(1),
             color = PALETTE.outline, radius = scale(14), background = PALETTE.surface,
@@ -3781,10 +3788,12 @@ function DAppManager:showThemeEditor(instance, context)
     local dialog
     local buttons = {}
     local themes = Theme.getThemeList(self.appdock.settings)
+    local selected_id = Theme.resolveDefinition(self.appdock.settings)
     for _, theme in ipairs(themes) do
         table.insert(buttons, {
             {
-                text = theme.title .. "  " .. theme.primary,
+                text = (theme.id == selected_id and "✓ " or "") .. theme.title .. "  " .. theme.primary
+                    .. (theme.gradient and ("  · " .. _("gradient")) or ""),
                 callback = function()
                     self.appdock:setTheme(theme.id)
                     UIManager:close(dialog)
@@ -3941,7 +3950,7 @@ function DAppManager:showLockscreenSecretDialog(instance, context, method)
     local dialog
     dialog = InputDialog:new{
         title = method == "pattern" and _("Set AppDock pattern") or _("Set AppDock PIN"),
-        description = method == "pattern" and _("Use 4 different digits from 1 to 9. Tap these points on the lockscreen in the same order.") or _("Choose a 4–32 digit AppDock PIN."),
+        description = method == "pattern" and _("Use 4 to 9 different digits from 1 to 9. Tap these points on the lockscreen in the same order.") or _("Choose a 4–32 digit AppDock PIN."),
         input_hint = method == "pattern" and _("Example: 1258") or _("PIN"),
         input = "",
         input_type = "number",
@@ -4049,14 +4058,13 @@ function DAppManager:showLockscreenEditor(instance, context)
     local lockscreen = self.appdock.settings.lockscreen
     local dialog
     dialog = ButtonDialog:new{
-        title = _("AppDock lockscreen") .. "\n" .. _("This protects AppDock only, not device storage."),
+        title = _("AppDock lockscreen") .. "\n" .. _("Always on. Swiping up is the minimum. This protects AppDock only, not device storage."),
         buttons = {
-            { { text = (lockscreen.enabled and lockscreen.method == "swipe" and "✓ " or "") .. _("Swipe to unlock"), callback = function() self.appdock:setLockscreen("swipe"); UIManager:close(dialog); context.requestRebuild("ui") end } },
-            { { text = (lockscreen.enabled and lockscreen.method == "pin" and "✓ " or "") .. _("PIN"), callback = function() UIManager:close(dialog); self:showLockscreenSecretDialog(instance, context, "pin") end } },
-            { { text = (lockscreen.enabled and lockscreen.method == "pattern" and "✓ " or "") .. _("Pattern"), callback = function() UIManager:close(dialog); self:showLockscreenSecretDialog(instance, context, "pattern") end } },
+            { { text = (lockscreen.method == "swipe" and "✓ " or "") .. _("Swipe up only"), callback = function() self.appdock:setLockscreen("swipe"); UIManager:close(dialog); context.requestRebuild("ui") end } },
+            { { text = (lockscreen.method == "pin" and "✓ " or "") .. _("PIN"), callback = function() UIManager:close(dialog); self:showLockscreenSecretDialog(instance, context, "pin") end } },
+            { { text = (lockscreen.method == "pattern" and "✓ " or "") .. _("Pattern"), callback = function() UIManager:close(dialog); self:showLockscreenSecretDialog(instance, context, "pattern") end } },
             { { text = _("Name") .. ": " .. ((lockscreen.profile_name and lockscreen.profile_name ~= "") and lockscreen.profile_name or _("Not set")), callback = function() UIManager:close(dialog); self:showLockscreenNameDialog(instance, context) end } },
             { { text = lockscreen.profile_image_path and lockscreen.profile_image_path ~= "" and _("Change profile image") or _("Add profile image"), callback = function() UIManager:close(dialog); self:showLockscreenProfileImageDialog(instance, context) end } },
-            { { text = _("Disable lockscreen"), callback = function() self.appdock:disableLockscreen(); UIManager:close(dialog); context.requestRebuild("ui") end } },
             { { text = _("Cancel"), callback = function() UIManager:close(dialog) end } },
         },
     }
@@ -4161,7 +4169,7 @@ end
 function DAppManager:showControlCenterEditor(instance, context)
     local labels = {
         wifi = _("Wi-Fi"), night = _("Night mode"), refresh = _("Refresh"), edit = _("Edit apps"),
-        rotate = _("Rotate"),
+        rotate = _("Rotate"), autorotate = _("Auto-rotate"),
         sleep = _("Sleep"), power_saving = _("Save power"), wallpaper = _("Background image"),
     }
     local dialog
@@ -4169,7 +4177,7 @@ function DAppManager:showControlCenterEditor(instance, context)
         local current = {}
         for _, tile_id in ipairs(self.appdock:getQuickSettingsTiles()) do current[tile_id] = true end
         local buttons = {}
-        for _, tile_id in ipairs({ "wifi", "night", "refresh", "edit", "rotate", "sleep", "power_saving", "wallpaper" }) do
+        for _, tile_id in ipairs({ "wifi", "night", "refresh", "edit", "rotate", "autorotate", "sleep", "power_saving", "wallpaper" }) do
             buttons[#buttons + 1] = { { text = (current[tile_id] and "✓ " or "") .. labels[tile_id], callback = function()
                 self.appdock:setQuickTileEnabled(tile_id, not current[tile_id])
                 UIManager:close(dialog)
@@ -4408,7 +4416,7 @@ function DAppManager:_buildSettingsPane(instance, context)
     end
     local wallpaper_settings = self.appdock.settings.wallpaper or { enabled = false, path = "" }
     local beta_settings = self.appdock.settings.beta or { black_borders = false, keep_wallpaper_original_in_night = false }
-    local lockscreen_settings = self.appdock.settings.lockscreen or { enabled = false, method = "swipe" }
+    local lockscreen_settings = self.appdock.settings.lockscreen or { enabled = true, method = "swipe" }
     local workspace_settings = self.appdock.settings.workspace or { restore_enabled = false, session = nil }
     local accessibility_settings = self.appdock.settings.accessibility or { text_scale = 1, high_contrast = false }
     local tbs_status = self.appdock.getTBSAccountStatus and self.appdock:getTBSAccountStatus() or { signed_in = false }
@@ -4462,6 +4470,23 @@ function DAppManager:_buildSettingsPane(instance, context)
                 callback = function()
                     local gestures = self.appdock:getNavigationMode() == "gestures"
                     self.appdock:setNavigationMode(gestures and "buttons" or "gestures")
+                    context.requestRebuild("ui")
+                end,
+            },
+            {
+                title = _("Auto-rotate"),
+                subtitle = not (self.appdock.hasRotationSensor and self.appdock:hasRotationSensor())
+                    and _("Unavailable · this device has no rotation sensor")
+                    or (self.appdock:isAutoRotateEnabled()
+                        and _("On · AppDock turns with the rotation sensor")
+                        or _("Off · rotate manually with the Rotate tile")),
+                enabled = (self.appdock.hasRotationSensor and self.appdock:hasRotationSensor() and self.appdock:isAutoRotateEnabled()) or false,
+                callback = function()
+                    if not (self.appdock.hasRotationSensor and self.appdock:hasRotationSensor()) then
+                        self:showSettingsNotice(_("This device has no rotation sensor. Use the Rotate tile in the Control center instead."))
+                        return
+                    end
+                    self.appdock:setAutoRotate(not self.appdock:isAutoRotateEnabled())
                     context.requestRebuild("ui")
                 end,
             },
@@ -4631,7 +4656,7 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
             {
                 title = _("Lockscreen"),
-                subtitle = lockscreen_settings.enabled and (lockscreen_settings.method == "pin" and _("PIN") or lockscreen_settings.method == "pattern" and _("Pattern") or _("Swipe")) or _("Disabled"),
+                subtitle = lockscreen_settings.method == "pin" and _("PIN") or lockscreen_settings.method == "pattern" and _("Pattern") or _("Swipe up"),
                 show_state = false,
                 callback = function() self:showLockscreenEditor(instance, context) end,
             },
@@ -5350,7 +5375,7 @@ function DAppWindowHost:rebuild(preserve_active)
     local border, title_h = math.max(scale(2), 1), math.max(scale(40), scale(36))
     local chrome = OverlapGroup:new{
         dimen = self.dimen, allow_mirroring = false,
-        FrameContainer:new{ width = self.dimen.w, height = self.dimen.h, padding = 0, bordersize = 0, background = PALETTE.background, emptySizedWidget(self.dimen.w, self.dimen.h) },
+        Gradient.background(self.dimen.w, self.dimen.h, function() return FrameContainer:new{ width = self.dimen.w, height = self.dimen.h, padding = 0, bordersize = 0, background = PALETTE.background, emptySizedWidget(self.dimen.w, self.dimen.h) } end),
     }
     local layout_windows, taskbar_buttons, active_content = {}, {}, nil
     self._window_parts = {}
@@ -5793,11 +5818,13 @@ function DAppHost:rebuild(preserve_active)
     local chrome = OverlapGroup:new{
         dimen = Geom:new{ w = width, h = height },
         allow_mirroring = false,
-        FrameContainer:new{
-            width = width, height = height, padding = 0, bordersize = 0,
-            background = PALETTE.background,
-            emptySizedWidget(width, height),
-        },
+        Gradient.background(width, height, function()
+            return FrameContainer:new{
+                width = width, height = height, padding = 0, bordersize = 0,
+                background = PALETTE.background,
+                emptySizedWidget(width, height),
+            }
+        end),
     }
     if not fullscreen then
         table.insert(chrome, FrameContainer:new{
@@ -6290,5 +6317,24 @@ function DAppRecents:onRevealRecentApps()
     self.manager:showRecentDrawer(self, self)
     return true
 end
+
+-- Rotation (9.6.0): every full-screen host rebuilds itself for the new screen
+-- size (see appdock_rotation.lua). The sheets and drawers are transient, so a
+-- plain rebuild is enough.
+Rotation.attach(DAppHost, { relayout = function(self) self:rebuild(true) end })
+Rotation.attach(DAppWindowHost, { relayout = function(self)
+    -- Window rectangles are absolute pixels of the old orientation.
+    for id, state in pairs(self.window_states or {}) do
+        if type(state) == "table" then
+            state.rect = self.manager:_windowGeometry(id, self.dimen)
+            state.windowed_rect = nil
+            state.fullscreen = state.fullscreen == true
+        end
+    end
+    self:rebuild(true)
+end })
+Rotation.attach(RecentDrawer, { relayout = function(self) self:build() end, close_on_failure = true })
+Rotation.attach(AllAppsDrawer, { relayout = function(self) self:build() end, close_on_failure = true })
+Rotation.attach(DAppRecents, { relayout = function(self) self:build() end, close_on_failure = true })
 
 return DAppManager

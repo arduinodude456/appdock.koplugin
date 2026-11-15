@@ -97,6 +97,7 @@ local function color(r, g, b, grayscale)
 end
 
 local Glass = require("appdock_glass")
+local Rotation = require("appdock_rotation")
 local GC = Glass.COLORS
 
 local function solid(c) return Glass.solid(c) end
@@ -891,23 +892,24 @@ function QuickSettings:openManager()
 end
 
 function QuickSettings:rotateScreen()
-    local ok, optionsutil = pcall(require, "ui/data/optionsutil")
-    local modes = ok and type(optionsutil) == "table" and optionsutil.rotation_modes
-    if type(modes) ~= "table" or #modes == 0 or type(Screen.getRotationMode) ~= "function" then
+    -- Rotation.cycle() asks KOReader to rotate; the Screen hook in
+    -- appdock_rotation.lua then rebuilds every AppDock screen for the new size.
+    local ok = Rotation.cycle()
+    if not ok then
         UIManager:show(InfoMessage:new{ text = _("Screen rotation is unavailable on this device.") })
         return false
-    end
-    local read_ok, current_mode = pcall(Screen.getRotationMode, Screen)
-    if not read_ok then
-        UIManager:show(InfoMessage:new{ text = _("Screen rotation is unavailable on this device.") })
-        return false
-    end
-    local next_mode = modes[1]
-    for index, mode in ipairs(modes) do
-        if mode == current_mode then next_mode = modes[index % #modes + 1]; break end
     end
     UIManager:close(self)
-    UIManager:broadcastEvent(Event:new("SetRotationMode", next_mode))
+    return true
+end
+
+function QuickSettings:toggleAutoRotate()
+    if not (self.appdock.hasRotationSensor and self.appdock:hasRotationSensor()) then
+        UIManager:show(InfoMessage:new{ text = _("This device has no rotation sensor.") })
+        return false
+    end
+    self.appdock:setAutoRotate(not self.appdock:isAutoRotateEnabled())
+    self:rebuild(true)
     return true
 end
 
@@ -1027,6 +1029,14 @@ function QuickSettings:rebuild(refresh)
         rotate = {
             title = _("Rotate"), icon_kind = "rotate", active = false,
             callback = function() self:rotateScreen() end,
+        },
+        autorotate = {
+            title = _("Auto-rotate"), icon_kind = "rotate",
+            subtitle = (self.appdock.hasRotationSensor and self.appdock:hasRotationSensor())
+                and (self.appdock:isAutoRotateEnabled() and _("On") or _("Off")) or _("Unavailable"),
+            active = (self.appdock.hasRotationSensor and self.appdock:hasRotationSensor() and self.appdock:isAutoRotateEnabled()) or false,
+            wide = true,
+            callback = function() self:toggleAutoRotate() end,
         },
         sleep = {
             title = _("Sleep"), icon_kind = "power", active = false,
@@ -1301,5 +1311,12 @@ function QuickSettings:onClose()
     UIManager:close(self)
     return true
 end
+
+-- Rotation (9.6.0): the blurred backdrop was captured at the old size.
+Rotation.attach(QuickSettings, { relayout = function(self)
+    if self._backdrop and self._backdrop.free then pcall(self._backdrop.free, self._backdrop) end
+    self._backdrop, self._backdrop_failed = nil, nil
+    self:rebuild(false)
+end })
 
 return QuickSettings

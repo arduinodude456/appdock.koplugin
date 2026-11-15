@@ -4,7 +4,7 @@ It exposes selected KOReader plugin menu actions as configurable app tiles.
 --]]--
 
 local MODULE_DIR = (debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "")
-local APPDOCK_RELEASE = "9.5.2"
+local APPDOCK_RELEASE = "9.6.0"
 local AppDockRecovery
 local recovery_context
 do
@@ -68,15 +68,19 @@ local DEFAULT_SETTINGS = {
         store_order = {},
     },
     did_seed = false,
-    theme = { selected = "lavender", custom = {}, night_mode = false },
+    -- Aurora (9.6.0) is the default theme; aurora_applied marks that a reader's
+    -- one-time switch to it already happened (see _loadSettings).
+    theme = { selected = "aurora", custom = {}, night_mode = false, aurora_applied = true },
     design = { active_id = nil, installed = {} },
+    -- Follow the rotation sensor while AppDock is on screen (Settings > Display).
+    rotation = { auto = true },
     plugin_logos = {},
     store = { installed = {} },
     layout = { app_spacing = 16, logo_shape = "rounded", search_enabled = false, ddg_search = true, split_ratio = .5, widget_scales = {} },
     launch_on_start = false,
     notifications = { items = {}, next_id = 0 },
     wallpaper = { enabled = true, path = DEFAULT_WALLPAPER_PATH, source = "appdock_default" },
-    lockscreen = { enabled = false, method = "swipe", secret_hash = nil, profile_name = "", profile_image_path = "" },
+    lockscreen = { enabled = true, method = "swipe", secret_hash = nil, profile_name = "", profile_image_path = "" },
     beta = { black_borders = false, keep_wallpaper_original_in_night = false, plugin_dapp_host = false, windows = false, windows_dither = false, manual_app_spacing = false, plugin_custom_logos = false },
     quick_settings = { tiles = { "wifi", "night", "refresh", "edit", "rotate", "sleep", "power_saving", "wallpaper" } },
     simple_mode = { homescreen = false, quick_settings = false, focus_apps = false },
@@ -214,6 +218,7 @@ end
 
 function AppDock:init()
     pcall(function() require("appdock_theme").bind(self) end)
+    pcall(function() require("appdock_rotation").bind(self) end)
     self:_loadSettings()
     if self.ui and self.ui.menu and self.ui.menu.registerToMainMenu then
         self.ui.menu:registerToMainMenu(self)
@@ -276,9 +281,7 @@ function AppDock:onSuspend()
     end
     -- Lock only after an actual device suspend/resume cycle. Normal DApp
     -- navigation must not be mistaken for a fresh AppDock entry.
-    self._lock_after_resume = self.settings
-        and self.settings.lockscreen
-        and self.settings.lockscreen.enabled == true
+    self._lock_after_resume = true
     if self.dapp_manager and self.dapp_manager.captureWorkspace then self.dapp_manager:captureWorkspace() end
 end
 
@@ -320,7 +323,8 @@ function AppDock:_loadSettings()
             store_order = {},
         }),
         did_seed = stored.did_seed or false,
-        theme = tableValue(stored.theme, { selected = "lavender", custom = {}, night_mode = false }),
+        theme = tableValue(stored.theme, { selected = "aurora", custom = {}, night_mode = false, aurora_applied = true }),
+        rotation = tableValue(stored.rotation, { auto = true }),
         design = tableValue(stored.design, { active_id = nil, installed = {} }),
         plugin_logos = tableValue(stored.plugin_logos),
         store = tableValue(stored.store, { installed = {} }),
@@ -328,7 +332,7 @@ function AppDock:_loadSettings()
         launch_on_start = stored.launch_on_start == true,
         notifications = tableValue(stored.notifications, { items = {}, next_id = 0 }),
         wallpaper = tableValue(stored.wallpaper, { enabled = true, path = DEFAULT_WALLPAPER_PATH, source = "appdock_default" }),
-        lockscreen = tableValue(stored.lockscreen, { enabled = false, method = "swipe", secret_hash = nil, profile_name = "", profile_image_path = "" }),
+        lockscreen = tableValue(stored.lockscreen, { enabled = true, method = "swipe", secret_hash = nil, profile_name = "", profile_image_path = "" }),
         beta = tableValue(stored.beta, { black_borders = false, keep_wallpaper_original_in_night = false, plugin_dapp_host = false, windows = false, windows_dither = false, manual_app_spacing = false, plugin_custom_logos = false }),
         quick_settings = tableValue(stored.quick_settings, { tiles = copyArray(DEFAULT_SETTINGS.quick_settings.tiles) }),
         simple_mode = tableValue(stored.simple_mode, { homescreen = false, quick_settings = false, focus_apps = false }),
@@ -483,10 +487,12 @@ function AppDock:_loadSettings()
     self.settings.widgets.hint = nil
     self.settings.widgets.store = tableValue(self.settings.widgets.store)
     self.settings.widgets.store_order = copyArray(self.settings.widgets.store_order)
-    self.settings.theme = self.settings.theme or { selected = "lavender", custom = {} }
-    self.settings.theme.selected = self.settings.theme.selected or "lavender"
+    self.settings.theme = self.settings.theme or { selected = "aurora", custom = {} }
+    self.settings.theme.selected = self.settings.theme.selected or "aurora"
     self.settings.theme.custom = tableValue(self.settings.theme.custom)
     self.settings.theme.night_mode = self.settings.theme.night_mode == true
+    self.settings.rotation = type(self.settings.rotation) == "table" and self.settings.rotation or { auto = true }
+    self.settings.rotation.auto = self.settings.rotation.auto ~= false
     self.settings.design = self.settings.design or { active_id = nil, installed = {} }
     self.settings.design.installed = tableValue(self.settings.design.installed)
     local Theme = require("appdock_theme")
@@ -502,6 +508,16 @@ function AppDock:_loadSettings()
     end
     self.settings.design.installed = normalized_designs
     if type(self.settings.design.active_id) ~= "string" or not normalized_designs[self.settings.design.active_id] then
+        self.settings.design.active_id = nil
+    end
+    -- 9.6.0: everybody who updates lands on the new Aurora theme exactly once,
+    -- so the new look is the first thing they see. Dark mode is switched off
+    -- for it, and an active Store design (which would cover the theme) is
+    -- deactivated but stays installed. Afterwards the choice is the reader's.
+    if self.settings.theme.aurora_applied ~= true then
+        self.settings.theme.aurora_applied = true
+        self.settings.theme.selected = "aurora"
+        self.settings.theme.night_mode = false
         self.settings.design.active_id = nil
     end
     self.settings.plugin_logos = self.settings.plugin_logos or {}
@@ -523,10 +539,20 @@ function AppDock:_loadSettings()
     self.settings.wallpaper.enabled = self.settings.wallpaper.enabled == true
     self.settings.wallpaper.path = type(self.settings.wallpaper.path) == "string" and self.settings.wallpaper.path:sub(1, 360) or ""
     self.settings.wallpaper.source = self.settings.wallpaper.source == "appdock_default" and "appdock_default" or "user"
-    self.settings.lockscreen = self.settings.lockscreen or { enabled = false, method = "swipe", secret_hash = nil, profile_name = "", profile_image_path = "" }
-    self.settings.lockscreen.enabled = self.settings.lockscreen.enabled == true
+    -- Before 9.6.0 choosing a wallpaper left the source on "appdock_default".
+    -- Only the bundled default file may keep that label, otherwise the
+    -- Aurora background would replace a wallpaper the reader picked.
+    if self.settings.wallpaper.source == "appdock_default" and self.settings.wallpaper.path ~= ""
+        and self.settings.wallpaper.path ~= DEFAULT_WALLPAPER_PATH then
+        self.settings.wallpaper.source = "user"
+    end
+    -- The lockscreen is mandatory: "swipe up to unlock" is the weakest setting.
+    -- Older settings files may still carry enabled = false; those are migrated.
+    self.settings.lockscreen = self.settings.lockscreen or { enabled = true, method = "swipe", secret_hash = nil, profile_name = "", profile_image_path = "" }
+    self.settings.lockscreen.enabled = true
     if self.settings.lockscreen.method ~= "pin" and self.settings.lockscreen.method ~= "pattern" then self.settings.lockscreen.method = "swipe" end
     self.settings.lockscreen.secret_hash = type(self.settings.lockscreen.secret_hash) == "string" and self.settings.lockscreen.secret_hash or nil
+    if self.settings.lockscreen.method ~= "swipe" and not self.settings.lockscreen.secret_hash then self.settings.lockscreen.method = "swipe" end
     self.settings.lockscreen.profile_name = type(self.settings.lockscreen.profile_name) == "string" and (self.settings.lockscreen.profile_name:sub(1, 36):match("^%s*(.-)%s*$") or "") or ""
     local profile_path = type(self.settings.lockscreen.profile_image_path) == "string" and self.settings.lockscreen.profile_image_path:sub(1, 360) or ""
     if profile_path ~= "" and Wallpaper.isValidPath(profile_path) then
@@ -887,7 +913,12 @@ end
 
 function AppDock:setWallpaper(path, enabled)
     local Wallpaper = require("appdock_wallpaper")
-    if type(path) == "string" then self.settings.wallpaper.path = path:sub(1, 360) end
+    if type(path) == "string" then
+        self.settings.wallpaper.path = path:sub(1, 360)
+        -- A path chosen by the user replaces the bundled default (and with it
+        -- the background that a theme such as Aurora would otherwise bring).
+        self.settings.wallpaper.source = "user"
+    end
     if enabled ~= nil then self.settings.wallpaper.enabled = enabled == true and Wallpaper.isValidPath(self.settings.wallpaper.path) end
     self:_saveSettings()
     return self.settings.wallpaper.enabled
@@ -993,8 +1024,11 @@ function AppDock:setLockscreen(method, secret)
     return true
 end
 
+-- The lockscreen can no longer be turned off. This removes the PIN/pattern
+-- and returns to the minimum: swipe up to unlock.
 function AppDock:disableLockscreen()
-    self.settings.lockscreen.enabled = false
+    self.settings.lockscreen.enabled = true
+    self.settings.lockscreen.method = "swipe"
     self.settings.lockscreen.secret_hash = nil
     self:_saveSettings()
 end
@@ -1045,7 +1079,7 @@ function AppDock:setRefreshInterval(seconds)
     return seconds
 end
 
-local QUICK_TILE_IDS = { wifi = true, night = true, refresh = true, edit = true, rotate = true, sleep = true, power_saving = true, wallpaper = true }
+local QUICK_TILE_IDS = { wifi = true, night = true, refresh = true, edit = true, rotate = true, autorotate = true, sleep = true, power_saving = true, wallpaper = true }
 
 function AppDock:getQuickSettingsTiles()
     if self:isSimpleModeEnabled("quick_settings") then
@@ -1066,6 +1100,23 @@ function AppDock:getQuickSettingsTiles()
         tile_settings.tiles = tiles
         tile_settings.draw_tile_migrated = nil
         tile_settings.rotation_tile_migrated = true
+    end
+    -- 9.6.0: the new Auto-rotate tile joins existing layouts once, right after
+    -- Rotate (only on readers with a rotation sensor).
+    if tile_settings.autorotate_tile_migrated ~= true then
+        tile_settings.autorotate_tile_migrated = true
+        local has_sensor = false
+        local ok, Rotation = pcall(require, "appdock_rotation")
+        if ok and Rotation then has_sensor = Rotation.hasSensor() end
+        local present, position = false, nil
+        for index, tile_id in ipairs(tile_settings.tiles or {}) do
+            if tile_id == "autorotate" then present = true end
+            if tile_id == "rotate" then position = index end
+        end
+        if has_sensor and not present then
+            tile_settings.tiles = tile_settings.tiles or {}
+            table.insert(tile_settings.tiles, position and position + 1 or #tile_settings.tiles + 1, "autorotate")
+        end
     end
     local tiles, seen = {}, {}
     for _, tile_id in ipairs(tile_settings.tiles or {}) do
@@ -1306,9 +1357,25 @@ function AppDock:setNightMode(enabled)
     return self.settings.theme.night_mode
 end
 
-function AppDock:createCustomTheme(title, hex)
+-- Auto-rotate (9.6.0): follow the rotation sensor while AppDock is on screen.
+function AppDock:isAutoRotateEnabled()
+    local rotation = self.settings.rotation
+    return not (type(rotation) == "table" and rotation.auto == false)
+end
+
+function AppDock:hasRotationSensor()
+    local ok, Rotation = pcall(require, "appdock_rotation")
+    return ok and Rotation and Rotation.hasSensor() or false
+end
+
+function AppDock:setAutoRotate(enabled)
+    local Rotation = require("appdock_rotation")
+    return Rotation.setAuto(self, enabled == true)
+end
+
+function AppDock:createCustomTheme(title, hex, gradient_to)
     local Theme = require("appdock_theme")
-    local id = Theme.createCustom(self.settings, title, hex)
+    local id = Theme.createCustom(self.settings, title, hex, gradient_to)
     if id then self:_saveSettings() end
     return id
 end
@@ -1390,11 +1457,13 @@ function AppDock:_showSafeError(text)
 end
 
 function AppDock:showHome(skip_lock, on_ready)
-    if self.settings.lockscreen.enabled and not skip_lock then
+    if not skip_lock then
         local ok, LockScreen = pcall(require, "appdock_lockscreen")
         if ok and LockScreen and LockScreen.show then
-            LockScreen.show(self, function() self:showHome(true, on_ready) end)
-            return
+            -- If the lockscreen itself fails to build, fall through to the
+            -- homescreen instead of leaving the device without a UI.
+            local shown = pcall(LockScreen.show, self, function() self:showHome(true, on_ready) end)
+            if shown then return end
         end
     end
     if not self._boot_shown then
