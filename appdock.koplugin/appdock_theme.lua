@@ -218,9 +218,14 @@ function Theme.normalizeGradient(value, default_angle)
 end
 
 function Theme.gradientSignature(gradient)
-    if type(gradient) ~= "table" or type(gradient.stops) ~= "table" then return "-" end
-    local parts = { tostring(gradient.angle) }
-    for _, stop in ipairs(gradient.stops) do parts[#parts + 1] = tostring(stop.pos) .. stop.hex end
+    -- Built-in themes may store simple color strings in `stops`, while active
+    -- Store designs already carry normalized { pos, hex } entries. Normalize
+    -- both forms before building the cache key; otherwise Aurora crashes as
+    -- soon as the homescreen asks for its first palette.
+    local normalized = Theme.normalizeGradient(gradient)
+    if not normalized then return "-" end
+    local parts = { tostring(normalized.angle) }
+    for _, stop in ipairs(normalized.stops) do parts[#parts + 1] = tostring(stop.pos) .. stop.hex end
     return table.concat(parts, ":")
 end
 

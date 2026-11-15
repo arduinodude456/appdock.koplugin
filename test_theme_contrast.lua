@@ -9,6 +9,9 @@ assert(#Theme.getThemeList({}) >= 4 and Theme.getActiveDesign({}) == nil, "Theme
 local palette = Theme.getPalette({ settings = { theme = { selected = "lavender", custom = {} }, design = { active_id = "bad", installed = { bad = { id = "bad", title = "Bad", highlight = "#888888", background = "#808080", button = "#808080", text = "#777777", dropdown = "#808080" } } } } })
 assert(palette and palette.background_hex == "#808080", "Low-contrast designs must retain their selected background while fixing text roles")
 assert(palette.text == palette.on_background and palette.foreground == palette.on_background and palette.on_dropdown, "Store DApps receive readable compatibility foreground roles for every themed surface")
+local aurora = Theme.getPalette({ settings = { theme = { selected = "aurora", custom = {}, night_mode = false } } })
+assert(aurora.gradient and #aurora.gradient.stops == 4, "The built-in Aurora theme must build its palette from raw color-string stops")
+assert(Theme.gradientSignature({ angle = 168, stops = { "#050E26", "#0A3550", "#117A68", "#3F3B8F" } }) ~= "-", "Raw gradient stop strings must produce a valid cache signature")
 color_enabled = false
 local gray_theme = assert(loadfile("appdock.koplugin/appdock_theme.lua"))()
 local forest = gray_theme.getPalette({ settings = { theme = { selected = "lavender", custom = {} }, design = { active_id = "forest", installed = { forest = { id = "forest", title = "Forest", highlight = "#A5D6A7", background = "#122219", button = "#2D6745", text = "#EFF8E9", dropdown = "#183125" } } } } })
