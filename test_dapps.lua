@@ -701,15 +701,15 @@ for _, child in ipairs(host_chrome) do if child.symbol == "⌄" then host_quick_
 assert(host_quick_access and host_quick_access.overlap_offset[2] < 52, "Each DApp host must expose a compact appbar control-center entry")
 host_quick_access:onTapDAppAction()
 assert(log.quick_settings_host == manager.active_host, "The DApp-host control-center entry must open Quick Settings without leaving a DApp")
-local home_chip, recents_chip, close_chip
+local back_chip, home_chip, recents_chip
 for _, child in ipairs(host_chrome) do
-    if child.symbol == "⌂" then home_chip = child end
+    if child.symbol == "◁" then back_chip = child end
+    if child.symbol == "○" then home_chip = child end
     if child.symbol == "□" then recents_chip = child end
-    if child.symbol == "×" then close_chip = child end
 end
-assert(manager.active_host.chrome_layout and manager.active_host.chrome_layout.expressive and manager.active_host.chrome_layout.navigation_height == 58 and manager.active_host.chrome_layout.has_navigation_pill, "Normal AppDock mode must use the larger expressive app bar and lower navigation pill")
-assert(home_chip.overlap_offset[2] >= 742 and recents_chip.overlap_offset[2] == home_chip.overlap_offset[2] and close_chip.overlap_offset[2] == home_chip.overlap_offset[2], "Home, open-apps and close chips must share the lower navigation row")
-assert(home_chip.overlap_offset[1] < recents_chip.overlap_offset[1] and recents_chip.overlap_offset[1] < close_chip.overlap_offset[1] and math.abs((recents_chip.overlap_offset[1] + math.floor(recents_chip.width / 2)) - 300) <= 1, "System actions must be centered and ordered Home, Open Apps, Close")
+assert(manager.active_host.chrome_layout and manager.active_host.chrome_layout.expressive and manager.active_host.chrome_layout.navigation_height == 58 and manager.active_host.chrome_layout.navigation_mode == "buttons", "Normal AppDock mode must use the larger expressive app bar and the Android-style navigation bar")
+assert(back_chip and home_chip and recents_chip and back_chip.overlap_offset[2] >= 742 and home_chip.overlap_offset[2] == back_chip.overlap_offset[2] and recents_chip.overlap_offset[2] == back_chip.overlap_offset[2], "Back, Home and open-apps buttons must share the lower navigation row")
+assert(back_chip.overlap_offset[1] < home_chip.overlap_offset[1] and home_chip.overlap_offset[1] < recents_chip.overlap_offset[1] and back_chip.width >= 150 and back_chip.width == home_chip.width and home_chip.width == recents_chip.width, "Navigation buttons must be ordered Back, Home, Open Apps and span the full width")
 local home_closed = false
 for _, closed_widget in ipairs(log.closed) do if closed_widget == "home" then home_closed = true; break end end
 assert(home_closed, "DApp activation must close the homescreen host")

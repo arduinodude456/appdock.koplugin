@@ -1691,6 +1691,9 @@ function DAppManager:loadStoreDApp(file, source_path, restoring, expected_id, al
         restoreState = type(definition.restoreState) == "function" and definition.restoreState or nil,
         backgroundTick = type(definition.backgroundTick) == "function" and definition.backgroundTick or nil,
         onAutostart = type(definition.onAutostart) == "function" and definition.onAutostart or nil,
+        -- Optional: onBack(instance) -> true when the DApp handled "Back" itself
+        -- (e.g. closed a sub page); otherwise AppDock closes the DApp.
+        onBack = type(definition.onBack) == "function" and definition.onBack or nil,
     }
     self.definitions[definition.id] = registered
     if self.instances[definition.id] then
@@ -4451,6 +4454,18 @@ function DAppManager:_buildSettingsPane(instance, context)
                 callback = function() self:showLauncherLayout(instance, context) end,
             },
             {
+                title = _("Gesture navigation"),
+                subtitle = self.appdock.getNavigationMode and self.appdock:getNavigationMode() == "gestures"
+                    and _("Swipe from the sides: Back · fast up: Home · slow up: Open apps")
+                    or _("Off · Back, Home and Open apps buttons at the bottom"),
+                enabled = self.appdock.getNavigationMode and self.appdock:getNavigationMode() == "gestures" or false,
+                callback = function()
+                    local gestures = self.appdock:getNavigationMode() == "gestures"
+                    self.appdock:setNavigationMode(gestures and "buttons" or "gestures")
+                    context.requestRebuild("ui")
+                end,
+            },
+            {
                 title = _("Text & contrast"),
                 subtitle = string.format(_("%d%% text · %s contrast"), math.floor((accessibility_settings.text_scale or 1) * 100 + .5), accessibility_settings.high_contrast and _("high") or _("standard")),
                 show_state = false,
@@ -5529,9 +5544,12 @@ function DAppHost:init()
         PanSplitHost = { GestureRange:new{ ges = "pan", range = function() return self._split_touch_range end } },
         PanReleaseSplitHost = { GestureRange:new{ ges = "pan_release", range = function() return self._split_touch_range end } },
     }
-    if not self.manager.appdock:isSimpleModeEnabled("focus_apps") then
-        self.ges_events.RevealRecentApps = { GestureRange:new{ ges = "swipe", direction = "north", range = function() return bottomSwipeRange(self.dimen) end } }
-    end
+    -- The bottom swipe is always registered: with gesture navigation it means
+    -- Home (fast) / Open apps (slow); otherwise it opens the recent-apps drawer.
+    self.ges_events.RevealRecentApps = { GestureRange:new{ ges = "swipe", direction = "north", range = function() return bottomSwipeRange(self.dimen) end } }
+    self.ges_events.NavTouchStart = { GestureRange:new{ ges = "touch", range = function() return bottomSwipeRange(self.dimen) end } }
+    self.ges_events.NavBackFromLeft = { GestureRange:new{ ges = "swipe", direction = "east", range = function() return self:_edgeRange("left") end } }
+    self.ges_events.NavBackFromRight = { GestureRange:new{ ges = "swipe", direction = "west", range = function() return self:_edgeRange("right") end } }
     addHostPageKeyEvents(self)
     self:rebuild()
 end
@@ -5589,7 +5607,89 @@ function DAppHost:onPanReleaseSplitHost(arg, gesture_event)
     return self:_moveSplitFromGesture(arg, gesture_event, true)
 end
 
+local function navigationGesturesEnabled(host)
+    local appdock = host and host.manager and host.manager.appdock
+    return appdock and type(appdock.getNavigationMode) == "function" and appdock:getNavigationMode() == "gestures" or false
+end
+
+local function nowSeconds()
+    local ok, socket = pcall(require, "socket")
+    if ok and socket and type(socket.gettime) == "function" then return socket.gettime() end
+    return os.time()
+end
+
+-- A bottom swipe faster than this means Home, a slower one means Open apps.
+local NAV_FAST_SWIPE_SECONDS = .35
+
+function DAppHost:_edgeRange(side)
+    local edge = scale(28)
+    local bottom = scale(76)
+    return Geom:new{
+        x = side == "right" and math.max(0, self.dimen.w - edge) or 0,
+        y = 0, w = edge, h = math.max(1, self.dimen.h - bottom),
+    }
+end
+
+function DAppHost:onNavTouchStart()
+    if navigationGesturesEnabled(self) then self._nav_touch_time = nowSeconds() end
+    return false
+end
+
+-- Android-style Back: leave fullscreen, let the DApp handle it, else close the DApp.
+function DAppHost:goBack()
+    local ids = self.dapp_ids or { self.dapp_id }
+    if self.fullscreen_dapp_id then
+        return self:setDAppFullscreen(self.fullscreen_dapp_id, false)
+    end
+    if not self.split then
+        local instance = self.manager.instances[ids[1]]
+        local handler = instance and instance.definition and instance.definition.onBack
+        if type(handler) == "function" then
+            local ok, handled = pcall(handler, instance)
+            if ok and handled then
+                self:rebuild(true)
+                UIManager:setDirty(self, "ui")
+                return true
+            end
+        end
+    end
+    return self:closeCurrent()
+end
+
+-- Closes the shown DApp (or leaves split screen) and returns to Home / Open apps.
+function DAppHost:closeCurrent()
+    local ids = self.dapp_ids or { self.dapp_id }
+    if self.split then
+        self.manager:showRecentsFromHost(self)
+    else
+        self.manager:closeDApp(ids[1])
+        UIManager:nextTick(function() self.manager.appdock:showHome(true) end)
+    end
+    return true
+end
+
+function DAppHost:onNavBackFromLeft()
+    if not navigationGesturesEnabled(self) then return false end
+    return self:goBack()
+end
+
+function DAppHost:onNavBackFromRight()
+    if not navigationGesturesEnabled(self) then return false end
+    return self:goBack()
+end
+
 function DAppHost:onRevealRecentApps()
+    if navigationGesturesEnabled(self) then
+        local started = self._nav_touch_time
+        self._nav_touch_time = nil
+        local fast = started and (nowSeconds() - started) < NAV_FAST_SWIPE_SECONDS
+        if fast then
+            self.manager:showHomeFromHost(self)
+        else
+            self.manager:showRecentsFromHost(self)
+        end
+        return true
+    end
     if self.manager.appdock:isSimpleModeEnabled("focus_apps") then return false end
     self.manager:showRecentDrawer(self, self)
     return true
@@ -5640,7 +5740,8 @@ function DAppHost:rebuild(preserve_active)
     self.dapp_ids = ids
     local fullscreen = self.fullscreen_dapp_id == ids[1] and not self.split
     local appbar_height = fullscreen and 0 or (expressive and scale(58) or scale(52))
-    local navigation_height = fullscreen and 0 or (expressive and scale(58) or scale(50))
+    local gesture_bar = navigationGesturesEnabled(self)
+    local navigation_height = fullscreen and 0 or (gesture_bar and scale(22) or (expressive and scale(58) or scale(50)))
     local content_top, content_bottom = appbar_height, height - navigation_height
     if not preserve_active then
         for _, pane in ipairs(self.active_panes or {}) do
@@ -5761,56 +5862,60 @@ function DAppHost:rebuild(preserve_active)
         })
     end
 
-    if not fullscreen then
-    local chip_size, chip_gap = expressive and scale(38) or scale(34), expressive and scale(12) or scale(11)
-    local navigation_height = expressive and scale(58) or scale(50)
-    local navigation_y = height - navigation_height
-    local navigation_width = chip_size * 3 + chip_gap * 2
-    local navigation_x = math.floor((width - navigation_width) / 2)
-    local chip_y = navigation_y + math.floor((navigation_height - chip_size) / 2)
-    table.insert(chrome, FrameContainer:new{
-        width = width, height = navigation_height, padding = 0, bordersize = 0,
-        background = PALETTE.surface,
-        emptySizedWidget(width, navigation_height),
-        overlap_offset = { 0, navigation_y },
-    })
-    if expressive then
+    local gesture_nav = navigationGesturesEnabled(self)
+    if not fullscreen and gesture_nav then
+        -- Gesture navigation: a thin bar with a pill, no buttons.
+        local bar_height = scale(22)
+        local bar_y = height - bar_height
+        local pill_w, pill_h = scale(110), scale(5)
         table.insert(chrome, FrameContainer:new{
-            width = navigation_width + scale(20), height = chip_size + scale(10), padding = 0, bordersize = 0,
-            radius = math.floor((chip_size + scale(10)) / 2), background = PALETTE.surface_variant,
-            emptySizedWidget(navigation_width + scale(20), chip_size + scale(10)),
-            overlap_offset = { navigation_x - scale(10), navigation_y + math.floor((navigation_height - chip_size - scale(10)) / 2) },
+            width = width, height = bar_height, padding = 0, bordersize = 0,
+            background = PALETTE.surface,
+            emptySizedWidget(width, bar_height),
+            overlap_offset = { 0, bar_y },
         })
-    end
-    table.insert(chrome, ActionChip:new{
-        title = "", symbol = "⌂", width = chip_size, height = chip_size,
-        callback = function() self.manager:showHomeFromHost(self) end,
-        overlap_offset = { navigation_x, chip_y },
-    })
-    table.insert(chrome, ActionChip:new{
-        title = "", symbol = "□", width = chip_size, height = chip_size,
-        callback = function() self.manager:showRecentsFromHost(self) end,
-        overlap_offset = { navigation_x + chip_size + chip_gap, chip_y },
-    })
-    table.insert(chrome, ActionChip:new{
-        title = "", symbol = "×", width = chip_size, height = chip_size,
-        callback = function()
-            if self.split then
-                self.manager:showRecentsFromHost(self)
-            else
-                self.manager:closeDApp(ids[1])
-                UIManager:nextTick(function() self.manager.appdock:showHome(true) end)
-            end
-        end,
-        overlap_offset = { navigation_x + 2 * (chip_size + chip_gap), chip_y },
-    })
+        table.insert(chrome, FrameContainer:new{
+            width = pill_w, height = pill_h, padding = 0, bordersize = 0,
+            radius = math.floor(pill_h / 2), background = PALETTE.on_variant,
+            emptySizedWidget(pill_w, pill_h),
+            overlap_offset = { math.floor((width - pill_w) / 2), bar_y + math.floor((bar_height - pill_h) / 2) },
+        })
+    elseif not fullscreen then
+        -- Android-style bar: Back, Home, Open apps, each a third of the full width.
+        local navigation_y = height - navigation_height
+        local side, gap = scale(8), scale(6)
+        local chip_w = math.floor((width - 2 * side - 2 * gap) / 3)
+        local chip_h = navigation_height - scale(10)
+        local chip_y = navigation_y + math.floor((navigation_height - chip_h) / 2)
+        table.insert(chrome, FrameContainer:new{
+            width = width, height = navigation_height, padding = 0, bordersize = 0,
+            background = PALETTE.surface,
+            emptySizedWidget(width, navigation_height),
+            overlap_offset = { 0, navigation_y },
+        })
+        table.insert(chrome, ActionChip:new{
+            title = "", symbol = "◁", width = chip_w, height = chip_h,
+            callback = function() self:goBack() end,
+            overlap_offset = { side, chip_y },
+        })
+        table.insert(chrome, ActionChip:new{
+            title = "", symbol = "○", width = chip_w, height = chip_h,
+            callback = function() self.manager:showHomeFromHost(self) end,
+            overlap_offset = { side + chip_w + gap, chip_y },
+        })
+        table.insert(chrome, ActionChip:new{
+            title = "", symbol = "□", width = chip_w, height = chip_h,
+            callback = function() self.manager:showRecentsFromHost(self) end,
+            overlap_offset = { side + 2 * (chip_w + gap), chip_y },
+        })
     end
     self.chrome_layout = {
         expressive = expressive,
         fullscreen = fullscreen,
         appbar_height = appbar_height,
         navigation_height = navigation_height,
-        has_navigation_pill = not fullscreen and expressive,
+        navigation_mode = gesture_nav and "gestures" or "buttons",
+        has_navigation_pill = not fullscreen and gesture_nav,
     }
     if self._brightness_indicator then table.insert(chrome, self._brightness_indicator) end
     self:clear()

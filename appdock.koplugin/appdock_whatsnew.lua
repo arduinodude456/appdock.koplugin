@@ -53,6 +53,17 @@ local STRINGS = {
 -- Themed keyboard and dialogs first, then the "Health & reading" section of Settings.
 local PAGES = {
     {
+        glyph = "◁",
+        en = {
+            title = "New navigation bar",
+            text = "Inside apps, the bottom bar now works like on Android: Back, Home and Open apps, each button spanning a third of the full width. Back steps out of the app's sub page, or closes the app. Prefer swipes? Turn on Settings > Display > Gesture navigation: swipe in from the left or right screen edge for Back, swipe up quickly from the bottom for Home, or swipe up slowly for Open apps.",
+        },
+        de = {
+            title = "Neue Navigationsleiste",
+            text = "In Apps funktioniert die untere Leiste jetzt wie bei Android: Zurück, Home und Offene Apps, jeder Button über ein Drittel der gesamten Breite. Zurück geht eine Ebene in der App zurück oder schließt die App. Lieber wischen? Aktiviere Einstellungen > Anzeige > Gestennavigation: Vom linken oder rechten Bildschirmrand wischen für Zurück, unten schnell nach oben wischen für Home, unten langsam nach oben wischen für Offene Apps.",
+        },
+    },
+    {
         glyph = "☾",
         en = {
             title = "A reworked Dark Mode",

@@ -4,7 +4,7 @@ It exposes selected KOReader plugin menu actions as configurable app tiles.
 --]]--
 
 local MODULE_DIR = (debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "")
-local APPDOCK_RELEASE = "9.5.1"
+local APPDOCK_RELEASE = "9.5.2"
 local AppDockRecovery
 local recovery_context
 do
@@ -82,6 +82,7 @@ local DEFAULT_SETTINGS = {
     simple_mode = { homescreen = false, quick_settings = false, focus_apps = false },
     workspace = { restore_enabled = false, session = nil },
     accessibility = { text_scale = 1, high_contrast = false },
+    navigation = { mode = "buttons" },
     dapp_permissions = {},
     widget_generator = { items = {}, next_id = 0 },
     -- Public cache only. The account/device credentials live separately under
@@ -333,6 +334,7 @@ function AppDock:_loadSettings()
         simple_mode = tableValue(stored.simple_mode, { homescreen = false, quick_settings = false, focus_apps = false }),
         workspace = tableValue(stored.workspace, { restore_enabled = false, session = nil }),
         accessibility = tableValue(stored.accessibility, { text_scale = 1, high_contrast = false }),
+        navigation = tableValue(stored.navigation, { mode = "buttons" }),
         dapp_permissions = tableValue(stored.dapp_permissions),
         widget_generator = tableValue(stored.widget_generator, { items = {}, next_id = 0 }),
         tbs_account = tableValue(stored.tbs_account, { enabled = false, username = "", display_name = "" }),
@@ -1119,6 +1121,20 @@ function AppDock:isExpressiveUiEnabled()
     return not self:isSimpleModeEnabled("homescreen")
         and not self:isSimpleModeEnabled("quick_settings")
         and not self:isSimpleModeEnabled("focus_apps")
+end
+
+-- App navigation (9.5.2): "buttons" = Android-style Back / Home / Open apps bar,
+-- "gestures" = edge swipes (sides = Back, fast bottom swipe = Home, slow = Open apps).
+function AppDock:getNavigationMode()
+    local navigation = self.settings.navigation
+    return type(navigation) == "table" and navigation.mode == "gestures" and "gestures" or "buttons"
+end
+
+function AppDock:setNavigationMode(mode)
+    self.settings.navigation = type(self.settings.navigation) == "table" and self.settings.navigation or {}
+    self.settings.navigation.mode = mode == "gestures" and "gestures" or "buttons"
+    self:_saveSettings()
+    return self.settings.navigation.mode
 end
 
 function AppDock:setSimpleModeOption(option, enabled)
