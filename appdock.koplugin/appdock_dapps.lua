@@ -3789,7 +3789,8 @@ function DAppManager:showThemeEditor(instance, context)
     local buttons = {}
     local themes = Theme.getThemeList(self.appdock.settings)
     local selected_id = Theme.resolveDefinition(self.appdock.settings)
-    for _, theme in ipairs(themes) do
+    -- `_` is KOReader's gettext function and is called below for gradient labels.
+    for theme_index, theme in ipairs(themes) do
         table.insert(buttons, {
             {
                 text = (theme.id == selected_id and "✓ " or "") .. theme.title .. "  " .. theme.primary
