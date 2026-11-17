@@ -22,6 +22,18 @@ local BUILTIN = {
         title = "Aurora", primary = "#7CF2C9",
         background = "#0B1A36", text = "#E9F6F1", button = "#3FD0B0", dropdown = "#102448",
         gradient = { angle = 168, stops = { "#050E26", "#0A3550", "#117A68", "#3F3B8F" } },
+        -- Role gradients (9.8.0): any color role may be a gradient instead of a
+        -- flat color. The flat role color stays as fallback (grayscale panels,
+        -- high contrast) and decides the readable ink; every stop is checked
+        -- against that ink, so text on a gradient button always stays legible.
+        gradients = {
+            primary = { angle = 100, stops = { "#7CF2C9", "#5FD3E8", "#A99CFF" } },
+            button = { angle = 100, stops = { "#3FD0B0", "#4FC3E6", "#9C8CFF" } },
+            secondary = { angle = 100, stops = { "#2C7A72", "#2D74A0", "#4A4A9A" } },
+            tertiary = { angle = 100, stops = { "#28807A", "#2A74A0", "#5A4FB0" } },
+            surface = { angle = 135, stops = { "#0E2446", "#0F3A55", "#262560" } },
+            surface_variant = { angle = 120, stops = { "#10405A", "#115A66", "#2F2D70" } },
+        },
         wallpaper = "assets/lockscreen/appdock_lockscreen_aurora.jpg",
     },
     -- Cyber (9.7.0): neon cyan on near-black navy with a violet glow. Brings
@@ -238,6 +250,31 @@ function Theme.gradientSignature(gradient)
     return table.concat(parts, ":")
 end
 
+-- Role gradients (9.8.0). `gradients = { button = <gradient>, ... }` where each
+-- value is anything Theme.normalizeGradient accepts. Only known color roles are
+-- kept; an invalid entry is dropped, so one typo never breaks the whole theme.
+local GRADIENT_ROLES = { "primary", "secondary", "tertiary", "button", "surface", "surface_variant", "dropdown" }
+Theme.GRADIENT_ROLES = GRADIENT_ROLES
+
+function Theme.normalizeRoleGradients(value)
+    if type(value) ~= "table" then return nil end
+    local result, any = {}, false
+    for _, role in ipairs(GRADIENT_ROLES) do
+        local normalized = value[role] ~= nil and Theme.normalizeGradient(value[role]) or nil
+        if normalized then result[role] = normalized; any = true end
+    end
+    return any and result or nil
+end
+
+function Theme.roleGradientsSignature(value)
+    if type(value) ~= "table" then return "-" end
+    local parts = {}
+    for _, role in ipairs(GRADIENT_ROLES) do
+        if value[role] ~= nil then parts[#parts + 1] = role .. "=" .. Theme.gradientSignature(value[role]) end
+    end
+    return #parts > 0 and table.concat(parts, "|") or "-"
+end
+
 function Theme.ellipsize(value, maximum_characters)
     local text = type(value) == "string" and value or tostring(value or "")
     text = text:gsub("[\r\n]+", " ")
@@ -348,6 +385,7 @@ function Theme.resolveDefinition(settings)
             title = type(custom.title) == "string" and custom.title or selected,
             primary = Theme.normalizeHex(custom.primary),
             gradient = Theme.normalizeGradient(custom.gradient, custom.gradient_angle),
+            gradients = Theme.normalizeRoleGradients(custom.gradients),
         }
     end
     return "lavender", BUILTIN.lavender
@@ -381,6 +419,8 @@ function Theme.normalizeDesignDefinition(definition)
         wallpaper_file = type(definition.wallpaper_file) == "string" and definition.wallpaper_file or "",
         -- Optional (9.6.0): a gradient painted instead of the flat background.
         gradient = Theme.normalizeGradient(definition.gradient, definition.gradient_angle),
+        -- Optional (9.8.0): gradients for individual color roles (buttons, ...).
+        gradients = Theme.normalizeRoleGradients(definition.gradients),
     }
 end
 
@@ -410,6 +450,7 @@ local function designSignature(record)
         tostring(record.logo_shape), tostring(record.wallpaper), tostring(record.source_path),
         tostring(record.file), tostring(record.wallpaper_file),
         designGradientSignature(record),
+        Theme.roleGradientsSignature(record.gradients),
     }, "\1")
 end
 
@@ -481,8 +522,9 @@ local function computePalette(appdock)
     local text = "#1F1D24"
     local button = primary
     local dropdown = background
-    local gradient
+    local gradient, role_sources
     if design then
+        role_sources = design.gradients
         primary = design.highlight
         background = design.background
         text = design.text
@@ -497,8 +539,10 @@ local function computePalette(appdock)
         button = Theme.normalizeHex(definition.button) or primary
         dropdown = Theme.normalizeHex(definition.dropdown) or background
         gradient = Theme.normalizeGradient(definition.gradient)
+        role_sources = Theme.normalizeRoleGradients(definition.gradients)
     else
         gradient = definition.gradient
+        role_sources = definition.gradients
     end
     local night = isNight(appdock)
     if night then
@@ -550,6 +594,36 @@ local function computePalette(appdock)
     local on_surface = roleInk(surface, text)
     local on_variant = roleInk(surface_variant, text)
     local on_dropdown = roleInk(dropdown, text)
+    -- Role gradients: only on color panels, never in high contrast. Every stop
+    -- is pulled towards the flat role color until the role's ink reads on it.
+    local role_gradients
+    if role_sources and not high_contrast and Device.screen:isColorEnabled() then
+        local solids = { primary = primary, secondary = secondary, tertiary = tertiary, button = button,
+            surface = surface, surface_variant = surface_variant, dropdown = dropdown }
+        local inks = { primary = roleInk(primary, text), secondary = roleInk(secondary, text), tertiary = roleInk(tertiary, text),
+            button = roleInk(button, text), surface = on_surface, surface_variant = on_variant, dropdown = on_dropdown }
+        for _, role in ipairs(GRADIENT_ROLES) do
+            local source = role_sources[role]
+            if source then
+                local safe = {}
+                -- Never worse than the flat role color, never below 4.5:1 if the flat one reaches it.
+                local needed = math.min(4.5, contrastRatio(solids[role], inks[role]))
+                for index, stop in ipairs(source.stops) do
+                    local hex = stop.hex
+                    -- Dark mode keeps the gradient's hue but blends it into the dark role.
+                    if night then hex = mix(hex, solids[role], .45) end
+                    for _ = 1, 8 do
+                        if contrastRatio(hex, inks[role]) >= needed then break end
+                        hex = mix(solids[role], hex, .5)
+                    end
+                    if contrastRatio(hex, inks[role]) < needed then hex = solids[role] end
+                    safe[index] = { pos = stop.pos, hex = hex }
+                end
+                role_gradients = role_gradients or {}
+                role_gradients[role] = { angle = source.angle, stops = safe }
+            end
+        end
+    end
     return {
         background = color(background, GRAYS.background),
         surface = color(surface, GRAYS.surface),
@@ -577,6 +651,9 @@ local function computePalette(appdock)
         -- nil when the active theme/design has no gradient (or the panel is
         -- grayscale / high contrast). Stops are hex strings; angle is CSS-style.
         gradient = gradient,
+        -- Per-role gradients (9.8.0), e.g. role_gradients.button. nil when the
+        -- theme defines none or the panel is grayscale / high contrast.
+        role_gradients = role_gradients,
         primary_hex = primary,
         background_hex = background,
         text_hex = on_background,
@@ -589,6 +666,7 @@ local function computePalette(appdock)
             primary = primary, secondary = secondary, tertiary = tertiary,
             button = button, dropdown = dropdown,
             on_primary = roleInk(primary, text), on_button = roleInk(button, text),
+            on_secondary = roleInk(secondary, text), on_tertiary = roleInk(tertiary, text),
             on_background = on_background, on_surface = on_surface,
             on_variant = on_variant, on_dropdown = on_dropdown,
             outline = mix(on_surface, background, .48),
@@ -620,6 +698,7 @@ function Theme.getPalette(appdock)
         high_contrast and "h" or "n",
         tostring(resolved_theme_id), tostring(definition and definition.primary),
         Theme.gradientSignature(definition and definition.gradient),
+        Theme.roleGradientsSignature(definition and definition.gradients),
         design and designSignature(design) or "-",
     }, "\1")
     if palette_cache_key ~= key or not palette_cache then
@@ -639,6 +718,12 @@ end
 -- The active gradient ({ angle, stops = { {pos, hex} } }) or nil.
 function Theme.getGradient(appdock)
     return Theme.getPalette(appdock).gradient
+end
+
+--- Gradient of a single color role (see GRADIENT_ROLES) or nil.
+function Theme.getRoleGradient(appdock, role)
+    local gradients = Theme.getPalette(appdock).role_gradients
+    return gradients and gradients[role] or nil
 end
 
 -- Absolute path of the wallpaper bundled with the active built-in theme

@@ -328,6 +328,7 @@ local SETTINGS_ICON_COLORS = {
     display = color(237, 105, 9, Blitbuffer.COLOR_DARK_GRAY),
     storage = color(0, 131, 144, Blitbuffer.COLOR_DARK_GRAY),
     simple = color(0, 135, 88, Blitbuffer.COLOR_DARK_GRAY),
+    lockscreen = color(94, 84, 220, Blitbuffer.COLOR_DARK_GRAY),
     other = color(118, 118, 118, Blitbuffer.COLOR_DARK_GRAY),
     search = color(118, 118, 118, Blitbuffer.COLOR_DARK_GRAY),
 }
@@ -345,6 +346,23 @@ local function applyTheme(appdock)
     PALETTE.on_surface = palette.on_surface
     PALETTE.on_variant = palette.on_variant
     PALETTE.outline = palette.outline
+    PALETTE.role_gradients = palette.role_gradients
+end
+
+-- Role gradient (Theme `gradients`, 9.8.0) matching a flat fill taken from
+-- PALETTE, or nil. Lets buttons keep passing the same flat colors while a theme
+-- such as Aurora paints them as gradients.
+local function gradientForFill(fill)
+    local gradients = PALETTE.role_gradients
+    if not gradients then return nil end
+    local ok, role = pcall(function()
+        if fill == nil or fill == PALETTE.surface_variant then return "surface_variant" end
+        if fill == PALETTE.primary then return "button" end
+        if fill == PALETTE.secondary then return "secondary" end
+        if fill == PALETTE.surface then return "surface" end
+        return nil
+    end)
+    return ok and role and gradients[role] or nil
 end
 
 local function emptySizedWidget(width, height)
@@ -647,7 +665,8 @@ function ActionChip:init()
     end
     self.layout = { title = title, positions = positions, has_icon = has_icon }
     local frame_style = Theme.getButtonFrameStyle(ACTIVE_APPDOCK, self.height, math.floor(self.height * .36))
-    self[1] = FrameContainer:new{
+    local chip_gradient = self.gradient or gradientForFill(self.background)
+    local chip_frame = FrameContainer:new{
         width = self.width,
         height = self.height,
         padding = 0,
@@ -667,6 +686,8 @@ function ActionChip:init()
             end)(),
         },
     }
+    if chip_gradient then Gradient.decorate(chip_frame, chip_gradient, chip_frame.radius) end
+    self[1] = chip_frame
     self.ges_events = {
         TapDAppAction = { GestureRange:new{ ges = "tap", range = self.dimen } },
         HoldDAppAction = { GestureRange:new{ ges = "hold", range = self.dimen } },
@@ -4156,6 +4177,54 @@ function DAppManager:showLockscreenProfileImageDialog(instance, context)
     }
 end
 
+function DAppManager:showLockscreenMethodDialog(instance, context)
+    local lockscreen = self.appdock.settings.lockscreen
+    local dialog
+    dialog = ButtonDialog:new{
+        title = _("Unlock method") .. "\n" .. _("Always on. Swiping up is the minimum. This protects AppDock only, not device storage."),
+        buttons = {
+            { { text = (lockscreen.method == "swipe" and "✓ " or "") .. _("Swipe up only"), callback = function() self.appdock:setLockscreen("swipe"); UIManager:close(dialog); context.requestRebuild("ui") end } },
+            { { text = (lockscreen.method == "pin" and "✓ " or "") .. _("PIN"), callback = function() UIManager:close(dialog); self:showLockscreenSecretDialog(instance, context, "pin") end } },
+            { { text = (lockscreen.method == "pattern" and "✓ " or "") .. _("Pattern"), callback = function() UIManager:close(dialog); self:showLockscreenSecretDialog(instance, context, "pattern") end } },
+            { { text = _("Cancel"), callback = function() UIManager:close(dialog) end } },
+        },
+    }
+    UIManager:show(dialog)
+end
+
+-- Lockscreen clock styles (9.8.0).
+local LOCKSCREEN_CLOCK_STYLES = {
+    { id = "standard", title = function() return _("Standard") end },
+    { id = "glass", title = function() return _("Liquid Glass") end },
+    { id = "color", title = function() return _("Color (2 lines)") end },
+}
+
+function DAppManager:lockscreenClockStyleTitle(style)
+    for _i, entry in ipairs(LOCKSCREEN_CLOCK_STYLES) do
+        if entry.id == style then return entry.title() end
+    end
+    return LOCKSCREEN_CLOCK_STYLES[1].title()
+end
+
+function DAppManager:showLockscreenClockStyleDialog(instance, context)
+    local current = self.appdock.settings.lockscreen.clock_style or "standard"
+    local dialog
+    local buttons = {}
+    for _i, entry in ipairs(LOCKSCREEN_CLOCK_STYLES) do
+        buttons[#buttons + 1] = { { text = (current == entry.id and "✓ " or "") .. entry.title(), callback = function()
+            self.appdock:setLockscreenClockStyle(entry.id)
+            UIManager:close(dialog)
+            context.requestRebuild("ui")
+        end } }
+    end
+    buttons[#buttons + 1] = { { text = _("Cancel"), callback = function() UIManager:close(dialog) end } }
+    dialog = ButtonDialog:new{
+        title = _("Clock style") .. "\n" .. _("How the time looks on the lockscreen."),
+        buttons = buttons,
+    }
+    UIManager:show(dialog)
+end
+
 function DAppManager:showLockscreenEditor(instance, context)
     local lockscreen = self.appdock.settings.lockscreen
     local dialog
@@ -4495,6 +4564,7 @@ function DAppManager:_buildSettingsPane(instance, context)
     local categories = {
         { id = "network", title = _("Network"), subtitle = _("Connections"), logo = "network" },
         { id = "display", title = _("Display"), subtitle = _("Light and theme"), logo = "display" },
+        { id = "lockscreen", title = _("Lockscreen"), subtitle = _("Unlock, profile, clock"), logo = "settings" },
         { id = "storage", title = _("Storage"), subtitle = _("Space usage"), logo = "file_manager" },
         { id = "health", title = Health and Health.t(self.appdock, "cat_title") or _("Health & reading"),
             subtitle = Health and Health.t(self.appdock, "cat_sub") or _("Eyes, statistics, breaks"), logo = "timer" },
@@ -4762,12 +4832,6 @@ function DAppManager:_buildSettingsPane(instance, context)
                 end,
             },
             {
-                title = _("Lockscreen"),
-                subtitle = lockscreen_settings.method == "pin" and _("PIN") or lockscreen_settings.method == "pattern" and _("Pattern") or _("Swipe up"),
-                show_state = false,
-                callback = function() self:showLockscreenEditor(instance, context) end,
-            },
-            {
                 title = _("Control center"),
                 subtitle = _("Choose quick setting tiles"),
                 show_state = false,
@@ -4852,6 +4916,41 @@ function DAppManager:_buildSettingsPane(instance, context)
     }
     rows_by_category.health = Health and Health.settingsRows(self.appdock, context) or {}
     rows_by_category.features = Features and Features.settingsRows(self.appdock, context) or {}
+    -- Lockscreen (9.8.0): its own category with the former Lockscreen dialog
+    -- split into rows, plus the clock style.
+    local lockscreen_name = type(lockscreen_settings.profile_name) == "string" and lockscreen_settings.profile_name or ""
+    local lockscreen_has_image = type(lockscreen_settings.profile_image_path) == "string" and lockscreen_settings.profile_image_path ~= ""
+    rows_by_category.lockscreen = {
+        {
+            title = _("Unlock method"),
+            subtitle = lockscreen_settings.method == "pin" and _("PIN") or lockscreen_settings.method == "pattern" and _("Pattern") or _("Swipe up only"),
+            section = _("Unlock"),
+            show_state = false,
+            callback = function() self:showLockscreenMethodDialog(instance, context) end,
+        },
+        {
+            title = _("Name"),
+            subtitle = lockscreen_name ~= "" and lockscreen_name or _("Not set"),
+            section = _("Profile"),
+            show_state = false,
+            callback = function() self:showLockscreenNameDialog(instance, context) end,
+        },
+        {
+            title = _("Profile image"),
+            subtitle = lockscreen_has_image and _("Change profile image") or _("Add profile image"),
+            section = _("Profile"),
+            show_state = false,
+            callback = function() self:showLockscreenProfileImageDialog(instance, context) end,
+        },
+        {
+            title = _("Clock style"),
+            subtitle = self:lockscreenClockStyleTitle(lockscreen_settings.clock_style),
+            section = _("Appearance"),
+            show_state = false,
+            callback = function() self:showLockscreenClockStyleDialog(instance, context) end,
+        },
+    }
+
     table.insert(rows_by_category.network, {
         title = _("Bluetooth"),
         subtitle = _("AppDock-eigene Bluetooth-Steuerung über Kobo-/BlueZ-D-Bus"),

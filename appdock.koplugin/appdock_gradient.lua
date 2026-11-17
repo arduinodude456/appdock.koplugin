@@ -143,6 +143,92 @@ function Gradient.background(width, height, flat, appdock)
     return flat()
 end
 
+--- Paints `gradient` into a rounded rectangle (buttons, chips, cards).
+--- Rows are painted in strips (single rows inside the rounded corners so the
+--- curve stays smooth); each strip is one rect for a vertical gradient or a
+--- short run of cells for other angles.
+function Gradient.paintRounded(bb, x, y, w, h, radius, gradient)
+    if type(gradient) ~= "table" or type(gradient.stops) ~= "table" or #gradient.stops < 2 or w <= 0 or h <= 0 then
+        return false
+    end
+    radius = math.max(0, math.min(math.floor(tonumber(radius) or 0), math.floor(math.min(w, h) / 2)))
+    if radius <= 1 then return Gradient.paint(bb, x, y, w, h, gradient) end
+    local stops = prepareStops(gradient)
+    local radians = math.rad(tonumber(gradient.angle) or 180)
+    local dx, dy = math.sin(radians), -math.cos(radians)
+    if math.abs(dx) < 1e-6 then dx = 0 end
+    if math.abs(dy) < 1e-6 then dy = 0 end
+    local length = math.abs(w * dx) + math.abs(h * dy)
+    if length <= 0 then return false end
+    local cells = dx == 0 and 1 or math.max(1, math.min(CROSS_CELLS, math.floor(w / 3)))
+    local body_step = math.max(1, math.ceil((h - 2 * radius) / 40))
+    local row = 0
+    while row < h do
+        local step = 1
+        if row >= radius and row < h - radius then step = math.min(body_step, h - radius - row) end
+        -- Horizontal inset of the rounded corner at the strip's vertical centre.
+        local centre = row + step / 2
+        local inset = 0
+        if centre < radius then
+            local d = radius - centre
+            inset = radius - math.sqrt(math.max(0, radius * radius - d * d))
+        elseif centre > h - radius then
+            local d = centre - (h - radius)
+            inset = radius - math.sqrt(math.max(0, radius * radius - d * d))
+        end
+        inset = math.floor(inset + .5)
+        local span = w - 2 * inset
+        if span > 0 then
+            local center_y = centre - h / 2
+            local count = math.max(1, math.min(cells, span))
+            for column = 0, count - 1 do
+                local left = inset + math.floor(column * span / count)
+                local right = inset + math.floor((column + 1) * span / count)
+                if column == count - 1 then right = inset + span end
+                local center_x = (left + right) / 2 - w / 2
+                local t = .5 + (center_x * dx + center_y * dy) / length
+                t = math.max(0, math.min(1, t))
+                local r, g, b = colorAt(stops, t)
+                bb:paintRect(x + left, y + row, right - left, step, rgb(r, g, b))
+            end
+        end
+        row = row + step
+    end
+    return true
+end
+
+--- Makes `frame` (a FrameContainer with a rounded `radius`) paint `gradient`
+--- instead of its flat `background`. The border, content and tap handling of
+--- the frame are untouched; the flat color is kept as the fallback if the
+--- gradient cannot be painted. Returns the frame.
+function Gradient.decorate(frame, gradient, radius)
+    if type(frame) ~= "table" or type(gradient) ~= "table" then return frame end
+    local flat = frame.background
+    local original = frame.paintTo
+    frame.paintTo = function(self, bb, x, y)
+        local width = self.width or (self.dimen and self.dimen.w) or 0
+        local height = self.height or (self.dimen and self.dimen.h) or 0
+        local painted = false
+        if width > 0 and height > 0 then
+            local ok, result = pcall(Gradient.paintRounded, bb, x, y, width, height, radius or self.radius or 0, gradient)
+            painted = ok and result == true
+        end
+        -- The frame itself paints the flat fallback only when the gradient failed.
+        self.background = (not painted) and flat or nil
+        local value = original(self, bb, x, y)
+        self.background = flat
+        return value
+    end
+    frame.background = nil
+    return frame
+end
+
+--- Gradient of one color role of the active theme (see Theme.GRADIENT_ROLES).
+function Gradient.role(appdock, role)
+    local ok, gradient = pcall(Theme.getRoleGradient, appdock, role)
+    return ok and gradient or nil
+end
+
 Gradient._test = { colorAt = colorAt, prepareStops = prepareStops }
 
 return Gradient

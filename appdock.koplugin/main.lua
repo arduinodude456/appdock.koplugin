@@ -4,7 +4,7 @@ It exposes selected KOReader plugin menu actions as configurable app tiles.
 --]]--
 
 local MODULE_DIR = (debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "")
-local APPDOCK_RELEASE = "9.7.0"
+local APPDOCK_RELEASE = "9.8.0"
 local AppDockRecovery
 local recovery_context
 do
@@ -83,7 +83,7 @@ local DEFAULT_SETTINGS = {
     launch_on_start = false,
     notifications = { items = {}, next_id = 0 },
     wallpaper = { enabled = true, path = DEFAULT_WALLPAPER_PATH, source = "appdock_default" },
-    lockscreen = { enabled = true, method = "swipe", secret_hash = nil, profile_name = "", profile_image_path = "" },
+    lockscreen = { enabled = true, method = "swipe", secret_hash = nil, profile_name = "", profile_image_path = "", clock_style = "standard" },
     beta = { black_borders = false, keep_wallpaper_original_in_night = false, plugin_dapp_host = false, windows = false, windows_dither = false, manual_app_spacing = false, plugin_custom_logos = false },
     quick_settings = { tiles = { "wifi", "night", "refresh", "edit", "rotate", "sleep", "power_saving", "wallpaper" } },
     simple_mode = { homescreen = false, quick_settings = false, focus_apps = false },
@@ -339,7 +339,7 @@ function AppDock:_loadSettings()
         launch_on_start = stored.launch_on_start == true,
         notifications = tableValue(stored.notifications, { items = {}, next_id = 0 }),
         wallpaper = tableValue(stored.wallpaper, { enabled = true, path = DEFAULT_WALLPAPER_PATH, source = "appdock_default" }),
-        lockscreen = tableValue(stored.lockscreen, { enabled = true, method = "swipe", secret_hash = nil, profile_name = "", profile_image_path = "" }),
+        lockscreen = tableValue(stored.lockscreen, { enabled = true, method = "swipe", secret_hash = nil, profile_name = "", profile_image_path = "", clock_style = "standard" }),
         beta = tableValue(stored.beta, { black_borders = false, keep_wallpaper_original_in_night = false, plugin_dapp_host = false, windows = false, windows_dither = false, manual_app_spacing = false, plugin_custom_logos = false }),
         quick_settings = tableValue(stored.quick_settings, { tiles = copyArray(DEFAULT_SETTINGS.quick_settings.tiles) }),
         simple_mode = tableValue(stored.simple_mode, { homescreen = false, quick_settings = false, focus_apps = false }),
@@ -571,7 +571,7 @@ function AppDock:_loadSettings()
     end
     -- The lockscreen is mandatory: "swipe up to unlock" is the weakest setting.
     -- Older settings files may still carry enabled = false; those are migrated.
-    self.settings.lockscreen = self.settings.lockscreen or { enabled = true, method = "swipe", secret_hash = nil, profile_name = "", profile_image_path = "" }
+    self.settings.lockscreen = self.settings.lockscreen or { enabled = true, method = "swipe", secret_hash = nil, profile_name = "", profile_image_path = "", clock_style = "standard" }
     self.settings.lockscreen.enabled = true
     if self.settings.lockscreen.method ~= "pin" and self.settings.lockscreen.method ~= "pattern" then self.settings.lockscreen.method = "swipe" end
     self.settings.lockscreen.secret_hash = type(self.settings.lockscreen.secret_hash) == "string" and self.settings.lockscreen.secret_hash or nil
@@ -585,6 +585,10 @@ function AppDock:_loadSettings()
         profile_path = ""
     end
     self.settings.lockscreen.profile_image_path = profile_path
+    -- Clock style on the lockscreen (9.8.0): standard | glass | color.
+    local clock_style = self.settings.lockscreen.clock_style
+    if clock_style ~= "glass" and clock_style ~= "color" then clock_style = "standard" end
+    self.settings.lockscreen.clock_style = clock_style
     self.settings.beta = self.settings.beta or {}
     self.settings.beta.black_borders = self.settings.beta.black_borders == true
     self.settings.beta.keep_wallpaper_original_in_night = self.settings.beta.keep_wallpaper_original_in_night == true
@@ -1104,6 +1108,15 @@ function AppDock:setLockscreenProfile(name, image_path)
     end
     lockscreen.profile_name = profile_name
     lockscreen.profile_image_path = profile_image_path
+    self:_saveSettings()
+    return true
+end
+
+-- Clock style of the lockscreen: "standard", "glass" (Liquid Glass) or
+-- "color" (big colorful digits on two lines).
+function AppDock:setLockscreenClockStyle(style)
+    if style ~= "standard" and style ~= "glass" and style ~= "color" then return false end
+    self.settings.lockscreen.clock_style = style
     self:_saveSettings()
     return true
 end

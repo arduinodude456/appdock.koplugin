@@ -69,6 +69,30 @@ local function lockMethod(profile)
     return "swipe"
 end
 
+-- Clock styles (9.8.0): "standard" (one big line), "glass" (Liquid Glass: the
+-- time on a frosted glass capsule) and "color" (hours and minutes stacked on
+-- two big lines, every digit in its own color).
+local CLOCK_STYLES = { "standard", "glass", "color" }
+local function clockStyle(profile)
+    local style = type(profile) == "table" and profile.clock_style or nil
+    for _, known in ipairs(CLOCK_STYLES) do
+        if style == known then return style end
+    end
+    return "standard"
+end
+
+-- One color per digit position (hour tens/ones, minute tens/ones); the gray is
+-- what grayscale panels show instead.
+local COLOR_DIGITS = {
+    Glass.rgba(255, 92, 122, 255, Blitbuffer.COLOR_WHITE),
+    Glass.rgba(255, 184, 77, 255, Blitbuffer.COLOR_GRAY_D),
+    Glass.rgba(77, 227, 180, 255, Blitbuffer.COLOR_WHITE),
+    Glass.rgba(90, 180, 255, 255, Blitbuffer.COLOR_GRAY_D),
+}
+local GLASS_RIM = Glass.rgba(255, 255, 255, 105, Blitbuffer.COLOR_GRAY_D)
+local GLASS_BODY = Glass.rgba(70, 86, 138, 96, Blitbuffer.COLOR_GRAY_4)
+local GLASS_SHINE = Glass.rgba(255, 255, 255, 38, Blitbuffer.COLOR_GRAY_6)
+
 local function secretMatches(profile, value)
     return type(profile) == "table" and type(profile.secret_hash) == "string"
         and profile.secret_hash ~= "" and LockScreen.hash(value) == profile.secret_hash
@@ -209,8 +233,56 @@ function LockScreen:build()
         local margin = math.max(scale(16), math.floor(width * .06))
         local white, soft = inkColor("wall", false), inkColor("wall", true)
         local y = math.max(scale(46), math.floor(height * .085))
-        local clock_h = addCentered(os.date("%H:%M"), "cfont", math.max(scale(54), math.floor(height * .085)), white, y, true)
-        y = y + clock_h + scale(2)
+        local style = clockStyle(profile)
+        local clock_h
+        if style == "color" then
+            -- Hours on the first line, minutes on the second, one color per digit.
+            local size = math.max(scale(64), math.floor(height * .125))
+            local face = Font:getFace("cfont", size)
+            local cell = 0
+            for digit = 0, 9 do
+                local probe = TextWidget:new{ text = tostring(digit), face = face, bold = true, padding = 0 }
+                cell = math.max(cell, (probe:getSize() or {}).w or 0)
+                if probe.free then pcall(probe.free, probe) end
+            end
+            local gap = math.floor(cell * .08)
+            local row_x = math.floor((width - (2 * cell + gap)) / 2)
+            local rows = { os.date("%H"), os.date("%M") }
+            local cursor, line_h = y, 0
+            for row = 1, 2 do
+                for column = 1, 2 do
+                    local digit = rows[row]:sub(column, column)
+                    local ink = Glass.isColor() and Glass.solid(COLOR_DIGITS[(row - 1) * 2 + column]) or ((column == 1) and Blitbuffer.COLOR_WHITE or Blitbuffer.COLOR_GRAY_D)
+                    local widget = text(digit, "cfont", size, ink, true)
+                    local w, h = sizeOf(widget)
+                    line_h = h
+                    add(widget, row_x + (column - 1) * (cell + gap) + math.floor((cell - w) / 2), cursor)
+                end
+                cursor = cursor + math.floor(line_h * .84)
+            end
+            clock_h = cursor - y + math.floor(line_h * .16)
+        elseif style == "glass" then
+            local size = math.max(scale(54), math.floor(height * .085))
+            local widget = text(os.date("%H:%M"), "cfont", size, white, true)
+            local w, h = sizeOf(widget)
+            local card_w = math.min(width - 2 * margin, w + 2 * scale(28))
+            local card_h = h + 2 * scale(10)
+            local card_x = math.floor((width - card_w) / 2)
+            local radius = math.floor(card_h * .34)
+            local rim = math.max(1, scale(2))
+            -- Rim light, frosted body, soft specular highlight on the upper half.
+            add(Glass.Shape:new{ width = card_w, height = card_h, radius = radius, color = GLASS_RIM }, card_x, y)
+            add(Glass.Shape:new{ width = card_w - 2 * rim, height = card_h - 2 * rim, radius = math.max(1, radius - rim), color = GLASS_BODY }, card_x + rim, y + rim)
+            if Glass.isColor() then
+                local shine_inset = scale(8)
+                add(Glass.Shape:new{ width = card_w - 2 * shine_inset, height = math.floor(card_h * .42), radius = math.floor(card_h * .2), color = GLASS_SHINE }, card_x + shine_inset, y + rim + scale(2))
+            end
+            add(widget, card_x + math.floor((card_w - w) / 2), y + math.floor((card_h - h) / 2))
+            clock_h = card_h
+        else
+            clock_h = addCentered(os.date("%H:%M"), "cfont", math.max(scale(54), math.floor(height * .085)), white, y, true)
+        end
+        y = y + clock_h + scale(style == "glass" and 10 or 2)
         local date_h = addCentered(os.date("%A, %d. %B"), "smallinfofont", scale(15), soft, y, false, margin, width - 2 * margin)
         y = y + date_h + scale(18)
 
@@ -475,8 +547,12 @@ function LockScreen.show(appdock, callback)
     return widget
 end
 
+LockScreen.CLOCK_STYLES = CLOCK_STYLES
+LockScreen.clockStyle = clockStyle
+
 LockScreen._test = {
     lockMethod = lockMethod,
+    clockStyle = clockStyle,
     keypadLayout = keypadLayout,
     keyOrigin = keyOrigin,
     secretMatches = secretMatches,

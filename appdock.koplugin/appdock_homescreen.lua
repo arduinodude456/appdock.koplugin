@@ -239,9 +239,13 @@ local function applyTheme(appdock)
     INK = palette.outline or INK
     SHADOW = palette.surface_variant or SHADOW
     HAIR = palette.outline or HAIR
-    APP_TONES[1] = { background = PALETTE.primary_container, foreground = PALETTE.on_primary_container }
-    APP_TONES[2] = { background = PALETTE.secondary_container, foreground = PALETTE.on_secondary_container }
-    APP_TONES[3] = { background = PALETTE.tertiary_container, foreground = PALETTE.on_tertiary_container }
+    local role_gradients = palette.role_gradients or {}
+    PALETTE.gradient_primary = role_gradients.button or role_gradients.primary
+    PALETTE.gradient_surface_variant = role_gradients.surface_variant
+    PALETTE.gradient_surface = role_gradients.surface
+    APP_TONES[1] = { background = PALETTE.primary_container, foreground = PALETTE.on_primary_container, gradient = role_gradients.button or role_gradients.primary }
+    APP_TONES[2] = { background = PALETTE.secondary_container, foreground = PALETTE.on_secondary_container, gradient = role_gradients.secondary }
+    APP_TONES[3] = { background = PALETTE.tertiary_container, foreground = PALETTE.on_tertiary_container, gradient = role_gradients.tertiary }
 end
 
 local function emptySizedWidget(width, height)
@@ -922,6 +926,11 @@ function AppTile:init()
             icon,
         },
     }
+    -- Role gradient of the theme (Aurora, 9.8.0) instead of the flat tone.
+    if not has_black_border and not selected_for_edit then
+        local tone_gradient = self.gradient or (self.background == nil and PALETTE.gradient_primary or nil)
+        if tone_gradient then Gradient.decorate(tile, tone_gradient, tile_radius) end
+    end
     -- Layered icon plate: drop shadow underneath, glossy inner ring on top.
     -- Tiny control tiles (quick settings, page arrows) stay flat.
     local plate = tile
@@ -938,12 +947,16 @@ function AppTile:init()
             body = OverlapGroup:new{
                 dimen = Geom:new{ w = size, h = size },
                 allow_mirroring = false,
-                FrameContainer:new{
-                    width = size, height = size, padding = 0,
-                    bordersize = outline, color = inkColor(),
-                    radius = tile_radius, background = CARD,
-                    emptySizedWidget(size, size),
-                },
+                (function()
+                    local face = FrameContainer:new{
+                        width = size, height = size, padding = 0,
+                        bordersize = outline, color = inkColor(),
+                        radius = tile_radius, background = CARD,
+                        emptySizedWidget(size, size),
+                    }
+                    if PALETTE.gradient_surface then Gradient.decorate(face, PALETTE.gradient_surface, tile_radius) end
+                    return face
+                end)(),
                 FrameContainer:new{
                     width = ring_size, height = ring_size, padding = 0,
                     bordersize = math.max(1, scale(1)), color = HAIR,
@@ -1954,6 +1967,7 @@ function AppDockHomeScreen:_buildSimpleMode(width, height)
             shape = self.appdock.settings.layout.logo_shape,
             background = tone.background,
             foreground = tone.foreground,
+            gradient = tone.gradient,
             overlap_offset = {
                 grid_x + col * (tile_size + column_gap),
                 grid_y + row * (tile_size + label_height + row_gap),
@@ -2382,6 +2396,7 @@ function AppDockHomeScreen:build()
             shape = layout.logo_shape,
             background = tone.background,
             foreground = tone.foreground,
+            gradient = tone.gradient,
             overlap_offset = {
                 grid_x + col * column_width,
                 grid_y + row * (tile_size + label_gap + label_height + row_gap),
@@ -2433,6 +2448,7 @@ function AppDockHomeScreen:build()
                 shape = layout.logo_shape,
                 background = tone.background,
                 foreground = tone.foreground,
+                gradient = tone.gradient,
                 overlap_offset = { slot_x, tile_y },
             })
         end
