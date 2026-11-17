@@ -928,7 +928,7 @@ function AppTile:init()
     }
     -- Role gradient of the theme (Aurora, 9.8.0) instead of the flat tone.
     if not has_black_border and not selected_for_edit then
-        local tone_gradient = self.gradient or (self.background == nil and PALETTE.gradient_primary or nil)
+        local tone_gradient = self.gradient or (not self.background and PALETTE.gradient_primary or nil)
         if tone_gradient then Gradient.decorate(tile, tone_gradient, tile_radius) end
     end
     -- Layered icon plate: drop shadow underneath, glossy inner ring on top.
