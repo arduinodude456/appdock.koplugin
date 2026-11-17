@@ -5012,7 +5012,7 @@ function DAppManager:_buildSettingsPane(instance, context)
     local search_height = scale(44)
     local sidebar_search_y = margin + sidebar_title_height + scale(12)
     local sidebar_list_y = sidebar_search_y + search_height + scale(18)
-    local category_groups = { { "network" }, { "display", "storage" }, { "health", "features" }, { "simple", "other" } }
+    local category_groups = { { "network" }, { "display", "lockscreen", "storage" }, { "health", "features" }, { "simple", "other" } }
     local group_gap = scale(16)
     local category_available = height - sidebar_list_y - margin - group_gap * (#category_groups - 1)
     local category_height = math.max(scale(40), math.min(scale(64), math.floor(category_available / #categories)))
