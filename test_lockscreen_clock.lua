@@ -30,9 +30,28 @@ install("ui/widget/overlapgroup", Overlap)
 install("ui/widget/textwidget", Text)
 install("ui/font", { getFace = function(_, name, size) return { name = name, size = size } end })
 install("ui/gesturerange", { new = function(_, value) return value end })
-install("ui/uimanager", { close = function() end, nextTick = function() end, setDirty = function() end, show = function() end })
+local scheduled, shown_widgets, closed_widgets = {}, {}, {}
+install("ui/uimanager", {
+    close = function(_, widget) closed_widgets[#closed_widgets + 1] = widget end,
+    nextTick = function(_, callback) if callback then callback() end end,
+    setDirty = function() end,
+    show = function(_, widget) shown_widgets[#shown_widgets + 1] = widget end,
+    scheduleIn = function(_, delay, callback) scheduled[#scheduled + 1] = { delay = delay, callback = callback } end,
+    unschedule = function(_, callback) for i = #scheduled, 1, -1 do if scheduled[i].callback == callback then table.remove(scheduled, i) end end end,
+})
 local is_color = true
-install("device", { screen = { scaleBySize = function(_, value) return value end, getSize = function() return { w = 600, h = 800 } end } })
+install("device", {
+    screen = { scaleBySize = function(_, value) return value end, getSize = function() return { w = 600, h = 800 } end },
+    getPowerDevice = function() return { getCapacity = function() return 82 end, isCharging = function() return true end } end,
+})
+-- Stand-in for the Liquid Glass module: a layer that records what it was given.
+local glass_available = true
+local Layer = Widget:extend{}
+function Layer:init() self.pad = 7; self.w = 10 * #(self.text or "") + 14; self.h = self.size + 14 end
+function Layer:getSize() return { w = self.w, h = self.h } end
+function Layer:getInkSize() return self.w - 14, self.h - 14 end
+function Layer:free() self.freed = true end
+install("appdock_glassclock", { layerClass = function() return glass_available and Layer or nil end })
 install("ffi/sha2", { md5 = function(value) return value end })
 install("appdock_wallpaper", { buildPath = function() return nil end })
 install("appdock_rotation", { attach = function() end })
@@ -64,8 +83,57 @@ local function build(style)
 end
 
 local _, standard_shapes = build("standard")
+glass_available = false
 local glass_texts, glass_shapes = build("glass")
-assert(glass_shapes >= standard_shapes + 3, "Liquid Glass draws rim, body and shine behind the clock")
+assert(glass_shapes >= standard_shapes + 3, "Without the glass module the frosted capsule is the fallback")
+glass_available = true
+local function glassLayers(mode, style)
+    local screen = LockScreen:new{ mode = mode, appdock = { settings = { lockscreen = { method = "swipe", clock_style = style } } } }
+    local layers = {}
+    local shapes = 0
+    for _, layer in ipairs(screen[1]) do
+        if layer.text and layer.pad then layers[#layers + 1] = layer end
+        if layer.radius then shapes = shapes + 1 end
+    end
+    return layers, shapes, screen
+end
+local layers, shapes_with_glass = glassLayers("lock", "glass")
+assert(#layers == 1 and layers[1].text:match("^%d%d:%d%d$"), "Liquid Glass renders the digits themselves as one glass layer")
+assert(shapes_with_glass <= standard_shapes + 1, "No capsule card is drawn behind real glass digits")
+assert(layers[1].overlap_offset[2] == 800 * 0 + layers[1].overlap_offset[2] and layers[1].overlap_offset[1] > 0, "The glass clock is centred horizontally")
+
+-- Standby: same look, very large stacked clock, no unlock hint.
+local big_layers, _, standby_screen = glassLayers("standby", "glass")
+assert(#big_layers == 1 and big_layers[1].text:match("^%d%d\n%d%d$"), "Standby stacks hours above minutes in one glass layer")
+assert(big_layers[1].size > layers[1].size * 1.5, "The standby clock is much larger than the lockscreen clock")
+local _, _, standard_standby = glassLayers("standby", "standard")
+local big_digit_rows = {}
+for _, layer in ipairs(standard_standby[1]) do if layer.text and layer.text:match("^%d%d$") then big_digit_rows[#big_digit_rows + 1] = layer end end
+assert(#big_digit_rows == 2 and big_digit_rows[2].overlap_offset[2] > big_digit_rows[1].overlap_offset[2], "Standard style also stacks hours over minutes in standby")
+local has_hint, has_charge = false, false
+for _, layer in ipairs(standby_screen[1]) do
+    if layer.text == "Tap to leave standby" then has_hint = true end
+    if layer.text and layer.text:find("Charging", 1, true) and layer.text:find("82 %", 1, true) then has_charge = true end
+end
+assert(has_hint, "Standby says how to leave it")
+assert(has_charge, "Standby shows the charging state and battery level")
+
+-- Tapping or swiping leaves standby and runs the exit callback once.
+local exits = 0
+local leaving = LockScreen:new{ mode = "standby", on_exit = function() exits = exits + 1 end, appdock = { settings = { lockscreen = { method = "swipe", clock_style = "glass" } } } }
+leaving.dimen = { w = 600, h = 800 }
+leaving:onLockTap({}, { pos = { x = 10, y = 10 } })
+leaving:onLockSwipe({}, { direction = "north" })
+assert(exits == 1, "Leaving standby runs the exit callback exactly once")
+assert(closed_widgets[#closed_widgets] == leaving, "Standby closes its own widget")
+
+-- A rebuild frees the old glass layers.
+local before_free = layers[1]
+local rebuild_screen = LockScreen:new{ appdock = { settings = { lockscreen = { method = "swipe", clock_style = "glass" } } } }
+local first_layer
+for _, layer in ipairs(rebuild_screen[1]) do if layer.pad then first_layer = layer end end
+rebuild_screen:build()
+assert(first_layer.freed, "Rebuilding the lockscreen frees the previous glass tile")
 local _, _, digits = build("color")
 assert(#digits == 4, "Color style draws four separate digits")
 assert(digits[1].overlap_offset[2] == digits[2].overlap_offset[2] and digits[3].overlap_offset[2] == digits[4].overlap_offset[2], "Digits of one row share a baseline")

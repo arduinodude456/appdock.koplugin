@@ -329,6 +329,7 @@ local SETTINGS_ICON_COLORS = {
     storage = color(0, 131, 144, Blitbuffer.COLOR_DARK_GRAY),
     simple = color(0, 135, 88, Blitbuffer.COLOR_DARK_GRAY),
     lockscreen = color(94, 84, 220, Blitbuffer.COLOR_DARK_GRAY),
+    dockai = color(16, 163, 127, Blitbuffer.COLOR_DARK_GRAY),
     other = color(118, 118, 118, Blitbuffer.COLOR_DARK_GRAY),
     search = color(118, 118, 118, Blitbuffer.COLOR_DARK_GRAY),
 }
@@ -1464,6 +1465,7 @@ function DAppManager:new(appdock)
         browser = function() return require("appdock_browser"):new() end,
         file_browser = function() return require("appdock_filemanager"):new() end,
         app_store = function() return require("appdock_appstore"):new() end,
+        dockai = function() return require("appdock_dockai"):new(appdock) end,
         youtube = function() return require("appdock_youtube"):new(appdock) end,
         youtube_shorts = function() return require("appdock_youtube_shorts"):new(appdock) end,
         youtube_music = function() return require("appdock_ytmusic"):new(appdock) end,
@@ -1580,6 +1582,16 @@ function DAppManager:_registerBuiltins()
         end,
         onClose = function()
             local yt = rawget(self, "youtube"); if yt and yt.player then yt.player:stop() end
+        end,
+    }
+    self.definitions.dockai = {
+        id = "dockai",
+        title = _("DockAI"),
+        subtitle = _("AI chat powered by Groq, with daily and weekly limits"),
+        symbol = "AI",
+        logo = "dockai",
+        buildPane = function(instance, context)
+            return self.dockai:buildPane(instance, context)
         end,
     }
     self.definitions.youtube_shorts = {
@@ -4225,6 +4237,44 @@ function DAppManager:showLockscreenClockStyleDialog(instance, context)
     UIManager:show(dialog)
 end
 
+-- Standby while charging (9.9.0).
+local STANDBY_MODES = {
+    { id = "ask", title = function() return _("Ask when charging") end },
+    { id = "auto", title = function() return _("Start automatically") end },
+    { id = "off", title = function() return _("Off") end },
+}
+
+function DAppManager:standbyModeTitle()
+    local mode = self.appdock.getStandbyMode and self.appdock:getStandbyMode() or "ask"
+    for _i, entry in ipairs(STANDBY_MODES) do
+        if entry.id == mode then return entry.title() end
+    end
+    return STANDBY_MODES[1].title()
+end
+
+function DAppManager:showStandbyDialog(instance, context)
+    local current = self.appdock:getStandbyMode()
+    local dialog
+    local buttons = {}
+    for _i, entry in ipairs(STANDBY_MODES) do
+        buttons[#buttons + 1] = { { text = (current == entry.id and "✓ " or "") .. entry.title(), callback = function()
+            self.appdock:setStandbyMode(entry.id)
+            UIManager:close(dialog)
+            context.requestRebuild("ui")
+        end } }
+    end
+    buttons[#buttons + 1] = { { text = _("Start standby now"), callback = function()
+        UIManager:close(dialog)
+        UIManager:nextTick(function() self.appdock:showStandby() end)
+    end } }
+    buttons[#buttons + 1] = { { text = _("Cancel"), callback = function() UIManager:close(dialog) end } }
+    dialog = ButtonDialog:new{
+        title = _("Standby while charging") .. "\n" .. _("The lockscreen look with a very large clock. Tap the screen to leave."),
+        buttons = buttons,
+    }
+    UIManager:show(dialog)
+end
+
 function DAppManager:showLockscreenEditor(instance, context)
     local lockscreen = self.appdock.settings.lockscreen
     local dialog
@@ -4565,6 +4615,7 @@ function DAppManager:_buildSettingsPane(instance, context)
         { id = "network", title = _("Network"), subtitle = _("Connections"), logo = "network" },
         { id = "display", title = _("Display"), subtitle = _("Light and theme"), logo = "display" },
         { id = "lockscreen", title = _("Lockscreen"), subtitle = _("Unlock, profile, clock"), logo = "settings" },
+        { id = "dockai", title = _("DockAI"), subtitle = _("Limits and API keys"), logo = "dockai" },
         { id = "storage", title = _("Storage"), subtitle = _("Space usage"), logo = "file_manager" },
         { id = "health", title = Health and Health.t(self.appdock, "cat_title") or _("Health & reading"),
             subtitle = Health and Health.t(self.appdock, "cat_sub") or _("Eyes, statistics, breaks"), logo = "timer" },
@@ -4914,6 +4965,9 @@ function DAppManager:_buildSettingsPane(instance, context)
             },
         },
     }
+    -- DockAI (9.10.0): the user's daily/weekly allowance and the admin gate.
+    local dockai_ok, dockai_rows = pcall(function() return self.dockai:settingsRows(context) end)
+    rows_by_category.dockai = dockai_ok and dockai_rows or {}
     rows_by_category.health = Health and Health.settingsRows(self.appdock, context) or {}
     rows_by_category.features = Features and Features.settingsRows(self.appdock, context) or {}
     -- Lockscreen (9.8.0): its own category with the former Lockscreen dialog
@@ -4948,6 +5002,13 @@ function DAppManager:_buildSettingsPane(instance, context)
             section = _("Appearance"),
             show_state = false,
             callback = function() self:showLockscreenClockStyleDialog(instance, context) end,
+        },
+        {
+            title = _("Standby while charging"),
+            subtitle = self:standbyModeTitle(),
+            section = _("Standby"),
+            show_state = false,
+            callback = function() self:showStandbyDialog(instance, context) end,
         },
     }
 
@@ -5012,7 +5073,7 @@ function DAppManager:_buildSettingsPane(instance, context)
     local search_height = scale(44)
     local sidebar_search_y = margin + sidebar_title_height + scale(12)
     local sidebar_list_y = sidebar_search_y + search_height + scale(18)
-    local category_groups = { { "network" }, { "display", "lockscreen", "storage" }, { "health", "features" }, { "simple", "other" } }
+    local category_groups = { { "network" }, { "display", "lockscreen", "dockai", "storage" }, { "health", "features" }, { "simple", "other" } }
     local group_gap = scale(16)
     local category_available = height - sidebar_list_y - margin - group_gap * (#category_groups - 1)
     local category_height = math.max(scale(40), math.min(scale(64), math.floor(category_available / #categories)))

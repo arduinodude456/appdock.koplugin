@@ -4,7 +4,7 @@ It exposes selected KOReader plugin menu actions as configurable app tiles.
 --]]--
 
 local MODULE_DIR = (debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "")
-local APPDOCK_RELEASE = "9.8.2"
+local APPDOCK_RELEASE = "9.12.0"
 local AppDockRecovery
 local recovery_context
 do
@@ -45,6 +45,7 @@ local DEFAULT_SETTINGS = {
         "dapp:web_browser",
         "dapp:file_manager",
         "dapp:app_store",
+        "dapp:dockai",
         "dapp:youtube",
         "dapp:youtube_shorts",
         "dapp:youtube_music",
@@ -130,7 +131,7 @@ local DEFAULT_SETTINGS = {
         shorts_liked_profiles = "",
         shorts_interactions = "",
     },
-    layout_version = 27,
+    layout_version = 28,
 }
 
 
@@ -220,6 +221,8 @@ local function normalizeYouTubeSettings(stored)
 end
 
 function AppDock:init()
+    -- 9.11.0: slow-step profiler (appdock_perf.log in the KOReader data dir).
+    pcall(function() require("appdock_prof").install() end)
     pcall(function() require("appdock_theme").bind(self) end)
     pcall(function() require("appdock_rotation").bind(self) end)
     self:_loadSettings()
@@ -228,6 +231,7 @@ function AppDock:init()
     end
     self:_scheduleScreenRefresh()
     self:_scheduleDAppTasks()
+    self:_scheduleChargePoll()
     -- Health & reading: eye-protection schedule, statistics, reminders.
     local health_ok, Health = pcall(require, "appdock_health")
     if health_ok and Health and Health.attach then pcall(Health.attach, self) end
@@ -276,8 +280,118 @@ function AppDock:onPageUpdate() healthCall(self, "touch") end
 function AppDock:onPosUpdate() healthCall(self, "touch") end
 function AppDock:onCloseDocument() healthCall(self, "onCloseDocument") end
 
+-- Standby while charging (9.9.0) --------------------------------------------
+-- When the charger is plugged in, AppDock offers its standby screen: the
+-- lockscreen look with a very large clock. KOReader announces the charger with
+-- the "Charging" / "NotCharging" events; a slow poll covers builds that do not
+-- deliver them to plugins. Both paths end in the same debounced handlers.
+function AppDock:getStandbyMode()
+    local standby = self.settings and self.settings.standby
+    local mode = type(standby) == "table" and standby.mode or "ask"
+    if mode ~= "off" and mode ~= "auto" then mode = "ask" end
+    return mode
+end
+
+function AppDock:setStandbyMode(mode)
+    if mode ~= "off" and mode ~= "ask" and mode ~= "auto" then return false end
+    self.settings.standby = type(self.settings.standby) == "table" and self.settings.standby or {}
+    self.settings.standby.mode = mode
+    self:_saveSettings()
+    if mode == "off" then self:closeStandby() end
+    return true
+end
+
+function AppDock:_isCharging()
+    local ok, charging = pcall(function() return require("device"):getPowerDevice():isCharging() end)
+    return ok and charging == true
+end
+
+function AppDock:_isReading()
+    return self.ui and self.ui.document ~= nil
+end
+
+function AppDock:showStandby()
+    if self._standby_widget then return true end
+    local ok, LockScreen = pcall(require, "appdock_lockscreen")
+    if not ok or type(LockScreen) ~= "table" or type(LockScreen.showStandby) ~= "function" then return false end
+    local shown, widget = pcall(LockScreen.showStandby, self, function()
+        self._standby_widget = nil
+        -- A PIN or pattern still protects AppDock after standby.
+        local method = self.settings.lockscreen and self.settings.lockscreen.method
+        if method == "pin" or method == "pattern" then self:showHome() end
+    end)
+    if not shown then
+        logger.warn("AppDock: standby screen failed: " .. tostring(widget))
+        return false
+    end
+    self._standby_widget = widget
+    return true
+end
+
+function AppDock:closeStandby()
+    local widget = self._standby_widget
+    self._standby_widget = nil
+    if widget and widget.closeStandby then pcall(widget.closeStandby, widget) end
+    local prompt = self._standby_prompt
+    self._standby_prompt = nil
+    if prompt then pcall(UIManager.close, UIManager, prompt) end
+end
+
+function AppDock:askStandby()
+    if self._standby_widget or self._standby_prompt then return end
+    local ConfirmBox = require("ui/widget/confirmbox")
+    local prompt
+    prompt = ConfirmBox:new{
+        text = _("The eReader is charging.\n\nSwitch to standby? Standby shows a very large clock until you tap the screen."),
+        ok_text = _("Standby"),
+        cancel_text = _("Not now"),
+        ok_callback = function()
+            self._standby_prompt = nil
+            self:showStandby()
+        end,
+        cancel_callback = function() self._standby_prompt = nil end,
+    }
+    self._standby_prompt = prompt
+    UIManager:show(prompt)
+end
+
+function AppDock:_onChargerPlugged()
+    if self._was_charging then return end
+    self._was_charging = true
+    local mode = self:getStandbyMode()
+    if mode == "off" or self._standby_widget or self._standby_prompt then return end
+    -- Never interrupt a book; the Standby tile / setting still works there.
+    if self:_isReading() then return end
+    if mode == "auto" then self:showStandby() else self:askStandby() end
+end
+
+function AppDock:_onChargerUnplugged()
+    if not self._was_charging then return end
+    self._was_charging = false
+    -- Leaving the charger ends standby by itself.
+    if self._standby_widget or self._standby_prompt then self:closeStandby() end
+end
+
+function AppDock:onCharging() self:_onChargerPlugged() end
+function AppDock:onNotCharging() self:_onChargerUnplugged() end
+
+function AppDock:_scheduleChargePoll()
+    if not self._charge_poll then
+        self._charge_poll = function()
+            local charging = self:_isCharging()
+            if charging then self:_onChargerPlugged() else self:_onChargerUnplugged() end
+            UIManager:scheduleIn(20, self._charge_poll)
+        end
+    end
+    -- Whatever is plugged in at start is not announced as "just plugged in".
+    self._was_charging = self:_isCharging()
+    UIManager:unschedule(self._charge_poll)
+    UIManager:scheduleIn(20, self._charge_poll)
+end
+
 function AppDock:onSuspend()
     healthCall(self, "onSuspend")
+    self:closeStandby()
     if self.settings.sleepscreen_enabled then
         local ok, SleepScreen = pcall(require, "appdock_sleepscreen")
         if ok and SleepScreen and SleepScreen.show then SleepScreen.show(self) end
@@ -340,6 +454,7 @@ function AppDock:_loadSettings()
         notifications = tableValue(stored.notifications, { items = {}, next_id = 0 }),
         wallpaper = tableValue(stored.wallpaper, { enabled = true, path = DEFAULT_WALLPAPER_PATH, source = "appdock_default" }),
         lockscreen = tableValue(stored.lockscreen, { enabled = true, method = "swipe", secret_hash = nil, profile_name = "", profile_image_path = "", clock_style = "standard" }),
+        standby = tableValue(stored.standby, { mode = "ask" }),
         beta = tableValue(stored.beta, { black_borders = false, keep_wallpaper_original_in_night = false, plugin_dapp_host = false, windows = false, windows_dither = false, manual_app_spacing = false, plugin_custom_logos = false }),
         quick_settings = tableValue(stored.quick_settings, { tiles = copyArray(DEFAULT_SETTINGS.quick_settings.tiles) }),
         simple_mode = tableValue(stored.simple_mode, { homescreen = false, quick_settings = false, focus_apps = false }),
@@ -491,6 +606,21 @@ function AppDock:_loadSettings()
             table.insert(self.settings.pinned_apps, insert_at or (#self.settings.pinned_apps + 1), "system:exit")
         end
     end
+    if self.settings.layout_version < 28 then
+        -- DockAI (9.10.0): pinned once next to the App Store; the reader can
+        -- move or hide it afterwards.
+        local pinned_dockai = false
+        for _, app_id in ipairs(self.settings.pinned_apps) do
+            if app_id == "dapp:dockai" then pinned_dockai = true; break end
+        end
+        if not pinned_dockai then
+            local insert_at
+            for index, app_id in ipairs(self.settings.pinned_apps) do
+                if app_id == "dapp:app_store" then insert_at = index + 1; break end
+            end
+            table.insert(self.settings.pinned_apps, insert_at or (#self.settings.pinned_apps + 1), "dapp:dockai")
+        end
+    end
     -- Folder ids share the same ordered list as apps, so normalize it after
     -- all legacy app migrations have finished. This also removes malformed
     -- group records before they can occupy an invisible grid cell.
@@ -589,6 +719,11 @@ function AppDock:_loadSettings()
     local clock_style = self.settings.lockscreen.clock_style
     if clock_style ~= "glass" and clock_style ~= "color" then clock_style = "standard" end
     self.settings.lockscreen.clock_style = clock_style
+    -- Standby while charging (9.9.0): off | ask (prompt) | auto (straight in).
+    self.settings.standby = type(self.settings.standby) == "table" and self.settings.standby or {}
+    local standby_mode = self.settings.standby.mode
+    if standby_mode ~= "off" and standby_mode ~= "auto" then standby_mode = "ask" end
+    self.settings.standby.mode = standby_mode
     self.settings.beta = self.settings.beta or {}
     self.settings.beta.black_borders = self.settings.beta.black_borders == true
     self.settings.beta.keep_wallpaper_original_in_night = self.settings.beta.keep_wallpaper_original_in_night == true
@@ -1496,6 +1631,8 @@ function AppDock:onCloseWidget()
         UIManager:unschedule(self._screen_refresh_tick)
     end
     if self._dapp_task_tick then UIManager:unschedule(self._dapp_task_tick) end
+    if self._charge_poll then UIManager:unschedule(self._charge_poll) end
+    self:closeStandby()
 end
 
 function AppDock:addToMainMenu(menu_items)

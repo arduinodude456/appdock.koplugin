@@ -51,50 +51,50 @@ local STRINGS = {
 }
 
 -- glyph: single character shown in the blue circle.
--- Release tour: Cyber mode, shelf, pet and the new file chooser.
+-- Release tour (9.10.0): DockAI, Liquid Glass clock, standby while charging, keyboard fix.
 local PAGES = {
+    {
+        glyph = "✦",
+        en = {
+            title = "DockAI",
+            text = "A new ChatGPT-style assistant powered by Groq. Every AppDock user has a daily and a weekly message limit; you see it in the app and under Settings > DockAI. The admin can add any number of Groq API keys there (password required); requests rotate through the keys and skip keys that are busy or rejected.",
+        },
+        de = {
+            title = "DockAI",
+            text = "Ein neuer Assistent im ChatGPT-Stil, angetrieben von Groq. Jeder AppDock-Nutzer hat ein Tages- und ein Wochenlimit für Nachrichten; du siehst es in der App und unter Einstellungen > DockAI. Der Admin kann dort beliebig viele Groq-API-Keys eintragen (Passwort nötig); Anfragen wechseln reihum zwischen den Keys und überspringen Keys, die ausgelastet oder abgelehnt sind.",
+        },
+    },
     {
         glyph = "◇",
         en = {
-            title = "Cyber mode",
-            text = "Pick the Cyber theme (Settings > Display > Theme) for a dark neon look: chamfered cards with glowing edges and a city skyline wallpaper. Under Settings > Display > Card style you can also switch the Cyber effects on or off, or leave them on automatic so they follow the theme.",
+            title = "Real Liquid Glass clock",
+            text = "The Liquid Glass clock style (Settings > Lockscreen > Clock style) no longer puts the time on a glass card: the digits themselves are glass. The wallpaper bends at their edges like in a thick lens, a bright rim catches the light and a soft shadow lifts them off the screen. Grayscale screens get a stronger rim so the digits stay readable.",
         },
         de = {
-            title = "Cyber-Modus",
-            text = "Wähle das Cyber-Theme (Einstellungen > Anzeige > Theme) für einen dunklen Neon-Look: abgeschrägte Karten mit leuchtenden Kanten und ein Hintergrund mit Skyline. Unter Einstellungen > Anzeige > Kartenstil kannst du die Cyber-Effekte außerdem ein- oder ausschalten oder auf Automatik lassen, dann folgen sie dem Theme.",
+            title = "Echte Liquid-Glass-Uhr",
+            text = "Der Uhrenstil Liquid Glass (Einstellungen > Sperrbildschirm > Uhrenstil) legt die Zeit nicht mehr auf eine Glaskarte: Die Ziffern selbst sind aus Glas. Der Hintergrund bricht sich an ihren Kanten wie in einer dicken Linse, ein heller Rand fängt das Licht und ein weicher Schatten hebt sie vom Bildschirm ab. Auf Graustufen-Displays ist der Rand kräftiger, damit die Ziffern gut lesbar bleiben.",
         },
     },
     {
-        glyph = "▤",
+        glyph = "☾",
         en = {
-            title = "Shelf: your books at a glance",
-            text = "Turn on Settings > Features > Enable shelf and swipe right on the first homescreen page. A wooden bookcase shows the books you read recently and some featured ones. Books you download with DLib appear here too. Tap a cover to open the book. On color screens the shelf is now drawn in full color.",
+            title = "Standby while charging",
+            text = "When the eReader is plugged in, AppDock asks whether it should go to standby. Standby looks like the lockscreen, only with a very large clock (hours above minutes), the date and the battery level. It follows your clock style. Tap the screen to leave; unplugging the charger ends it too. Under Settings > Lockscreen > Standby you can switch the question to automatic or off, or start standby right away.",
         },
         de = {
-            title = "Regal: deine Bücher auf einen Blick",
-            text = "Schalte unter Einstellungen > Funktionen „Regal aktivieren“ ein und wische auf der ersten Homescreen-Seite nach rechts. Ein Bücherregal aus Holz zeigt die zuletzt gelesenen und einige empfohlene Bücher. Auch Bücher, die du mit DLib herunterlädst, erscheinen hier. Tippe auf ein Cover, um das Buch zu öffnen. Auf Farbdisplays wird das Regal jetzt farbig gezeichnet.",
+            title = "Standby beim Laden",
+            text = "Sobald der eReader am Ladegerät hängt, fragt AppDock, ob er in den Standby gehen soll. Standby sieht aus wie der Sperrbildschirm, nur mit einer sehr großen Uhr (Stunden über Minuten), dem Datum und dem Akkustand. Er folgt deinem Uhrenstil. Tippe auf den Bildschirm, um ihn zu verlassen; auch das Abziehen des Ladegeräts beendet ihn. Unter Einstellungen > Sperrbildschirm > Standby kannst du die Frage auf automatisch oder aus stellen oder den Standby sofort starten.",
         },
     },
     {
-        glyph = "♥",
+        glyph = "⌨",
         en = {
-            title = "Reading pet",
-            text = "Under Settings > Features you can adopt a pet that follows your reading: it is happy when you read every day, hungry when you do not, and grows with your total reading time. Choose a species, a name and where it appears. It never dies. On color screens it now has its real colors.",
+            title = "Keyboard preview fixed",
+            text = "The text preview above the AppDock keyboard now measures the real width of what you type. Wide letters and emoji no longer push the end of the text behind the right edge: the cursor always stays visible and the beginning is shortened with an ellipsis instead.",
         },
         de = {
-            title = "Lese-Haustier",
-            text = "Unter Einstellungen > Funktionen kannst du ein Haustier aufnehmen, das deinem Lesen folgt: Es freut sich, wenn du täglich liest, bekommt Hunger, wenn nicht, und wächst mit deiner gesamten Lesezeit. Wähle Tierart, Namen und wo es erscheint. Es stirbt nie. Auf Farbdisplays hat es jetzt seine echten Farben.",
-        },
-    },
-    {
-        glyph = "☰",
-        en = {
-            title = "New file chooser",
-            text = "Wherever AppDock used to ask you to type a file path (wallpaper, lockscreen picture, plugin logos, sleepscreen assets, yt-dlp and ffmpeg, music and output folders) it now opens its own file chooser. Jump between Internal, SD card and Home, tap the path to go back, swipe up or down to page and swipe right to go up. Tap a file to preview it, then confirm with Select.",
-        },
-        de = {
-            title = "Neuer Dateiwähler",
-            text = "Überall, wo AppDock bisher einen Dateipfad zum Eintippen wollte (Hintergrundbild, Sperrbildschirm-Bild, Plugin-Logos, Schlafbild-Dateien, yt-dlp und ffmpeg, Musik- und Ausgabeordner), öffnet sich jetzt ein eigener Dateiwähler. Wechsle zwischen Intern, SD-Karte und Home, tippe auf den Pfad, um zurückzugehen, wische nach oben oder unten zum Blättern und nach rechts, um einen Ordner höher zu gehen. Tippe eine Datei an für die Vorschau und bestätige mit „Select“.",
+            title = "Tastatur-Vorschau repariert",
+            text = "Die Textvorschau über der AppDock-Tastatur misst jetzt die echte Breite dessen, was du tippst. Breite Buchstaben und Emojis schieben das Textende nicht mehr hinter den rechten Rand: Der Cursor bleibt immer sichtbar, stattdessen wird der Anfang mit einer Ellipse gekürzt.",
         },
     },
 }

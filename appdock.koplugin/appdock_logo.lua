@@ -36,6 +36,7 @@ local RASTER_LOGOS = {
     dchat = "dchat.png",
     dockupdate = "dockupdate.png",
     minecraft = "minecraft.png",
+    dockai = "dockai.png",
 }
 
 -- The bundled logo files never change at runtime, so the existence check is

@@ -481,6 +481,33 @@ local function fitText(text, face, width)
     return text
 end
 
+-- Real rendered width of `text` (pixels). The old preview guessed 0.58 em per
+-- character, which is far too narrow for wide letters (W, M, @), emoji and
+-- bold fonts: the text then ran past the right edge and the cursor vanished.
+-- Without KOReader's text renderer (tests) a generous estimate is used.
+local function measureText(text, face, size)
+    local ok, RenderText = pcall(require, "ui/rendertext")
+    if ok and type(RenderText) == "table" and type(RenderText.sizeUtf8Text) == "function" then
+        local ok2, info = pcall(RenderText.sizeUtf8Text, RenderText, 0, 1000000, face, text, true, false)
+        if ok2 and type(info) == "table" and type(info.x) == "number" then return info.x end
+    end
+    return charCount(text) * (size or 20) * 0.62
+end
+
+-- Longest tail of `shown` (prefixed with an ellipsis when cut) that, followed
+-- by the cursor, still fits into `avail` pixels. The cursor end is always kept.
+local function fitTail(shown, face, size, avail, cursor)
+    cursor = cursor or ""
+    if measureText(shown .. cursor, face, size) <= avail then return shown .. cursor end
+    local lo, hi, best = 0, math.min(charCount(shown), 600), 0
+    while lo <= hi do
+        local mid = math.floor((lo + hi) / 2)
+        local candidate = "…" .. (mid > 0 and utf8Tail(shown, mid) or "") .. cursor
+        if measureText(candidate, face, size) <= avail then best, lo = mid, mid + 1 else hi = mid - 1 end
+    end
+    return "…" .. (best > 0 and utf8Tail(shown, best) or "") .. cursor
+end
+
 ----------------------------------------------------------------------
 -- Key widget
 ----------------------------------------------------------------------
@@ -784,9 +811,10 @@ function Keyboard:_buildTop()
     self.display_pad = scale(10)
     self.display_font = math.floor(self.bar_h * 0.46)
     self.display_width = display_w
+    self.display_face = Font:getFace("smallinfofont", self.display_font)
     self.display = newText{
         text = " ",
-        face = Font:getFace("smallinfofont", self.display_font),
+        face = self.display_face,
         fgcolor = theme.key_text,
         padding = 0,
         max_width = display_w - 2 * self.display_pad,
@@ -1843,8 +1871,12 @@ end
 -- Display / refresh
 ----------------------------------------------------------------------
 function Keyboard:_displayText()
+    -- Width that really is available inside the preview field. A few pixels
+    -- of safety keep the cursor clear of the rounded border.
+    local avail = math.max(scale(20), self.display_width - 2 * self.display_pad - scale(6))
     if self.value == "" then
-        return self.placeholder or _("Search apps"), true
+        local placeholder = cleanUtf8(self.placeholder or _("Search apps"))
+        return fitText(placeholder, self.display_face, avail), true
     end
     local shown
     if self.secure then
@@ -1852,9 +1884,8 @@ function Keyboard:_displayText()
     else
         shown = (self.value:gsub("[\r\n]+", " "))
     end
-    local max_chars = math.max(8, math.floor((self.display_width - 2 * self.display_pad) / (self.display_font * 0.58)) - 1)
-    if charCount(shown) > max_chars then shown = "…" .. utf8Tail(shown, max_chars - 1) end
-    return shown .. "|", false
+    shown = cleanUtf8(shown)
+    return fitTail(shown, self.display_face, self.display_font, avail, "|"), false
 end
 
 function Keyboard:_topRegion()

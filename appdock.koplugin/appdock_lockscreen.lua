@@ -11,6 +11,10 @@ setting is "swipe up to unlock". Two stages:
           blur as the quick settings shade and shows a round glass keypad on
           top of it. Swiping down (or "Cancel") returns to the photo.
 
+The same widget also draws the standby screen (mode = "standby", shown while
+the reader is charging): the wall stage with a very large stacked clock, the
+battery level, and "tap to leave" instead of the unlock hint.
+
 Everything degrades gracefully: if the photo cannot be decoded, a dark navy
 fill is used; if the blur fails, a translucent tint is drawn over the photo.
 --]]--
@@ -44,6 +48,7 @@ local LockScreen = InputContainer:extend{
     dimen = nil,
     covers_fullscreen = true,
     stage = "wall",
+    mode = "lock",      -- "lock" | "standby"
     pin = "",
     pattern = "",
     status = nil,
@@ -92,6 +97,26 @@ local COLOR_DIGITS = {
 local GLASS_RIM = Glass.rgba(255, 255, 255, 105, Blitbuffer.COLOR_GRAY_D)
 local GLASS_BODY = Glass.rgba(70, 86, 138, 96, Blitbuffer.COLOR_GRAY_4)
 local GLASS_SHINE = Glass.rgba(255, 255, 255, 38, Blitbuffer.COLOR_GRAY_6)
+
+-- Liquid Glass digits live in their own module so that a problem there can
+-- only ever cost the glass look, never the lockscreen.
+local function glassLayerClass()
+    local ok, module = pcall(require, "appdock_glassclock")
+    if ok and type(module) == "table" and type(module.layerClass) == "function" then
+        return module.layerClass()
+    end
+    return nil
+end
+
+-- Battery level / charging state for the standby screen.
+local function batteryInfo()
+    local ok, capacity, charging = pcall(function()
+        local powerd = Device:getPowerDevice()
+        return powerd:getCapacity(), powerd:isCharging()
+    end)
+    if ok and type(capacity) == "number" then return math.floor(capacity), charging == true end
+    return nil, false
+end
 
 local function secretMatches(profile, value)
     return type(profile) == "table" and type(profile.secret_hash) == "string"
@@ -152,6 +177,10 @@ local function buildWall(width, height, like_bb)
 end
 
 function LockScreen:freeImages()
+    for _, layer in ipairs(self._glass_layers or {}) do
+        if layer.free then pcall(layer.free, layer) end
+    end
+    self._glass_layers = {}
     if self._avatar and type(self._avatar.free) == "function" then pcall(function() self._avatar:free() end) end
     self._avatar = nil
 end
@@ -234,10 +263,25 @@ function LockScreen:build()
         local white, soft = inkColor("wall", false), inkColor("wall", true)
         local y = math.max(scale(46), math.floor(height * .085))
         local style = clockStyle(profile)
+        local standby = self.mode == "standby"
         local clock_h
-        if style == "color" then
-            -- Hours on the first line, minutes on the second, one color per digit.
-            local size = math.max(scale(64), math.floor(height * .125))
+        if standby then
+            y = math.max(scale(56), math.floor(height * .09))
+        end
+        local Layer = style == "glass" and glassLayerClass() or nil
+
+        -- Liquid Glass digits: the digits themselves are the glass.
+        local function addGlassClock(value, size, top)
+            local layer = Layer:new{ text = value, size = size, color = Glass.isColor() }
+            self._glass_layers[#self._glass_layers + 1] = layer
+            local layer_w = layer:getSize().w
+            add(layer, math.floor((width - layer_w) / 2), top - layer.pad)
+            local _, ink_h = layer:getInkSize()
+            return ink_h
+        end
+
+        -- Hours on the first line, minutes on the second, one color per digit.
+        local function addColorClock(size, top)
             local face = Font:getFace("cfont", size)
             local cell = 0
             for digit = 0, 9 do
@@ -248,7 +292,7 @@ function LockScreen:build()
             local gap = math.floor(cell * .08)
             local row_x = math.floor((width - (2 * cell + gap)) / 2)
             local rows = { os.date("%H"), os.date("%M") }
-            local cursor, line_h = y, 0
+            local cursor, line_h = top, 0
             for row = 1, 2 do
                 for column = 1, 2 do
                     local digit = rows[row]:sub(column, column)
@@ -260,8 +304,32 @@ function LockScreen:build()
                 end
                 cursor = cursor + math.floor(line_h * .84)
             end
-            clock_h = cursor - y + math.floor(line_h * .16)
+            return cursor - top + math.floor(line_h * .16)
+        end
+
+        local big_size = math.max(scale(96), math.min(math.floor((width - 2 * margin) / 1.32), math.floor(height * .27)))
+        if standby then
+            -- Very large stacked clock: HH above MM.
+            if style == "color" then
+                clock_h = addColorClock(big_size, y)
+            elseif Layer then
+                clock_h = addGlassClock(os.date("%H") .. "\n" .. os.date("%M"), big_size, y)
+            else
+                local cursor, line_h = y, 0
+                for _, value in ipairs({ os.date("%H"), os.date("%M") }) do
+                    clock_h = addCentered(value, "cfont", big_size, white, cursor, true)
+                    line_h = clock_h
+                    cursor = cursor + math.floor(line_h * .84)
+                end
+                clock_h = cursor - y + math.floor(line_h * .16)
+            end
+        elseif style == "color" then
+            clock_h = addColorClock(math.max(scale(64), math.floor(height * .125)), y)
+        elseif style == "glass" and Layer then
+            local size = math.max(scale(66), math.min(math.floor((width - 2 * margin) / 2.95), math.floor(height * .12)))
+            clock_h = addGlassClock(os.date("%H:%M"), size, y)
         elseif style == "glass" then
+            -- Fallback when the glass module is unavailable: frosted capsule.
             local size = math.max(scale(54), math.floor(height * .085))
             local widget = text(os.date("%H:%M"), "cfont", size, white, true)
             local w, h = sizeOf(widget)
@@ -270,7 +338,6 @@ function LockScreen:build()
             local card_x = math.floor((width - card_w) / 2)
             local radius = math.floor(card_h * .34)
             local rim = math.max(1, scale(2))
-            -- Rim light, frosted body, soft specular highlight on the upper half.
             add(Glass.Shape:new{ width = card_w, height = card_h, radius = radius, color = GLASS_RIM }, card_x, y)
             add(Glass.Shape:new{ width = card_w - 2 * rim, height = card_h - 2 * rim, radius = math.max(1, radius - rim), color = GLASS_BODY }, card_x + rim, y + rim)
             if Glass.isColor() then
@@ -282,12 +349,18 @@ function LockScreen:build()
         else
             clock_h = addCentered(os.date("%H:%M"), "cfont", math.max(scale(54), math.floor(height * .085)), white, y, true)
         end
-        y = y + clock_h + scale(style == "glass" and 10 or 2)
-        local date_h = addCentered(os.date("%A, %d. %B"), "smallinfofont", scale(15), soft, y, false, margin, width - 2 * margin)
-        y = y + date_h + scale(18)
+        y = y + clock_h + scale((style == "glass" and not standby) and 10 or (standby and 14 or 2))
+        local date_h = addCentered(os.date("%A, %d. %B"), "smallinfofont", scale(standby and 22 or 15), soft, y, false, margin, width - 2 * margin)
+        y = y + date_h + scale(standby and 10 or 18)
+
+        if standby then
+            local level, charging = batteryInfo()
+            local line = level and (charging and _("Charging") .. " · " or "") .. level .. " %" or _("Charging")
+            addCentered(line, "smallinfofont", scale(18), soft, y, false, margin, width - 2 * margin)
+        end
 
         -- Optional profile chip (name and/or picture).
-        if profile_name ~= "" or has_image then
+        if not standby and (profile_name ~= "" or has_image) then
             local label = text(profile_name ~= "" and profile_name or _("AppDock"), "cfont", scale(16), white, true)
             label.max_width = math.floor(width * .5)
             local label_w, label_h = sizeOf(label)
@@ -302,7 +375,8 @@ function LockScreen:build()
         end
 
         -- Bottom hint: chevron + pill.
-        local label_text = method == "pin" and _("Swipe up to enter PIN")
+        local label_text = standby and _("Tap to leave standby")
+            or method == "pin" and _("Swipe up to enter PIN")
             or method == "pattern" and _("Swipe up to draw pattern")
             or _("Swipe up to unlock")
         local hint = text(label_text, "smallinfofont", scale(14), white, true)
@@ -312,7 +386,9 @@ function LockScreen:build()
         local pill_x = math.floor((width - pill_w) / 2)
         local pill_y = height - pill_h - math.max(scale(44), math.floor(height * .05))
         local chevron = scale(30)
-        add(Glass.Icon:new{ kind = "chevron_up", size = chevron, color = GC.white }, math.floor((width - chevron) / 2), pill_y - chevron - scale(6))
+        if not standby then
+            add(Glass.Icon:new{ kind = "chevron_up", size = chevron, color = GC.white }, math.floor((width - chevron) / 2), pill_y - chevron - scale(6))
+        end
         add(Glass.Shape:new{ width = pill_w, height = pill_h, radius = math.floor(pill_h / 2), color = GC.tint }, pill_x, pill_y)
         add(hint, pill_x + math.floor((pill_w - hint_w) / 2), pill_y + math.floor((pill_h - hint_h) / 2))
         -- Generous tap target as a fallback for people who do not swipe.
@@ -432,6 +508,8 @@ function LockScreen:paintTo(bb, x, y)
 end
 
 function LockScreen:onCloseWidget()
+    if self._tick then UIManager:unschedule(self._tick) end
+    self._tick = nil
     self:freeImages()
     self:freeBuffers()
 end
@@ -509,7 +587,45 @@ function LockScreen:_press(value)
     self:_refresh("ui")
 end
 
+-- Standby ---------------------------------------------------------------------
+-- The clock is redrawn once a minute. Only the minute changes most of the
+-- time, but the glass tile has to be re-rendered as a whole, so the redraw is
+-- a plain "ui" refresh (and a full one every tenth minute against ghosting).
+function LockScreen:_scheduleTick()
+    if not self._tick then
+        self._tick = function()
+            if self.mode ~= "standby" then return end
+            self._ticks = (self._ticks or 0) + 1
+            self:build()
+            self:_refresh(self._ticks % 10 == 0 and "full" or "ui")
+            self:_scheduleTick()
+        end
+    end
+    UIManager:unschedule(self._tick)
+    local seconds = tonumber(os.date("%S")) or 0
+    UIManager:scheduleIn(math.max(1, 61 - seconds), self._tick)
+end
+
+function LockScreen:closeStandby()
+    if self._closing then return end
+    self._closing = true
+    if self._tick then UIManager:unschedule(self._tick) end
+    UIManager:close(self)
+    UIManager:setDirty("all", "full")
+end
+
+function LockScreen:_leaveStandby()
+    if self._closing then return end
+    self:closeStandby()
+    local callback = self.on_exit
+    if callback then UIManager:nextTick(callback) end
+end
+
 function LockScreen:onLockSwipe(args, ges)
+    if self.mode == "standby" then
+        self:_leaveStandby()
+        return true
+    end
     local direction = ges and ges.direction
     local up = direction == "north" or direction == "northeast" or direction == "northwest"
     local down = direction == "south" or direction == "southeast" or direction == "southwest"
@@ -522,6 +638,10 @@ function LockScreen:onLockSwipe(args, ges)
 end
 
 function LockScreen:onLockTap(args, ges)
+    if self.mode == "standby" then
+        self:_leaveStandby()
+        return true
+    end
     local pos = ges and ges.pos
     if not pos then return true end
     if self.stage == "wall" then
@@ -539,6 +659,14 @@ function LockScreen:onLockTap(args, ges)
         end
     end
     return true
+end
+
+-- Standby screen: `on_exit` runs after the person tapped to leave.
+function LockScreen.showStandby(appdock, on_exit)
+    local widget = LockScreen:new{ appdock = appdock, mode = "standby", on_exit = on_exit }
+    UIManager:show(widget)
+    widget:_scheduleTick()
+    return widget
 end
 
 function LockScreen.show(appdock, callback)

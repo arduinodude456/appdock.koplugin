@@ -161,4 +161,31 @@ assert(native_dialog:onShowKeyboard() and native_dialog.native_keyboard_opened,
     "A native dialog must keep its KOReader keyboard when the AppDock keyboard is disabled")
 assert(Keyboard.setEnabled(true) and Keyboard.isEnabled(), "The custom keyboard must be re-enableable")
 assert(Keyboard._test.resolvedLanguage("de") == "de" and Keyboard._test.resolvedLanguage("unsupported") == "en", "Keyboard resolves explicit and automatic languages safely")
+
+-- Preview field: the typed text must never run past the right edge, whatever
+-- the glyph widths are, and the cursor end has to stay visible.
+package.loaded["ui/rendertext"] = nil
+package.preload["ui/rendertext"] = function()
+    return {
+        sizeUtf8Text = function(_, _x, _w, face, text)
+            local width = 0
+            for char in tostring(text):gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+                width = width + face.size * ((char == "W" or char == "@") and 1.0 or (char == "i" and 0.25 or 0.55))
+            end
+            return { x = width }
+        end,
+    }
+end
+local preview = Keyboard:new{ value = string.rep("W", 120) }
+local shown = preview:_displayText()
+local avail = preview.display_width - 2 * preview.display_pad
+local function widthOf(text)
+    return preview.display_face and select(2, pcall(function() return package.preload["ui/rendertext"]().sizeUtf8Text(nil, 0, 0, preview.display_face, text).x end)) or 0
+end
+assert(widthOf(shown) <= avail, "Wide characters must stay inside the preview field")
+assert(shown:sub(-1) == "|" and shown:sub(1, 3) == "…", "The cursor end stays visible and the cut start is marked")
+preview.value = "i"
+assert(preview:_displayText() == "i|", "Short text is shown completely")
+preview.value = string.rep("@W", 200)
+assert(widthOf((preview:_displayText())) <= avail, "Very long mixed text stays inside the preview field")
 print("AppDock keyboard test: OK")
