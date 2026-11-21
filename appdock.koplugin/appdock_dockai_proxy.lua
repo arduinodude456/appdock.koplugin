@@ -36,15 +36,25 @@ return function(DockAI)
     function DockAI:setLimits() end
     function DockAI:getLimits() return DockAI.DEFAULT_DAILY_LIMIT, DockAI.DEFAULT_WEEKLY_LIMIT end
     function DockAI:recordUse() end
-    function DockAI:resetUsage() self:refreshUsage() end
+    function DockAI:resetUsage() self:refreshUsage(true) end
 
-    function DockAI:refreshUsage()
-        local response, err, code = self:_serverRequest({ action = "usage" })
+    -- The pane is rebuilt after every tap, so this must not hit the network
+    -- each time (a slow connection froze the whole chat). The result is reused
+    -- for a minute; after a failure the next try waits 20 seconds.
+    function DockAI:refreshUsage(force)
+        local now = self.now()
+        if not force and self.usage_checked_at and now < self.usage_checked_at then
+            return self.server_usage
+        end
+        local ok, response, err, code = pcall(self._serverRequest, self, { action = "usage" })
+        if not ok then response, err, code = nil, "network", nil end
         if response and code == 200 and type(response.usage) == "table" then
             self.server_usage, self.server_usage_error = response.usage, nil
+            self.usage_checked_at = now + 60
             return self.server_usage
         end
         self.server_usage_error = err or (response and response.error and response.error.code) or "network"
+        self.usage_checked_at = now + 20
         return nil, self.server_usage_error
     end
 
@@ -79,14 +89,14 @@ return function(DockAI)
     end
 
     function DockAI:complete(history)
-        local messages = {}
-        local first = math.max(1, #history - 19)
-        for i = first, #history do
-            local e = history[i]
-            if e and not e.error and (e.role == "user" or e.role == "assistant") then messages[#messages + 1] = { role = e.role, content = e.content } end
-        end
+        -- Last DockAI.CONTEXT_MESSAGES messages (5) plus the saved memories.
+        local messages = self:contextMessages(history)
+        if #messages == 0 then return nil, "bad_response" end
         local response, err, code = self:_serverRequest({ action = "chat", model = self:getModel(), messages = messages })
-        if response and response.usage then self.server_usage = response.usage end
+        if response and response.usage then
+            self.server_usage = response.usage
+            self.usage_checked_at = self.now() + 60
+        end
         if not response then return nil, err end
         if code == 200 and type(response.reply) == "string" and response.reply ~= "" then return response.reply end
         local e = response.error or {}

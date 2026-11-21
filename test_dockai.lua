@@ -25,6 +25,23 @@ end
 local localStore=store()
 local ai=DockAI:new({}, {store=localStore,transport=transport,json=json,now=function() return 1794996000 end})
 ai.german=false
+local history={
+  {role="user",content="one"},{role="assistant",content="answer one"},
+  {role="user",content="two"},{role="assistant",content="answer two"},
+  {role="user",content="three"},{role="assistant",content="answer three"},
+  {role="user",content="four"},{role="assistant",content="answer four"},
+}
+assert(ai:addMemory("User prefers concise answers"),"A valid DockAI memory is saved")
+local contextMessages=ai:contextMessages(history)
+assert(#contextMessages==4 and contextMessages[1].role=="user","Model context starts at the last complete user turn")
+assert(contextMessages[1].content:find("Saved memories about the user",1,true),"Saved memories are included in the first context message")
+assert(not contextMessages[1].content:find("one",1,true),"Older turns are omitted from bounded model context")
+local legacyStore=store()
+legacyStore.data.chat={{role="user",content="legacy question"},{role="assistant",content="legacy answer"}}
+local legacyAI=DockAI:new({}, {store=legacyStore,transport=transport,json=json,now=function() return 1794996000 end})
+local migrated=legacyAI:loadChats()
+assert(#migrated==1 and migrated[1].messages[1].content=="legacy question","Legacy single chat migrates into the new chat list")
+assert(legacyStore.data.chat==nil and legacyStore.data.chats[1].id==migrated[1].id,"Migration persists the new format and clears the old setting")
 local html=DockAI.markdownToHtml("# Title\nHello **bold** and `x<y` and *it*\n\n- one\n- two\n\n1. first\n2. second\n\n```lua\nlocal a = 1 < 2\n```")
 assert(html:find("<p><b>Title</b></p>",1,true) and html:find("<b>bold</b>",1,true) and html:find("<i>it</i>",1,true))
 assert(html:find("<code>x&lt;y</code>",1,true) and html:find("<ul>",1,true) and html:find("<ol>",1,true))
@@ -46,7 +63,7 @@ local admin=calls[#calls]
 assert(admin.body.action=="add_key" and admin.body.admin_password=="right-password" and admin.body.api_key=="gsk_AAAAAAAAAAAAAAAAAAAAAAAA")
 assert(localStore.data.keys==nil,"API key is not stored locally")
 usage.day_used=25; usage.blocked="day"
-ai:refreshUsage()
+ai:refreshUsage(true)
 assert(ai:usage().blocked=="day" and ai:limitText():find("Daily limit reached",1,true),"Server daily limit is presented")
 local before=#calls
 session.device_secret=""

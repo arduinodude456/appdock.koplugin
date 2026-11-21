@@ -19,9 +19,15 @@ DockAI.ADMIN_SESSION_SECONDS = 300
 DockAI.RATE_LIMIT_REST = 60
 DockAI.KEY_FILES = { "/mnt/onboard/dockai_keys.txt", "/mnt/us/dockai_keys.txt", "dockai_keys.txt" }
 
-local MAX_HISTORY_MESSAGES = 20
-local MAX_STORED_MESSAGES = 40
-local MAX_STORED_BYTES = 30000
+-- How many of the latest messages (user + assistant) are sent along with a request.
+local CONTEXT_MESSAGES = 5
+DockAI.CONTEXT_MESSAGES = CONTEXT_MESSAGES
+local MAX_STORED_MESSAGES = 40      -- per chat
+local MAX_STORED_BYTES = 30000      -- per chat
+local MAX_CHATS = 30
+local MAX_MEMORIES = 25
+local MAX_MEMORY_CHARS = 200
+local MAX_MESSAGE_CHARS = 4000
 
 ----------------------------------------------------------------------
 -- Small helpers
@@ -29,6 +35,20 @@ local MAX_STORED_BYTES = 30000
 local function trim(value)
     return (tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", ""))
 end
+
+-- Shortens a string to at most `max` bytes without splitting a UTF-8 character.
+local function cut(text, max)
+    text = tostring(text or "")
+    if #text <= max then return text end
+    local pos = max
+    while pos > 0 do
+        local byte = text:byte(pos + 1)
+        if not byte or byte < 0x80 or byte >= 0xC0 then break end
+        pos = pos - 1
+    end
+    return text:sub(1, pos)
+end
+DockAI.cut = cut
 
 local function isGerman(appdock)
     local language = appdock and type(appdock.getKeyboardLanguage) == "function" and appdock:getKeyboardLanguage() or "auto"
@@ -422,6 +442,107 @@ function DockAI:refreshModels()
 end
 
 ----------------------------------------------------------------------
+-- Persistent memories ("Erinnerungen")
+----------------------------------------------------------------------
+function DockAI:memories()
+    local list = self:_get("memories", {})
+    local clean = {}
+    if type(list) == "table" then
+        for _, item in ipairs(list) do
+            if type(item) == "string" and trim(item) ~= "" then clean[#clean + 1] = item end
+        end
+    end
+    return clean
+end
+
+-- Returns true, or false + "empty" / "duplicate" / "full".
+function DockAI:addMemory(text)
+    text = cut(trim((tostring(text or ""):gsub("%s+", " "))), MAX_MEMORY_CHARS)
+    if #text < 3 then return false, "empty" end
+    local list = self:memories()
+    local lowered = text:lower()
+    for _, item in ipairs(list) do
+        if item:lower() == lowered then return false, "duplicate" end
+    end
+    if #list >= MAX_MEMORIES then return false, "full" end
+    list[#list + 1] = text
+    self:_set("memories", list)
+    self:flush()
+    return true
+end
+
+function DockAI:removeMemory(index)
+    local list = self:memories()
+    if not list[index] then return false end
+    table.remove(list, index)
+    self:_set("memories", list)
+    self:flush()
+    return true
+end
+
+function DockAI:clearMemories()
+    self:_set("memories", {})
+    self:flush()
+end
+
+local MEMORY_PREFIXES = {
+    "^bitte%s+merke?'?%s+dir[:,]?%s*", "^merke?'?%s+dir[:,]?%s*",
+    "^please%s+remember%s+that%s+", "^remember%s+that%s+",
+    "^please%s+remember:%s*", "^remember:%s*",
+}
+
+-- "Merk dir, dass ich Alex heiße" -> "ich Alex heiße". Returns nil when the
+-- message is not a memory request.
+function DockAI.extractMemory(text)
+    text = trim(text)
+    local lowered = text:lower()
+    for _, pattern in ipairs(MEMORY_PREFIXES) do
+        local _, finish = lowered:find(pattern)
+        if finish then
+            local rest = text:sub(finish + 1)
+            local _, lead_end = rest:lower():find("^dass%s+")
+            if lead_end then rest = rest:sub(lead_end + 1) end
+            rest = trim(rest)
+            if #rest >= 3 then return rest end
+        end
+    end
+    return nil
+end
+
+-- Memories travel inside the first message of the request, so they work with
+-- the server-side system prompt without needing a separate "system" entry.
+function DockAI:memoryBlock()
+    local list = self:memories()
+    if #list == 0 then return "" end
+    local lines = { self:tr("[Gespeicherte Erinnerungen über den Nutzer – nutze sie nur, wenn sie zur Frage passen:",
+        "[Saved memories about the user – use them only when relevant:") }
+    for _, item in ipairs(list) do lines[#lines + 1] = "- " .. item end
+    lines[#lines + 1] = "]"
+    return table.concat(lines, "\n")
+end
+
+-- The messages sent to the model: the last CONTEXT_MESSAGES usable ones,
+-- starting with a user message, with the memories in front of the first.
+function DockAI:contextMessages(history)
+    local usable = {}
+    for _, entry in ipairs(history or {}) do
+        if type(entry) == "table" and not entry.error and (entry.role == "user" or entry.role == "assistant")
+            and type(entry.content) == "string" and entry.content ~= "" then
+            usable[#usable + 1] = entry
+        end
+    end
+    local first = math.max(1, #usable - CONTEXT_MESSAGES + 1)
+    while usable[first] and usable[first].role ~= "user" do first = first + 1 end
+    local messages = {}
+    for index = first, #usable do
+        messages[#messages + 1] = { role = usable[index].role, content = cut(usable[index].content, MAX_MESSAGE_CHARS) }
+    end
+    local block = self:memoryBlock()
+    if block ~= "" and messages[1] then messages[1].content = block .. "\n\n" .. messages[1].content end
+    return messages
+end
+
+----------------------------------------------------------------------
 -- Chat completion with key rotation
 ----------------------------------------------------------------------
 function DockAI:systemPrompt()
@@ -450,13 +571,7 @@ function DockAI:complete(history)
     if #keys == 0 then return nil, "no_keys" end
 
     local messages = { { role = "system", content = self:systemPrompt() } }
-    local first = math.max(1, #history - MAX_HISTORY_MESSAGES + 1)
-    for index = first, #history do
-        local entry = history[index]
-        if entry and not entry.error and (entry.role == "user" or entry.role == "assistant") then
-            messages[#messages + 1] = { role = entry.role, content = entry.content }
-        end
-    end
+    for _, entry in ipairs(self:contextMessages(history)) do messages[#messages + 1] = entry end
 
     local skip, last_code, last_detail = {}, nil, nil
     local model_fallbacks = 0
@@ -533,27 +648,88 @@ end
 ----------------------------------------------------------------------
 -- Conversation storage
 ----------------------------------------------------------------------
-function DockAI:loadChat()
-    local chat = self:_get("chat", {})
-    if type(chat) ~= "table" then return {} end
+function DockAI:newChat()
+    return { id = tostring(self.now()) .. "-" .. tostring(math.random(1000, 9999)), title = "", messages = {}, updated = self.now() }
+end
+
+function DockAI.chatTitle(messages)
+    for _, entry in ipairs(messages or {}) do
+        if entry.role == "user" and type(entry.content) == "string" then
+            local text = trim((entry.content:gsub("%s+", " ")))
+            if text ~= "" then
+                local short = cut(text, 40)
+                return short .. (#short < #text and "…" or "")
+            end
+        end
+    end
+    return ""
+end
+
+local function cleanMessages(list)
     local cleaned = {}
-    for _, entry in ipairs(chat) do
+    if type(list) ~= "table" then return cleaned end
+    for _, entry in ipairs(list) do
         if type(entry) == "table" and (entry.role == "user" or entry.role == "assistant") and type(entry.content) == "string" then
-            cleaned[#cleaned + 1] = { role = entry.role, content = entry.content, error = entry.error }
+            cleaned[#cleaned + 1] = { role = entry.role, content = entry.content, error = entry.error and true or nil }
         end
     end
     return cleaned
 end
 
-function DockAI:saveChat(chat)
-    local stored, bytes = {}, 0
-    for index = #chat, 1, -1 do
-        local entry = chat[index]
-        bytes = bytes + #entry.content
-        if #stored >= MAX_STORED_MESSAGES or bytes > MAX_STORED_BYTES then break end
-        table.insert(stored, 1, { role = entry.role, content = entry.content, error = entry.error })
+-- All saved chats, newest first. The single chat of earlier releases becomes
+-- the first entry.
+function DockAI:loadChats()
+    local raw = self:_get("chats", nil)
+    local chats = {}
+    if type(raw) == "table" then
+        for _, item in ipairs(raw) do
+            if type(item) == "table" and type(item.id) == "string" then
+                local messages = cleanMessages(item.messages)
+                if #messages > 0 then
+                    chats[#chats + 1] = {
+                        id = item.id, messages = messages, updated = tonumber(item.updated) or 0,
+                        title = (type(item.title) == "string" and item.title ~= "") and item.title or DockAI.chatTitle(messages),
+                    }
+                end
+            end
+        end
     end
-    self:_set("chat", stored)
+    if #chats == 0 then
+        local legacy = cleanMessages(self:_get("chat", {}))
+        if #legacy > 0 then
+            local chat = self:newChat()
+            chat.messages, chat.title = legacy, DockAI.chatTitle(legacy)
+            chats[1] = chat
+            self:saveChats(chats)
+        end
+    end
+    table.sort(chats, function(a, b) return (a.updated or 0) > (b.updated or 0) end)
+    return chats
+end
+
+function DockAI:saveChats(chats)
+    local sorted = {}
+    for _, chat in ipairs(chats or {}) do
+        if #chat.messages > 0 then sorted[#sorted + 1] = chat end
+    end
+    table.sort(sorted, function(a, b) return (a.updated or 0) > (b.updated or 0) end)
+    local stored = {}
+    for index = 1, math.min(#sorted, MAX_CHATS) do
+        local chat = sorted[index]
+        local messages, bytes = {}, 0
+        for position = #chat.messages, 1, -1 do
+            local entry = chat.messages[position]
+            bytes = bytes + #entry.content
+            if #messages >= MAX_STORED_MESSAGES or bytes > MAX_STORED_BYTES then break end
+            table.insert(messages, 1, { role = entry.role, content = entry.content, error = entry.error })
+        end
+        stored[#stored + 1] = {
+            id = chat.id, messages = messages, updated = chat.updated or 0,
+            title = (chat.title and chat.title ~= "") and chat.title or DockAI.chatTitle(messages),
+        }
+    end
+    self:_set("chats", stored)
+    self:_set("chat", nil)
     self:flush()
 end
 
@@ -612,7 +788,10 @@ function DockAI:_promptText(title, placeholder, value, options, on_submit)
     keyboard = U.Keyboard:new{
         title = title, placeholder = placeholder, value = value or "",
         secure = options.secure, numeric_only = options.numeric_only,
-        on_cancel = function() U.UIManager:close(keyboard) end,
+        on_cancel = function()
+            U.UIManager:close(keyboard)
+            if options.on_cancel then options.on_cancel() end
+        end,
         on_submit = function(text)
             U.UIManager:nextTick(function()
                 U.UIManager:close(keyboard)
@@ -651,6 +830,57 @@ function DockAI:showModelPicker(after)
     end } }
     buttons[#buttons + 1] = { { text = self:tr("Schließen", "Close"), callback = function() U.UIManager:close(dialog) end } }
     dialog = U.ButtonDialog:new{ title = self:tr("Modell wählen", "Choose a model"), buttons = buttons }
+    U.UIManager:show(dialog)
+end
+
+-- Memories ------------------------------------------------------------
+function DockAI:showMemoryManager(after)
+    local U = ui()
+    local dialog
+    local function finish() if after then pcall(after) end end
+    local function reopen() U.UIManager:nextTick(function() self:showMemoryManager(after) end) end
+    local list = self:memories()
+    local buttons = {}
+    for index, item in ipairs(list) do
+        buttons[#buttons + 1] = { { text = "×  " .. cut(item, 70), callback = function()
+            U.UIManager:close(dialog)
+            self:removeMemory(index)
+            finish(); reopen()
+        end } }
+    end
+    if #buttons == 0 then
+        buttons[1] = { { text = self:tr("Noch keine Erinnerungen", "No memories yet"), enabled = false, callback = function() end } }
+    end
+    buttons[#buttons + 1] = { { text = self:tr("+ Erinnerung hinzufügen", "+ Add memory"), callback = function()
+        U.UIManager:close(dialog)
+        self:_promptText(self:tr("Neue Erinnerung", "New memory"), self:tr("z. B. Ich heiße Alex", "e.g. My name is Alex"), "",
+            { on_cancel = function() reopen() end },
+            function(text)
+                local ok, reason = self:addMemory(text)
+                if not ok then
+                    self:_toast(reason == "full" and string.format(self:tr("Maximal %d Erinnerungen. Lösche zuerst eine.", "At most %d memories. Delete one first."), MAX_MEMORIES)
+                        or (reason == "duplicate" and self:tr("Diese Erinnerung gibt es schon.", "That memory already exists.")
+                        or self:tr("Der Text ist zu kurz.", "That text is too short.")))
+                end
+                finish(); self:showMemoryManager(after)
+            end)
+    end } }
+    if #list > 0 then
+        buttons[#buttons + 1] = { { text = self:tr("Alle löschen", "Delete all"), callback = function()
+            U.UIManager:close(dialog)
+            U.UIManager:show(U.ConfirmBox:new{
+                text = self:tr("Alle Erinnerungen löschen?", "Delete all memories?"),
+                ok_text = self:tr("Löschen", "Delete"), cancel_text = self:tr("Abbrechen", "Cancel"),
+                ok_callback = function() self:clearMemories(); finish(); self:showMemoryManager(after) end,
+                cancel_callback = function() self:showMemoryManager(after) end,
+            })
+        end } }
+    end
+    buttons[#buttons + 1] = { { text = self:tr("Schließen", "Close"), callback = function() U.UIManager:close(dialog); finish() end } }
+    dialog = U.ButtonDialog:new{
+        title = string.format(self:tr("Erinnerungen (%d/%d) · Tippen zum Löschen", "Memories (%d/%d) · tap to delete"), #list, MAX_MEMORIES),
+        buttons = buttons,
+    }
     U.UIManager:show(dialog)
 end
 
@@ -801,6 +1031,13 @@ function DockAI:settingsRows(context)
             callback = function() self:showModelPicker(refresh) end,
         },
         {
+            title = self:tr("Erinnerungen", "Memories"),
+            subtitle = string.format(self:tr("%d gespeichert · fließen in jede Antwort ein", "%d saved · included in every reply"), #self:memories()),
+            section = self:tr("Chat", "Chat"),
+            show_state = false,
+            callback = function() self:showMemoryManager(refresh) end,
+        },
+        {
             title = self:tr("Admin: API-Keys und Limits", "Admin: API keys and limits"),
             subtitle = admin_subtitle,
             section = self:tr("Admin", "Admin"),
@@ -880,6 +1117,7 @@ function DockAI:buildPane(instance, context)
     local ScrollHtmlWidget = require("ui/widget/scrollhtmlwidget")
     local TextWidget = require("ui/widget/textwidget")
     local UIManager = require("ui/uimanager")
+    local ConfirmBox = require("ui/widget/confirmbox")
     local Widget = require("ui/widget/widget")
     local WidgetContainer = require("ui/widget/container/widgetcontainer")
     local Keyboard = require("appdock_keyboard")
@@ -887,11 +1125,22 @@ function DockAI:buildPane(instance, context)
     local function scale(value) return Device.screen:scaleBySize(value) end
     local width, height = context.dimen.w, context.dimen.h
 
+    ------------------------------------------------------------------
+    -- State (survives rebuilds of the pane; chats are also stored on disk)
+    ------------------------------------------------------------------
     local state = instance.dockai_state
+    if state and not state.current then state = nil end   -- state of an older release
     if not state then
-        state = { chat = self:loadChat(), draft = "", busy = false }
+        local chats = self:loadChats()
+        local wanted = self:_get("current_chat")
+        local current
+        for _, chat in ipairs(chats) do if chat.id == wanted then current = chat; break end end
+        if not current and wanted == nil then current = chats[1] end
+        state = { chats = chats, current = current or self:newChat(), draft = "", busy = false, sidebar = false, sidebar_page = 1 }
         instance.dockai_state = state
     end
+    -- A reply that never came back must not lock the pane for good.
+    if state.busy and (self.now() - (state.busy_since or 0)) > 150 then state.busy = false end
 
     local function rebuild() if context.requestRebuild then pcall(context.requestRebuild, "ui") end end
 
@@ -918,8 +1167,80 @@ function DockAI:buildPane(instance, context)
     end
 
     local Tap = DockAI._tapClass(blank)
-
     local info = self:usage()
+
+    -- Every tap runs guarded: an error becomes a short message instead of a
+    -- dead button, and can never leave the pane stuck in the "busy" state.
+    local function guarded(fn)
+        return function(...)
+            local ok, err = pcall(fn, ...)
+            if not ok then
+                state.busy = false
+                self:_toast("DockAI: " .. tostring(err):gsub("%s+", " "):sub(1, 140))
+            end
+        end
+    end
+
+    local function guardBusy()
+        if state.busy then
+            self:_toast(self:tr("DockAI antwortet gerade …", "DockAI is replying …"))
+            return true
+        end
+        return false
+    end
+
+    ------------------------------------------------------------------
+    -- Chats: saving, switching, deleting
+    ------------------------------------------------------------------
+    local function persist()
+        local chat = state.current
+        if #chat.messages > 0 then
+            chat.updated = self.now()
+            chat.title = DockAI.chatTitle(chat.messages)
+            local known = false
+            for _, item in ipairs(state.chats) do if item == chat then known = true; break end end
+            if not known then table.insert(state.chats, 1, chat) end
+        end
+        table.sort(state.chats, function(a, b) return (a.updated or 0) > (b.updated or 0) end)
+        self:saveChats(state.chats)
+        self:_set("current_chat", chat.id)
+        self:flush()
+    end
+
+    local function selectChat(chat)
+        if guardBusy() then return end
+        state.current, state.sidebar, state.draft = chat, false, ""
+        self:_set("current_chat", chat.id)
+        self:flush()
+        rebuild()
+    end
+
+    local function startNewChat()
+        if guardBusy() then return end
+        if #state.current.messages > 0 then state.current = self:newChat() end   -- reuse an empty chat
+        state.sidebar, state.draft = false, ""
+        self:_set("current_chat", state.current.id)
+        self:flush()
+        rebuild()
+    end
+
+    local function deleteChat(chat)
+        if guardBusy() then return end
+        UIManager:show(ConfirmBox:new{
+            text = string.format(self:tr("Chat „%s“ löschen?", "Delete chat “%s”?"), chat.title ~= "" and chat.title or DockAI.chatTitle(chat.messages)),
+            ok_text = self:tr("Löschen", "Delete"), cancel_text = self:tr("Abbrechen", "Cancel"),
+            ok_callback = function()
+                for index, item in ipairs(state.chats) do
+                    if item == chat then table.remove(state.chats, index); break end
+                end
+                if state.current == chat then state.current = self:newChat(); state.draft = "" end
+                self:saveChats(state.chats)
+                self:_set("current_chat", state.current.id)
+                self:flush()
+                rebuild()
+            end,
+        })
+    end
 
     ------------------------------------------------------------------
     -- Sending
@@ -929,24 +1250,34 @@ function DockAI:buildPane(instance, context)
         if text == "" or state.busy then return end
         local usage = self:usage()
         if usage.blocked then
-            table.insert(state.chat, { role = "assistant", content = self:limitText(usage), error = true })
+            state.draft = text
+            table.insert(state.current.messages, { role = "assistant", content = self:limitText(usage), error = true })
             rebuild()
             return
         end
-        table.insert(state.chat, { role = "user", content = text })
-        state.busy, state.draft = true, ""
+        -- "Merk dir …" / "Remember that …" saves a permanent memory.
+        local fact = DockAI.extractMemory(text)
+        if fact and self:addMemory(fact) then
+            self:_toast(self:tr("Erinnerung gespeichert.", "Memory saved."))
+        end
+        local chat = state.current
+        table.insert(chat.messages, { role = "user", content = text })
+        state.busy, state.busy_since, state.draft = true, self.now(), ""
+        persist()
         rebuild()
         -- Let the "thinking" screen paint before the blocking request runs.
-        UIManager:scheduleIn(0.4, function()
-            local reply, code = self:complete(state.chat)
+        UIManager:scheduleIn(0.3, function()
+            local ok, reply, code = pcall(function() return self:complete(chat.messages) end)
             state.busy = false
-            if reply then
+            if ok and reply then
                 self:recordUse()
-                table.insert(state.chat, { role = "assistant", content = reply })
+                table.insert(chat.messages, { role = "assistant", content = reply })
             else
-                table.insert(state.chat, { role = "assistant", content = self:errorText(code), error = true })
+                local message = self:errorText(ok and code or "bad_response")
+                if not ok then message = message .. " (" .. tostring(reply):gsub("%s+", " "):sub(1, 90) .. ")" end
+                table.insert(chat.messages, { role = "assistant", content = message, error = true })
             end
-            self:saveChat(state.chat)
+            pcall(persist)
             rebuild()
         end)
     end
@@ -966,18 +1297,11 @@ function DockAI:buildPane(instance, context)
             on_submit = function(value)
                 UIManager:nextTick(function()
                     UIManager:close(keyboard)
-                    send(value)
+                    guarded(send)(value)
                 end)
             end,
         }
         UIManager:show(keyboard)
-    end
-
-    local function newChat()
-        if state.busy then return end
-        state.chat, state.draft = {}, ""
-        self:saveChat(state.chat)
-        rebuild()
     end
 
     ------------------------------------------------------------------
@@ -990,110 +1314,199 @@ function DockAI:buildPane(instance, context)
     local input_gap = scale(10)
     local body_y = header_h + strip_h
     local body_h = math.max(scale(80), height - body_y - input_h - input_gap * 2)
+    local round = scale(40)
 
     local pane = WidgetContainer:new{ dimen = Geom:new{ w = width, h = height } }
     local layers = {
         box(width, height, WHITE, 0, 0),
     }
     local function add(widget, x, y) widget.overlap_offset = { x, y }; layers[#layers + 1] = widget end
-
-    -- Header: DockAI + model, new chat on the right.
-    local title = label("DockAI", scale(21), BLACK, true)
-    add(title, margin, math.floor((header_h - title:getSize().h) / 2))
-    local model = label(DockAI.shortModelName(self:getModel()) .. " ⌄", scale(12), MUTED, false, math.max(scale(60), width - margin * 3 - scale(150) - title:getSize().w))
-    add(model, margin + title:getSize().w + scale(10), math.floor((header_h - model:getSize().h) / 2) + scale(2))
-    add(Tap:new{ width = margin + title:getSize().w + scale(10) + model:getSize().w + scale(8), height = header_h, callback = function() self:showModelPicker(rebuild) end }, 0, 0)
-
-    local round = scale(40)
-    local new_x = width - margin - round
-    add(box(round, round, WHITE, math.floor(round / 2), 1, HAIRLINE), new_x, math.floor((header_h - round) / 2))
-    local pencil = label("✎", scale(18), BLACK, true)
-    add(pencil, new_x + math.floor((round - pencil:getSize().w) / 2), math.floor((header_h - pencil:getSize().h) / 2))
-    add(Tap:new{ width = round, height = round, callback = newChat }, new_x, math.floor((header_h - round) / 2))
-    add(box(width, 1, HAIRLINE, 0, 0), 0, header_h - 1)
-
-    -- Limit strip: always visible, with a thin usage bar.
-    local strip_color = (info.blocked or info.left <= 3) and BLACK or MUTED
-    local strip = label(self:limitText(info), scale(12), strip_color, info.blocked ~= nil or info.left <= 3, width - 2 * margin)
-    add(strip, margin, header_h + math.floor((strip_h - strip:getSize().h) / 2) - scale(1))
-    local bar_y = header_h + strip_h - scale(4)
-    local bar_w = width - 2 * margin
-    local fraction = math.min(1, math.max(info.day_used / math.max(1, info.day_limit), info.week_used / math.max(1, info.week_limit)))
-    add(box(bar_w, scale(3), HAIRLINE, 0, 0), margin, bar_y)
-    if fraction > 0 then add(box(math.max(scale(3), math.floor(bar_w * fraction)), scale(3), BLACK, 0, 0), margin, bar_y) end
-    add(Tap:new{ width = width, height = strip_h, callback = function() self:showLimitInfo() end }, 0, header_h)
-
-    -- Body: empty state or the transcript.
-    if #state.chat == 0 and not state.busy then
-        local greeting = label(self:tr("Wobei kann ich helfen?", "What can I help with?"), scale(24), BLACK, true, width - 2 * margin)
-        local greeting_y = body_y + math.floor(body_h * .16)
-        add(greeting, math.floor((width - greeting:getSize().w) / 2), greeting_y)
-        local suggestions = {
-            self:tr("Erkläre mir ein Thema einfach", "Explain a topic simply"),
-            self:tr("Hilf mir, eine E-Mail zu schreiben", "Help me write an email"),
-            self:tr("Gib mir ein kurzes Quiz", "Give me a short quiz"),
-            self:tr("Empfiehl mir ein Buch", "Recommend me a book"),
-        }
-        local prompts = {
-            self:tr("Erkläre mir ein spannendes Thema in einfachen Worten.", "Explain an interesting topic to me in simple words."),
-            self:tr("Hilf mir, eine freundliche, kurze E-Mail zu schreiben. Frag mich, worum es geht.", "Help me write a short, friendly email. Ask me what it is about."),
-            self:tr("Stelle mir ein kurzes Quiz mit 3 Fragen zu einem Thema deiner Wahl.", "Give me a short 3-question quiz on a topic of your choice."),
-            self:tr("Empfiehl mir ein gutes Buch und sag kurz, warum.", "Recommend me a good book and say briefly why."),
-        }
-        local chip_h = scale(46)
-        local chip_y = greeting_y + greeting:getSize().h + scale(26)
-        for index, text in ipairs(suggestions) do
-            local chip_w = width - 2 * margin
-            if chip_y + chip_h > body_y + body_h then break end
-            add(box(chip_w, chip_h, WHITE, math.floor(chip_h / 2), 1, HAIRLINE), margin, chip_y)
-            local chip_label = label(text, scale(14), BLACK, false, chip_w - scale(32))
-            add(chip_label, margin + scale(18), chip_y + math.floor((chip_h - chip_label:getSize().h) / 2))
-            add(Tap:new{ width = chip_w, height = chip_h, callback = function() send(prompts[index]) end }, margin, chip_y)
-            chip_y = chip_y + chip_h + scale(10)
-        end
-        local note = label(string.format(self:tr("Du hast %d Nachrichten heute und %d diese Woche übrig.", "You have %d messages left today and %d this week."), info.day_left, info.week_left), scale(12), MUTED, false, width - 2 * margin)
-        if chip_y + note:getSize().h < body_y + body_h then
-            add(note, math.floor((width - note:getSize().w) / 2), chip_y + scale(6))
-        end
-    else
-        local scroll = ScrollHtmlWidget:new{
-            html_body = transcriptHtml(self, state.chat, state.busy), css = CSS,
-            width = width - 2 * margin, height = body_h,
-            default_font_size = scale(16), dialog = context.host,
-        }
-        scroll.overlap_offset = { margin, body_y }
-        layers[#layers + 1] = scroll
-        pcall(function() scroll:scrollToRatio(1) end)
+    local function tap(w, h, fn, x, y) add(Tap:new{ width = w, height = h, callback = guarded(fn) }, x, y) end
+    local function centered(widget, x, y, w, h)
+        add(widget, x + math.floor((w - widget:getSize().w) / 2), y + math.floor((h - widget:getSize().h) / 2))
     end
 
-    -- Input pill with the send button, like ChatGPT.
-    local input_y = height - input_h - input_gap
-    local send_size = scale(42)
-    local pill_w = width - 2 * margin
-    add(box(pill_w, input_h, PILL, math.floor(input_h / 2), 0), margin, input_y)
-    local blocked = info.blocked ~= nil
-    local placeholder
-    if state.busy then placeholder = self:tr("DockAI antwortet …", "DockAI is replying …")
-    elseif blocked then placeholder = self:limitText(info)
-    elseif (state.draft or "") ~= "" then placeholder = state.draft:gsub("%s+", " ")
-    else placeholder = self:tr("Nachricht an DockAI", "Message DockAI") end
-    local placeholder_widget = label(placeholder, scale(15), (state.draft or "") ~= "" and BLACK or MUTED, false, pill_w - send_size - scale(44))
-    add(placeholder_widget, margin + scale(20), input_y + math.floor((input_h - placeholder_widget:getSize().h) / 2))
-    add(Tap:new{ width = pill_w - send_size - scale(8), height = input_h, callback = openKeyboard }, margin, input_y)
-    local send_x = margin + pill_w - send_size - math.floor((input_h - send_size) / 2)
-    local send_y = input_y + math.floor((input_h - send_size) / 2)
-    local active = (state.draft or "") ~= "" and not state.busy and not blocked
-    add(box(send_size, send_size, active and BLACK or gray(0.75), math.floor(send_size / 2), 0), send_x, send_y)
-    local arrow = label("↑", scale(20), WHITE, true)
-    add(arrow, send_x + math.floor((send_size - arrow:getSize().w) / 2), send_y + math.floor((send_size - arrow:getSize().h) / 2))
-    add(Tap:new{ width = send_size, height = send_size, callback = function()
-        if active then send(state.draft) else openKeyboard() end
-    end }, send_x, send_y)
+    -- The drawer: chat list, new chat, memories. While it is open only its own
+    -- targets exist, so nothing underneath can swallow a tap.
+    local function buildDrawer()
+        local drawer_w = math.min(width - scale(56), math.max(scale(260), math.floor(width * 0.8)))
+        local row_w = drawer_w - 2 * margin
+        add(box(width - drawer_w, height, gray(0.72), 0, 0), drawer_w, 0)
+        tap(width - drawer_w, height, function() state.sidebar = false; rebuild() end, drawer_w, 0)
+        add(box(drawer_w, height, WHITE, 0, 0), 0, 0)
+        add(box(1, height, gray(0.5), 0, 0), drawer_w - 1, 0)
+
+        local heading = label("Chats", scale(21), BLACK, true)
+        add(heading, margin, math.floor((header_h - heading:getSize().h) / 2))
+        local close_x, close_y = drawer_w - margin - round, math.floor((header_h - round) / 2)
+        add(box(round, round, WHITE, math.floor(round / 2), 1, HAIRLINE), close_x, close_y)
+        centered(label("×", scale(24), BLACK, true), close_x, close_y, round, round)
+        tap(round, round, function() state.sidebar = false; rebuild() end, close_x, close_y)
+        add(box(drawer_w, 1, HAIRLINE, 0, 0), 0, header_h - 1)
+
+        local new_h, new_y = scale(46), header_h + scale(10)
+        add(box(row_w, new_h, WHITE, math.floor(new_h / 2), 1, HAIRLINE), margin, new_y)
+        local new_label = label("✎  " .. self:tr("Neuer Chat", "New chat"), scale(14), BLACK, true, row_w - scale(32))
+        add(new_label, margin + scale(18), new_y + math.floor((new_h - new_label:getSize().h) / 2))
+        tap(row_w, new_h, startNewChat, margin, new_y)
+
+        local foot_h = scale(46)
+        local foot_y = height - foot_h - scale(12)
+        add(box(drawer_w, 1, HAIRLINE, 0, 0), 0, foot_y - scale(8))
+        add(box(row_w, foot_h, WHITE, math.floor(foot_h / 2), 1, HAIRLINE), margin, foot_y)
+        local foot_label = label(string.format(self:tr("Erinnerungen (%d)", "Memories (%d)"), #self:memories()), scale(14), BLACK, false, row_w - scale(32))
+        add(foot_label, margin + scale(18), foot_y + math.floor((foot_h - foot_label:getSize().h) / 2))
+        tap(row_w, foot_h, function() self:showMemoryManager(rebuild) end, margin, foot_y)
+
+        local pager_h = scale(34)
+        local list_y = new_y + new_h + scale(12)
+        local list_bottom = foot_y - scale(8) - pager_h
+        local row_h = scale(46)
+        local fit = math.max(1, math.floor((list_bottom - list_y) / row_h))
+        local chats = state.chats
+        local pages = math.max(1, math.ceil(#chats / fit))
+        state.sidebar_page = math.min(pages, math.max(1, state.sidebar_page or 1))
+        if #chats == 0 then
+            add(label(self:tr("Noch keine Chats", "No chats yet"), scale(13), MUTED, false, row_w), margin + scale(4), list_y + scale(6))
+        end
+        local first = (state.sidebar_page - 1) * fit + 1
+        for index = first, math.min(#chats, first + fit - 1) do
+            local chat = chats[index]
+            local y = list_y + (index - first) * row_h
+            local row_inner = row_h - scale(4)
+            local active = chat == state.current
+            if active then add(box(row_w, row_inner, PILL, scale(12), 0), margin, y) end
+            local title = label(chat.title ~= "" and chat.title or DockAI.chatTitle(chat.messages), scale(14), BLACK, active, row_w - scale(64))
+            add(title, margin + scale(12), y + math.floor((row_inner - title:getSize().h) / 2))
+            tap(row_w - scale(44), row_inner, function() selectChat(chat) end, margin, y)
+            centered(label("×", scale(20), MUTED, true), margin + row_w - scale(44), y, scale(44), row_inner)
+            tap(scale(44), row_inner, function() deleteChat(chat) end, margin + row_w - scale(44), y)
+        end
+        if pages > 1 then
+            local pager_y = list_bottom + scale(2)
+            local page_label = label(string.format("%d / %d", state.sidebar_page, pages), scale(13), MUTED)
+            centered(page_label, 0, pager_y, drawer_w, pager_h)
+            centered(label("‹", scale(24), BLACK, true), margin, pager_y, scale(60), pager_h)
+            tap(scale(60), pager_h, function() state.sidebar_page = math.max(1, state.sidebar_page - 1); rebuild() end, margin, pager_y)
+            centered(label("›", scale(24), BLACK, true), drawer_w - margin - scale(60), pager_y, scale(60), pager_h)
+            tap(scale(60), pager_h, function() state.sidebar_page = math.min(pages, state.sidebar_page + 1); rebuild() end, drawer_w - margin - scale(60), pager_y)
+        end
+    end
+
+    local function buildMain()
+        -- Header: menu button, DockAI + model, new chat on the right.
+        local menu_x, menu_y = margin - scale(4), math.floor((header_h - round) / 2)
+        local bar_w, bar_h, bar_gap = scale(20), scale(2), scale(5)
+        local bars_y = menu_y + math.floor((round - (bar_h * 3 + bar_gap * 2)) / 2)
+        for i = 0, 2 do add(box(bar_w, bar_h, BLACK, 0, 0), menu_x + math.floor((round - bar_w) / 2), bars_y + i * (bar_h + bar_gap)) end
+        tap(round + scale(8), header_h, function() state.sidebar, state.sidebar_page = true, 1; rebuild() end, menu_x - scale(4), 0)
+
+        local title_x = menu_x + round + scale(6)
+        local title = label("DockAI", scale(21), BLACK, true)
+        add(title, title_x, math.floor((header_h - title:getSize().h) / 2))
+        local model = label(DockAI.shortModelName(self:getModel()) .. " ⌄", scale(12), MUTED, false, math.max(scale(60), width - title_x - margin * 2 - scale(40) - title:getSize().w - round))
+        add(model, title_x + title:getSize().w + scale(10), math.floor((header_h - model:getSize().h) / 2) + scale(2))
+        tap(title:getSize().w + scale(10) + model:getSize().w + scale(8), header_h, function() self:showModelPicker(rebuild) end, title_x, 0)
+
+        local new_x = width - margin - round
+        add(box(round, round, WHITE, math.floor(round / 2), 1, HAIRLINE), new_x, math.floor((header_h - round) / 2))
+        local pencil = label("✎", scale(18), BLACK, true)
+        add(pencil, new_x + math.floor((round - pencil:getSize().w) / 2), math.floor((header_h - pencil:getSize().h) / 2))
+        tap(round, round, startNewChat, new_x, math.floor((header_h - round) / 2))
+        add(box(width, 1, HAIRLINE, 0, 0), 0, header_h - 1)
+
+        -- Limit strip: always visible, with a thin usage bar.
+        local strip_color = (info.blocked or info.left <= 3) and BLACK or MUTED
+        local strip = label(self:limitText(info), scale(12), strip_color, info.blocked ~= nil or info.left <= 3, width - 2 * margin)
+        add(strip, margin, header_h + math.floor((strip_h - strip:getSize().h) / 2) - scale(1))
+        local bar_y = header_h + strip_h - scale(4)
+        local usage_w = width - 2 * margin
+        local fraction = math.min(1, math.max(info.day_used / math.max(1, info.day_limit), info.week_used / math.max(1, info.week_limit)))
+        add(box(usage_w, scale(3), HAIRLINE, 0, 0), margin, bar_y)
+        if fraction > 0 then add(box(math.max(scale(3), math.floor(usage_w * fraction)), scale(3), BLACK, 0, 0), margin, bar_y) end
+        tap(width, strip_h, function() self:showLimitInfo() end, 0, header_h)
+
+        -- Body: empty state or the transcript.
+        local messages = state.current.messages
+        if #messages == 0 and not state.busy then
+            local greeting = label(self:tr("Wobei kann ich helfen?", "What can I help with?"), scale(24), BLACK, true, width - 2 * margin)
+            local greeting_y = body_y + math.floor(body_h * .16)
+            add(greeting, math.floor((width - greeting:getSize().w) / 2), greeting_y)
+            local suggestions = {
+                self:tr("Erkläre mir ein Thema einfach", "Explain a topic simply"),
+                self:tr("Hilf mir, eine E-Mail zu schreiben", "Help me write an email"),
+                self:tr("Gib mir ein kurzes Quiz", "Give me a short quiz"),
+                self:tr("Empfiehl mir ein Buch", "Recommend me a book"),
+            }
+            local prompts = {
+                self:tr("Erkläre mir ein spannendes Thema in einfachen Worten.", "Explain an interesting topic to me in simple words."),
+                self:tr("Hilf mir, eine freundliche, kurze E-Mail zu schreiben. Frag mich, worum es geht.", "Help me write a short, friendly email. Ask me what it is about."),
+                self:tr("Stelle mir ein kurzes Quiz mit 3 Fragen zu einem Thema deiner Wahl.", "Give me a short 3-question quiz on a topic of your choice."),
+                self:tr("Empfiehl mir ein gutes Buch und sag kurz, warum.", "Recommend me a good book and say briefly why."),
+            }
+            local chip_h = scale(46)
+            local chip_y = greeting_y + greeting:getSize().h + scale(26)
+            for index, text in ipairs(suggestions) do
+                local chip_w = width - 2 * margin
+                if chip_y + chip_h > body_y + body_h then break end
+                add(box(chip_w, chip_h, WHITE, math.floor(chip_h / 2), 1, HAIRLINE), margin, chip_y)
+                local chip_label = label(text, scale(14), BLACK, false, chip_w - scale(32))
+                add(chip_label, margin + scale(18), chip_y + math.floor((chip_h - chip_label:getSize().h) / 2))
+                tap(chip_w, chip_h, function() send(prompts[index]) end, margin, chip_y)
+                chip_y = chip_y + chip_h + scale(10)
+            end
+            local note = label(string.format(self:tr("Du hast %d Nachrichten heute und %d diese Woche übrig.", "You have %d messages left today and %d this week."), info.day_left, info.week_left), scale(12), MUTED, false, width - 2 * margin)
+            if chip_y + note:getSize().h < body_y + body_h then
+                add(note, math.floor((width - note:getSize().w) / 2), chip_y + scale(6))
+                if #self:memories() == 0 then
+                    local hint = label(self:tr("Tipp: „Merk dir …“ speichert etwas dauerhaft.", "Tip: “Remember that …” saves something permanently."), scale(12), MUTED, false, width - 2 * margin)
+                    if chip_y + note:getSize().h + hint:getSize().h + scale(12) < body_y + body_h then
+                        add(hint, math.floor((width - hint:getSize().w) / 2), chip_y + note:getSize().h + scale(12))
+                    end
+                end
+            end
+        else
+            local scroll = ScrollHtmlWidget:new{
+                html_body = transcriptHtml(self, messages, state.busy), css = CSS,
+                width = width - 2 * margin, height = body_h,
+                default_font_size = scale(16), dialog = context.host,
+            }
+            scroll.overlap_offset = { margin, body_y }
+            layers[#layers + 1] = scroll
+            pcall(function() scroll:scrollToRatio(1) end)
+        end
+
+        -- Input pill with the send button, like ChatGPT.
+        local input_y = height - input_h - input_gap
+        local send_size = scale(42)
+        local pill_w = width - 2 * margin
+        add(box(pill_w, input_h, PILL, math.floor(input_h / 2), 0), margin, input_y)
+        local blocked = info.blocked ~= nil
+        local placeholder
+        if state.busy then placeholder = self:tr("DockAI antwortet …", "DockAI is replying …")
+        elseif blocked then placeholder = self:limitText(info)
+        elseif (state.draft or "") ~= "" then placeholder = (state.draft:gsub("%s+", " "))
+        else placeholder = self:tr("Nachricht an DockAI", "Message DockAI") end
+        local placeholder_widget = label(placeholder, scale(15), (state.draft or "") ~= "" and BLACK or MUTED, false, pill_w - send_size - scale(44))
+        add(placeholder_widget, margin + scale(20), input_y + math.floor((input_h - placeholder_widget:getSize().h) / 2))
+        tap(pill_w - send_size - scale(8), input_h, openKeyboard, margin, input_y)
+        local send_x = margin + pill_w - send_size - math.floor((input_h - send_size) / 2)
+        local send_y = input_y + math.floor((input_h - send_size) / 2)
+        local active = (state.draft or "") ~= "" and not state.busy and not blocked
+        add(box(send_size, send_size, active and BLACK or gray(0.75), math.floor(send_size / 2), 0), send_x, send_y)
+        local arrow = label("↑", scale(20), WHITE, true)
+        add(arrow, send_x + math.floor((send_size - arrow:getSize().w) / 2), send_y + math.floor((send_size - arrow:getSize().h) / 2))
+        tap(send_size, send_size, function()
+            if active then send(state.draft) else openKeyboard() end
+        end, send_x, send_y)
+    end
+
+    if state.sidebar then buildDrawer() else buildMain() end
 
     local group = OverlapGroup:new{ dimen = pane.dimen, allow_mirroring = false }
     for _, layer in ipairs(layers) do table.insert(group, layer) end
     pane[1] = group
-    pane.dockai_layout = { messages = #state.chat, busy = state.busy, blocked = info.blocked }
+    pane.dockai_layout = { messages = #state.current.messages, busy = state.busy, blocked = info.blocked, sidebar = state.sidebar }
     return pane
 end
 

@@ -22,6 +22,7 @@ local identity={account_id="123e4567-e89b-42d3-a456-426614174000",device_id="tbs
 package.preload["appdock_tbs_account"]=function() return {get=function() return identity end} end
 local usage={day_used=0,week_used=0,day_limit=25,week_limit=100,blocked=nil}
 local replies=0
+local test_now=os.time()
 local function transport(url,headers,body)
   local request=json.decode(body)
   if request.action=="usage" then return 200,json.encode({usage=usage}) end
@@ -31,7 +32,7 @@ local function transport(url,headers,body)
 end
 local DockAI=require("appdock_dockai")
 local storedata={}; local store={readSetting=function(_,k) return storedata[k] end,saveSetting=function(_,k,v) storedata[k]=v end,flush=function() end}
-local ai=DockAI:new({}, {store=store,json=json,transport=transport,now=os.time}); ai.german=false
+local ai=DockAI:new({}, {store=store,json=json,transport=transport,now=function() return test_now end}); ai.german=false
 local context={dimen={w=600,h=800},requestRebuild=function() end,host={}}
 local instance={}
 local function walk(pane,visit) for _,layer in ipairs(pane[1]) do visit(layer) end end
@@ -42,13 +43,13 @@ assert(has(texts(pane),"Today 0/25 · Week 0/100 messages"),"Server allowance ap
 local chips={}; walk(pane,function(l) if l.callback and l.width and l.height>40 and l.height<50 then chips[#chips+1]=l end end)
 assert(#chips>=3,"Suggestion chips are tappable")
 chips[1].callback(); local state=instance.dockai_state
-assert(state.busy and #state.chat==1,"Sending paints thinking state")
+assert(state.busy and #state.current.messages==1,"Sending paints thinking state")
 scheduled[1]()
-assert(not state.busy and #state.chat==2 and state.chat[2].content=="Hello **there**" and replies==1,"Proxy reply is added")
+assert(not state.busy and #state.current.messages==2 and state.current.messages[2].content=="Hello **there**" and replies==1,"Proxy reply is added")
 assert(ai:usage().day_used==1 and ai:usage().week_used==1,"Usage display reflects server response")
 pane=ai:buildPane(instance,context)
 assert(#scrolls==1 and scrolls[1].html_body:find("<b>there</b>",1,true) and has(texts(pane),"Today 1/25"),"Transcript and quota redraw")
-usage.day_used=25; usage.blocked="day"; pane=ai:buildPane(instance,context)
+usage.day_used=25; usage.blocked="day"; test_now=test_now+61; pane=ai:buildPane(instance,context)
 assert(has(texts(pane),"Daily limit reached (25/25)"),"Limit reached state is shown")
 local send={}; walk(pane,function(l) if l.callback and l.width==42 then send[#send+1]=l end end)
 local before=replies; send[1].callback(); assert(replies==before and #keyboards==0,"Client blocks obvious over-limit request")
